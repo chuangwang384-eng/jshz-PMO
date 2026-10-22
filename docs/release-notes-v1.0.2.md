@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-22
 - 标签：`v1.0.2`
-- 基线：V1.001（正式版一期）+ 审批流三需求 + 风险点修复 + 文档同步
+- 基线：V1.001（正式版一期）+ 审批流三需求 + 风险点修复 + 登录跨域修复 + 文档同步
 - 系统：景帅会展内部管理系统 · 专家库子系统（内网部署）
 
 ---
@@ -29,6 +29,7 @@
 3. **风险点3 · 前端展开报错**：`ApprovalManage.vue` `handleExpand` 未判空 `expertId`，已补 `expertId != null` 判断。
 4. **风险点4 · 前端状态请求碎片化**：`fetchDone` 多次请求改为 `statuses='1,2'` 单请求。
 5. 后端 JWT 修复：cookie 读取与 httpOnly cookie 登录态兼容（header 优先）。
+6. **登录跨域修复**：`SecurityConfig.setAllowedOrigins` 新增 `http://<PRIVATE_IP>:5173`（内网本机 IP）白名单，修复该 Origin 登录 403 CORS 拒绝；`application.yml` JDBC URL 追加 `&allowPublicKeyRetrieval=true`，修复间歇性 500 `Public Key Retrieval is not allowed`。实测 <PRIVATE_IP> 与 localhost 两个 Origin 登录均 200、ACAO 正确回显、写入 httpOnly + SameSite=Lax cookie，`/api/auth/me` 验证登录态通过。
 
 ## 四、破坏性变更（Breaking Changes）
 
