@@ -1,0 +1,48 @@
+# 专家库系统后端配置（正式版 V1.001）
+# 注意：数据库账号/密码等敏感信息通过环境变量注入，禁止硬编码提交到仓库
+server:
+  port: 8080
+  # 内网部署：仅监听内网地址，防止暴露公网
+  address: 0.0.0.0
+
+spring:
+  application:
+    name: expert-system
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:expert_system}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:}
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      # 上传大小限制（设计文档：单文件 ≤5MB）
+      max-file-size: 5MB
+      max-request-size: 20MB
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.jshz.expert.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# ------------------------------------------------------------
+# 正式版 V1.001 自定义配置
+# ------------------------------------------------------------
+expert:
+  # 照片存储根目录（设计文档：D:\jshz-PMO\照片库）
+  photo:
+    storage-dir: 'D:\jshz-PMO\照片库'
+    # 审批流临时照片目录（需求3：提交申请前预上传，审批通过后归档到正式照片库）
+    temp-dir: 'D:\jshz-PMO\照片库_tmp'
+  # JWT 登录鉴权
+  jwt:
+    secret: jshz-expert-system-v1-001-2026-secret-key-for-hs256
+    expire-hours: 8
+
+logging:
+  level:
+    com.jshz.expert: info
