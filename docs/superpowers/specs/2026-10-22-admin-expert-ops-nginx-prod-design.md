@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_73fa29d1cdc511f1ba6e525400de85a5
+    ReservedCode1: 4e8wh6rlGoOiU5STaN6UJgr9uA4ibDvx16Q3Uc+BYsScb1Ie1181WtLzfu/Xg7mBxeaiYeULAMJlOs2mJfl5LmYy6X+NMdUO1amD3cSfWrBR9xYcsN9DaIg8j4cy3hEVAGuUcDqIVdtnhnd7nDQGgxchh1STmdzcQZWoQc5axk/7PA2ZCKFeF4adX7o=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_73fa29d1cdc511f1ba6e525400de85a5
+    ReservedCode2: 4e8wh6rlGoOiU5STaN6UJgr9uA4ibDvx16Q3Uc+BYsScb1Ie1181WtLzfu/Xg7mBxeaiYeULAMJlOs2mJfl5LmYy6X+NMdUO1amD3cSfWrBR9xYcsN9DaIg8j4cy3hEVAGuUcDqIVdtnhnd7nDQGgxchh1STmdzcQZWoQc5axk/7PA2ZCKFeF4adX7o=
+---
+
 # jshz-PMO 改造设计：管理员专家库免审批操作 + Nginx 生产部署收口
 
 - 日期：2026-10-22
@@ -110,3 +121,4 @@
 
 - 按 AGENTS.md 每项需求独立分支：`feature/admin-expert-ops`、`feature/nginx-prod`
 - 合并前检查差异与测试结果；合并后打标签（拟 `v1.1.0`）并写发布说明（含回滚方案）
+*（内容由AI生成，仅供参考）*

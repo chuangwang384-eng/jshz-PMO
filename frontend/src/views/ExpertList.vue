@@ -14,6 +14,7 @@
       </el-input>
       <div class="spacer" />
       <template v-if="isAdmin">
+        <el-button type="primary" @click="openAdminCreate">新增专家</el-button>
         <el-button type="success" @click="handleExportCsv">下载全量 CSV</el-button>
         <el-button type="warning" @click="handleExportZip">下载含照片 ZIP</el-button>
       </template>
@@ -86,43 +87,103 @@
       />
     </div>
 
-    <!-- 专家详情（管理员：只读脱敏展示） -->
-    <el-dialog v-if="isAdmin" v-model="detailVisible" title="专家详情" width="760px" destroy-on-close>
-      <el-descriptions v-if="detail" :column="2" border>
-        <el-descriptions-item label="ID">{{ detail.id }}</el-descriptions-item>
-        <el-descriptions-item label="姓名">{{ detail.姓名 }}</el-descriptions-item>
-        <el-descriptions-item label="单位">{{ detail.单位 }}</el-descriptions-item>
-        <el-descriptions-item label="科室">{{ detail.科室 }}</el-descriptions-item>
-        <el-descriptions-item label="职称">{{ detail.职称 }}</el-descriptions-item>
-        <el-descriptions-item label="联系方式">{{ maskPhone(detail.联系方式) }}</el-descriptions-item>
-        <el-descriptions-item label="研究方向" :span="2">{{ detail.研究方向 }}</el-descriptions-item>
-        <el-descriptions-item label="擅长领域" :span="2">{{ detail.擅长领域 }}</el-descriptions-item>
-        <el-descriptions-item label="简介" :span="2">{{ detail.简介 }}</el-descriptions-item>
-        <el-descriptions-item label="身份证号">{{ maskSensitive(detail.身份证号) }}</el-descriptions-item>
-        <el-descriptions-item label="银行卡号">{{ maskSensitive(detail.银行卡号) }}</el-descriptions-item>
-        <el-descriptions-item label="银行卡开户行">{{ detail.银行卡开户行 }}</el-descriptions-item>
-        <el-descriptions-item label="证件照">
-          <PhotoImage :filename="detail.照片" :width="72" :height="72" />
-        </el-descriptions-item>
-        <el-descriptions-item label="身份证正面">
-          <div v-if="idFrontUrl" class="masked-photo">
-            <img :src="idFrontUrl" class="masked-img" alt="身份证正面（已脱敏）" />
-            <span class="masked-tip">已脱敏</span>
+    <!-- 专家详情（管理员：可编辑表单 + 删除，免审批直写） -->
+    <el-dialog v-if="isAdmin" v-model="detailVisible" title="编辑专家（免审批直改）" width="760px" destroy-on-close>
+      <el-form v-if="detail" :model="adminForm" label-width="110px" class="edit-form">
+        <div class="edit-photos">
+          <div class="edit-photo-item">
+            <div class="edit-photo-label">证件照</div>
+            <div class="edit-photo-box round">
+              <img v-if="adminPhotoPreview.photo" :src="adminPhotoPreview.photo" class="edit-photo-img" alt="证件照预览" />
+              <PhotoImage v-else :filename="detail.照片" :width="80" :height="80" />
+            </div>
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/*"
+              :on-change="(f) => onAdminPickPhoto('photo', f)"
+            >
+              <el-button size="small" type="primary" plain>更换照片</el-button>
+            </el-upload>
           </div>
-          <span v-else class="photo-empty">未上传</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="身份证反面">
-          <div v-if="idBackUrl" class="masked-photo">
-            <img :src="idBackUrl" class="masked-img" alt="身份证反面（已脱敏）" />
-            <span class="masked-tip">已脱敏</span>
+          <div class="edit-photo-item">
+            <div class="edit-photo-label">身份证正面</div>
+            <div class="edit-photo-box">
+              <img v-if="adminPhotoPreview.front" :src="adminPhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
+              <div v-else-if="idFrontUrl" class="masked-photo">
+                <img :src="idFrontUrl" class="masked-img" alt="身份证正面（已脱敏）" />
+                <span class="masked-tip">已脱敏</span>
+              </div>
+              <span v-else class="photo-empty">未上传</span>
+            </div>
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/*"
+              :on-change="(f) => onAdminPickPhoto('front', f)"
+            >
+              <el-button size="small" type="primary" plain>更换照片</el-button>
+            </el-upload>
           </div>
-          <span v-else class="photo-empty">未上传</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="下载次数">{{ detail.下载次数 }}</el-descriptions-item>
-        <el-descriptions-item label="创建时间">{{ detail.创建时间 }}</el-descriptions-item>
-        <el-descriptions-item label="修改时间">{{ detail.修改时间 }}</el-descriptions-item>
-        <el-descriptions-item label="修改人">{{ detail.修改人id }}</el-descriptions-item>
-      </el-descriptions>
+          <div class="edit-photo-item">
+            <div class="edit-photo-label">身份证反面</div>
+            <div class="edit-photo-box">
+              <img v-if="adminPhotoPreview.back" :src="adminPhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
+              <div v-else-if="idBackUrl" class="masked-photo">
+                <img :src="idBackUrl" class="masked-img" alt="身份证反面（已脱敏）" />
+                <span class="masked-tip">已脱敏</span>
+              </div>
+              <span v-else class="photo-empty">未上传</span>
+            </div>
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/*"
+              :on-change="(f) => onAdminPickPhoto('back', f)"
+            >
+              <el-button size="small" type="primary" plain>更换照片</el-button>
+            </el-upload>
+          </div>
+        </div>
+        <el-form-item label="姓名">
+          <el-input v-model="adminForm.姓名" placeholder="请输入姓名" />
+        </el-form-item>
+        <el-form-item label="单位">
+          <el-input v-model="adminForm.单位" placeholder="请输入单位" />
+        </el-form-item>
+        <el-form-item label="科室">
+          <el-input v-model="adminForm.科室" placeholder="请输入科室" />
+        </el-form-item>
+        <el-form-item label="职称">
+          <el-input v-model="adminForm.职称" placeholder="请输入职称" />
+        </el-form-item>
+        <el-form-item label="联系方式">
+          <el-input v-model="adminForm.联系方式" placeholder="请输入联系方式" />
+        </el-form-item>
+        <el-form-item label="研究方向">
+          <el-input v-model="adminForm.研究方向" placeholder="请输入研究方向" />
+        </el-form-item>
+        <el-form-item label="擅长领域">
+          <el-input v-model="adminForm.擅长领域" placeholder="请输入擅长领域" />
+        </el-form-item>
+        <el-form-item label="简介">
+          <el-input v-model="adminForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
+        </el-form-item>
+        <el-form-item label="身份证号">
+          <el-input v-model="adminForm.身份证号" placeholder="请输入身份证号（18 位）" />
+        </el-form-item>
+        <el-form-item label="银行卡号">
+          <el-input v-model="adminForm.银行卡号" placeholder="请输入银行卡号" />
+        </el-form-item>
+        <el-form-item label="银行卡开户行">
+          <el-input v-model="adminForm.银行卡开户行" placeholder="请输入开户行" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button type="danger" :loading="adminDeleting" @click="handleAdminDelete">删除专家</el-button>
+        <el-button @click="detailVisible = false">取消</el-button>
+        <el-button type="primary" :loading="adminSubmitting" @click="submitAdminEdit">保存</el-button>
+      </template>
     </el-dialog>
 
     <!-- 专家详情（员工：卡片内直接编辑，关闭时检测变更并引导提交审批） -->
@@ -327,13 +388,109 @@
         <el-button type="primary" :loading="createSubmitting" @click="submitCreateExpert">提交申请</el-button>
       </template>
     </el-dialog>
+
+    <!-- 新增专家弹窗（管理员：multipart 直传免审批） -->
+    <el-dialog v-model="adminCreateVisible" title="新增专家（免审批）" width="760px" destroy-on-close>
+      <el-form :model="adminCreateForm" label-width="110px" class="edit-form">
+        <div class="edit-photos">
+          <div class="edit-photo-item">
+            <div class="edit-photo-label">证件照</div>
+            <div class="edit-photo-box round">
+              <img v-if="adminCreatePhotoPreview.photo" :src="adminCreatePhotoPreview.photo" class="edit-photo-img" alt="证件照预览" />
+              <span v-else class="photo-empty">未上传</span>
+            </div>
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/*"
+              :on-change="(f) => onAdminCreatePickPhoto('photo', f)"
+            >
+              <el-button size="small" type="primary" plain>上传照片</el-button>
+            </el-upload>
+          </div>
+          <div class="edit-photo-item">
+            <div class="edit-photo-label">身份证正面</div>
+            <div class="edit-photo-box">
+              <img v-if="adminCreatePhotoPreview.front" :src="adminCreatePhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
+              <span v-else class="photo-empty">未上传</span>
+            </div>
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/*"
+              :on-change="(f) => onAdminCreatePickPhoto('front', f)"
+            >
+              <el-button size="small" type="primary" plain>上传照片</el-button>
+            </el-upload>
+          </div>
+          <div class="edit-photo-item">
+            <div class="edit-photo-label">身份证反面</div>
+            <div class="edit-photo-box">
+              <img v-if="adminCreatePhotoPreview.back" :src="adminCreatePhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
+              <span v-else class="photo-empty">未上传</span>
+            </div>
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept="image/*"
+              :on-change="(f) => onAdminCreatePickPhoto('back', f)"
+            >
+              <el-button size="small" type="primary" plain>上传照片</el-button>
+            </el-upload>
+          </div>
+        </div>
+        <el-form-item label="姓名">
+          <el-input v-model="adminCreateForm.姓名" placeholder="请输入姓名（2-20 个汉字）" />
+        </el-form-item>
+        <el-form-item label="单位">
+          <el-input v-model="adminCreateForm.单位" placeholder="请输入单位" />
+        </el-form-item>
+        <el-form-item label="科室">
+          <el-input v-model="adminCreateForm.科室" placeholder="请输入科室" />
+        </el-form-item>
+        <el-form-item label="职称">
+          <el-input v-model="adminCreateForm.职称" placeholder="请输入职称" />
+        </el-form-item>
+        <el-form-item label="联系方式">
+          <el-input v-model="adminCreateForm.联系方式" placeholder="请输入联系方式" />
+        </el-form-item>
+        <el-form-item label="研究方向">
+          <el-input v-model="adminCreateForm.研究方向" placeholder="请输入研究方向" />
+        </el-form-item>
+        <el-form-item label="擅长领域">
+          <el-input v-model="adminCreateForm.擅长领域" placeholder="请输入擅长领域" />
+        </el-form-item>
+        <el-form-item label="简介">
+          <el-input v-model="adminCreateForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
+        </el-form-item>
+        <el-form-item label="身份证号">
+          <el-input v-model="adminCreateForm.身份证号" placeholder="请输入身份证号（18 位）" />
+        </el-form-item>
+        <el-form-item label="银行卡号">
+          <el-input v-model="adminCreateForm.银行卡号" placeholder="请输入银行卡号" />
+        </el-form-item>
+        <el-form-item label="银行卡开户行">
+          <el-input v-model="adminCreateForm.银行卡开户行" placeholder="请输入开户行" />
+        </el-form-item>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="管理员新增免审批，保存后直接创建专家记录并归档照片"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="adminCreateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="adminCreateSubmitting" @click="submitAdminCreate">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listExperts, getExpert, exportAllCsv, exportEmployeeZip, exportSelectedCsv, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
+import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllCsv, exportEmployeeZip, exportSelectedCsv, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
@@ -446,8 +603,20 @@ function removeSelectedExpert(expert) {
 }
 
 async function openDetail(row) {
-  const data = await getExpert(row.id)
+  const data = await getExpert(row.id, isAdmin.value ? { sensitive: 1 } : undefined)
   detail.value = data
+  // 管理员可编辑视角：填充全量表单并清空照片选择
+  if (isAdmin.value) {
+    for (const k of TEXT_FIELDS) {
+      adminForm[k] = data?.[k] ?? ''
+    }
+    adminPhotoPreview.photo = ''
+    adminPhotoPreview.front = ''
+    adminPhotoPreview.back = ''
+    adminPickedFiles.photo = null
+    adminPickedFiles.front = null
+    adminPickedFiles.back = null
+  }
   // 员工可编辑视角：初始化表单与初始快照
   if (!isAdmin.value) {
     for (const k of TEXT_FIELDS) {
@@ -745,6 +914,182 @@ async function handleDetailClose(done) {
   // 放弃修改并关闭
   detailVisible.value = false
   done()
+}
+
+// ==================== 管理员：新增 / 编辑 / 删除（免审批直写） ====================
+const adminSubmitting = ref(false)
+const adminDeleting = ref(false)
+// 管理员编辑表单（全量，来自 sensitive=1 详情）
+const adminForm = reactive({
+  姓名: '', 单位: '', 科室: '', 职称: '', 研究方向: '', 擅长领域: '',
+  联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
+})
+const adminPhotoPreview = reactive({ photo: '', front: '', back: '' })
+const adminPickedFiles = reactive({ photo: null, front: null, back: null })
+
+// 管理员新增弹窗
+const adminCreateVisible = ref(false)
+const adminCreateSubmitting = ref(false)
+const adminCreateForm = reactive({
+  姓名: '', 单位: '', 科室: '', 职称: '', 研究方向: '', 擅长领域: '',
+  联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
+})
+const adminCreatePhotoPreview = reactive({ photo: '', front: '', back: '' })
+const adminCreatePickedFiles = reactive({ photo: null, front: null, back: null })
+
+// 管理员编辑弹窗选照片：本地预览 + 暂存文件（保存时随 FormData 直传）
+function onAdminPickPhoto(kind, file) {
+  const raw = file?.raw || file
+  if (!raw) {
+    return
+  }
+  if (raw.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过 5MB')
+    return
+  }
+  adminPickedFiles[kind] = raw
+  if (adminPhotoPreview[kind]) {
+    URL.revokeObjectURL(adminPhotoPreview[kind])
+  }
+  adminPhotoPreview[kind] = URL.createObjectURL(raw)
+}
+
+// 管理员新增弹窗选照片：本地预览 + 暂存文件
+function onAdminCreatePickPhoto(kind, file) {
+  const raw = file?.raw || file
+  if (!raw) {
+    return
+  }
+  if (raw.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过 5MB')
+    return
+  }
+  adminCreatePickedFiles[kind] = raw
+  if (adminCreatePhotoPreview[kind]) {
+    URL.revokeObjectURL(adminCreatePhotoPreview[kind])
+  }
+  adminCreatePhotoPreview[kind] = URL.createObjectURL(raw)
+}
+
+// 管理员编辑提交：FormData 中文字段 + photo/idCardFront/idCardBack，PUT /api/experts/{id} 直写
+function buildAdminFormData() {
+  const fd = new FormData()
+  for (const k of TEXT_FIELDS) {
+    fd.append(k, String(adminForm[k] ?? '').trim())
+  }
+  if (adminPickedFiles.photo) fd.append('photo', adminPickedFiles.photo)
+  if (adminPickedFiles.front) fd.append('idCardFront', adminPickedFiles.front)
+  if (adminPickedFiles.back) fd.append('idCardBack', adminPickedFiles.back)
+  return fd
+}
+
+async function submitAdminEdit() {
+  if (!String(adminForm.姓名 ?? '').trim()) {
+    ElMessage.warning('请填写姓名')
+    return
+  }
+  adminSubmitting.value = true
+  try {
+    await updateExpert(detail.value.id, buildAdminFormData())
+    ElMessage.success('保存成功（免审批直改）')
+    detailVisible.value = false
+    fetchList()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  } finally {
+    adminSubmitting.value = false
+  }
+}
+
+// 管理员删除：二次确认（提示照片一并物理删除）后 DELETE /api/experts/{id}
+async function handleAdminDelete() {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除专家「${detail.value?.姓名 ?? ''}」吗？其照片文件将一并物理删除，此操作不可恢复。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  adminDeleting.value = true
+  try {
+    await deleteExpert(detail.value.id)
+    ElMessage.success('删除成功')
+    detailVisible.value = false
+    fetchList()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  } finally {
+    adminDeleting.value = false
+  }
+}
+
+// 打开管理员新增弹窗
+function openAdminCreate() {
+  for (const k of TEXT_FIELDS) {
+    adminCreateForm[k] = ''
+  }
+  adminCreatePhotoPreview.photo = ''
+  adminCreatePhotoPreview.front = ''
+  adminCreatePhotoPreview.back = ''
+  adminCreatePickedFiles.photo = null
+  adminCreatePickedFiles.front = null
+  adminCreatePickedFiles.back = null
+  adminCreateVisible.value = true
+}
+
+// 管理员新增提交：FormData 中文字段 + 三类照片文件，POST /api/experts 直写
+function buildAdminCreateFormData() {
+  const fd = new FormData()
+  for (const k of TEXT_FIELDS) {
+    fd.append(k, String(adminCreateForm[k] ?? '').trim())
+  }
+  if (adminCreatePickedFiles.photo) fd.append('photo', adminCreatePickedFiles.photo)
+  if (adminCreatePickedFiles.front) fd.append('idCardFront', adminCreatePickedFiles.front)
+  if (adminCreatePickedFiles.back) fd.append('idCardBack', adminCreatePickedFiles.back)
+  return fd
+}
+
+async function submitAdminCreate() {
+  const requiredFields = ['姓名', '单位', '科室', '职称', '研究方向', '擅长领域', '联系方式']
+  for (const k of requiredFields) {
+    if (!String(adminCreateForm[k] ?? '').trim()) {
+      ElMessage.warning(`请填写${k}`)
+      return
+    }
+  }
+  const name = String(adminCreateForm.姓名).trim()
+  if (!/^[\u4e00-\u9fa5·]{2,20}$/.test(name)) {
+    ElMessage.warning('姓名格式不正确（2-20 个汉字，可含间隔号）')
+    return
+  }
+  const idCard = String(adminCreateForm.身份证号 ?? '').trim()
+  if (idCard && !/^\d{17}[\dXx]$/.test(idCard)) {
+    ElMessage.warning('身份证号格式不正确（18 位，末位可为 X）')
+    return
+  }
+  const bankCard = String(adminCreateForm.银行卡号 ?? '').trim()
+  if (bankCard && !/^\d{13,19}$/.test(bankCard)) {
+    ElMessage.warning('银行卡号格式不正确（13-19 位数字）')
+    return
+  }
+  const contact = String(adminCreateForm.联系方式 ?? '').trim()
+  if (contact && !/^1\d{10}$|^[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}$/.test(contact)) {
+    ElMessage.warning('联系方式格式不正确（11 位手机号或邮箱）')
+    return
+  }
+  adminCreateSubmitting.value = true
+  try {
+    await createExpert(buildAdminCreateFormData())
+    ElMessage.success('新增成功（免审批直写）')
+    adminCreateVisible.value = false
+    fetchList()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  } finally {
+    adminCreateSubmitting.value = false
+  }
 }
 
 onMounted(fetchList)
