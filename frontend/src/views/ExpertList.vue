@@ -20,12 +20,12 @@
         <el-button type="primary" @click="openCreateDialog">新增专家</el-button>
       </template>
       <template v-if="canExport">
-        <el-button type="success" @click="handleExportCsv">下载全量 CSV</el-button>
+        <el-button type="success" @click="handleExportExcel">下载全量 Excel</el-button>
         <el-button type="warning" @click="handleExportZip">下载含照片 ZIP</el-button>
       </template>
       <template v-else>
-        <el-button type="primary" :disabled="!selectedIds.size" @click="handleExportSelectedCsv">
-          下载选中 CSV{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
+        <el-button type="primary" :disabled="!selectedIds.size" @click="handleExportSelectedExcel">
+          下载选中 Excel{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
         </el-button>
         <el-button type="info" :disabled="!selectedIds.size" @click="handleExportSelectedZip">
           下载选中含照片 ZIP{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
@@ -69,7 +69,30 @@
         <div class="card-name">{{ expert.姓名 }}</div>
         <div class="card-text">{{ expert.单位 }}</div>
         <div class="card-text">{{ expert.科室 }}</div>
-        <div class="card-download-count">下载 {{ expert['下载次数'] ?? 0 }} 次</div>
+        <div class="card-meta">
+          <span class="card-meta-item" :title="expert['修改时间'] || '—'">
+            <svg class="meta-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5" />
+              <polyline points="8 4.5 8 8 10.5 10" />
+            </svg>
+            <span>{{ expert['修改时间'] ? formatMonthDay(expert['修改时间']) : '—' }}</span>
+          </span>
+          <span class="card-meta-item" :title="expert['修改人id'] || '—'">
+            <svg class="meta-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
+              <circle cx="8" cy="5.5" r="3" />
+              <path d="M3.5 14a4.5 4.5 0 0 1 9 0" />
+            </svg>
+            <span>{{ expert['修改人id'] || '—' }}</span>
+          </span>
+          <span class="card-meta-item">
+            <svg class="meta-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
+              <path d="M8 2v8" />
+              <polyline points="4.5 7 8 10.5 11.5 7" />
+              <path d="M3 14h10" />
+            </svg>
+            <span>{{ expert['下载次数'] ?? 0 }}</span>
+          </span>
+        </div>
       </div>
       <el-empty
         v-if="!loading && !experts.length"
@@ -494,7 +517,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllCsv, exportEmployeeZip, exportSelectedCsv, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
+import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
@@ -567,6 +590,14 @@ async function fetchList() {
   } finally {
     loading.value = false
   }
+}
+
+// 更新时间仅显示 MM-DD（如 10-22），完整时间由调用处放 title
+function formatMonthDay(value) {
+  if (!value) return '—'
+  const s = String(value).trim()
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[2]}-${m[3]}` : s
 }
 
 function handleSearch() {
@@ -685,20 +716,20 @@ function maskSensitive(value) {
   return s.slice(0, 3) + '****' + s.slice(-4)
 }
 
-function handleExportCsv() {
-  exportAllCsv().catch(() => {})
+function handleExportExcel() {
+  exportAllExcel().catch(() => {})
 }
 
 function handleExportZip() {
   exportEmployeeZip().catch(() => {})
 }
 
-function handleExportSelectedCsv() {
+function handleExportSelectedExcel() {
   if (!selectedIds.value.size) {
     ElMessage.warning('请先勾选专家卡片')
     return
   }
-  exportSelectedCsv([...selectedIds.value]).catch(() => {})
+  exportSelectedExcel([...selectedIds.value]).catch(() => {})
 }
 
 function handleExportSelectedZip() {
@@ -1124,7 +1155,7 @@ onMounted(fetchList)
 .expert-cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-auto-rows: 300px;
+  grid-auto-rows: auto;
   column-gap: 20px;
   row-gap: 45px;
 }
@@ -1171,15 +1202,29 @@ onMounted(fetchList)
   left: 10px;
   z-index: 1;
 }
-.card-download-count {
-  position: absolute;
-  left: 12px;
-  bottom: 10px;
-  font-size: 12px;
+.card-meta {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #ebeef5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  font-size: 14px;
   color: #909399;
-  line-height: 1;
-  pointer-events: none;
-  z-index: 1;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.card-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.meta-icon {
+  flex-shrink: 0;
 }
 .card-apply-btn {
   position: absolute;

@@ -6,13 +6,18 @@ import com.jshz.expert.entity.Expert;
 import com.jshz.expert.security.AuthUser;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -23,15 +28,16 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * 导入导出服务（正式版 V1.001，接口全集对齐 demo）。
- * CSV（UTF-8 BOM）导出/模板/导入、ZIP（CSV+三类照片）、Markdown 下载说明、下载留痕。
+ * 导入导出服务（正式版 V1.002，CSV 全面升级为 Excel）。
+ * Excel（.xlsx）导出/模板/导入、ZIP（XLSX+三类照片）、Markdown 下载说明、下载留痕。
+ * 说明：后续以 Excel（xlsx）为准，所有数字/日期列均以字符串形式写入单元格，保持与旧 CSV 一致的宽松导入体验。
  */
 @Service
 @RequiredArgsConstructor
 public class ExportService {
 
-    /** CSV 表头（接口中文键，18 字段英文列名的中文对应） */
-    public static final List<String> CSV_HEADERS = List.of(
+    /** Excel 表头（接口中文键，18 字段英文列名的中文对应） */
+    public static final List<String> XLSX_HEADERS = List.of(
             "id", "姓名", "单位", "科室", "职称", "研究方向", "擅长领域", "联系方式", "简介",
             "身份证号", "银行卡号", "银行卡开户行", "照片", "身份证正面", "身份证反面",
             "创建时间", "修改时间", "修改人id");
@@ -45,107 +51,139 @@ public class ExportService {
     private final PhotoStorageService photoStorageService;
     private final DownloadAuditService downloadAuditService;
 
-    // ==================== CSV ====================
+    // ==================== Excel ====================
 
     /**
-     * 将专家列表转为 CSV 字节（UTF-8 带 BOM），full=false 时敏感字段脱敏。
+     * 将专家列表转为 Excel（.xlsx）字节，全部单元格以字符串写入（数字/日期列保持字符串）。
+     * full=false 时敏感字段脱敏。
      */
-    public byte[] expertsToCsv(List<Expert> experts, boolean full) {
-        StringBuilder sb = new StringBuilder();
-        sb.append('\uFEFF'); // UTF-8 BOM
-        sb.append(String.join(",", CSV_HEADERS)).append("\r\n");
-        for (Expert e : experts) {
-            List<String> row = new ArrayList<>();
-            row.add(e.getId() == null ? "" : String.valueOf(e.getId()));
-            row.add(nvl(e.getName()));
-            row.add(nvl(e.getUnit()));
-            row.add(nvl(e.getDepartment()));
-            row.add(nvl(e.getTitle()));
-            row.add(nvl(e.getResearchDirection()));
-            row.add(nvl(e.getExpertiseArea()));
-            row.add(nvl(e.getContact()));
-            row.add(nvl(e.getProfile()));
-            row.add(full ? nvl(e.getIdCard()) : ExpertService.maskSensitive(e.getIdCard()));
-            row.add(full ? nvl(e.getBankCard()) : ExpertService.maskSensitive(e.getBankCard()));
-            row.add(nvl(e.getBankBranch()));
-            row.add(nvl(e.getPhoto()));
-            row.add(nvl(e.getIdCardFront()));
-            row.add(nvl(e.getIdCardBack()));
-            row.add(e.getCreateTime() == null ? "" : e.getCreateTime().toString());
-            row.add(e.getUpdateTime() == null ? "" : e.getUpdateTime().toString());
-            row.add(nvl(e.getUpdateBy()));
-            sb.append(row.stream().map(ExportService::csvEscape).reduce((a, b) -> a + "," + b).orElse(""))
-                    .append("\r\n");
+    public byte[] expertsToXlsx(List<Expert> experts, boolean full) {
+        try (XSSFWorkbook wb = new XSSFWorkbook();
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            XSSFSheet sheet = wb.createSheet("专家数据");
+            XSSFRow header = sheet.createRow(0);
+            for (int c = 0; c < XLSX_HEADERS.size(); c++) {
+                header.createCell(c).setCellValue(XLSX_HEADERS.get(c));
+            }
+            int r = 1;
+            for (Expert e : experts) {
+                XSSFRow row = sheet.createRow(r++);
+                row.createCell(0).setCellValue(e.getId() == null ? "" : String.valueOf(e.getId()));
+                row.createCell(1).setCellValue(nvl(e.getName()));
+                row.createCell(2).setCellValue(nvl(e.getUnit()));
+                row.createCell(3).setCellValue(nvl(e.getDepartment()));
+                row.createCell(4).setCellValue(nvl(e.getTitle()));
+                row.createCell(5).setCellValue(nvl(e.getResearchDirection()));
+                row.createCell(6).setCellValue(nvl(e.getExpertiseArea()));
+                row.createCell(7).setCellValue(nvl(e.getContact()));
+                row.createCell(8).setCellValue(nvl(e.getProfile()));
+                row.createCell(9).setCellValue(full ? nvl(e.getIdCard()) : ExpertService.maskSensitive(e.getIdCard()));
+                row.createCell(10).setCellValue(full ? nvl(e.getBankCard()) : ExpertService.maskSensitive(e.getBankCard()));
+                row.createCell(11).setCellValue(nvl(e.getBankBranch()));
+                row.createCell(12).setCellValue(nvl(e.getPhoto()));
+                row.createCell(13).setCellValue(nvl(e.getIdCardFront()));
+                row.createCell(14).setCellValue(nvl(e.getIdCardBack()));
+                row.createCell(15).setCellValue(e.getCreateTime() == null ? "" : e.getCreateTime().toString());
+                row.createCell(16).setCellValue(e.getUpdateTime() == null ? "" : e.getUpdateTime().toString());
+                row.createCell(17).setCellValue(nvl(e.getUpdateBy()));
+            }
+            wb.write(bos);
+            return bos.toByteArray();
+        } catch (IOException e) {
+            throw new BusinessException("Excel 导出失败: " + e.getMessage());
         }
-        return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     /**
-     * 生成导入模板 CSV（表头 + 示例行）。
+     * 生成导入模板 Excel（表头 + 示例行）。
      */
-    public byte[] templateCsv() {
-        StringBuilder sb = new StringBuilder();
-        sb.append('\uFEFF');
-        sb.append(String.join(",", TEMPLATE_COLUMNS)).append("\r\n");
-        sb.append(csvLine("张三", "示例单位", "示例科室", "主任医师", "心血管", "冠心病诊疗",
-                "13800138000", "示例简介，可删除此行", "110101199001011234", "6222001234567890123", "示例银行支行"))
-                .append("\r\n");
-        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    public byte[] templateXlsx() {
+        try (XSSFWorkbook wb = new XSSFWorkbook();
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            XSSFSheet sheet = wb.createSheet("导入模板");
+            XSSFRow header = sheet.createRow(0);
+            for (int c = 0; c < TEMPLATE_COLUMNS.size(); c++) {
+                header.createCell(c).setCellValue(TEMPLATE_COLUMNS.get(c));
+            }
+            String[] sample = new String[]{"张三", "示例单位", "示例科室", "主任医师", "心血管", "冠心病诊疗",
+                    "13800138000", "示例简介，可删除此行", "110101199001011234", "6222001234567890123", "示例银行支行"};
+            XSSFRow row = sheet.createRow(1);
+            for (int c = 0; c < sample.length; c++) {
+                row.createCell(c).setCellValue(sample[c]);
+            }
+            wb.write(bos);
+            return bos.toByteArray();
+        } catch (IOException e) {
+            throw new BusinessException("模板生成失败: " + e.getMessage());
+        }
     }
 
     /**
-     * 导入 CSV（UTF-8-sig / UTF-8 / GBK 自动识别），逐行校验并记录失败明细。
+     * 导入 Excel（.xlsx）：读取第一个工作表，逐行校验并记录失败明细。
+     * 校验逻辑与旧 CSV 导入完全一致（表头必含姓名/身份证号/银行卡号/联系方式；
+     * 姓名重复拒绝、setUpdateBy 保留），全部列按字符串宽松读取。
      * 返回 Map: success / failed（List<Map: line,name,reason>） / total。
      */
-    public Map<String, Object> importCsv(MultipartFile file, AuthUser user) {
+    public Map<String, Object> importXlsx(MultipartFile file, AuthUser user) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("导入文件不能为空");
         }
-        List<byte[]> rawLines;
-        try {
-            rawLines = readLines(file);
+        List<Map<Integer, String>> rows = new ArrayList<>();
+        try (XSSFWorkbook wb = new XSSFWorkbook(file.getInputStream())) {
+            XSSFSheet sheet = wb.getSheetAt(0);
+            for (int i = 0; i <= sheet.getLastRowNum(); i++) {
+                XSSFRow row = sheet.getRow(i);
+                Map<Integer, String> cells = new LinkedHashMap<>();
+                if (row != null) {
+                    for (int c = 0; c < row.getLastCellNum(); c++) {
+                        cells.put(c, cellString(row.getCell(c)));
+                    }
+                }
+                rows.add(cells);
+            }
         } catch (IOException e) {
             throw new BusinessException("文件读取失败: " + e.getMessage());
         }
-        if (rawLines.isEmpty()) {
+        if (rows.isEmpty()) {
             throw new BusinessException("文件内容为空");
         }
-        String[] headers = parseLine(rawLines.get(0));
+        Map<Integer, String> headerRow = rows.get(0);
         List<String> headerList = new ArrayList<>();
-        for (String h : headers) {
+        for (int c = 0; c < headerRow.size(); c++) {
+            String h = headerRow.get(c);
             headerList.add(h == null ? "" : h.trim());
         }
         if (!(headerList.contains("姓名") && headerList.contains("身份证号")
                 && headerList.contains("银行卡号") && headerList.contains("联系方式"))) {
-            throw new BusinessException("CSV 表头必须包含：姓名、身份证号、银行卡号、联系方式");
+            throw new BusinessException("Excel 表头必须包含：姓名、身份证号、银行卡号、联系方式");
         }
 
         int success = 0;
         List<Map<String, Object>> failed = new ArrayList<>();
         List<Expert> toInsert = new ArrayList<>();
-        for (int i = 1; i < rawLines.size(); i++) {
-            String[] cells = parseLine(rawLines.get(i));
-            if (cells == null || cells.length == 0 || isBlankRow(cells)) {
+        for (int i = 1; i < rows.size(); i++) {
+            Map<Integer, String> cells = rows.get(i);
+            if (cells.isEmpty() || isBlankRow(cells)) {
                 continue;
             }
             int lineNo = i + 1;
             Expert expert = new Expert();
-            String name = cell(headers, cells, headerList.indexOf("姓名"));
+            String name = cellAt(cells, headerList, "姓名");
             String reason = null;
             if (!StringUtils.hasText(name)) {
                 reason = "姓名为空";
             }
             expert.setName(name);
-            expert.setUnit(cell(headers, cells, headerList.indexOf("单位")));
-            expert.setDepartment(cell(headers, cells, headerList.indexOf("科室")));
-            expert.setTitle(cell(headers, cells, headerList.indexOf("职称")));
-            expert.setResearchDirection(cell(headers, cells, headerList.indexOf("研究方向")));
-            expert.setExpertiseArea(cell(headers, cells, headerList.indexOf("擅长领域")));
-            expert.setContact(cell(headers, cells, headerList.indexOf("联系方式")));
-            expert.setProfile(cell(headers, cells, headerList.indexOf("简介")));
-            expert.setIdCard(cell(headers, cells, headerList.indexOf("身份证号")));
-            expert.setBankCard(cell(headers, cells, headerList.indexOf("银行卡号")));
-            expert.setBankBranch(cell(headers, cells, headerList.indexOf("银行卡开户行")));
+            expert.setUnit(cellAt(cells, headerList, "单位"));
+            expert.setDepartment(cellAt(cells, headerList, "科室"));
+            expert.setTitle(cellAt(cells, headerList, "职称"));
+            expert.setResearchDirection(cellAt(cells, headerList, "研究方向"));
+            expert.setExpertiseArea(cellAt(cells, headerList, "擅长领域"));
+            expert.setContact(cellAt(cells, headerList, "联系方式"));
+            expert.setProfile(cellAt(cells, headerList, "简介"));
+            expert.setIdCard(cellAt(cells, headerList, "身份证号"));
+            expert.setBankCard(cellAt(cells, headerList, "银行卡号"));
+            expert.setBankBranch(cellAt(cells, headerList, "银行卡开户行"));
             expert.setUpdateBy(user == null ? null : user.getUsername());
 
             if (reason == null && StringUtils.hasText(expert.getIdCard())
@@ -188,17 +226,17 @@ public class ExportService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", success);
         result.put("failed", failed);
-        result.put("total", rawLines.size() - 1);
+        result.put("total", Math.max(0, rows.size() - 1));
         return result;
     }
 
     // ==================== ZIP ====================
 
     /**
-     * 打包 ZIP：experts.csv（完整字段）+ photos/ 下三类照片（命名：姓名+单位+科室+类型）。
+     * 打包 ZIP：experts.xlsx（完整字段）+ photos/ 下三类照片（命名：姓名+单位+科室+类型）。
      *
      * @param experts 专家列表
-     * @param full    是否完整（false 时 CSV 脱敏）
+     * @param full    是否完整（false 时 Excel 脱敏）
      * @param auditType 审计类型（selected_zip / full_zip）
      */
     public byte[] buildZip(List<Expert> experts, boolean full, String auditType, AuthUser user,
@@ -208,10 +246,10 @@ public class ExportService {
         }
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(bos)) {
-            byte[] csv = expertsToCsv(experts, full);
-            ZipEntry csvEntry = new ZipEntry("experts.csv");
-            zos.putNextEntry(csvEntry);
-            zos.write(csv);
+            byte[] xlsx = expertsToXlsx(experts, full);
+            ZipEntry xlsxEntry = new ZipEntry("experts.xlsx");
+            zos.putNextEntry(xlsxEntry);
+            zos.write(xlsx);
             zos.closeEntry();
 
             List<Expert> audited = new ArrayList<>();
@@ -259,7 +297,7 @@ public class ExportService {
         sb.append("## 字段索引\n\n");
         sb.append("| 序号 | 字段名 | 说明 |\n|---|---|---|\n");
         int idx = 1;
-        for (String h : CSV_HEADERS) {
+        for (String h : XLSX_HEADERS) {
             sb.append("| ").append(idx++).append(" | ").append(h).append(" | 见设计文档专家字段定义 |\n");
         }
         sb.append("\n## 图片命名规则\n\n");
@@ -269,8 +307,8 @@ public class ExportService {
         if (full) {
             sb.append("## AI 下载指引（完整版）\n\n");
             sb.append("1. 完整字段含身份证号、银行卡号等敏感信息，请按最小化原则使用并妥善保存。\n");
-            sb.append("2. 照片文件与 CSV 中 `照片 / 身份证正面 / 身份证反面` 字段对应，字段值为照片文件名。\n");
-            sb.append("3. 如需人工核对，请以 `id` 字段关联 CSV 与照片（照片文件名含专家 id 与时间戳）。\n");
+            sb.append("2. 照片文件与 Excel 中 `照片 / 身份证正面 / 身份证反面` 字段对应，字段值为照片文件名。\n");
+            sb.append("3. 如需人工核对，请以 `id` 字段关联 Excel 与照片（照片文件名含专家 id 与时间戳）。\n");
         }
         audit(experts, full ? "md_full" : "md", user, request);
         return sb.toString().getBytes(StandardCharsets.UTF_8);
@@ -280,11 +318,12 @@ public class ExportService {
 
     /**
      * 下载留痕：selected_* 逐专家一条；全量 / md 一条（expert_id=null）。
+     * download_type 取值：selected_xlsx / selected_zip / full_xlsx / full_zip / md / template_xlsx 等。
      */
     public void audit(List<Expert> experts, String downloadType, AuthUser user, HttpServletRequest request) {
         boolean perExpert = downloadType.startsWith("selected");
         if (!perExpert) {
-            // 全量 / zip / md：无论多少专家只记一条（expert_id=null）
+            // 全量 / zip / md / template：无论多少专家只记一条（expert_id=null）
             downloadAuditService.record(user, null, null, downloadType, request);
             return;
         }
@@ -299,110 +338,52 @@ public class ExportService {
 
     // ==================== 私有工具 ====================
 
-    private List<byte[]> readLines(MultipartFile file) throws IOException {
-        byte[] all = file.getBytes();
-        // 去 BOM
-        if (all.length >= 3 && (all[0] & 0xFF) == 0xEF && (all[1] & 0xFF) == 0xBB && (all[2] & 0xFF) == 0xBF) {
-            byte[] tmp = new byte[all.length - 3];
-            System.arraycopy(all, 3, tmp, 0, tmp.length);
-            all = tmp;
+    /**
+     * 单元格统一按字符串读取：数字型整数（身份证/银行卡/手机号等）还原为不带小数/科学计数的原文，
+     * 保持与旧 CSV 宽松导入一致。
+     */
+    private String cellString(XSSFCell cell) {
+        if (cell == null) {
+            return "";
         }
-        Charset charset = detectCharset(all);
-        String text = new String(all, charset);
-        String[] lines = text.split("\r\n|\n|\r");
-        List<byte[]> result = new ArrayList<>();
-        for (String line : lines) {
-            result.add(line.getBytes(StandardCharsets.UTF_8));
-        }
-        return result;
-    }
-
-    private Charset detectCharset(byte[] data) {
-        // GBK 常见中文字节模式探测（简化：若可被 UTF-8 严格解码则视为 UTF-8，否则 GBK）
-        try {
-            String s = new String(data, StandardCharsets.UTF_8);
-            // 用 CharsetDecoder 严格校验
-            java.nio.charset.CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
-            decoder.decode(java.nio.ByteBuffer.wrap(data));
-            return StandardCharsets.UTF_8;
-        } catch (Exception e) {
-            try {
-                return Charset.forName("GBK");
-            } catch (Exception ex) {
-                return StandardCharsets.UTF_8;
-            }
-        }
-    }
-
-    private String[] parseLine(byte[] lineUtf8) {
-        String line = new String(lineUtf8, StandardCharsets.UTF_8).trim();
-        if (line.isEmpty()) {
-            return new String[0];
-        }
-        List<String> cells = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
-        boolean inQuotes = false;
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-            if (inQuotes) {
-                if (c == '"') {
-                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
-                        cur.append('"');
-                        i++;
-                    } else {
-                        inQuotes = false;
-                    }
-                } else {
-                    cur.append(c);
+        CellType type = cell.getCellType();
+        switch (type) {
+            case STRING:
+                return cell.getStringCellValue() == null ? "" : cell.getStringCellValue().trim();
+            case NUMERIC:
+                double v = cell.getNumericCellValue();
+                if (v == Math.floor(v) && !Double.isInfinite(v)) {
+                    return BigDecimal.valueOf(v).toBigInteger().toString();
                 }
-            } else {
-                if (c == '"') {
-                    inQuotes = true;
-                } else if (c == ',') {
-                    cells.add(cur.toString());
-                    cur.setLength(0);
-                } else {
-                    cur.append(c);
-                }
-            }
+                return String.valueOf(v);
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                return cell.getCellFormula();
+            default:
+                return "";
         }
-        cells.add(cur.toString());
-        return cells.toArray(new String[0]);
     }
 
-    private boolean isBlankRow(String[] cells) {
-        for (String c : cells) {
-            if (StringUtils.hasText(c)) {
+    /**
+     * 按表头名定位列索引取值（找不到返回 null）。
+     */
+    private String cellAt(Map<Integer, String> cells, List<String> headerList, String headerName) {
+        int idx = headerList.indexOf(headerName);
+        if (idx < 0) {
+            return null;
+        }
+        String v = cells.get(idx);
+        return v == null ? null : v.trim();
+    }
+
+    private boolean isBlankRow(Map<Integer, String> cells) {
+        for (String v : cells.values()) {
+            if (StringUtils.hasText(v)) {
                 return false;
             }
         }
         return true;
-    }
-
-    private String cell(String[] headers, String[] cells, int idx) {
-        if (idx < 0 || idx >= headers.length || idx >= cells.length) {
-            return null;
-        }
-        String v = cells[idx];
-        return v == null ? null : v.trim();
-    }
-
-    private String csvLine(String... values) {
-        List<String> escaped = new ArrayList<>();
-        for (String v : values) {
-            escaped.add(csvEscape(v == null ? "" : v));
-        }
-        return String.join(",", escaped);
-    }
-
-    private static String csvEscape(String value) {
-        String v = value == null ? "" : value;
-        if (v.contains(",") || v.contains("\"") || v.contains("\n") || v.contains("\r")) {
-            return "\"" + v.replace("\"", "\"\"") + "\"";
-        }
-        return v;
     }
 
     private String nvl(String v) {

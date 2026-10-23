@@ -34,7 +34,7 @@ public class ExportCompatController {
     private final ExportService exportService;
 
     /**
-     * 员工脱敏 ZIP：脱敏 CSV + 照片原图。
+     * 员工脱敏 ZIP：脱敏 Excel + 照片原图。
      */
     @GetMapping
     public void exportMaskedZip(@AuthenticationPrincipal AuthUser authUser,
@@ -47,7 +47,7 @@ public class ExportCompatController {
     }
 
     /**
-     * 管理员完整 ZIP（完整 CSV + 三类照片原图，仅 ADMIN）。
+     * 管理员完整 ZIP（完整 Excel + 三类照片原图，仅 ADMIN）。
      */
     @GetMapping("/full")
     public void exportFullZip(@AuthenticationPrincipal AuthUser authUser,

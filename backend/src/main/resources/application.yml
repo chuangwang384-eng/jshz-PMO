@@ -18,9 +18,9 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
   servlet:
     multipart:
-      # 上传大小限制（设计文档：单文件 ≤5MB）
-      max-file-size: 5MB
-      max-request-size: 20MB
+      # 上传大小限制（照片单文件 ≤5MB；知识文档单文件 ≤50MB，请求 ≤60MB）
+      max-file-size: 50MB
+      max-request-size: 60MB
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -38,6 +38,9 @@ expert:
     storage-dir: 'D:\jshz-PMO\照片库'
     # 审批流临时照片目录（需求3：提交申请前预上传，审批通过后归档到正式照片库）
     temp-dir: 'D:\jshz-PMO\照片库_tmp'
+  # 知识文档存储根目录（知识星球：会议执行/协会合规要求/企业合规要求/客户喜好）
+  knowledge:
+    storage-dir: 'D:\jshz-PMO\知识文档库'
   # JWT 登录鉴权
   jwt:
     secret: jshz-expert-system-v1-001-2026-secret-key-for-hs256

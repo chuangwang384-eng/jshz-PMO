@@ -14,18 +14,18 @@
       </el-input>
       <div class="spacer" />
       <el-button v-permission="'expert:add'" type="primary" @click="openCreate">新增专家</el-button>
-      <el-button v-permission="'expert:import'" @click="handleTemplate">CSV 模板</el-button>
+      <el-button v-permission="'expert:import'" @click="handleTemplate">Excel 模板</el-button>
       <el-upload
         v-permission="'expert:import'"
         :show-file-list="false"
         :before-upload="handleImportFile"
-        accept=".csv"
+        accept=".xlsx,.xls"
         style="display: inline-block; margin-left: 8px"
       >
-        <el-button>CSV 导入</el-button>
+        <el-button>Excel 导入</el-button>
       </el-upload>
       <el-button v-permission="'expert:export'" type="warning" @click="handleExportFullZip">全量导出 ZIP</el-button>
-      <el-button v-permission="'expert:export'" :disabled="!selectedIds.length" @click="handleSelectedCsv">选中导出 CSV</el-button>
+      <el-button v-permission="'expert:export'" :disabled="!selectedIds.length" @click="handleSelectedExcel">选中导出 Excel</el-button>
       <el-button v-permission="'expert:export'" :disabled="!selectedIds.length" @click="handleSelectedZip">选中导出 ZIP</el-button>
     </div>
 
@@ -230,7 +230,7 @@ import {
   downloadTemplate,
   importExperts,
   exportFullZip,
-  exportSelectedCsv,
+  exportSelectedExcel,
   exportSelectedZip
 } from '../api/expert'
 import PhotoImage from '../components/PhotoImage.vue'
@@ -402,9 +402,9 @@ function handleExportFullZip() {
   exportFullZip().catch(() => {})
 }
 
-function handleSelectedCsv() {
+function handleSelectedExcel() {
   if (!selectedIds.value.length) return
-  exportSelectedCsv(selectedIds.value).catch(() => {})
+  exportSelectedExcel(selectedIds.value).catch(() => {})
 }
 
 function handleSelectedZip() {

@@ -72,7 +72,7 @@ async function handleLogin() {
     const user = await auth.login(form.username.trim(), form.password)
     ElMessage.success(`欢迎回来，${user.username}`)
     const redirect = route.query.redirect
-    router.push(typeof redirect === 'string' && redirect ? redirect : '/company/experts')
+    router.push(typeof redirect === 'string' && redirect ? redirect : '/experts')
   } catch (e) {
     // 错误提示已由 request 拦截器统一处理
   } finally {

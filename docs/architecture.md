@@ -25,17 +25,17 @@ AIGC:
 
 - 前端为 SPA 应用，构建产物由 Nginx 托管，通过反向代理将 `/api` 请求转发至后端。
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
-- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **10 张表**。
+- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）、知识星球文档（knowledge_document / knowledge_doc_version）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **12 张表**。
 
 ## 2. 后端分层
 
 | 层 | 职责 | 示例 |
 | --- | --- | --- |
-| Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController` / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询）（共 **10 个**） |
-| Service | 业务逻辑、事务控制 | `AuthService` / `ExpertService` / `ApprovalService`（审批核心：白名单字段校验、TMP 临时照片通道、修改/新增分支审批） / `ExportService` / `PhotoStorageService` / `DownloadAuditService` / `UserService` |
+| Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController` / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询） / `KnowledgeController`（知识星球：文档上传/分页检索（category 可选=全分类、按权限过滤下架文档）/版本更新/下架/版本历史/文件下载预览）（共 **11 个**） |
+| Service | 业务逻辑、事务控制 | `AuthService` / `ExpertService` / `ApprovalService`（审批核心：白名单字段校验、TMP 临时照片通道、修改/新增分支审批） / `ExportService` / `PhotoStorageService` / `DownloadAuditService` / `UserService` / `KnowledgeDocumentService`（知识星球业务） / `KnowledgeDocStorageService`（文档落盘与校验） |
 | Security | 认证鉴权 | `JwtTokenProvider` / `JwtAuthenticationFilter` / `AuthUser` |
-| Mapper | 数据访问（MyBatis-Plus，共 10 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` |
-| Entity | 数据库实体映射（共 10 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText）/ `ApprovalRecord` / `Role` / `Permission` / `RolePermission` / `UserRole` |
+| Mapper | 数据访问（MyBatis-Plus，共 12 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` |
+| Entity | 数据库实体映射（共 12 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText）/ `ApprovalRecord` / `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument` / `KnowledgeDocVersion` |
 | Config | 安全、跨域、全局配置 | `SecurityConfig` / `WebConfig` / `GlobalExceptionHandler` / `MybatisPlusConfig` |
 
 ## 3. 前端结构
@@ -43,14 +43,14 @@ AIGC:
 | 目录 | 职责 |
 | --- | --- |
 | `src/api` | Axios 请求封装（request/auth/expert/user/audit/approval，withCredentials=true，401 拦截跳登录） |
-| `src/router` | 路由配置与守卫（未登录跳登录、管理页按 is_admin 控制、requiresAdmin 自动过滤员工菜单） |
-| `src/views` | 页面组件（Login/ExpertList/ExpertManage/DownloadAudit/UserManage/MyApproval/ApprovalManage/ApprovalConfig/ChangePassword 等） |
+| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理/项目管理等） |
+| `src/views` | 页面组件（Login/ExpertList/ExpertManage/DownloadAudit/UserManage/MyApproval/ApprovalManage/ApprovalConfig/ChangePassword/KnowledgePlanetHome（知识星球父页：上传中心+全分类总览）/MeetingExecution/AssociationCompliance/EnterpriseCompliance/CustomerPreferences 等） |
 | `src/stores` | Pinia 状态管理（auth） |
-| `src/components` | 通用组件（ChangePasswordDialog/PhotoImage/SideMenuItem） |
+| `src/components` | 通用组件（ChangePasswordDialog/PhotoImage/SideMenuItem/KnowledgeDocList（知识文档列表，allowUpload=false 隐藏上传按钮供子页复用）） |
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **10 张表**，含 RBAC 四表（role / permission / role_permission / user_role）：
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **12 张表**，含 RBAC 四表（role / permission / role_permission / user_role）：
 
 | 表 | 说明 | 关键字段 |
 | --- | --- | --- |
@@ -65,7 +65,9 @@ AIGC:
 | `role_permission` | 角色-权限关联表 | id、role_id、permission_code；UNIQUE(role_id,permission_code) |
 | `user_role` | 用户-角色关联表 | id、user_id、role_id；UNIQUE(user_id,role_id) |
 
-> RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。
+> `expert_info.update_by` 写入语义：直接编辑（ExpertService.update，由超管/具备 expert:edit 权限用户调用）记操作者本人；审批通过（ApprovalService.approveModify / approveCreate）记申请单申请人 `expert_change_request.applicant`（发起修改/新增的人），审批人仅记录于 `approve_by`。`update_time` 由数据库 `ON UPDATE CURRENT_TIMESTAMP` 自动维护。
+
+> RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:manage`（ADMIN/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/** 需接口权限码 `knowledge:manage`（已绑定 ADMIN），业务层 AuthUser.hasPermission 二次校验。
 
 ## 5. 安全设计（内网）
 

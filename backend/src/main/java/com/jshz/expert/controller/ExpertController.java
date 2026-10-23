@@ -49,6 +49,10 @@ public class ExpertController {
     private final ExportService exportService;
     private final DownloadAuditService downloadAuditService;
 
+    /** Excel（.xlsx）MIME 类型 */
+    private static final MediaType XLSX_MEDIA_TYPE =
+            MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
     // ==================== 列表 / 详情 ====================
 
     /**
@@ -133,7 +137,7 @@ public class ExpertController {
     // ==================== 导入导出（对齐 demo） ====================
 
     /**
-     * 勾选导出 CSV：GET /api/experts/selected/export?ids=1,2,3&sensitive=1
+     * 勾选导出 Excel：GET /api/experts/selected/export?ids=1,2,3&sensitive=1
      */
     @GetMapping("/selected/export")
     public void selectedExport(@RequestParam("ids") String ids,
@@ -143,14 +147,13 @@ public class ExpertController {
                                HttpServletResponse response) throws IOException {
         List<Expert> experts = loadByIds(ids);
         boolean full = "1".equals(sensitive);
-        byte[] csv = exportService.expertsToCsv(experts, full);
-        exportService.audit(experts, "selected_csv", authUser, request);
-        writeAttachment(response, csv, "selected_experts.csv",
-                MediaType.parseMediaType("text/csv;charset=UTF-8"));
+        byte[] xlsx = exportService.expertsToXlsx(experts, full);
+        exportService.audit(experts, "selected_xlsx", authUser, request);
+        writeAttachment(response, xlsx, "selected_experts.xlsx", XLSX_MEDIA_TYPE);
     }
 
     /**
-     * 勾选导出 ZIP：GET /api/experts/selected/zip?ids=1,2,3&sensitive=1（CSV + 三类照片）
+     * 勾选导出 ZIP：GET /api/experts/selected/zip?ids=1,2,3&sensitive=1（Excel + 三类照片）
      */
     @GetMapping("/selected/zip")
     public void selectedZip(@RequestParam("ids") String ids,
@@ -165,20 +168,20 @@ public class ExpertController {
     }
 
     /**
-     * 全部专家 CSV（完整字段，员工也可下载全量敏感数据，下载留痕）。
+     * 全部专家 Excel（完整字段，员工也可下载全量敏感数据，下载留痕）。
      */
     @GetMapping("/export")
     public void exportAll(@AuthenticationPrincipal AuthUser authUser,
                           HttpServletRequest request,
                           HttpServletResponse response) throws IOException {
         List<Expert> experts = expertService.list();
-        byte[] csv = exportService.expertsToCsv(experts, true);
-        exportService.audit(experts, "full_csv", authUser, request);
-        writeAttachment(response, csv, "experts_all.csv", MediaType.parseMediaType("text/csv;charset=UTF-8"));
+        byte[] xlsx = exportService.expertsToXlsx(experts, true);
+        exportService.audit(experts, "full_xlsx", authUser, request);
+        writeAttachment(response, xlsx, "experts_all.xlsx", XLSX_MEDIA_TYPE);
     }
 
     /**
-     * 全部专家 ZIP（管理员完整 ZIP：完整 CSV + 三类照片原图）。
+     * 全部专家 ZIP（管理员完整 ZIP：完整 Excel + 三类照片原图）。
      */
     @GetMapping("/export/full")
     public void exportFull(@AuthenticationPrincipal AuthUser authUser,
@@ -190,7 +193,7 @@ public class ExpertController {
     }
 
     /**
-     * 员工脱敏 ZIP：脱敏 CSV + 照片原图（对齐 demo /api/export）。
+     * 员工脱敏 ZIP：脱敏 Excel + 照片原图（对齐 demo /api/export）。
      */
     @GetMapping("/export/employee")
     public void exportEmployee(@AuthenticationPrincipal AuthUser authUser,
@@ -215,23 +218,22 @@ public class ExpertController {
     }
 
     /**
-     * 导入模板 CSV。
+     * 导入模板 Excel。
      */
     @GetMapping("/template")
     public void template(HttpServletResponse response) throws IOException {
-        byte[] csv = exportService.templateCsv();
-        writeAttachment(response, csv, "import_template.csv",
-                MediaType.parseMediaType("text/csv;charset=UTF-8"));
+        byte[] xlsx = exportService.templateXlsx();
+        writeAttachment(response, xlsx, "import_template.xlsx", XLSX_MEDIA_TYPE);
     }
 
     /**
-     * 导入 CSV：multipart 字段名 file。
+     * 导入 Excel（.xlsx）：multipart 字段名 file。
      */
     @PostMapping("/import")
-    public ApiResponse<Map<String, Object>> importCsv(MultipartHttpServletRequest request,
-                                                      @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Map<String, Object>> importExcel(MultipartHttpServletRequest request,
+                                                        @AuthenticationPrincipal AuthUser authUser) {
         var file = request.getFile("file");
-        Map<String, Object> result = exportService.importCsv(file, authUser);
+        Map<String, Object> result = exportService.importXlsx(file, authUser);
         return ApiResponse.ok(result);
     }
 

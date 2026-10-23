@@ -10,21 +10,44 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/company/experts'
+    redirect: '/experts'
   },
   {
-    path: '/company',
-    name: 'company',
-    redirect: '/company/experts',
-    meta: { title: '公司内部资料', requiresAuth: true },
+    path: '/experts',
+    name: 'experts',
+    component: () => import('../views/ExpertList.vue'),
+    meta: { title: '专家库', requiresAuth: true }
+  },
+  {
+    path: '/knowledge-planet',
+    name: 'knowledge-planet',
+    component: () => import('../views/KnowledgePlanetHome.vue'),
+    meta: { title: '知识星球', requiresAuth: true },
     children: [
       {
-        path: 'experts',
-        name: 'experts',
-        component: () => import('../views/ExpertList.vue'),
-        meta: { title: '专家库' }
+        path: 'meeting-execution',
+        name: 'meeting-execution',
+        component: () => import('../views/MeetingExecution.vue'),
+        meta: { title: '会议执行' }
+      },
+      {
+        path: 'association-compliance',
+        name: 'association-compliance',
+        component: () => import('../views/AssociationCompliance.vue'),
+        meta: { title: '协会合规要求' }
+      },
+      {
+        path: 'enterprise-compliance',
+        name: 'enterprise-compliance',
+        component: () => import('../views/EnterpriseCompliance.vue'),
+        meta: { title: '企业合规要求' }
+      },
+      {
+        path: 'customer-preferences',
+        name: 'customer-preferences',
+        component: () => import('../views/CustomerPreferences.vue'),
+        meta: { title: '客户喜好' }
       }
-      // 以后新增二级菜单：在 children 里继续追加即可
     ]
   },
   {
@@ -97,7 +120,7 @@ const routes = [
   },
   {
     path: '/:pathMatch(.*)*',
-    redirect: '/company/experts'
+    redirect: '/experts'
   }
 ]
 
@@ -109,7 +132,7 @@ const router = createRouter({
 // 路由守卫：
 // - 登录态以 expert_user（非敏感用户信息）为准，JWT 存 httpOnly cookie 由浏览器自动携带
 // - 未登录访问任意页面跳登录页
-// - 已登录访问登录页跳转公司内部资料（专家库）
+// - 已登录访问登录页跳转专家库
 // - meta.permissions 权限码数组控制静态路由访问：未命中任一权限码则拦截并提示，
 //   cookie 失效时由 request 拦截器 401 兜底跳登录
 router.beforeEach((to) => {
@@ -123,7 +146,7 @@ router.beforeEach((to) => {
 
   if (to.meta.public) {
     if (loggedIn && to.path === '/login') {
-      return '/company/experts'
+      return '/experts'
     }
     return true
   }
@@ -136,7 +159,7 @@ router.beforeEach((to) => {
   const required = to.meta?.permissions
   if (Array.isArray(required) && required.length && !required.some((p) => permissions.includes(p))) {
     ElMessage.error('无权限访问该页面')
-    return '/company/experts'
+    return '/experts'
   }
 
   return true

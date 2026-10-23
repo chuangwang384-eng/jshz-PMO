@@ -74,6 +74,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Excel 处理（POI 5.4.1：JDK17 官方支持；CSV 全面升级为 xlsx，导入导出模板统一走此库） -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.4.1</version>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>

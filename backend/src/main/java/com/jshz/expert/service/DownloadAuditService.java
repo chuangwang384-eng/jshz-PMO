@@ -26,7 +26,7 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
      * @param authUser     当前登录用户（可能为空）
      * @param expertId     专家 id（全量下载时为 null）
      * @param expertName   专家姓名
-     * @param downloadType selected_csv / selected_zip / full_csv / full_zip / md
+     * @param downloadType selected_xlsx / selected_zip / full_xlsx / full_zip / md / template_xlsx
      * @param request      HttpServletRequest（取 IP）
      */
     public void record(AuthUser authUser, Long expertId, String expertName, String downloadType,

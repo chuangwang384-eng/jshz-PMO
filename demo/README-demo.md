@@ -64,14 +64,14 @@ python server.py
 - JSON 中仅存文件名（SQLite 中同）；员工页与管理页均展示缩略图，无照片显示占位图。
 - 编辑换照片会删除旧照片文件；删除专家会一并删除其照片文件。
 
-### 3. CSV 批量导入
+### 3. Excel 批量导入
 
 管理员页提供：
 
-- **下载 CSV 模板**：`GET /api/experts/template`
-- **导入 CSV**：`POST /api/experts/import`（multipart 上传 `file` 字段，支持 UTF-8 / GBK 编码）
+- **下载 Excel 模板**：`GET /api/experts/template`（返回 `import_template.xlsx`）
+- **导入 Excel**：`POST /api/experts/import`（multipart 上传 `file` 字段，`.xlsx` 格式，后续以 Excel 为准）
 
-模板字段（导入表头须包含）：
+模板字段（导入表头须包含，首行为表头）：
 
 ```
 姓名,单位,科室,职称,研究方向,擅长领域,联系方式,简介,身份证号,银行卡号
@@ -88,33 +88,33 @@ python server.py
 | 重复姓名 | 与库中或同文件已有姓名重复时跳过并提示 |
 
 导入完成后反馈“成功 N 条，失败 M 条”，并列出失败行号、姓名与原因。
-CSV 导入的数据照片字段默认为空，修改人id 默认 `admin`。
+Excel 导入的数据照片字段默认为空，修改人id 默认 `admin`。
 
-### 4. 数据下载（导出 CSV / ZIP / MD 说明文档）
+### 4. 数据下载（导出 Excel / ZIP / MD 说明文档）
 
-- 管理员页“导出 CSV”按钮：`GET /api/experts/export`
+- 管理员页“导出 Excel”按钮：`GET /api/experts/export`
 - 员工页“下载数据”按钮：`GET /api/export` → 脱敏 ZIP
 - 管理员页“导出 ZIP（含照片）”按钮：`GET /api/export/full` → 完整 ZIP
 - 员工页“下载 MD 说明文档”按钮：`GET /api/export/md?keyword=` → 按当前筛选条件生成 MD 说明文档
 - 管理员页“下载 MD 说明文档”按钮：`GET /api/export/md?keyword=&full=1` → 完整版 MD 说明文档
 
-**CSV 导出**（`/api/experts/export`，管理员专用）导出**当前全部专家**，包含完整字段：
+**Excel 导出**（`/api/experts/export`，管理员专用）导出**当前全部专家**，包含完整字段：
 
 ```
 id,姓名,科室,职称,研究方向,擅长领域,联系方式,简介,身份证号,银行卡号,照片,创建时间,修改时间,修改人id
 ```
 
-- 带 UTF-8 BOM，Excel 直接打开不乱码。
+- 生成 `.xlsx` 文件，Excel/WPS 直接打开不乱码。
 
 **ZIP 打包下载**（标准库 `zipfile` 生成）：
 
-| 接口 | 适用场景 | CSV 内容 | 照片 |
+| 接口 | 适用场景 | Excel 内容 | 照片 |
 |---|---|---|---|
 | `GET /api/export` | 员工查询页“下载数据” | **脱敏版**：身份证号、银行卡号仅保留前3后4（`110***1234`），其余字段完整，含“照片”列（文件名） | 照片原图打包进 `photos/` 子目录 |
 | `GET /api/export/full` | 管理员“导出 ZIP（含照片）” | **完整版**：全部字段含完整证件号 | 照片原图打包进 `photos/` 子目录 |
 
 - ZIP 文件名含日期，如 `experts_20261019.zip` / `experts_full_20261019.zip`。
-- 压缩包内 CSV 文件名统一为 `experts.csv`，UTF-8 带 BOM，Excel 可直接打开。
+- 压缩包内 Excel 文件名统一为 `experts.xlsx`，Excel/WPS 可直接打开。
 - 无照片的专家不打包其照片文件；照片引用缺失时自动跳过（不中断打包）。
 
 **MD 说明文档下载**（`GET /api/export/md`，供 AI 据此把数据与图片下载到本地）：
@@ -132,8 +132,8 @@ id,姓名,科室,职称,研究方向,擅长领域,联系方式,简介,身份证�
 
 - **员工查询页**不展示完整身份证号、银行卡号，仅显示**前 3 后 4**（如 `110***********1234`）。
 - 后端在默认列表接口自动脱敏（`GET /api/experts`），管理员页通过 `?sensitive=1` 获取完整信息用于编辑。
-- 员工查询页“下载数据”得到的 ZIP 内 CSV 同样只保留前3后4，照片为原图。
-- 导出 CSV 与完整 ZIP 为完整字段（管理员使用场景），请妥善保管。
+- 员工查询页“下载数据”得到的 ZIP 内 Excel 同样只保留前3后4，照片为原图。
+- 导出 Excel 与完整 ZIP 为完整字段（管理员使用场景），请妥善保管。
 
 ### 6. 修改日期与修改人
 
@@ -143,7 +143,7 @@ id,姓名,科室,职称,研究方向,擅长领域,联系方式,简介,身份证�
 ### 7. 页面适配
 
 - 员工查询页：卡片展示照片、姓名、科室、职称、研究方向、擅长领域、联系方式、简介、脱敏证件信息、修改时间/修改人；搜索支持姓名/科室/职称/研究方向/擅长领域/联系方式/简介多字段模糊匹配。
-- 管理员维护页：完整字段列表 + 新增/编辑表单（含照片上传）+ CSV 导入/模板/导出 + 删除二次确认；搜索式输入框不因刷新重建导致失焦。
+- 管理员维护页：完整字段列表 + 新增/编辑表单（含照片上传）+ Excel 导入/模板/导出 + 删除二次确认；搜索式输入框不因刷新重建导致失焦。
 
 ## 接口速览
 
@@ -153,17 +153,17 @@ id,姓名,科室,职称,研究方向,擅长领域,联系方式,简介,身份证�
 | POST | /api/experts | 新增（JSON 或 multipart，multipart 可带照片与修改人id） |
 | PUT | /api/experts/{id} | 修改（保留原修改人，更新修改时间） |
 | DELETE | /api/experts/{id} | 删除（连带删除照片文件） |
-| GET | /api/experts/export | 导出完整 CSV |
-| GET | /api/export | 员工脱敏 ZIP（脱敏 CSV + 照片原图） |
-| GET | /api/export/full | 管理员完整 ZIP（完整 CSV + 照片原图） |
+| GET | /api/experts/export | 导出完整 Excel（.xlsx） |
+| GET | /api/export | 员工脱敏 ZIP（脱敏 Excel + 照片原图） |
+| GET | /api/export/full | 管理员完整 ZIP（完整 Excel + 照片原图） |
 | GET | /api/export/md | 筛选数据下载为 Markdown 说明文档（员工脱敏；`?full=1` 管理员完整版） |
-| GET | /api/experts/template | 下载 CSV 模板 |
-| POST | /api/experts/import | 批量导入 CSV |
+| GET | /api/experts/template | 下载 Excel 模板 |
+| POST | /api/experts/import | 批量导入 Excel |
 | GET | /uploads/{文件名} | 照片静态资源 |
 
 ## 敏感数据提醒
 
-> 身份证号、银行卡号属于个人敏感信息。本 Demo 的 JSON 数据文件与导出的 CSV 均含完整字段，仅限授权管理员使用；员工查询页已强制脱敏。生产环境建议：正式存储加密、传输走 HTTPS、导出操作审计留痕。
+> 身份证号、银行卡号属于个人敏感信息。本 Demo 的 JSON 数据文件与导出的 Excel 均含完整字段，仅限授权管理员使用；员工查询页已强制脱敏。生产环境建议：正式存储加密、传输走 HTTPS、导出操作审计留痕。
 
 ## 目录结构
 

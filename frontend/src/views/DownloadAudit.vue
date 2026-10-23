@@ -54,13 +54,17 @@ import { onMounted, ref } from 'vue'
 import { listDownloads } from '../api/audit'
 
 const downloadTypeMap = {
-  selected_csv: '选中导出 CSV',
+  selected_xlsx: '选中导出 Excel',
   selected_zip: '选中导出 ZIP',
-  full_csv: '全量 CSV',
+  full_xlsx: '全量 Excel',
   full_zip: '全量 ZIP',
   employee_zip: '员工 ZIP',
   md: '下载说明',
-  md_full: '下载说明（完整）'
+  md_full: '下载说明（完整）',
+  template_xlsx: '模板下载',
+  // 历史 CSV 类型兼容展示
+  selected_csv: '选中导出 CSV（历史）',
+  full_csv: '全量 CSV（历史）'
 }
 
 const keyword = ref('')

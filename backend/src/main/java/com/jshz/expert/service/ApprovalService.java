@@ -377,7 +377,9 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
                 default -> expert.setIdCardBack(newName);
             }
         }
-        expertService.update(expert.getId(), expert, user);
+        // 方案A：审批通过时 update_by 记申请人（发起新增的人），而非审批人
+        expert.setUpdateBy(request.getApplicant());
+        expertService.update(expert.getId(), expert, null);
 
         // 3. 回填申请单 expertId
         request.setExpertId(expert.getId());
@@ -438,7 +440,9 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             }
         }
         applyChanges(patch, changes);
-        expertService.update(request.getExpertId(), patch, user);
+        // 方案A：审批通过时 update_by 记申请人（发起修改的人），而非审批人
+        patch.setUpdateBy(request.getApplicant());
+        expertService.update(request.getExpertId(), patch, null);
 
         // 照片已生效：物理删除旧照片（仅照片键有变更时）
         for (String oldName : oldPhotos.values()) {

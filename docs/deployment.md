@@ -27,9 +27,9 @@ AIGC:
 mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 ```
 
-执行后创建 `expert_system` 库及全部 **10 张表**（`expert_info` / `sys_user` / `download_log` / `approval_config` / `expert_change_request` / `approval_record` / `role` / `permission` / `role_permission` / `user_role`），并写入初始管理员数据。
+执行后创建 `expert_system` 库及全部 **12 张表**（`expert_info` / `sys_user` / `download_log` / `approval_config` / `expert_change_request` / `approval_record` / `role` / `permission` / `role_permission` / `user_role` / `knowledge_document` / `knowledge_doc_version`），并写入初始管理员数据。
 
-> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表与 RBAC 四表；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）。以实际库 **10 张表**为准。
+> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表与 RBAC 四表；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）；知识星球文档环境执行 `database/migration/20261023_add_knowledge_tables.sql` 补建 knowledge_document / knowledge_doc_version 两表并写入接口权限码 knowledge:manage（绑定 ADMIN，幂等可重复执行）。以实际库 **12 张表**为准。
 
 ## 3. 后端部署
 
@@ -111,7 +111,7 @@ server {
 
 ## 6. 验收检查项
 
-- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **10 张表**（含审批流三表 approval_config / expert_change_request / approval_record 与 RBAC 四表 role / permission / role_permission / user_role）
+- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **12 张表**（含审批流三表 approval_config / expert_change_request / approval_record、RBAC 四表 role / permission / role_permission / user_role 与知识星球两表 knowledge_document / knowledge_doc_version）
 - [ ] 后端启动无异常，`GET /health` 返回 UP，`/api/expert/list` 可访问
 - [ ] 审批流接口可用：`GET /api/approval/config`、`POST /api/approval/requests`（修改申请）、`POST /api/approval/create-request`（新增专家申请）
 - [ ] 前端页面可正常加载并展示专家列表

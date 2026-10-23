@@ -37,7 +37,7 @@ public class DownloadLog {
     @JsonProperty("expertName")
     private String expertName;
 
-    /** 下载类型：selected_csv / selected_zip / full_csv / full_zip / md */
+    /** 下载类型：selected_xlsx / selected_zip / full_xlsx / full_zip / md / template_xlsx（历史 selected_csv / full_csv 兼容） */
     @JsonProperty("downloadType")
     private String downloadType;
 
