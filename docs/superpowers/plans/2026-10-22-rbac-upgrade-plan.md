@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_39af96aace8411f18de0525400de85a5
+    ReservedCode1: 7qoqj1txkzmXd8LehRqh4Tkqn0hV+79MMtx/QnxJPOIY/CeMP7/za08dRD2il1QJsd937DSsCfmjtxRW21RyDJVgN0ABPXbD5aKJZbeB9QN8YB7u8dM8wz4UT0d0YfyhbjoO2DE1yOtv82Vsg3cWWfvZOjBtbB8RolP4KnQfQS0kC4u/ShTuroXZNm8=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_39af96aace8411f18de0525400de85a5
+    ReservedCode2: 7qoqj1txkzmXd8LehRqh4Tkqn0hV+79MMtx/QnxJPOIY/CeMP7/za08dRD2il1QJsd937DSsCfmjtxRW21RyDJVgN0ABPXbD5aKJZbeB9QN8YB7u8dM8wz4UT0d0YfyhbjoO2DE1yOtv82Vsg3cWWfvZOjBtbB8RolP4KnQfQS0kC4u/ShTuroXZNm8=
+---
+
 # RBAC 权限体系升级与网页标题调整实施计划
 
 - 日期：2026-10-22
@@ -107,3 +118,4 @@
 3. 后端启动一律走 start-backend.bat；mvn package 前先停旧进程
 4. SecurityConfig 放宽后逐条核对原 10 条规则已入 permission 数据
 5. 前端新逻辑一律用 permissions，实施后全项目扫描 isAdmin 残留误判点
+*（内容由AI生成，仅供参考）*
