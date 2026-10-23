@@ -56,10 +56,10 @@ const isLoginPage = computed(() => route.path === '/login')
 const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => route.meta?.title || '景帅会展内部管理系统')
 
-// 从路由表生成菜单树：只取业务路由（排除登录页），管理菜单由 meta.requiresAdmin 自动过滤
+// 从路由表生成菜单树：只取业务路由（排除登录页），管理菜单由 meta.permissions 权限码自动过滤
 const menuTree = computed(() => {
   const businessRoutes = router.options.routes.filter((r) => r.path !== '/login')
-  return buildMenuTree(businessRoutes, auth.isAdmin)
+  return buildMenuTree(businessRoutes, auth.hasPermission)
 })
 
 const showChangePwd = ref(false)

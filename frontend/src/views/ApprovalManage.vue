@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div v-permission="'approval:audit'">
     <div class="page-head">
       <span class="page-title">审批管理</span>
       <span class="page-sub">处理员工提交的专家信息修改申请</span>
@@ -37,8 +37,8 @@
           <el-table-column prop="createTime" label="申请时间" width="170" />
           <el-table-column label="操作" width="150" align="center" fixed="right">
             <template #default="{ row }">
-              <el-button link type="success" @click="openApprove(row)">通过</el-button>
-              <el-button link type="danger" @click="openReject(row)">驳回</el-button>
+              <el-button v-permission="'approval:audit'" link type="success" @click="openApprove(row)">通过</el-button>
+              <el-button v-permission="'approval:audit'" link type="danger" @click="openReject(row)">驳回</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -122,7 +122,7 @@
       />
       <template #footer>
         <el-button @click="approveVisible = false">取消</el-button>
-        <el-button type="success" :loading="actionSubmitting" @click="confirmApprove">确认通过</el-button>
+        <el-button v-permission="'approval:audit'" type="success" :loading="actionSubmitting" @click="confirmApprove">确认通过</el-button>
       </template>
     </el-dialog>
 
@@ -140,7 +140,7 @@
       />
       <template #footer>
         <el-button @click="rejectVisible = false">取消</el-button>
-        <el-button type="danger" :loading="actionSubmitting" @click="confirmReject">确认驳回</el-button>
+        <el-button v-permission="'approval:audit'" type="danger" :loading="actionSubmitting" @click="confirmReject">确认驳回</el-button>
       </template>
     </el-dialog>
   </div>

@@ -10,11 +10,13 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 /**
- * JWT 工具（正式版 V1.001）。
- * 签发与校验登录令牌，claims 携带 userId / username / isAdmin / mustChangePassword。
+ * JWT 工具（正式版 V1.001，RBAC 阶段1）。
+ * 签发与校验登录令牌，claims 携带 userId / username / isAdmin / mustChangePassword / roles。
  */
 @Component
 public class JwtTokenProvider {
@@ -28,7 +30,8 @@ public class JwtTokenProvider {
         this.expireMillis = expireHours * 3600_000L;
     }
 
-    public String createToken(Long userId, String username, boolean isAdmin, boolean mustChangePassword) {
+    public String createToken(Long userId, String username, boolean isAdmin, boolean mustChangePassword,
+                              List<String> roles) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expireMillis);
         return Jwts.builder()
@@ -36,10 +39,32 @@ public class JwtTokenProvider {
                 .claim("userId", userId)
                 .claim("isAdmin", isAdmin)
                 .claim("mustChangePassword", mustChangePassword)
+                .claim("roles", roles == null ? new ArrayList<>() : roles)
                 .setIssuedAt(now)
                 .setExpiration(expiry)
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    /**
+     * 解析 token 中的角色编码列表；缺失或非法返回空列表（兼容旧 token，权限由 DB 兜底）。
+     */
+    @SuppressWarnings("unchecked")
+    public List<String> extractRoles(Jws<Claims> jws) {
+        if (jws == null) {
+            return new ArrayList<>();
+        }
+        Object roles = jws.getBody().get("roles");
+        if (roles instanceof List<?> list) {
+            List<String> result = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    result.add(String.valueOf(item));
+                }
+            }
+            return result;
+        }
+        return new ArrayList<>();
     }
 
     /**

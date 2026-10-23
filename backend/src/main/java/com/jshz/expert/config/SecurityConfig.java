@@ -1,5 +1,6 @@
 package com.jshz.expert.config;
 
+import com.jshz.expert.security.DbPermissionFilter;
 import com.jshz.expert.security.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -21,8 +22,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 /**
- * 安全配置（正式版 V1.001）。
- * 白名单：登录 / 企微占位 / 健康检查；管理写接口仅 ADMIN；
+ * 安全配置（正式版 V1.001，RBAC 阶段1）。
+ * 白名单：健康检查 / 登录登出 / 企微占位；其余接口登录即可。
+ * 原 ADMIN 硬编码规则已迁移为 permission 数据，由 DbPermissionFilter 按 method+path 拦截。
  * 静态照片资源 /api/files/** 需登录后访问。
  */
 @Configuration
@@ -31,6 +33,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final DbPermissionFilter dbPermissionFilter;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -47,29 +50,16 @@ public class SecurityConfig {
                         (request, response, authException) ->
                                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "未登录或登录已过期")))
                 .authorizeHttpRequests(auth -> auth
-                        // 白名单（无需登录）
+                        // 白名单（无需登录）：健康检查 / 登录登出 / 企微占位
                         .requestMatchers("/health", "/ready").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/logout").permitAll()
                         .requestMatchers("/api/auth/wecom/**").permitAll()
-                        // 管理员专属：专家写接口 / 导入模板 / 上传 / 用户管理 / 审计
-                        .requestMatchers(HttpMethod.POST, "/api/experts", "/api/experts/import").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/experts/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/experts/**").hasRole("ADMIN")
-                        .requestMatchers("/api/experts/template").hasRole("ADMIN")
-                        // 全量下载收紧为仅管理员（勾选下载 selected/* 保持登录可用）
-                        .requestMatchers(HttpMethod.GET, "/api/experts/export", "/api/experts/export/employee").hasRole("ADMIN")
-                        .requestMatchers("/api/upload/**").hasRole("ADMIN")
-                        .requestMatchers("/api/users/**").hasRole("ADMIN")
-                        .requestMatchers("/api/audit/**").hasRole("ADMIN")
-                        // 审批流：配置更新 / 申请列表 / 审批动作仅 ADMIN，其余 /api/approval/** 登录即可
-                        .requestMatchers(HttpMethod.PUT, "/api/approval/config").hasRole("ADMIN")
-                        .requestMatchers("/api/approval/requests/{id}/approve", "/api/approval/requests/{id}/reject").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/api/approval/requests").hasRole("ADMIN")
-                        .requestMatchers("/api/export/full").hasRole("ADMIN")
-                        .requestMatchers("/api/experts/export/full").hasRole("ADMIN")
-                        // 其余接口：登录即可（员工可下载全量，下载留痕）
+                        // RBAC 阶段1：原 10 条 hasRole("ADMIN") 硬编码规则已全部迁移为 permission 数据，
+                        // 由 DbPermissionFilter（置于 JwtAuthenticationFilter 之后）按 method+path 匹配权限码拦截；
+                        // 其余接口登录即可。
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(dbPermissionFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

@@ -2,6 +2,7 @@ package com.jshz.expert.controller;
 
 import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.common.PageResult;
+import com.jshz.expert.dto.RoleAssignRequest;
 import com.jshz.expert.dto.UserRequest;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.service.UserService;
@@ -69,6 +70,16 @@ public class UserController {
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         userService.deleteUser(id);
+        return ApiResponse.ok(null);
+    }
+
+    /**
+     * 为用户分配角色（覆盖式，RBAC 阶段1）。
+     * 权限由 user:manage 权限码在 permission 数据中配置。
+     */
+    @PutMapping("/{id}/roles")
+    public ApiResponse<Void> assignRoles(@PathVariable Long id, @RequestBody RoleAssignRequest request) {
+        userService.assignRoles(id, request == null ? null : request.getRoleIds());
         return ApiResponse.ok(null);
     }
 }

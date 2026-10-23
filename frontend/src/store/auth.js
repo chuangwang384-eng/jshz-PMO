@@ -15,6 +15,17 @@ function readUser() {
   }
 }
 
+// 归一化登录/me 返回：保留 isAdmin 兼容旧逻辑，并同步 roles / permissions 供 RBAC 使用
+function normalizeUser(data) {
+  return {
+    username: data.username,
+    isAdmin: !!data.isAdmin,
+    mustChangePassword: !!data.mustChangePassword,
+    roles: Array.isArray(data.roles) ? data.roles : [],
+    permissions: Array.isArray(data.permissions) ? data.permissions : []
+  }
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: readUser()
@@ -23,28 +34,29 @@ export const useAuthStore = defineStore('auth', {
     isLoggedIn: (state) => !!state.user,
     isAdmin: (state) => !!state.user?.isAdmin,
     username: (state) => state.user?.username || '',
-    mustChangePassword: (state) => !!state.user?.mustChangePassword
+    mustChangePassword: (state) => !!state.user?.mustChangePassword,
+    roles: (state) => state.user?.roles || [],
+    permissions: (state) => state.user?.permissions || [],
+    hasRole: (state) => (code) => (state.user?.roles || []).includes(code),
+    hasPermission: (state) => (code) => {
+      if (!code) return true
+      const perms = state.user?.permissions || []
+      if (perms.includes('*')) return true
+      return perms.includes(code)
+    }
   },
   actions: {
     async login(username, password) {
       const data = await apiLogin({ username, password })
       // token 由后端写入 httpOnly cookie，前端不落盘
-      this.user = {
-        username: data.username,
-        isAdmin: data.isAdmin,
-        mustChangePassword: data.mustChangePassword
-      }
+      this.user = normalizeUser(data)
       localStorage.setItem(USER_KEY, JSON.stringify(this.user))
       return this.user
     },
     // 从服务端刷新用户信息（保证强制改密标记最新）
     async fetchMe() {
       const data = await apiMe()
-      this.user = {
-        username: data.username,
-        isAdmin: data.isAdmin,
-        mustChangePassword: data.mustChangePassword
-      }
+      this.user = normalizeUser(data)
       localStorage.setItem(USER_KEY, JSON.stringify(this.user))
       return this.user
     },

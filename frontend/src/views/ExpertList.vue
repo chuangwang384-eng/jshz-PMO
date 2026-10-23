@@ -13,13 +13,17 @@
         </template>
       </el-input>
       <div class="spacer" />
-      <template v-if="isAdmin">
+      <template v-if="canAddExpert">
         <el-button type="primary" @click="openAdminCreate">新增专家</el-button>
+      </template>
+      <template v-else>
+        <el-button type="primary" @click="openCreateDialog">新增专家</el-button>
+      </template>
+      <template v-if="canExport">
         <el-button type="success" @click="handleExportCsv">下载全量 CSV</el-button>
         <el-button type="warning" @click="handleExportZip">下载含照片 ZIP</el-button>
       </template>
       <template v-else>
-        <el-button type="primary" @click="openCreateDialog">新增专家</el-button>
         <el-button type="primary" :disabled="!selectedIds.size" @click="handleExportSelectedCsv">
           下载选中 CSV{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
         </el-button>
@@ -30,7 +34,7 @@
     </div>
 
     <!-- 已选专家姓名展示：跨搜索/翻页保留，可逐项取消或一键清空 -->
-    <div v-if="!isAdmin && selectedExperts.length" class="selected-bar">
+    <div v-if="!canExport && selectedExperts.length" class="selected-bar">
       <span class="selected-label">已选 {{ selectedExperts.length }} 位：</span>
       <el-tag
         v-for="expert in selectedExperts"
@@ -53,7 +57,7 @@
         @click="openDetail(expert)"
       >
         <el-checkbox
-          v-if="!isAdmin"
+          v-if="!canExport"
           :model-value="selectedIds.has(expert.id)"
           class="card-check"
           @click.stop
@@ -87,8 +91,8 @@
       />
     </div>
 
-    <!-- 专家详情（管理员：可编辑表单 + 删除，免审批直写） -->
-    <el-dialog v-if="isAdmin" v-model="detailVisible" title="编辑专家（免审批直改）" width="760px" destroy-on-close>
+    <!-- 专家详情（有编辑权限：可编辑表单 + 删除，免审批直写） -->
+    <el-dialog v-if="canEditExpert" v-model="detailVisible" title="编辑专家（免审批直改）" width="760px" destroy-on-close>
       <el-form v-if="detail" :model="adminForm" label-width="110px" class="edit-form">
         <div class="edit-photos">
           <div class="edit-photo-item">
@@ -180,7 +184,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button type="danger" :loading="adminDeleting" @click="handleAdminDelete">删除专家</el-button>
+        <el-button v-permission="'expert:delete'" type="danger" :loading="adminDeleting" @click="handleAdminDelete">删除专家</el-button>
         <el-button @click="detailVisible = false">取消</el-button>
         <el-button type="primary" :loading="adminSubmitting" @click="submitAdminEdit">保存</el-button>
       </template>
@@ -497,6 +501,9 @@ import PhotoImage from '../components/PhotoImage.vue'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
+const canAddExpert = computed(() => authStore.hasPermission('expert:add'))
+const canEditExpert = computed(() => authStore.hasPermission('expert:edit'))
+const canExport = computed(() => authStore.hasPermission('expert:export'))
 const selectedIds = ref(new Set())
 // 已选专家姓名（{id, 姓名}），跨搜索/翻页保留，用于标签展示与逐项取消
 const selectedExperts = ref([])
