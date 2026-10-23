@@ -15,6 +15,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -28,6 +30,7 @@ public class AuthService {
     private final SysUserMapper sysUserMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final PermissionService permissionService;
 
     public LoginResponse login(LoginRequest request) {
         if (request == null || !StringUtils.hasText(request.getUsername()) || !StringUtils.hasText(request.getPassword())) {
@@ -46,9 +49,12 @@ public class AuthService {
             throw new BusinessException(401, "用户名或密码错误");
         }
         boolean mustChange = Boolean.TRUE.equals(user.getMustChangePassword());
-        String token = jwtTokenProvider.createToken(user.getId(), user.getUsername(),
-                Boolean.TRUE.equals(user.getIsAdmin()), mustChange);
-        return new LoginResponse(token, user.getUsername(), user.getIsAdmin(), mustChange);
+        Long userId = user.getId();
+        List<String> roles = new ArrayList<>(permissionService.getUserRoles(userId));
+        String token = jwtTokenProvider.createToken(userId, user.getUsername(),
+                Boolean.TRUE.equals(user.getIsAdmin()), mustChange, roles);
+        return new LoginResponse(token, user.getUsername(), user.getIsAdmin(), mustChange, roles,
+                new ArrayList<>(permissionService.getUserPermissions(userId)));
     }
 
     /** 姓名格式：2-20 个汉字，可含间隔号 ·（如“布格拉·米吉提”） */
@@ -88,9 +94,12 @@ public class AuthService {
             }
         }
         boolean mustChange = Boolean.TRUE.equals(user.getMustChangePassword());
-        String token = jwtTokenProvider.createToken(user.getId(), user.getUsername(),
-                Boolean.TRUE.equals(user.getIsAdmin()), mustChange);
-        return new LoginResponse(token, user.getUsername(), user.getIsAdmin(), mustChange);
+        Long userId = user.getId();
+        List<String> roles = new ArrayList<>(permissionService.getUserRoles(userId));
+        String token = jwtTokenProvider.createToken(userId, user.getUsername(),
+                Boolean.TRUE.equals(user.getIsAdmin()), mustChange, roles);
+        return new LoginResponse(token, user.getUsername(), user.getIsAdmin(), mustChange, roles,
+                new ArrayList<>(permissionService.getUserPermissions(userId)));
     }
 
     /**
@@ -101,8 +110,11 @@ public class AuthService {
         if (user == null) {
             throw new BusinessException(401, "用户不存在");
         }
+        Long userId = user.getId();
+        List<String> roles = new ArrayList<>(permissionService.getUserRoles(userId));
         return new LoginResponse(null, user.getUsername(), user.getIsAdmin(),
-                Boolean.TRUE.equals(user.getMustChangePassword()));
+                Boolean.TRUE.equals(user.getMustChangePassword()), roles,
+                new ArrayList<>(permissionService.getUserPermissions(userId)));
     }
 
     /**

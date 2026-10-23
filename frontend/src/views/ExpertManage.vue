@@ -13,9 +13,10 @@
         </template>
       </el-input>
       <div class="spacer" />
-      <el-button type="primary" @click="openCreate">新增专家</el-button>
-      <el-button @click="handleTemplate">CSV 模板</el-button>
+      <el-button v-permission="'expert:add'" type="primary" @click="openCreate">新增专家</el-button>
+      <el-button v-permission="'expert:import'" @click="handleTemplate">CSV 模板</el-button>
       <el-upload
+        v-permission="'expert:import'"
         :show-file-list="false"
         :before-upload="handleImportFile"
         accept=".csv"
@@ -23,9 +24,9 @@
       >
         <el-button>CSV 导入</el-button>
       </el-upload>
-      <el-button type="warning" @click="handleExportFullZip">全量导出 ZIP</el-button>
-      <el-button :disabled="!selectedIds.length" @click="handleSelectedCsv">选中导出 CSV</el-button>
-      <el-button :disabled="!selectedIds.length" @click="handleSelectedZip">选中导出 ZIP</el-button>
+      <el-button v-permission="'expert:export'" type="warning" @click="handleExportFullZip">全量导出 ZIP</el-button>
+      <el-button v-permission="'expert:export'" :disabled="!selectedIds.length" @click="handleSelectedCsv">选中导出 CSV</el-button>
+      <el-button v-permission="'expert:export'" :disabled="!selectedIds.length" @click="handleSelectedZip">选中导出 ZIP</el-button>
     </div>
 
     <el-table
@@ -67,8 +68,8 @@
       <el-table-column prop="下载次数" label="下载次数" width="88" align="center" />
       <el-table-column label="操作" width="120" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+          <el-button v-permission="'expert:edit'" link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button v-permission="'expert:delete'" link type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

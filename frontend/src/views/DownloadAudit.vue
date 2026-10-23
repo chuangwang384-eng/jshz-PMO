@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div v-permission="'audit:view'">
     <div class="toolbar">
       <el-input
         v-model="keyword"

@@ -10,9 +10,11 @@ import com.jshz.expert.entity.ApprovalConfig;
 import com.jshz.expert.entity.ApprovalRecord;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.entity.ExpertChangeRequest;
+import com.jshz.expert.entity.Role;
 import com.jshz.expert.mapper.ApprovalConfigMapper;
 import com.jshz.expert.mapper.ApprovalRecordMapper;
 import com.jshz.expert.mapper.ExpertChangeRequestMapper;
+import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -82,6 +84,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     private final ApprovalRecordMapper approvalRecordMapper;
     private final ExpertService expertService;
     private final PhotoStorageService photoStorageService;
+    private final RoleMapper roleMapper;
     private final ObjectMapper objectMapper;
 
     // ==================== 审批流配置 ====================
@@ -109,6 +112,11 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         if (!StringUtils.hasText(approverRole)) {
             throw new BusinessException("审批人角色不能为空");
         }
+        // RBAC 阶段1：approver_role 可配置为任意已存在的角色（如 APPROVER / ADMIN），
+        // 不在代码中硬解；实际审批动作由 approval:audit 权限码在 permission 数据中控制。
+        if (roleMapper.selectCount(new LambdaQueryWrapper<Role>().eq(Role::getCode, approverRole.trim())) == 0) {
+            throw new BusinessException("审批人角色「" + approverRole.trim() + "」不存在，请在角色管理中先创建");
+        }
         ApprovalConfig config = getConfig();
         if (enabled != null) {
             if (enabled != 0 && enabled != 1) {
@@ -134,7 +142,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
 
     /**
      * 提交修改申请：
-     * - 管理员不允许走审批流（提示直接编辑）；
+     * - 拥有 expert:edit 权限的用户不允许走审批流（提示直接编辑）；
      * - 审批流未启用时拒绝；
      * - changes 非空且字段必须在白名单；
      * - 生成申请单(status=0)并写一条 SUBMIT 记录。
@@ -143,8 +151,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         if (user == null) {
             throw new BusinessException("未登录");
         }
-        if (user.isAdmin()) {
-            throw new BusinessException("管理员请直接编辑专家信息，无需提交审批");
+        if (user.hasPermission("expert:edit")) {
+            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中编辑专家信息，无需提交审批");
         }
         ApprovalConfig config = getConfig();
         if (config.getEnabled() == null || config.getEnabled() != 1) {
@@ -204,8 +212,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         if (user == null) {
             throw new BusinessException("未登录");
         }
-        if (user.isAdmin()) {
-            throw new BusinessException("管理员请直接在专家管理中新增专家，无需提交审批");
+        if (user.hasPermission("expert:edit")) {
+            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中新增专家，无需提交审批");
         }
         ApprovalConfig config = getConfig();
         if (config.getEnabled() == null || config.getEnabled() != 1) {

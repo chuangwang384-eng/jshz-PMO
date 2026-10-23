@@ -20,3 +20,8 @@ export function resetPassword(id) {
 export function deleteUser(id) {
   return request.delete(`/users/${id}`)
 }
+
+// 为用户分配角色（覆盖式，RBAC）
+export function assignUserRoles(id, roleIds) {
+  return request.put(`/users/${id}/roles`, { roleIds })
+}

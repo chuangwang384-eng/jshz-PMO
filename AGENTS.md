@@ -4,7 +4,7 @@
 
 > **任何代码、数据库结构、接口变更，必须同步更新文档；文档滞后视为缺陷。**
 
-本规则适用于所有 Agent / 开发者的每一次代码改动，违反将导致部署踩坑（如 docs 仍写"三张表"而实际库已有 6 表、旧 Controller 数 7 个而实际 8 个）。
+本规则适用于所有 Agent / 开发者的每一次代码改动，违反将导致部署踩坑（如 docs 仍写"6 张表"而实际库已有 10 表、旧 Controller 数 8 个而实际 10 个）。
 
 ### 0.1 必须同步的文档清单
 
@@ -29,7 +29,7 @@
 
 - **代码与实际库是唯一事实源**（表结构以 `SHOW TABLES` / `SHOW COLUMNS` 为准，接口以 Controller 代码为准）。
 - 文档与事实源冲突时，先修正文档，禁止以旧文档反向指导部署。
-- 当前事实基线：**数据库 6 张表**（expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record），**后端 Controller 8 个**（Auth / Expert / Approval / Upload / ExportCompat / User / Audit / Health）。
+- 当前事实基线：**数据库 10 张表**（expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record / role / permission / role_permission / user_role），**后端 Controller 10 个**（Auth / Expert / Approval / Upload / ExportCompat / User / Audit / Health / Role / Permission）。
 
 ## 1. 项目基本原则
 - 先检查现有项目结构、技术栈、依赖和代码约定，再开始修改。

@@ -4,15 +4,24 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.dto.UserRequest;
+import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.SysUser;
+import com.jshz.expert.entity.UserRole;
+import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
+import com.jshz.expert.mapper.UserRoleMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 用户管理服务（正式版 V1.001，管理员名单管理）。
@@ -28,6 +37,9 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
     private static final Pattern NAME_PATTERN = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,20}$");
 
     private final PasswordEncoder passwordEncoder;
+    private final UserRoleMapper userRoleMapper;
+    private final RoleMapper roleMapper;
+    private final PermissionService permissionService;
 
     /**
      * 用户列表（不含密码）。
@@ -38,7 +50,9 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             wrapper.like(SysUser::getUsername, keyword);
         }
         wrapper.orderByAsc(SysUser::getId);
-        return this.list(wrapper);
+        List<SysUser> users = this.list(wrapper);
+        fillRoles(users);
+        return users;
     }
 
     /**
@@ -120,5 +134,65 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             throw new BusinessException("用户不存在");
         }
         this.removeById(id);
+    }
+
+    /**
+     * 为用户分配角色（覆盖式，RBAC 阶段1）。
+     * 先删除该用户全部 user_role 再插入，随后清权限缓存即时生效。
+     */
+    public void assignRoles(Long userId, List<Long> roleIds) {
+        SysUser user = getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        Set<Long> distinct = new LinkedHashSet<>(roleIds == null ? List.of() : roleIds);
+        if (!distinct.isEmpty()) {
+            List<Role> roles = roleMapper.selectBatchIds(distinct);
+            if (roles.size() != distinct.size()) {
+                throw new BusinessException("存在无效的角色");
+            }
+            boolean hasDisabled = roles.stream().anyMatch(r -> r.getStatus() == null || r.getStatus() != 1);
+            if (hasDisabled) {
+                throw new BusinessException("不能分配已停用的角色");
+            }
+        }
+        userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, userId));
+        for (Long roleId : distinct) {
+            UserRole ur = new UserRole();
+            ur.setUserId(userId);
+            ur.setRoleId(roleId);
+            userRoleMapper.insert(ur);
+        }
+        permissionService.clearCaches();
+    }
+
+    /**
+     * 批量填充用户角色名称与角色 ID（RBAC 阶段1，供前端列表展示与分配回显）。
+     */
+    private void fillRoles(List<SysUser> users) {
+        if (users == null || users.isEmpty()) {
+            return;
+        }
+        List<Long> userIds = users.stream().map(SysUser::getId).collect(Collectors.toList());
+        List<UserRole> bindings = userRoleMapper.selectList(
+                new LambdaQueryWrapper<UserRole>().in(UserRole::getUserId, userIds));
+        if (bindings.isEmpty()) {
+            return;
+        }
+        Map<Long, Role> roleMap = roleMapper.selectBatchIds(
+                        bindings.stream().map(UserRole::getRoleId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(Role::getId, r -> r));
+        Map<Long, List<UserRole>> byUser = bindings.stream()
+                .collect(Collectors.groupingBy(UserRole::getUserId));
+        for (SysUser u : users) {
+            List<UserRole> urs = byUser.getOrDefault(u.getId(), List.of());
+            u.setRoleIds(urs.stream().map(UserRole::getRoleId).collect(Collectors.toList()));
+            u.setRoles(urs.stream()
+                    .map(ur -> roleMap.get(ur.getRoleId()))
+                    .filter(Objects::nonNull)
+                    .map(Role::getName)
+                    .collect(Collectors.toList()));
+        }
     }
 }

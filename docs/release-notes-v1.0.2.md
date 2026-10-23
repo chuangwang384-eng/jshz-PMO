@@ -1,5 +1,7 @@
 # 发布说明 v1.0.2（jshz-PMO 专家库系统）
 
+> 本文档为 v1.0.2 版本历史快照，其中表数 / Controller 数为发布时状态（6 表 / 8 Controller）；RBAC 升级后当前基线为 **10 表 / 10 Controller**（见 AGENTS.md §0.3）。
+
 - 发布日期：2026-10-22
 - 标签：`v1.0.2`
 - 基线：V1.001（正式版一期）+ 审批流三需求 + 风险点修复 + 登录跨域修复 + 文档同步
@@ -19,7 +21,7 @@
 1. 审批流接口支持**多状态筛选**：`GET /api/approval/requests?statuses=1,2` 一次拉取已通过+已驳回，统一分页；`ApprovalManage.vue` 由多请求改单请求。
 2. 前端审批列表新增「申请类型」标签列（requestTypeText：修改/新增专家）。
 3. 后端 Controller 达 **8 个**（新增 ApprovalController），Service 达 7 个，Mapper/Entity 各 6 个。
-4. 数据库脚本补齐：`init.sql` 现含全部 **6 张表**；新增幂等迁移脚本 `database/migration/20261022_add_approval_tables.sql`。
+4. 数据库脚本补齐：`init.sql` 现含全部 **6 张表**（v1.0.2 当时状态；RBAC 升级后当前为 **10 张表**，含 role / permission / role_permission / user_role）；新增幂等迁移脚本 `database/migration/20261022_add_approval_tables.sql`。
 5. 文档同步：`docs/deployment.md`、`docs/architecture.md` 以代码/实际库为事实源统一修正（6 表、8 Controller、启动方式、验收项）；AGENTS.md 新增「§0 文档同步铁律」维护机制。
 
 ## 三、缺陷修复（Bug Fixes）

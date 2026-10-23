@@ -15,10 +15,15 @@
           <div class="form-tip">停用后员工将无法提交专家信息修改申请</div>
         </el-form-item>
         <el-form-item label="审批人角色">
-          <el-select v-model="approverRole" style="width: 100%">
-            <el-option label="管理员" value="ADMIN" />
+          <el-select v-model="approverRole" style="width: 100%" placeholder="请选择审批人角色">
+            <el-option
+              v-for="r in roleOptions"
+              :key="r.code"
+              :label="`${r.name}（${r.code}）`"
+              :value="r.code"
+            />
           </el-select>
-          <div class="form-tip">仅管理员角色可审批员工提交的修改申请</div>
+          <div class="form-tip">仅拥有该角色的用户可审批员工提交的修改申请</div>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
@@ -32,12 +37,26 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getApprovalConfig, updateApprovalConfig } from '../api/approval'
+import { listRoles } from '../api/role'
 
 const config = ref(null)
 const enabled = ref(false)
 const approverRole = ref('ADMIN')
+const roleOptions = ref([])
 const loading = ref(false)
 const saving = ref(false)
+
+// 审批人角色下拉：动态加载角色列表（GET /api/roles），仅启用角色可选
+async function fetchRoles() {
+  try {
+    const roles = await listRoles()
+    roleOptions.value = (Array.isArray(roles) ? roles : []).filter(
+      (r) => r.status === 1 || r.status == null
+    )
+  } catch (e) {
+    roleOptions.value = []
+  }
+}
 
 async function fetchConfig() {
   loading.value = true
@@ -66,7 +85,10 @@ async function save() {
   }
 }
 
-onMounted(fetchConfig)
+onMounted(() => {
+  fetchConfig()
+  fetchRoles()
+})
 </script>
 
 <style scoped>

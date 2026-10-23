@@ -4,12 +4,18 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 登录用户主体（放入 SecurityContext，供鉴权与业务取当前用户）。
- * 角色映射：is_admin=1 -> ROLE_ADMIN；普通员工 -> ROLE_EMPLOYEE。
+ * RBAC 阶段1：持有 roles（来自 JWT claims）与 permissions（来自 DB + 缓存）；
+ * getAuthorities() 返回 ROLE_&lt;角色编码&gt; + 权限码集合；
+ * hasPermission(code) 用于业务层权限判断（如审批提交语义）。
+ * isAdmin 保留（登录响应 / 敏感字段展示兼容），不再作为鉴权依据。
  */
 public class AuthUser implements UserDetails {
 
@@ -17,12 +23,17 @@ public class AuthUser implements UserDetails {
     private final String username;
     private final boolean isAdmin;
     private final boolean mustChangePassword;
+    private final Set<String> roles;
+    private final Set<String> permissions;
 
-    public AuthUser(Long userId, String username, boolean isAdmin, boolean mustChangePassword) {
+    public AuthUser(Long userId, String username, boolean isAdmin, boolean mustChangePassword,
+                    Set<String> roles, Set<String> permissions) {
         this.userId = userId;
         this.username = username;
         this.isAdmin = isAdmin;
         this.mustChangePassword = mustChangePassword;
+        this.roles = roles == null ? Set.of() : roles;
+        this.permissions = permissions == null ? Set.of() : permissions;
     }
 
     public Long getUserId() {
@@ -37,11 +48,33 @@ public class AuthUser implements UserDetails {
         return mustChangePassword;
     }
 
+    public Set<String> getRoles() {
+        return roles;
+    }
+
+    public Set<String> getPermissions() {
+        return permissions;
+    }
+
+    /**
+     * 业务层权限判断：是否拥有指定权限码。
+     */
+    public boolean hasPermission(String permissionCode) {
+        return permissionCode != null && permissions.contains(permissionCode);
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return isAdmin
-                ? List.of(new SimpleGrantedAuthority("ROLE_ADMIN"), new SimpleGrantedAuthority("ROLE_EMPLOYEE"))
-                : List.of(new SimpleGrantedAuthority("ROLE_EMPLOYEE"));
+        Set<String> authorities = new LinkedHashSet<>();
+        for (String role : roles) {
+            authorities.add("ROLE_" + role);
+        }
+        authorities.addAll(permissions);
+        List<GrantedAuthority> result = new ArrayList<>(authorities.size());
+        for (String authority : authorities) {
+            result.add(new SimpleGrantedAuthority(authority));
+        }
+        return result;
     }
 
     @Override

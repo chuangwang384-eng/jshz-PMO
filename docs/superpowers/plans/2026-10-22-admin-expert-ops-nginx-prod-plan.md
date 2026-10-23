@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_6d6bdaa8cdd211f1b659525400cd780f
+    ReservedCode1: FRjBuaBQz5BKBia+JXE39uNRc2sINQk56aGSUxStDGUOywR0CTP/ZyOXLy0f/Bas+az48AMFU4bUY6v3v9h0JhxyV+WKizwVLRQKZKVH7KWqrVobL7OwdMPCT5qLKbe7pKW6f+0wRDLylE2C6lbdH4qv0f23RSeuHUWiXnb1k4ajYyDz/CGAIV0wiN4=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_6d6bdaa8cdd211f1b659525400cd780f
+    ReservedCode2: FRjBuaBQz5BKBia+JXE39uNRc2sINQk56aGSUxStDGUOywR0CTP/ZyOXLy0f/Bas+az48AMFU4bUY6v3v9h0JhxyV+WKizwVLRQKZKVH7KWqrVobL7OwdMPCT5qLKbe7pKW6f+0wRDLylE2C6lbdH4qv0f23RSeuHUWiXnb1k4ajYyDz/CGAIV0wiN4=
+---
+
 # jshz-PMO 实施计划：管理员专家库免审批操作 + Nginx 生产部署收口
 
 - 日期：2026-10-22
@@ -61,3 +72,4 @@
 - [ ] `http://<本机IP>` 生产页面登录/列表/照片/导出正常；5173 服务已停
 - [ ] 发布/回滚脚本可重复执行且可回退
 - [ ] 文档同步完成、git 提交与 v1.1.0 标签就绪
+*（内容由AI生成，仅供参考）*

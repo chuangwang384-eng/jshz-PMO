@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_6be1db3fcdd211f1ba6e525400de85a5
+    ReservedCode1: 8856ggeu4d3vxbPamz3nf97DOinfw3fqILInz0ZFYGHXQM+4J9RT/vPSnvjmOL5a8BldNL9376lGWn6cqyod8QOlIrS3+Q59Mgfpt1tif8kJ/JKPES5si0bG+MQYa7QQX9AzAiWEWZej9CWtDii734sHPgEP7OhRs2/Pt0bfffOGle4Ly/pRCcH4b1w=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_6be1db3fcdd211f1ba6e525400de85a5
+    ReservedCode2: 8856ggeu4d3vxbPamz3nf97DOinfw3fqILInz0ZFYGHXQM+4J9RT/vPSnvjmOL5a8BldNL9376lGWn6cqyod8QOlIrS3+Q59Mgfpt1tif8kJ/JKPES5si0bG+MQYa7QQX9AzAiWEWZej9CWtDii734sHPgEP7OhRs2/Pt0bfffOGle4Ly/pRCcH4b1w=
+---
+
 # jshz-PMO 生产部署手册（Nginx 80 + 反向代理 8080）
 
 > 适用环境：Windows 10（本机部署，动态 IP）
@@ -248,3 +259,4 @@ server {
 | `scripts/rollback-frontend.ps1` | 回滚脚本（恢复最近备份 + reload） |
 | `docs/deployment-prod.md` | 本手册 |
 | `docs/superpowers/plans/2026-10-22-admin-expert-ops-nginx-prod-plan.md` | 阶段计划文档 |
+*（内容由AI生成，仅供参考）*

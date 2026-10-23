@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 系统用户实体（正式版 V1.001）。
@@ -54,4 +55,14 @@ public class SysUser {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @JsonProperty("updateTime")
     private LocalDateTime updateTime;
+
+    /** RBAC 阶段1：用户拥有的角色名称（非表字段，查询时填充） */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @JsonProperty("roles")
+    private List<String> roles;
+
+    /** RBAC 阶段1：用户拥有的角色 ID（非表字段，查询时填充） */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @JsonProperty("roleIds")
+    private List<Long> roleIds;
 }

@@ -63,31 +63,37 @@ const routes = [
     path: '/experts/manage',
     name: 'experts-manage',
     component: () => import('../views/ExpertManage.vue'),
-    meta: { title: '专家管理', requiresAdmin: true }
+    meta: { title: '专家管理', permissions: ['expert:manage'] }
   },
   {
     path: '/audit/downloads',
     name: 'audit-downloads',
     component: () => import('../views/DownloadAudit.vue'),
-    meta: { title: '下载留痕', requiresAdmin: true }
+    meta: { title: '下载留痕', permissions: ['audit:view'] }
   },
   {
     path: '/approval/manage',
     name: 'approval-manage',
     component: () => import('../views/ApprovalManage.vue'),
-    meta: { title: '审批管理', requiresAdmin: true }
+    meta: { title: '审批管理', permissions: ['approval:audit'] }
   },
   {
     path: '/approval/config',
     name: 'approval-config',
     component: () => import('../views/ApprovalConfig.vue'),
-    meta: { title: '审批流配置', requiresAdmin: true }
+    meta: { title: '审批流配置', permissions: ['approval:config'] }
   },
   {
     path: '/users',
     name: 'users',
     component: () => import('../views/UserManage.vue'),
-    meta: { title: '用户管理', requiresAdmin: true }
+    meta: { title: '用户管理', permissions: ['user:manage'] }
+  },
+  {
+    path: '/roles/manage',
+    name: 'role-manage',
+    component: () => import('../views/RoleManage.vue'),
+    meta: { title: '角色管理', permissions: ['role:manage'] }
   },
   {
     path: '/:pathMatch(.*)*',
@@ -104,7 +110,8 @@ const router = createRouter({
 // - 登录态以 expert_user（非敏感用户信息）为准，JWT 存 httpOnly cookie 由浏览器自动携带
 // - 未登录访问任意页面跳登录页
 // - 已登录访问登录页跳转公司内部资料（专家库）
-// - is_admin 控制管理页访问（cookie 失效时由 request 拦截器 401 兜底跳登录）
+// - meta.permissions 权限码数组控制静态路由访问：未命中任一权限码则拦截并提示，
+//   cookie 失效时由 request 拦截器 401 兜底跳登录
 router.beforeEach((to) => {
   let user = null
   try {
@@ -125,8 +132,10 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  if (to.meta.requiresAdmin && !user?.isAdmin) {
-    ElMessage.error('无权限访问管理页面')
+  const permissions = user?.permissions || []
+  const required = to.meta?.permissions
+  if (Array.isArray(required) && required.length && !required.some((p) => permissions.includes(p))) {
+    ElMessage.error('无权限访问该页面')
     return '/company/experts'
   }
 
@@ -134,7 +143,7 @@ router.beforeEach((to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta?.title ? `${to.meta.title} - 专家库系统` : '专家库系统'
+  document.title = to.meta?.title ? `${to.meta.title} - 景帅会展内部管理系统` : '景帅会展内部管理系统'
 })
 
 export default router
