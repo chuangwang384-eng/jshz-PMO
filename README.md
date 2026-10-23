@@ -11,7 +11,7 @@ AIGC:
 
 # 景帅会展内部管理库系统（Expert Library System）
 
-> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 6 张表、后端 Controller 8 个。
+> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 10 张表、后端 Controller 10 个。
 
 ## 项目定位
 
@@ -22,7 +22,7 @@ AIGC:
 - 专家信息管理：专家档案（18 字段，含敏感身份信息）的登记、维护、检索与下载
 - 数据安全：身份证号/银行卡号查看页脱敏显示；下载留痕审计（download_log 记录下载人/时间/类型/IP）
 - 认证体系：账号=姓名登录、JWT（httpOnly cookie）、BCrypt、初始密码强制改密
-- 权限管理：基于 sys_user.is_admin 管理员名单区分管理员与普通员工（无 role 表 RBAC）
+- 权限管理：基于 RBAC 权限体系（role / permission / role_permission / user_role），sys_user.is_admin 保留为管理员名单兼容标记
 - 审批流：员工修改/新增专家走审批链（卡片内编辑提交、新增专家申请），管理员审批通过后应用变更/创建专家并归档照片；审批流可配置开关与审批人角色
 
 ## 技术架构
@@ -45,7 +45,7 @@ jshz-PMO/
 ├── .gitignore             # Git 忽略规则
 ├── backend/               # 后端服务（Spring Boot 3.2.5，V1.001，含审批流三表服务）
 ├── frontend/              # 前端应用（Vue 3.4 + Vite 5）
-├── database/              # 数据库脚本（init.sql：6 表结构，无 role 表；migration/ 补建迁移）
+├── database/              # 数据库脚本（init.sql：10 表结构，含 RBAC 四表；migration/ 补建迁移）
 ├── scripts/               # 迁移脚本（SQLite → MySQL）
 ├── docs/                  # 项目文档（设计/架构/部署/验收）
 └── 照片库/                # 照片存储（avatar / idcard_front / idcard_back）

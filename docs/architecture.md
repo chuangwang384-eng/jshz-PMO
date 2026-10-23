@@ -25,17 +25,17 @@ AIGC:
 
 - 前端为 SPA 应用，构建产物由 Nginx 托管，通过反向代理将 `/api` 请求转发至后端。
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
-- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）等数据，共 **6 张表**。
+- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **10 张表**。
 
 ## 2. 后端分层
 
 | 层 | 职责 | 示例 |
 | --- | --- | --- |
-| Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController`（共 **8 个**） |
+| Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController` / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询）（共 **10 个**） |
 | Service | 业务逻辑、事务控制 | `AuthService` / `ExpertService` / `ApprovalService`（审批核心：白名单字段校验、TMP 临时照片通道、修改/新增分支审批） / `ExportService` / `PhotoStorageService` / `DownloadAuditService` / `UserService` |
 | Security | 认证鉴权 | `JwtTokenProvider` / `JwtAuthenticationFilter` / `AuthUser` |
-| Mapper | 数据访问（MyBatis-Plus，共 6 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` |
-| Entity | 数据库实体映射（共 6 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText）/ `ApprovalRecord` |
+| Mapper | 数据访问（MyBatis-Plus，共 10 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` |
+| Entity | 数据库实体映射（共 10 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText）/ `ApprovalRecord` / `Role` / `Permission` / `RolePermission` / `UserRole` |
 | Config | 安全、跨域、全局配置 | `SecurityConfig` / `WebConfig` / `GlobalExceptionHandler` / `MybatisPlusConfig` |
 
 ## 3. 前端结构
@@ -50,16 +50,22 @@ AIGC:
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **6 张表**，**无 role 表 RBAC**：
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **10 张表**，含 RBAC 四表（role / permission / role_permission / user_role）：
 
 | 表 | 说明 | 关键字段 |
 | --- | --- | --- |
 | `expert_info` | 专家主表（18 字段） | id、name、unit、department、title、research_direction、expertise_area、contact、profile、id_card、bank_card、photo、bank_branch、id_card_front、id_card_back、create_time、update_time、update_by |
-| `sys_user` | 登录账号（管理员名单模式） | username=姓名、password（BCrypt）、is_admin（管理员名单，替代 role 表）、must_change_password（强制改密）、wecom_userid（预留）、status |
+| `sys_user` | 登录账号 | username=姓名、password（BCrypt）、is_admin（管理员名单兼容标记）、must_change_password（强制改密）、wecom_userid（预留）、status |
 | `download_log` | 下载审计 | 下载人、专家、时间、类型、IP；selected 导出逐专家一条、全量/md 单条 |
 | `approval_config` | 审批流配置 | flow_key（UNIQUE，EXPERT_MODIFY）、flow_name、enabled、approver_role |
 | `expert_change_request` | 审批申请单 | expert_id（可空，新增申请通过后回填）、expert_name、applicant、change_data（JSON）、reason、status（0待审/1通过/2驳回）、request_type（0修改/1新增）、approve_by、approve_comment |
 | `approval_record` | 审批流转记录 | request_id、node_name、action（SUBMIT/APPROVE/REJECT）、operator、comment、create_time |
+| `role` | RBAC 角色表 | id、code（UNIQUE）、name、description、status、builtin（1=内置禁删禁改；SUPER_ADMIN 代码内全权锁定不可改）、create_time、update_time |
+| `permission` | RBAC 权限点表 | id、code（可重复，一码多路径）、name、type（1菜单/2接口）、method、path、parent_code；UNIQUE(method,path) |
+| `role_permission` | 角色-权限关联表 | id、role_id、permission_code；UNIQUE(role_id,permission_code) |
+| `user_role` | 用户-角色关联表 | id、user_id、role_id；UNIQUE(user_id,role_id) |
+
+> RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。
 
 ## 5. 安全设计（内网）
 
