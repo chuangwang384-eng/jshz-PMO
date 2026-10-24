@@ -540,7 +540,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
                 notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_TODO,
                         "新的" + typeText + "待审批",
                         "申请人 " + request.getApplicant() + " 提交了新的申请，请及时处理",
-                        "/approval/manage");
+                        "/admin/approval/manage");
             }
         } catch (Exception e) {
             // 通知失败不影响主流程

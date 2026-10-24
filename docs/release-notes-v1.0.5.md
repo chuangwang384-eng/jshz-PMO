@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_c9752876cf6d11f1814c525400cd780f
+    ReservedCode1: jKXH8DOVlWswz4aMwxtfYTvcL2sb8SSPDblUKnB7TjkAD4VgjmVAEZHqJ1lzIIpRi1lCI5z+29bU1TFN0D6WXwjXws1CCtaB2yswRoXKNRXidMPE2Q2yJwg+5JM8No0KJNVzUF3TqM5IHLvBenvLGG9XR6F06sTFbeG762RL6NttnLcFR1Dl38SUhW0=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_c9752876cf6d11f1814c525400cd780f
+    ReservedCode2: jKXH8DOVlWswz4aMwxtfYTvcL2sb8SSPDblUKnB7TjkAD4VgjmVAEZHqJ1lzIIpRi1lCI5z+29bU1TFN0D6WXwjXws1CCtaB2yswRoXKNRXidMPE2Q2yJwg+5JM8No0KJNVzUF3TqM5IHLvBenvLGG9XR6F06sTFbeG762RL6NttnLcFR1Dl38SUhW0=
+---
+
 # 发布说明 v1.0.5（jshz-PMO 专家库系统 · 管理员设置菜单收拢）
 
 - 发布日期：2026-10-24
@@ -24,7 +35,7 @@
 
 - **前端**：`frontend/src` 中无前端路由跳转硬编码旧路径；`api/approval.js`（`/approval/config`）、`api/audit.js`（`/audit/downloads`）、`api/user.js`（`/users`）命中项均为后端 REST 接口路径，非前端路由，无需改动。
 - **文档**：`docs/architecture.md`（消息通知中心跳转描述）、`docs/20261023-handover-document.md`、`<LOCAL_PATH>` 中 `/approval/manage?status=0` 引用已同步为 `/admin/approval/manage?status=0`。
-- **后端（未改动，待跟进）**：`backend/src/main/java/com/jshz/expert/service/ApprovalService.java` `notifyApprovalTodo` 埋点仍硬编码 `jump_path = "/approval/manage"`。前端路由已无该路径，点击"新申请待审"通知将命中 catchall 重定向 `/experts`，**审批跳转功能回归风险**。按任务约束本轮未改后端，建议后续将后端 jump_path 同步为 `/admin/approval/manage`。
+- **后端（已同步修复）**：`backend/src/main/java/com/jshz/expert/service/ApprovalService.java` `notifyApprovalTodo` 埋点 `jump_path` 已由 `/approval/manage` 更新为 `/admin/approval/manage`（对应后续 fix 提交），审批通知点击跳转回归风险已解除。
 
 ## 三、构建与部署（Build & Deploy）
 
@@ -52,3 +63,4 @@
 - 数据库无需回滚（本次未变更表结构与数据）。
 
 ---
+*（内容由AI生成，仅供参考）*
