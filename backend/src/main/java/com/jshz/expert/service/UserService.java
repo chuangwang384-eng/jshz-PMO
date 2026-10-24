@@ -172,7 +172,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         notificationService.notify(userId, NotificationService.TYPE_ROLE_CHANGED,
                 "角色已调整",
                 "您的系统角色已被管理员调整，请重新登录以刷新权限",
-                null);
+                "/profile");
     }
 
     /**

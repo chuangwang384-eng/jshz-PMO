@@ -43,7 +43,7 @@ AIGC:
 | 目录 | 职责 |
 | --- | --- |
 | `src/api` | Axios 请求封装（request/auth/expert/user/audit/approval/knowledge/notification，withCredentials=true，401 拦截跳登录） |
-| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理/项目管理等；知识星球父路由 /knowledge-planet 挂父页组件，点击标题跳父路由、点击箭头展开二级菜单） |
+| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理/项目管理等；知识星球父路由 /knowledge-planet 挂父页组件（KnowledgePlanetHome 内含 <router-view/> 渲染四个分类子页；父路由显示上传中心+全分类总览，子路由仅渲染本分类列表），点击标题跳父路由、点击箭头展开二级菜单） |
 | `src/views` | 页面组件（Login/ExpertList/ExpertManage/DownloadAudit/UserManage/MyApproval/ApprovalManage/ApprovalConfig/ChangePassword/KnowledgePlanetHome（知识星球父页：上传中心+全分类总览，管理员含永久删除）/MeetingExecution/AssociationCompliance/EnterpriseCompliance/CustomerPreferences 等） |
 | `src/stores` | Pinia 状态管理（auth、notification（30 秒轮询未读数+新消息轻提示）） |
 | `src/components` | 通用组件（ChangePasswordDialog/PhotoImage/SideMenuItem/KnowledgeDocList（知识文档列表，allowUpload=false 隐藏上传按钮供子页复用，管理员含永久删除）/NotificationBell（顶栏铃铛+未读红点+消息列表）） |
@@ -72,7 +72,7 @@ AIGC:
 
 > RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:manage`（ADMIN/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:manage`（已绑定 ADMIN），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
 
-> 消息通知中心说明：表 `notification`，接口 GET /api/notifications（本人分页列表）、GET /api/notifications/unread-count（未读数）、POST /api/notifications/{id}/read（单条已读）、POST /api/notifications/read-all（全部已读），登录即可；五类事件埋点：approval_result（审批结果→申请人）、approval_todo（新申请待审→审批角色用户）、role_changed（角色调整→被调整用户）、password_reset（密码重置→被重置用户）、doc_off_shelf / doc_deleted（文档下架/永久删除→上传人）；前端顶栏 NotificationBell 铃铛+未读红点+消息列表，store 30 秒轮询未读数并在新增未读时轻提示，点击通知按 jump_path 跳转（审批结果跳 /profile/my-approvals?status=1|2，新申请待审跳 /approval/manage，文档事件跳 /knowledge-planet，密码重置跳 /profile/change-password）。
+> 消息通知中心说明：表 `notification`，接口 GET /api/notifications（本人分页列表）、GET /api/notifications/unread-count（未读数）、POST /api/notifications/{id}/read（单条已读）、POST /api/notifications/read-all（全部已读），登录即可；五类事件埋点：approval_result（审批结果→申请人）、approval_todo（新申请待审→审批角色用户）、role_changed（角色调整→被调整用户）、password_reset（密码重置→被重置用户）、doc_off_shelf / doc_deleted（文档下架/永久删除→上传人）；前端顶栏 NotificationBell 铃铛+未读红点+消息列表，store 30 秒轮询未读数并在新增未读时轻提示，点击通知按 jump_path 跳转（审批结果跳 /profile/my-approvals?status=1|2，新申请待审跳 /approval/manage，角色调整跳 /profile，文档事件跳 /knowledge-planet，密码重置跳 /profile/change-password）。
 
 ## 5. 安全设计（内网）
 

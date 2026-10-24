@@ -1,5 +1,10 @@
 <template>
   <div class="knowledge-planet-home">
+    <!-- 分类子页（/knowledge-planet/xxx）：渲染对应分类文档列表；父路由时为空 -->
+    <router-view />
+
+    <!-- 父页内容：上传中心 + 全部文档总览（仅 /knowledge-planet 展示） -->
+    <template v-if="isRootPage">
     <!-- 上传中心 -->
     <el-card shadow="never" class="upload-card">
       <template #header>
@@ -91,6 +96,7 @@
         />
       </div>
     </el-card>
+    </template>
 
     <!-- 更新弹窗 -->
     <el-dialog title="更新文档" v-model="updateVisible" width="520px">
@@ -137,6 +143,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import {
@@ -166,8 +173,11 @@ function categoryName(value) {
   return categoryLabels[value] || value || '—'
 }
 
+const route = useRoute()
 const authStore = useAuthStore()
 const canManage = computed(() => authStore.hasPermission('knowledge:manage'))
+// 仅父路由 /knowledge-planet 展示上传中心 + 全部文档总览；分类子页只渲染 router-view 内的分类列表
+const isRootPage = computed(() => route.name === 'knowledge-planet')
 
 // 上传中心
 const uploadForm = ref({ category: '', title: '' })
