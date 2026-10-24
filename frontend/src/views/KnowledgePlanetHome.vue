@@ -67,13 +67,14 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="290" align="center">
+        <el-table-column label="操作" width="350" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="handlePreview(row)">预览</el-button>
             <el-button link type="primary" size="small" @click="handleDownload(row)">下载</el-button>
             <el-button link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
             <el-button link type="info" size="small" @click="openVersions(row)">历史</el-button>
             <el-button link type="danger" size="small" v-if="canManage" @click="handleOffShelf(row)">下架</el-button>
+            <el-button link type="danger" size="small" v-if="canManage" @click="handlePermanentDelete(row)">永久删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -143,6 +144,7 @@ import {
   uploadKnowledgeDoc,
   updateKnowledgeDoc,
   offShelfKnowledgeDoc,
+  permanentDeleteKnowledgeDoc,
   getKnowledgeVersions,
   fetchKnowledgeFile
 } from '../api/knowledge'
@@ -323,6 +325,25 @@ function handleOffShelf(row) {
     .then(async () => {
       await offShelfKnowledgeDoc(row.id)
       ElMessage.success('已下架')
+      fetchList()
+    })
+    .catch(() => {})
+}
+
+// 永久删除：主记录 + 全部版本历史 + 磁盘文件一并删除，不可恢复
+function handlePermanentDelete(row) {
+  ElMessageBox.confirm(
+    `确认永久删除文档「${row.title}」？该操作将删除全部版本记录与磁盘文件，且不可恢复。`,
+    '永久删除确认',
+    {
+      confirmButtonText: '永久删除',
+      cancelButtonText: '取消',
+      type: 'error'
+    }
+  )
+    .then(async () => {
+      await permanentDeleteKnowledgeDoc(row.id)
+      ElMessage.success('已永久删除')
       fetchList()
     })
     .catch(() => {})

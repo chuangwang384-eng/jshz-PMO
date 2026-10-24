@@ -5,6 +5,14 @@
       <span class="page-sub">查看我提交的专家信息修改申请及审批进度</span>
     </div>
 
+    <div class="filter-bar">
+      <el-select v-model="status" placeholder="全部状态" clearable style="width: 140px" @change="handleStatusChange">
+        <el-option label="待审批" :value="0" />
+        <el-option label="已通过" :value="1" />
+        <el-option label="已驳回" :value="2" />
+      </el-select>
+    </div>
+
     <el-table :data="requests" border stripe v-loading="loading" style="margin-top: 16px">
       <el-table-column prop="expertName" label="专家姓名" width="140" />
       <el-table-column label="申请类型" width="110" align="center">
@@ -68,10 +76,18 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { getMyApprovalRequests } from '../api/approval'
 
+const route = useRoute()
+const router = useRouter()
+
 const requests = ref([])
+// 状态筛选：读取 URL query.status（0=待审批 1=已通过 2=已驳回），支持从通知中心跳转携带状态
+const status = ref(
+  route.query.status !== undefined && route.query.status !== '' ? Number(route.query.status) : undefined
+)
 const total = ref(0)
 const page = ref(1)
 const size = ref(20)
@@ -83,7 +99,11 @@ const progressRow = ref(null)
 async function fetchList() {
   loading.value = true
   try {
-    const data = await getMyApprovalRequests({ page: page.value, size: size.value })
+    const data = await getMyApprovalRequests({
+      page: page.value,
+      size: size.value,
+      status: status.value !== undefined && status.value !== '' ? status.value : undefined
+    })
     requests.value = data?.items || []
     total.value = data?.total || 0
   } finally {
@@ -122,6 +142,31 @@ function openProgress(row) {
   progressVisible.value = true
 }
 
+function handleStatusChange() {
+  const q = { ...route.query }
+  if (status.value === undefined || status.value === '') {
+    delete q.status
+  } else {
+    q.status = String(status.value)
+  }
+  router.replace({ query: q })
+  page.value = 1
+  fetchList()
+}
+
+// URL query.status 变化（浏览器前进/后退或通知跳转）时同步本地筛选
+watch(
+  () => route.query.status,
+  (val) => {
+    const next = val === undefined || val === '' ? undefined : Number(val)
+    if (next !== status.value) {
+      status.value = next
+      page.value = 1
+      fetchList()
+    }
+  }
+)
+
 onMounted(fetchList)
 </script>
 
@@ -147,6 +192,9 @@ onMounted(fetchList)
 }
 .muted {
   color: #a8abb2;
+}
+.filter-bar {
+  margin-top: 12px;
 }
 .progress-expert {
   font-size: 15px;

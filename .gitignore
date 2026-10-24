@@ -48,6 +48,7 @@ start-backend.bat
 照片库_tmp/
 backup/
 备份文件夾/
+知识文档库/
 temp_schema.txt
 
 # --- 冒烟测试输出与演示二进制素材（不入库） ---

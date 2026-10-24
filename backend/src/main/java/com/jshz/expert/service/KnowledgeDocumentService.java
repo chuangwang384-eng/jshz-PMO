@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.KnowledgeDocVersion;
 import com.jshz.expert.entity.KnowledgeDocument;
+import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.mapper.KnowledgeDocVersionMapper;
 import com.jshz.expert.mapper.KnowledgeDocumentMapper;
+import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,7 +23,8 @@ import java.util.Set;
 
 /**
  * 知识文档业务服务（知识星球）。
- * 上传 / 分页检索 / 版本更新（保留历史）/ 下架（knowledge:manage）/ 版本历史。
+ * 上传 / 分页检索 / 版本更新（保留历史）/ 下架（knowledge:manage）/ 永久删除（knowledge:manage）/ 版本历史。
+ * 消息通知：下架 / 永久删除时通知上传人。
  */
 @Service
 @RequiredArgsConstructor
@@ -32,6 +35,8 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
 
     private final KnowledgeDocStorageService storageService;
     private final KnowledgeDocVersionMapper versionMapper;
+    private final NotificationService notificationService;
+    private final SysUserMapper sysUserMapper;
 
     /**
      * 上传新文档：写主表 version=1，并写版本表第一条记录。登录即可。
@@ -138,6 +143,61 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         }
         doc.setStatus(0);
         this.updateById(doc);
+        notifyDocEvent(NotificationService.TYPE_DOC_OFF_SHELF, doc,
+                "文档「" + doc.getTitle() + "」已被下架", "您上传的文档已被管理员下架，内容不再对全员可见");
+    }
+
+    /**
+     * 永久删除（知识:manage）：删除主记录 + 全部版本历史 + 磁盘文件（含各版本文件），不可恢复。
+     * 需权限码 knowledge:manage（业务层校验）。删除后通知上传人。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void permanentDelete(Long id, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (!user.hasPermission("knowledge:manage")) {
+            throw new BusinessException("无权限执行该操作");
+        }
+        KnowledgeDocument doc = getById(id);
+        if (doc == null) {
+            throw new BusinessException("文档不存在");
+        }
+        // 1. 收集物理文件（当前版本 + 各历史版本），先删除记录后物理删除
+        List<KnowledgeDocVersion> versions = versions(id);
+        // 2. 删除版本历史记录
+        versionMapper.delete(new LambdaQueryWrapper<KnowledgeDocVersion>()
+                .eq(KnowledgeDocVersion::getDocId, id));
+        // 3. 删除主记录
+        this.removeById(id);
+        // 4. 物理删除磁盘文件（当前 + 历史版本，容错不阻断）
+        if (StringUtils.hasText(doc.getFilePath())) {
+            storageService.deleteDocument(doc.getFilePath());
+        }
+        for (KnowledgeDocVersion v : versions) {
+            if (v.getFilePath() != null && StringUtils.hasText(v.getFilePath())) {
+                storageService.deleteDocument(v.getFilePath());
+            }
+        }
+        // 5. 通知上传人
+        notifyDocEvent(NotificationService.TYPE_DOC_DELETED, doc,
+                "文档「" + doc.getTitle() + "」已被永久删除",
+                "您上传的文档已被管理员永久删除（含全部版本历史与磁盘文件），不可恢复");
+    }
+
+    /**
+     * 文档事件通知：按 uploadBy 反查接收人，通知到用户。
+     */
+    private void notifyDocEvent(String type, KnowledgeDocument doc, String title, String content) {
+        if (doc.getUploadBy() == null || !StringUtils.hasText(doc.getUploadBy())) {
+            return;
+        }
+        SysUser uploader = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, doc.getUploadBy()).last("LIMIT 1"));
+        if (uploader == null) {
+            return;
+        }
+        notificationService.notify(uploader.getId(), type, title, content, "/knowledge-planet");
     }
 
     /**

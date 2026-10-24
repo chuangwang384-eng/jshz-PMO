@@ -22,6 +22,11 @@ export function offShelfKnowledgeDoc(id) {
   return request.delete(`/knowledge/docs/${id}`)
 }
 
+// 永久删除：DELETE（需权限码 knowledge:manage；删除主记录+全部版本历史+磁盘文件，不可恢复）
+export function permanentDeleteKnowledgeDoc(id) {
+  return request.delete(`/knowledge/docs/${id}/permanent`)
+}
+
 // 版本历史
 export function getKnowledgeVersions(id) {
   return request.get(`/knowledge/docs/${id}/versions`)

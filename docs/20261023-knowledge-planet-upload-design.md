@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_0bc3d776cebd11f19190525400de85a5
+    ReservedCode1: frejqzvNDaI5Brt8ZKrrY6tCAAK4+N8ho2ktw7mtkWrA75Sx0ydtMgUJtYxjcFTAgNzdJtaAhDrJzkuUhNO85ixGtYaZFbqCiXn5PRG4KSGF77XgLaztrcX+mMzRzDrvZvLSqlBgE5qgnVJzX0RVbt8qTjE8aY7REZoP+5DH3Omzlhcm7mBDQVkgWOI=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_0bc3d776cebd11f19190525400de85a5
+    ReservedCode2: frejqzvNDaI5Brt8ZKrrY6tCAAK4+N8ho2ktw7mtkWrA75Sx0ydtMgUJtYxjcFTAgNzdJtaAhDrJzkuUhNO85ixGtYaZFbqCiXn5PRG4KSGF77XgLaztrcX+mMzRzDrvZvLSqlBgE5qgnVJzX0RVbt8qTjE8aY7REZoP+5DH3Omzlhcm7mBDQVkgWOI=
+---
+
 # 知识星球上传上移与分级展示 — 设计文档
 
 - 日期：2026-10-23
@@ -73,3 +84,4 @@
 
 - 后端：还原 KnowledgeDocumentService 查询与 Controller 参数声明，重新打包部署。
 - 前端：路由还原 redirect、子页恢复上传按钮、删除父页组件，重新构建部署。
+*（内容由AI生成，仅供参考）*

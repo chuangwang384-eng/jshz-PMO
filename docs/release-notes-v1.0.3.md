@@ -2,12 +2,14 @@
 AIGC:
     Label: "1"
     ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_281799eaceb611f19bf2525400cd780f
-    ReservedCode1: +VJGbialPwOgQPRBvh6aSUcwFe5Yh6RM7ZdyYokHoxbWjhHqB1L7CB7PFXjBLAv0WC+Yer5NtFXH27jug4yBUG0TL5PDe1+t8Xn9CqUIju8oAodwD/+VVpYebWBzNqViF7y9bwvkKWxFplRil6RfreZl2T1At9/Xmj9kfKz0C2aT1Vd7aDaVJYtRBII=
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_0a58c6fdcebd11f19bf2525400cd780f
+    ReservedCode1: EdM96kKvu+sJ6j5Uh27l+VqxzanXq97r7KHAMBbgXpgdUadDQ61QOI5wcHMnOI9eddqwfCKwA6xju/ltT5dciLAs3zKlcY52WBVJkwHjdPuHReh8C99NW4I3EScWKv1pQbfww/4GTf/xAlr8kpIbIJe+Yz2hLZsF2eDissNG9J8SI4YXFLba7W3KQ1I=
     ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_281799eaceb611f19bf2525400cd780f
-    ReservedCode2: +VJGbialPwOgQPRBvh6aSUcwFe5Yh6RM7ZdyYokHoxbWjhHqB1L7CB7PFXjBLAv0WC+Yer5NtFXH27jug4yBUG0TL5PDe1+t8Xn9CqUIju8oAodwD/+VVpYebWBzNqViF7y9bwvkKWxFplRil6RfreZl2T1At9/Xmj9kfKz0C2aT1Vd7aDaVJYtRBII=
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_0a58c6fdcebd11f19bf2525400cd780f
+    ReservedCode2: EdM96kKvu+sJ6j5Uh27l+VqxzanXq97r7KHAMBbgXpgdUadDQ61QOI5wcHMnOI9eddqwfCKwA6xju/ltT5dciLAs3zKlcY52WBVJkwHjdPuHReh8C99NW4I3EScWKv1pQbfww/4GTf/xAlr8kpIbIJe+Yz2hLZsF2eDissNG9J8SI4YXFLba7W3KQ1I=
 ---
+
+
 
 # 发布说明 v1.0.3（jshz-PMO 专家库系统 · CSV 转 Excel）
 
@@ -82,5 +84,38 @@ AIGC:
 
 - 后端：还原 `KnowledgeDocumentService.pageList` 查询（category 必填、无 status 过滤）与 `KnowledgeController.list` 参数声明，重新打包部署。
 - 前端：路由还原 `redirect: '/knowledge-planet/meeting-execution'`、子页恢复上传按钮、删除 `KnowledgePlanetHome.vue`，重新构建部署。
+
+*（内容由AI生成，仅供参考）*
+*（内容由AI生成，仅供参考）*
+
+---
+
+## 七、补充调整（2026-10-23 晚）：知识星球菜单交互 / 管理员永久删除 / 通用消息通知中心
+
+> 设计文档：`docs/20261023-knowledge-planet-menu-delete-notification-design.md`（已批准）。本调整在 v1.0.3 + 上传上移调整基础上增量实施：新增 1 张表（notification）、新增 1 个 Controller（Notification），事实基线更新为 13 表 / 12 Controller（AGENTS.md 0.3 已同步）。
+
+### 变更内容
+
+1. **知识星球菜单交互**：`components/SideMenuItem.vue` 改为"点标题跳父路由（/knowledge-planet=上传中心+全分类总览）、点箭头展开/收起二级菜单"；各二级菜单仅展示本分类文件（已有 category 过滤）。
+2. **管理员永久删除**：
+   - 后端：新增 `DELETE /api/knowledge/docs/{id}/permanent`（接口权限码 `knowledge:manage`，业务层二次校验）；`KnowledgeDocumentService.permanentDelete` 删除主记录 + 全部版本历史 + `KnowledgeDocStorageService.deleteDocument` 物理删除磁盘文件，并通知上传人 `doc_deleted`；下架 `DELETE /api/knowledge/docs/{id}` 保留。
+   - 前端：`KnowledgePlanetHome.vue` / `KnowledgeDocList.vue` 管理员（`knowledge:manage`）操作列新增红色"永久删除"按钮 + ElMessageBox 二次确认；`api/knowledge.js` 新增 `permanentDeleteKnowledgeDoc`。
+3. **通用消息通知中心**：
+   - 数据库：`database/migration/20261023_add_notification_table.sql` 建 `notification` 表（幂等）。
+   - 后端：`Notification` 实体 / `NotificationMapper` / `NotificationService`（notify/pageByUser/unreadCount/markRead/markAllRead）/ `NotificationController`（GET /api/notifications、GET /unread-count、POST /{id}/read、POST /read-all，登录即可）；五类事件埋点：`ApprovalService.submit/submitCreate→approval_todo`（新申请待审→审批角色用户）、`ApprovalService.approve/reject→approval_result`（审批结果→申请人）、`UserService.assignRoles→role_changed`、`UserService.resetPassword→password_reset`、`KnowledgeDocumentService.offShelf→doc_off_shelf`、`permanentDelete→doc_deleted`（→上传人）。
+   - 前端：`api/notification.js`（接口封装）、`store/notification.js`（30 秒轮询未读数 + 新消息轻提示）、`components/NotificationBell.vue`（顶栏铃铛+未读红点+消息列表+全部已读）、`App.vue` 接入；通知点击按 `jump_path` 跳转（审批结果→/profile/my-approvals?status=1|2、新申请待审→/approval/manage、文档事件→/knowledge-planet、密码重置→/profile/change-password）。
+4. **审批页 status 支持核查**：`ApprovalManage.vue` 已通过 status/statuses 查询后端（无需补）；`MyApproval.vue` 原未传 status，已补：读取 URL query.status（0 待审批/1 已通过/2 已驳回）传给 `GET /api/approval/my-requests`（后端已支持 status 过滤），并新增状态筛选下拉 + watch route.query.status 同步。
+
+### 构建与部署
+
+- 前端：`npm run build`（已通过，built in ~11s）。
+- 后端：`mvn compile`（已通过，BUILD SUCCESS）；完整打包与停服重启由 computer-agent 负责，不执行 `mvn clean package`。
+- 数据库：执行 `database/migration/20261023_add_notification_table.sql`（幂等）。
+
+### 回滚
+
+- 后端：删除 NotificationController/Service/Mapper/Entity 与各 Service 埋点、KnowledgeController permanent 端点及 permanentDelete，还原 `ApprovalService.myRequests` 无 status 过滤，重新编译打包部署。
+- 前端：删除 NotificationBell / notification store / api / App.vue 接入，还原 SideMenuItem 整块触发与两组件删除按钮、MyApproval 无 status 解析，重新构建部署。
+- 数据库：`DROP TABLE notification;`（如已执行 migration）。
 
 *（内容由AI生成，仅供参考）*

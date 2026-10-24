@@ -21,7 +21,7 @@
 1. 审批流接口支持**多状态筛选**：`GET /api/approval/requests?statuses=1,2` 一次拉取已通过+已驳回，统一分页；`ApprovalManage.vue` 由多请求改单请求。
 2. 前端审批列表新增「申请类型」标签列（requestTypeText：修改/新增专家）。
 3. 后端 Controller 达 **8 个**（新增 ApprovalController），Service 达 7 个，Mapper/Entity 各 6 个。
-4. 数据库脚本补齐：`init.sql` 现含全部 **6 张表**（v1.0.2 当时状态；RBAC 升级后 **10 张表**、知识星球升级后当前为 **12 张表**，含 role / permission / role_permission / user_role 与 knowledge_document / knowledge_doc_version）；新增幂等迁移脚本 `database/migration/20261022_add_approval_tables.sql`。
+4. 数据库脚本补齐：`init.sql` 现含全部 **6 张表**（v1.0.2 当时状态；RBAC 升级后当时 **10 张表**、知识星球升级后当时 **12 张表**、通知中心升级后当前为 **13 张表**，含 role / permission / role_permission / user_role、knowledge_document / knowledge_doc_version 与 notification）；新增幂等迁移脚本 `database/migration/20261022_add_approval_tables.sql`。
 5. 文档同步：`docs/deployment.md`、`docs/architecture.md` 以代码/实际库为事实源统一修正（6 表、8 Controller、启动方式、验收项）；AGENTS.md 新增「§0 文档同步铁律」维护机制。
 
 ## 三、缺陷修复（Bug Fixes）

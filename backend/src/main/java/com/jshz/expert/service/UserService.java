@@ -40,6 +40,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
     private final PermissionService permissionService;
+    private final NotificationService notificationService;
 
     /**
      * 用户列表（不含密码）。
@@ -114,7 +115,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
     }
 
     /**
-     * 重置密码为 111111，并标记强制改密。
+     * 重置密码为 111111，并标记强制改密。重置后通知用户。
      */
     public void resetPassword(Long id) {
         SysUser user = getById(id);
@@ -124,6 +125,10 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         user.setPassword(passwordEncoder.encode(DEFAULT_PASSWORD));
         user.setMustChangePassword(true);
         this.updateById(user);
+        notificationService.notify(user.getId(), NotificationService.TYPE_PASSWORD_RESET,
+                "密码已重置",
+                "您的登录密码已被管理员重置为初始密码 " + DEFAULT_PASSWORD + "，请登录后立即修改",
+                "/profile/change-password");
     }
 
     /**
@@ -164,6 +169,10 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             userRoleMapper.insert(ur);
         }
         permissionService.clearCaches();
+        notificationService.notify(userId, NotificationService.TYPE_ROLE_CHANGED,
+                "角色已调整",
+                "您的系统角色已被管理员调整，请重新登录以刷新权限",
+                null);
     }
 
     /**

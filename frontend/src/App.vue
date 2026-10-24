@@ -9,6 +9,7 @@
         景帅会展内部管理系统
       </div>
       <el-menu
+        ref="sideMenuRef"
         :default-active="activeMenu"
         router
         background-color="#001529"
@@ -25,6 +26,7 @@
       <el-header class="header">
         <div class="header-title">{{ pageTitle }}</div>
         <div class="user-area">
+          <NotificationBell />
           <span class="username">{{ auth.username }}</span>
           <el-button link type="primary" @click="handleLogout">退出登录</el-button>
         </div>
@@ -40,17 +42,22 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from './store/auth'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
 import SideMenuItem from './components/SideMenuItem.vue'
+import NotificationBell from './components/NotificationBell.vue'
 import { buildMenuTree } from './utils/menu'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+
+// 侧边菜单实例：供 SideMenuItem 展开/收起子菜单（点标题跳父路由、点箭头展开）
+const sideMenuRef = ref(null)
+provide('sideMenuRef', sideMenuRef)
 
 const isLoginPage = computed(() => route.path === '/login')
 const activeMenu = computed(() => route.path)
@@ -135,6 +142,14 @@ body {
 .side-menu .el-menu-item {
   height: 48px;
   line-height: 48px;
+}
+.side-menu .el-sub-menu__title {
+  height: 48px;
+  line-height: 48px;
+}
+/* 自定义箭头接管展开交互，隐藏 el-sub-menu 自带箭头 */
+.side-menu .el-sub-menu__icon-arrow {
+  display: none;
 }
 .header {
   background: #fff;

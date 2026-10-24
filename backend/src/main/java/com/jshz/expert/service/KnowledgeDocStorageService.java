@@ -67,6 +67,23 @@ public class KnowledgeDocStorageService {
         return p;
     }
 
+    /**
+     * 物理删除知识文档文件（永久删除，不可恢复）。
+     * 仅允许删除当前目录内文件（复用 resolveDocument 防路径穿越校验）；
+     * 文件不存在或删除失败时静默容错，不阻断业务删除流程。
+     */
+    public void deleteDocument(String fileName) {
+        if (!StringUtils.hasText(fileName)) {
+            return;
+        }
+        try {
+            Path p = resolveDocument(fileName);
+            Files.deleteIfExists(p);
+        } catch (Exception e) {
+            // 物理文件删除失败不阻断记录删除，由运维手工清理
+        }
+    }
+
     private void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("上传文件不能为空");

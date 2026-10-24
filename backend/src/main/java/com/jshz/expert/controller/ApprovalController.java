@@ -116,14 +116,15 @@ public class ApprovalController {
     }
 
     /**
-     * 我的申请：GET /api/approval/my-requests?page=&size=（登录即可）。
+     * 我的申请：GET /api/approval/my-requests?page=&size=&status=（登录即可，status 为空查全部）。
      */
     @GetMapping("/my-requests")
     public ApiResponse<PageResult<ExpertChangeRequest>> myRequests(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) Integer status,
             @AuthenticationPrincipal AuthUser authUser) {
-        Page<ExpertChangeRequest> p = approvalService.myRequests(page, size, authUser);
+        Page<ExpertChangeRequest> p = approvalService.myRequests(page, size, status, authUser);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
     }
 

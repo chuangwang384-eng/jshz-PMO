@@ -1,0 +1,98 @@
+import { defineStore } from 'pinia'
+import { ElNotification } from 'element-plus'
+import {
+  fetchNotifications,
+  fetchUnreadCount,
+  markNotificationRead,
+  markAllNotificationsRead
+} from '../api/notification'
+
+// 消息通知中心状态管理：
+// - unread：未读数（顶栏铃铛红点）
+// - items：消息列表（铃铛面板展示最近 20 条）
+// - 30 秒轮询：startPolling 启动后周期拉取未读数与列表，检测新增消息并弹轻提示
+// - 轻提示仅对"轮询期间新增且用户尚未查看"的消息触发一次
+export const useNotificationStore = defineStore('notification', {
+  state: () => ({
+    unread: 0,
+    items: [],
+    total: 0,
+    pollTimer: null,
+    pollInterval: 30000,
+    // 已见过的消息 id 基线：初始加载 / 手动打开面板 / 弹提示后都会推进基线，避免重复提示
+    baselineIds: []
+  }),
+  actions: {
+    async loadUnread() {
+      try {
+        this.unread = await fetchUnreadCount()
+      } catch (e) {
+        // 网络异常静默，轮询下轮重试
+      }
+    },
+    async loadList({ page = 1, pageSize = 20 } = {}) {
+      try {
+        const data = await fetchNotifications({ page, pageSize })
+        this.items = data?.items || []
+        this.total = data?.total || 0
+      } catch (e) {
+        // 网络异常静默
+      }
+    },
+    // 初始化：拉未读数 + 列表，并把当前首屏消息设为基线
+    async init() {
+      await this.loadUnread()
+      await this.loadList({ page: 1, pageSize: 20 })
+      this.baselineIds = this.items.map((i) => i.id)
+    },
+    // 轮询一次：刷新未读数与列表，检测新增消息弹轻提示
+    async poll() {
+      const before = new Set(this.baselineIds)
+      await this.loadUnread()
+      await this.loadList({ page: 1, pageSize: 20 })
+      const fresh = this.items.filter((i) => !before.has(i.id))
+      if (fresh.length) {
+        const latest = fresh[0]
+        ElNotification({
+          title: latest.title,
+          message: latest.content || '',
+          type: 'info',
+          duration: 4500,
+          position: 'top-right'
+        })
+        this.baselineIds = this.items.map((i) => i.id)
+      }
+    },
+    startPolling() {
+      if (this.pollTimer) return
+      this.pollTimer = setInterval(() => {
+        this.poll()
+      }, this.pollInterval)
+    },
+    stopPolling() {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer)
+        this.pollTimer = null
+      }
+    },
+    // 打开面板时刷新列表并推进基线（用户已查看，后续不再对当前列表弹提示）
+    async refresh() {
+      await this.loadList({ page: 1, pageSize: 20 })
+      this.baselineIds = this.items.map((i) => i.id)
+      await this.loadUnread()
+    },
+    async markRead(id) {
+      await markNotificationRead(id)
+      const item = this.items.find((i) => i.id === id)
+      if (item) item.isRead = 1
+      this.unread = Math.max(0, this.unread - 1)
+    },
+    async markAllRead() {
+      await markAllNotificationsRead()
+      this.items.forEach((i) => {
+        i.isRead = 1
+      })
+      this.unread = 0
+    }
+  }
+})

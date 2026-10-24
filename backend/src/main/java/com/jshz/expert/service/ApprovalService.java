@@ -11,10 +11,14 @@ import com.jshz.expert.entity.ApprovalRecord;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.entity.ExpertChangeRequest;
 import com.jshz.expert.entity.Role;
+import com.jshz.expert.entity.SysUser;
+import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.ApprovalConfigMapper;
 import com.jshz.expert.mapper.ApprovalRecordMapper;
 import com.jshz.expert.mapper.ExpertChangeRequestMapper;
 import com.jshz.expert.mapper.RoleMapper;
+import com.jshz.expert.mapper.SysUserMapper;
+import com.jshz.expert.mapper.UserRoleMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -86,6 +90,9 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     private final PhotoStorageService photoStorageService;
     private final RoleMapper roleMapper;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
+    private final SysUserMapper sysUserMapper;
+    private final UserRoleMapper userRoleMapper;
 
     // ==================== 审批流配置 ====================
 
@@ -253,6 +260,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
 
         addRecord(request.getId(), "提交新增专家申请", "SUBMIT", user.getUsername(),
                 StringUtils.hasText(reason) ? reason : "提交新增专家申请");
+        notifyApprovalTodo(request);
         return request;
     }
 
@@ -278,15 +286,18 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     // ==================== 我的申请（员工） ====================
 
     /**
-     * 我的申请分页列表：只查本人，附带变更内容、状态文本与审批流进度记录。
+     * 我的申请分页列表：只查本人，可按状态过滤（status 为空查全部），附带变更内容、状态文本与审批流进度记录。
      */
-    public Page<ExpertChangeRequest> myRequests(long page, long size, AuthUser user) {
+    public Page<ExpertChangeRequest> myRequests(long page, long size, Integer status, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
         LambdaQueryWrapper<ExpertChangeRequest> wrapper = new LambdaQueryWrapper<ExpertChangeRequest>()
-                .eq(ExpertChangeRequest::getApplicant, user.getUsername())
-                .orderByDesc(ExpertChangeRequest::getCreateTime);
+                .eq(ExpertChangeRequest::getApplicant, user.getUsername());
+        if (status != null) {
+            wrapper.eq(ExpertChangeRequest::getStatus, status);
+        }
+        wrapper.orderByDesc(ExpertChangeRequest::getCreateTime);
         Page<ExpertChangeRequest> result = this.page(new Page<>(page, size), wrapper);
         for (ExpertChangeRequest r : result.getRecords()) {
             fillView(r);
@@ -334,10 +345,14 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
      */
     public ExpertChangeRequest approve(Long id, String comment, AuthUser user) {
         ExpertChangeRequest request = getPending(id);
+        ExpertChangeRequest result;
         if (isCreateRequest(request)) {
-            return approveCreate(request, comment, user);
+            result = approveCreate(request, comment, user);
+        } else {
+            result = approveModify(request, comment, user);
         }
-        return approveModify(request, comment, user);
+        notifyApprovalResult(result, user);
+        return result;
     }
 
     private boolean isCreateRequest(ExpertChangeRequest request) {
@@ -494,10 +509,79 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         this.updateById(request);
 
         addRecord(request.getId(), "管理员驳回", "REJECT", user == null ? null : user.getUsername(), comment.trim());
+        notifyApprovalResult(request, user);
         return fillView(request);
     }
 
     // ==================== 私有方法 ====================
+
+    /**
+     * 新申请待审通知（approval_todo）：通知审批流配置的审批人角色下全部用户。
+     */
+    private void notifyApprovalTodo(ExpertChangeRequest request) {
+        try {
+            ApprovalConfig config = getConfig();
+            String roleCode = config.getApproverRole();
+            if (!StringUtils.hasText(roleCode)) {
+                return;
+            }
+            Role role = roleMapper.selectOne(
+                    new LambdaQueryWrapper<Role>().eq(Role::getCode, roleCode).last("LIMIT 1"));
+            if (role == null) {
+                return;
+            }
+            List<UserRole> bindings = userRoleMapper.selectList(
+                    new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
+            if (bindings.isEmpty()) {
+                return;
+            }
+            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            for (UserRole ur : bindings) {
+                notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_TODO,
+                        "新的" + typeText + "待审批",
+                        "申请人 " + request.getApplicant() + " 提交了新的申请，请及时处理",
+                        "/approval/manage");
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 审批结果通知（approval_result）：通知申请人审批通过 / 驳回结果。
+     */
+    private void notifyApprovalResult(ExpertChangeRequest request, AuthUser user) {
+        try {
+            Long applicantId = userIdOf(request.getApplicant());
+            if (applicantId == null) {
+                return;
+            }
+            boolean approved = request.getStatus() != null && request.getStatus() == STATUS_APPROVED;
+            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            String operator = user == null ? "管理员" : user.getUsername();
+            String content = operator + (approved ? "已通过您的" : "已驳回您的") + typeText;
+            if (StringUtils.hasText(request.getApproveComment())) {
+                content += "，意见：" + request.getApproveComment();
+            }
+            String jump = approved ? "/profile/my-approvals?status=1" : "/profile/my-approvals?status=2";
+            notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
+                    (approved ? "审批通过：" : "审批驳回：") + typeText, content, jump);
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 按用户名反查用户ID（sys_user.username 唯一）。
+     */
+    private Long userIdOf(String username) {
+        if (!StringUtils.hasText(username)) {
+            return null;
+        }
+        SysUser u = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username).last("LIMIT 1"));
+        return u == null ? null : u.getId();
+    }
 
     private ApprovalConfig findConfig() {
         return approvalConfigMapper.selectOne(

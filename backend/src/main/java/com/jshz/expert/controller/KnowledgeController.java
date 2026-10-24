@@ -101,6 +101,17 @@ public class KnowledgeController {
         return ApiResponse.ok();
     }
 
+    /**
+     * 永久删除：DELETE /api/knowledge/docs/{id}/permanent。
+     * 删除主记录 + 全部版本历史 + 磁盘文件（不可恢复）。需权限码 knowledge:manage。
+     */
+    @DeleteMapping("/docs/{id}/permanent")
+    public ApiResponse<Void> permanentDelete(@PathVariable Long id,
+                                             @AuthenticationPrincipal AuthUser authUser) {
+        documentService.permanentDelete(id, authUser);
+        return ApiResponse.ok();
+    }
+
     // ==================== 版本历史 ====================
 
     /**
