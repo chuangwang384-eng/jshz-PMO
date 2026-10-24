@@ -83,40 +83,51 @@ const routes = [
     meta: { title: '项目管理' }
   },
   {
-    path: '/experts/manage',
-    name: 'experts-manage',
-    component: () => import('../views/ExpertManage.vue'),
-    meta: { title: '专家管理', permissions: ['expert:manage'] }
-  },
-  {
-    path: '/audit/downloads',
-    name: 'audit-downloads',
-    component: () => import('../views/DownloadAudit.vue'),
-    meta: { title: '下载留痕', permissions: ['audit:view'] }
-  },
-  {
-    path: '/approval/manage',
-    name: 'approval-manage',
-    component: () => import('../views/ApprovalManage.vue'),
-    meta: { title: '审批管理', permissions: ['approval:audit'] }
-  },
-  {
-    path: '/approval/config',
-    name: 'approval-config',
-    component: () => import('../views/ApprovalConfig.vue'),
-    meta: { title: '审批流配置', permissions: ['approval:config'] }
-  },
-  {
-    path: '/users',
-    name: 'users',
-    component: () => import('../views/UserManage.vue'),
-    meta: { title: '用户管理', permissions: ['user:manage'] }
-  },
-  {
-    path: '/roles/manage',
-    name: 'role-manage',
-    component: () => import('../views/RoleManage.vue'),
-    meta: { title: '角色管理', permissions: ['role:manage'] }
+    path: '/admin',
+    name: 'admin-settings',
+    redirect: '/admin/experts/manage',
+    meta: {
+      title: '管理员设置',
+      permissions: ['expert:manage', 'audit:view', 'approval:audit', 'approval:config', 'user:manage', 'role:manage']
+    },
+    children: [
+      {
+        path: 'experts/manage',
+        name: 'experts-manage',
+        component: () => import('../views/ExpertManage.vue'),
+        meta: { title: '专家管理', permissions: ['expert:manage'] }
+      },
+      {
+        path: 'audit/downloads',
+        name: 'audit-downloads',
+        component: () => import('../views/DownloadAudit.vue'),
+        meta: { title: '下载留痕', permissions: ['audit:view'] }
+      },
+      {
+        path: 'approval/manage',
+        name: 'approval-manage',
+        component: () => import('../views/ApprovalManage.vue'),
+        meta: { title: '审批管理', permissions: ['approval:audit'] }
+      },
+      {
+        path: 'approval/config',
+        name: 'approval-config',
+        component: () => import('../views/ApprovalConfig.vue'),
+        meta: { title: '审批流配置', permissions: ['approval:config'] }
+      },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('../views/UserManage.vue'),
+        meta: { title: '用户管理', permissions: ['user:manage'] }
+      },
+      {
+        path: 'roles/manage',
+        name: 'role-manage',
+        component: () => import('../views/RoleManage.vue'),
+        meta: { title: '角色管理', permissions: ['role:manage'] }
+      }
+    ]
   },
   {
     path: '/:pathMatch(.*)*',

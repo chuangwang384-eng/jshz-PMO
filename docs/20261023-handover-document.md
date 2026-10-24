@@ -80,7 +80,7 @@ notification (
 | 触发点 | type | 接收人 | jump_path |
 |---|---|---|---|
 | 审批通过/驳回（ApprovalService.approve/reject） | approval_result | 申请人 | `/profile/my-approvals?status=1\|2` |
-| 新申请提交（submitRequest/submitCreateRequest） | approval_todo | 审批角色下全部用户 | `/approval/manage?status=0` |
+| 新申请提交（submitRequest/submitCreateRequest） | approval_todo | 审批角色下全部用户 | `/admin/approval/manage?status=0` |
 | 角色调整（UserService.assignRoles） | role_changed | 被调整用户 | `/profile` |
 | 密码重置（UserService.resetPassword） | password_reset | 该用户 | `/profile/change-password` |
 | 文档下架（offShelf） | doc_off_shelf | 上传人（username 反查 userId，查不到跳过） | `/knowledge-planet` |
