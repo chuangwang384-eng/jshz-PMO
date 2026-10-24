@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_5696def0cf4411f1814c525400cd780f
+    ReservedCode1: m1kTmmaNcUiXwJ1ybkaLqpgioP7BXJ9179U4uwv8sKkdCBYs0Tl1c1N3YcPtyrFz15ylCBk1j+Hj9xz9VOnWn028JcLb6zvXp2k4M6N8RqcD0XdQ2n3PcJrimfBwzJfIAoycCTbcgXHeghnbbYOihX9U3Kde+B+ENrW3QChXOXBXujtB3l+UWJE3jQo=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_5696def0cf4411f1814c525400cd780f
+    ReservedCode2: m1kTmmaNcUiXwJ1ybkaLqpgioP7BXJ9179U4uwv8sKkdCBYs0Tl1c1N3YcPtyrFz15ylCBk1j+Hj9xz9VOnWn028JcLb6zvXp2k4M6N8RqcD0XdQ2n3PcJrimfBwzJfIAoycCTbcgXHeghnbbYOihX9U3Kde+B+ENrW3QChXOXBXujtB3l+UWJE3jQo=
+---
+
 # 知识星球菜单交互 + 永久删除 + 消息通知中心 设计文档
 
 - 日期：2026-10-23
@@ -131,3 +142,4 @@ CREATE TABLE IF NOT EXISTS notification (
 - SideMenuItem 为通用组件，个人中心等其它带子菜单项行为一并改变（预期内）。
 - 删除磁盘文件为 best-effort，失败不阻断事务但须告警日志。
 - 通知表仅存收件人维度，不存发件人（YAGNI，后续需要再加）。
+*（内容由AI生成，仅供参考）*

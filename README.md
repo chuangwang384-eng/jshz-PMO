@@ -11,7 +11,7 @@ AIGC:
 
 # 景帅会展内部管理库系统（Expert Library System）
 
-> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 10 张表、后端 Controller 10 个。
+> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 13 张表、后端 Controller 12 个。
 
 ## 项目定位
 
@@ -33,7 +33,7 @@ AIGC:
 | --- | ---------------------------------------- | ----------- |
 | 后端  | Java 17 + Spring Boot 3.2.5 + MyBatis-Plus 3.5.7 + Spring Security + jjwt 0.11.5 | `backend/` |
 | 前端  | Vue 3.4 + Vite 5 + Element Plus + Pinia + vue-router + axios | `frontend/` |
-| 数据库 | MySQL 8.x（expert_system 库：expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record） | `database/` |
+| 数据库 | MySQL 8.x（expert_system 库 13 张表：expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record / role / permission / role_permission / user_role / knowledge_document / knowledge_doc_version / notification） | `database/` |
 | 照片存储 | 本地磁盘照片库（三类照片 + 静态资源映射） | `照片库/` |
 | 文档  | 设计、架构、部署、验收报告 | `docs/`     |
 
@@ -45,7 +45,7 @@ jshz-PMO/
 ├── .gitignore             # Git 忽略规则
 ├── backend/               # 后端服务（Spring Boot 3.2.5，V1.001，含审批流三表服务）
 ├── frontend/              # 前端应用（Vue 3.4 + Vite 5）
-├── database/              # 数据库脚本（init.sql：10 表结构，含 RBAC 四表；migration/ 补建迁移）
+├── database/              # 数据库脚本（init.sql：13 表结构，含 RBAC 四表；migration/ 补建迁移）
 ├── scripts/               # 迁移脚本（SQLite → MySQL）
 ├── docs/                  # 项目文档（设计/架构/部署/验收）
 └── 照片库/                # 照片存储（avatar / idcard_front / idcard_back）
@@ -54,7 +54,7 @@ jshz-PMO/
 
 ## 快速开始（概要）
 
-1. 初始化数据库：创建 `expert_system` 库并执行 `database/init.sql`（专家信息 / 用户 / 下载审计 / 审批流三表）
+1. 初始化数据库：创建 `expert_system` 库并执行 `database/init.sql`（13 张表：专家信息 / 用户 / 下载审计 / 审批流 / RBAC / 知识星球 / 通知）
 2. 启动后端：配置数据库环境变量后 `cd backend && mvn spring-boot:run`（默认端口 8080）
 3. 启动前端：`cd frontend && npm install && npm run dev`（默认端口 5173）
 
