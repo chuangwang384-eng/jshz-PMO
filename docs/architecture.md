@@ -25,17 +25,17 @@ AIGC:
 
 - 前端为 SPA 应用，构建产物由 Nginx 托管，通过反向代理将 `/api` 请求转发至后端。
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
-- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）、知识星球文档（knowledge_document / knowledge_doc_version）、消息通知（notification）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **13 张表**。
+- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、消息通知（notification）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **14 张表**。
 
 ## 2. 后端分层
 
 | 层 | 职责 | 示例 |
 | --- | --- | --- |
-| Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController` / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询） / `KnowledgeController`（知识星球：文档上传/分页检索（category 可选=全分类、按权限过滤下架文档）/版本更新/下架/永久删除/版本历史/文件下载预览） / `NotificationController`（消息通知中心：本人列表 / 未读数 / 单条已读 / 全部已读）（共 **12 个**） |
+| Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController` / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询） / `KnowledgeController`（知识星球：文档上传/分页检索（category 可选=全分类、按权限过滤下架文档）/版本更新/下架/永久删除/版本历史/文件下载预览） / `NotificationController`（消息通知中心：本人列表 / 未读数 / 单条已读 / 全部已读） / `ApprovalTemplateController`（R-B4 审批申请字段模板：启用列表登录可用 / 全部列表+增删改启停 approval:config / 字段清单）（共 **13 个**） |
 | Service | 业务逻辑、事务控制 | `AuthService` / `ExpertService` / `ApprovalService`（审批核心：白名单字段校验、TMP 临时照片通道、修改/新增分支审批、审批/提交通知埋点） / `ExportService` / `PhotoStorageService` / `DownloadAuditService` / `UserService`（含角色调整/密码重置通知埋点） / `KnowledgeDocumentService`（知识星球业务，含下架/永久删除通知埋点） / `KnowledgeDocStorageService`（文档落盘与校验，含物理删除） / `NotificationService`（通用消息通知：写入五类事件、本人列表/未读数/已读标记） |
 | Security | 认证鉴权 | `JwtTokenProvider` / `JwtAuthenticationFilter` / `AuthUser` |
-| Mapper | 数据访问（MyBatis-Plus，共 13 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` / `NotificationMapper` |
-| Entity | 数据库实体映射（共 13 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText）/ `ApprovalRecord` / `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument` / `KnowledgeDocVersion` / `Notification` |
+| Mapper | 数据访问（MyBatis-Plus，共 14 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `ApprovalTemplateMapper`（R-B4） / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` / `NotificationMapper` |
+| Entity | 数据库实体映射（共 14 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText/templateId）/ `ApprovalRecord` / `ApprovalTemplate`（R-B4，含 fields 解析展示）/ `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument` / `KnowledgeDocVersion` / `Notification` |
 | Config | 安全、跨域、全局配置 | `SecurityConfig` / `WebConfig` / `GlobalExceptionHandler` / `MybatisPlusConfig` |
 
 ## 3. 前端结构
@@ -43,14 +43,14 @@ AIGC:
 | 目录 | 职责 |
 | --- | --- |
 | `src/api` | Axios 请求封装（request/auth/expert/user/audit/approval/knowledge/notification，withCredentials=true，401 拦截跳登录） |
-| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理/项目管理/管理员设置等；知识星球父路由 /knowledge-planet 挂父页组件（KnowledgePlanetHome 内含 <router-view/> 渲染四个分类子页；父路由显示上传中心+全分类总览，子路由仅渲染本分类列表），点击标题跳父路由、点击箭头展开二级菜单；管理员设置父路由 /admin（name: admin-settings，无 component，redirect /admin/experts/manage，meta.permissions 为 6 码并集：expert:manage/audit:view/approval:audit/approval:config/user:manage/role:manage），6 个子路由按序收拢：experts/manage（专家管理）、audit/downloads（下载留痕）、approval/manage（审批管理）、approval/config（审批流配置）、users（用户管理）、roles/manage（角色管理），子路由保留各自 meta.permissions，普通账号因父路由权限码并集整体剔除该菜单） |
-| `src/views` | 页面组件（Login/ExpertList/ExpertManage/DownloadAudit/UserManage/MyApproval/ApprovalManage/ApprovalConfig/ChangePassword/KnowledgePlanetHome（知识星球父页：上传中心+全分类总览，管理员含永久删除）/MeetingExecution/AssociationCompliance/EnterpriseCompliance/CustomerPreferences 等） |
+| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理/项目管理/管理员设置等；知识星球父路由 /knowledge-planet 挂父页组件（KnowledgePlanetHome 内含 <router-view/> 渲染四个分类子页；父路由显示上传中心+全分类总览，子路由仅渲染本分类列表），点击标题跳父路由、点击箭头展开二级菜单；管理员设置父路由 /admin（name: admin-settings，无 component，redirect /admin/experts/manage，meta.permissions 为 6 码并集：expert:manage/audit:view/approval:audit/approval:config/user:manage/role:manage），6 个子路由按序收拢：experts/manage（专家管理）、audit/downloads（下载留痕）、approval/manage（审批管理）、approval/config（审批流配置）、users（用户管理）、roles/manage（角色管理），R-B4 后新增第 7 子路由 approval/templates（审批模板管理，permissions: approval:config），子路由保留各自 meta.permissions，普通账号因父路由权限码并集整体剔除该菜单） |
+| `src/views` | 页面组件（Login/ExpertList/ExpertManage/DownloadAudit/UserManage/MyApproval/ApprovalManage/ApprovalConfig/ApprovalTemplateManage（R-B4 审批模板管理）/ChangePassword/KnowledgePlanetHome（知识星球父页：上传中心+全分类总览，管理员含永久删除）/MeetingExecution/AssociationCompliance/EnterpriseCompliance/CustomerPreferences 等） |
 | `src/stores` | Pinia 状态管理（auth、notification（30 秒轮询未读数+新消息轻提示）） |
 | `src/components` | 通用组件（ChangePasswordDialog/PhotoImage/SideMenuItem/KnowledgeDocList（知识文档列表，allowUpload=false 隐藏上传按钮供子页复用，管理员含永久删除）/NotificationBell（顶栏铃铛+未读红点+消息列表）） |
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **13 张表**，含 RBAC 四表（role / permission / role_permission / user_role）与消息通知表（notification）：
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **14 张表**，含 RBAC 四表（role / permission / role_permission / user_role）、消息通知表（notification）与审批申请字段模板表（approval_template，R-B4）：
 
 | 表 | 说明 | 关键字段 |
 | --- | --- | --- |
@@ -58,8 +58,9 @@ AIGC:
 | `sys_user` | 登录账号 | username=姓名、password（BCrypt）、is_admin（管理员名单兼容标记）、must_change_password（强制改密）、wecom_userid（预留）、status |
 | `download_log` | 下载审计 | 下载人、专家、时间、类型、IP；selected 导出逐专家一条、全量/md 单条 |
 | `approval_config` | 审批流配置 | flow_key（UNIQUE，EXPERT_MODIFY）、flow_name、enabled、approver_role |
-| `expert_change_request` | 审批申请单 | expert_id（可空，新增申请通过后回填）、expert_name、applicant、change_data（JSON）、reason、status（0待审/1通过/2驳回）、request_type（0修改/1新增）、approve_by、approve_comment |
-| `approval_record` | 审批流转记录 | request_id、node_name、action（SUBMIT/APPROVE/REJECT）、operator、comment、create_time |
+| `expert_change_request` | 审批申请单 | expert_id（可空，新增申请通过后回填）、expert_name、applicant、change_data（JSON）、reason、status（0待审/1通过/2驳回/3撤回）、request_type（0修改/1新增）、template_id（R-B4 来源模板，可空）、approve_by、approve_comment |
+| `approval_record` | 审批流转记录 | request_id、node_name、action（SUBMIT/APPROVE/REJECT/WITHDRAW）、operator、comment、create_time |
+| `approval_template` | 审批申请字段模板（R-B4） | template_name（UNIQUE）、fields（JSON 中文键数组，⊆ 可编辑白名单+照片字段）、enabled（1启用/0停用，停用不可用于新申请）、create_time、update_time |
 | `role` | RBAC 角色表 | id、code（UNIQUE）、name、description、status、builtin（1=内置禁删禁改；SUPER_ADMIN 代码内全权锁定不可改）、create_time、update_time |
 | `permission` | RBAC 权限点表 | id、code（可重复，一码多路径）、name、type（1菜单/2接口）、method、path、parent_code；UNIQUE(method,path) |
 | `role_permission` | 角色-权限关联表 | id、role_id、permission_code；UNIQUE(role_id,permission_code) |
@@ -71,6 +72,8 @@ AIGC:
 > `expert_info.update_by` 写入语义：直接编辑（ExpertService.update，由超管/具备 expert:edit 权限用户调用）记操作者本人；审批通过（ApprovalService.approveModify / approveCreate）记申请单申请人 `expert_change_request.applicant`（发起修改/新增的人），审批人仅记录于 `approve_by`。`update_time` 由数据库 `ON UPDATE CURRENT_TIMESTAMP` 自动维护。
 
 > RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:manage`（ADMIN/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:manage`（已绑定 ADMIN），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
+
+> R-B4 审批申请字段模板说明：表 `approval_template`（template_name 唯一、fields 为中文键 JSON 数组、enabled 启停）；员工端 GET /api/approval/templates 返回启用模板（登录即可），管理端 GET /api/approval/templates/all 与 POST/PUT/DELETE /api/approval/templates[/{id}] 复用权限码 `approval:config`（permission 表一码多路径）；提交申请（POST /api/approval/requests、/api/approval/create-request）带可选 templateId：传入时校验 changes 字段集合 ⊆ 模板字段且模板启用，并落库 expert_change_request.template_id；不传走原逻辑，历史申请兼容（template_id NULL）。模板字段必须 ⊆ ApprovalService.WHITELIST_FIELDS + PHOTO_FIELDS（服务端校验）；「专家新增」种子模板覆盖 CREATE_REQUIRED_FIELDS 全部必填项；前端 ExpertList 修改/新增弹窗提供模板下拉，选择后仅渲染并提交模板字段，新增弹窗仅展示覆盖必填项的模板；管理员设置菜单新增「审批模板管理」页（/admin/approval/templates）。
 
 > 消息通知中心说明：表 `notification`，接口 GET /api/notifications（本人分页列表）、GET /api/notifications/unread-count（未读数）、POST /api/notifications/{id}/read（单条已读）、POST /api/notifications/read-all（全部已读），登录即可；五类事件埋点：approval_result（审批结果→申请人）、approval_todo（新申请待审→审批角色用户）、role_changed（角色调整→被调整用户）、password_reset（密码重置→被重置用户）、doc_off_shelf / doc_deleted（文档下架/永久删除→上传人）；前端顶栏 NotificationBell 铃铛+未读红点+消息列表，store 30 秒轮询未读数并在新增未读时轻提示，点击通知按 jump_path 跳转（审批结果跳 /profile/my-approvals?status=1|2，新申请待审跳 /admin/approval/manage，角色调整跳 /profile，文档事件跳 /knowledge-planet，密码重置跳 /profile/change-password；后端 ApprovalService.notifyApprovalTodo 埋点已同步下发 `/admin/approval/manage`）。
 
