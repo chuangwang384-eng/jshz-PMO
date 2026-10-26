@@ -2,7 +2,7 @@ package com.jshz.expert.controller;
 
 import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.entity.ApprovalTemplate;
-import com.jshz.expert.service.ApprovalService;
+import com.jshz.expert.service.ApplicationService;
 import com.jshz.expert.service.ApprovalTemplateService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -59,9 +59,9 @@ public class ApprovalTemplateController {
     @GetMapping("/template-fields")
     public ApiResponse<Map<String, Object>> fieldCatalog() {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("textFields", ApprovalService.WHITELIST_FIELDS);
-        data.put("photoFields", ApprovalService.PHOTO_FIELDS);
-        data.put("createRequiredFields", ApprovalService.CREATE_REQUIRED_FIELDS);
+        data.put("textFields", ApplicationService.WHITELIST_FIELDS);
+        data.put("photoFields", ApplicationService.PHOTO_FIELDS);
+        data.put("createRequiredFields", ApplicationService.CREATE_REQUIRED_FIELDS);
         return ApiResponse.ok(data);
     }
 

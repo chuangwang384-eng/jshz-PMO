@@ -1,0 +1,126 @@
+package com.jshz.expert.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 通用申请实体（对应数据库表 application，「我的申请」改版）。
+ * 各业务线申请的公共字段存本表，业务差异存 biz_data JSON：
+ * 专家申请 biz_data = {expertId, expertName, changes, reason, templateId}（照片 TMP: 前缀语义保留）。
+ * status：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回（四态通用）。
+ */
+@Data
+@TableName("application")
+public class Application {
+
+    @TableId(type = IdType.AUTO)
+    @JsonProperty("id")
+    private Long id;
+
+    /** 申请人用户 ID（存量迁移按用户名回查，可空） */
+    @JsonProperty("applicantId")
+    private Long applicantId;
+
+    /** 申请人用户名 */
+    @JsonProperty("applicant")
+    private String applicant;
+
+    /** 类型编码：EXPERT_MODIFY / EXPERT_CREATE（未来扩展） */
+    @JsonProperty("applicationType")
+    private String applicationType;
+
+    /** 审批状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 */
+    @JsonProperty("status")
+    private Integer status;
+
+    /** 业务详情 JSON（专家申请：expertId/expertName/changes/reason/templateId） */
+    @JsonProperty("bizData")
+    private String bizData;
+
+    /** 审批人用户名 */
+    @JsonProperty("approveBy")
+    private String approveBy;
+
+    /** 审批意见（驳回必填，通过可空） */
+    @JsonProperty("approveComment")
+    private String approveComment;
+
+    /** 审批时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonProperty("approveTime")
+    private LocalDateTime approveTime;
+
+    /** 当前审批人（B2 转办后有值；为空=未转办，任何拥有 approval:audit 的用户可审批） */
+    @JsonProperty("currentAssignee")
+    private String currentAssignee;
+
+    /** 加签审批人（B2 加签后有值；或签语义：与原审批人任一审批即终态） */
+    @JsonProperty("extraApprover")
+    private String extraApprover;
+
+    /** 提交时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonProperty("createTime")
+    private LocalDateTime createTime;
+
+    /** 修改时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonProperty("updateTime")
+    private LocalDateTime updateTime;
+
+    // ==================== biz_data 解析后的展示字段（非数据库列） ====================
+
+    /** 专家ID（biz_data.expertId，新增申请通过后回填） */
+    @TableField(exist = false)
+    @JsonProperty("expertId")
+    private Long expertId;
+
+    /** 专家姓名快照（biz_data.expertName） */
+    @TableField(exist = false)
+    @JsonProperty("expertName")
+    private String expertName;
+
+    /** 申请原因（biz_data.reason） */
+    @TableField(exist = false)
+    @JsonProperty("reason")
+    private String reason;
+
+    /** 来源模板ID（biz_data.templateId，可空） */
+    @TableField(exist = false)
+    @JsonProperty("templateId")
+    private Long templateId;
+
+    /** 变更内容解析对象（biz_data.changes，照片 TMP: 已友好化；非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("changes")
+    private Map<String, Object> changes;
+
+    /** 申请类型数值（兼容旧前端：0=修改 / 1=新增；非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("requestType")
+    private Integer requestType;
+
+    /** 申请类型文本（非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("requestTypeText")
+    private String requestTypeText;
+
+    /** 状态文本（非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("statusText")
+    private String statusText;
+
+    /** 审批流进度记录（按时间升序，关联 approval_record.application_id；非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("records")
+    private List<ApprovalRecord> records;
+}

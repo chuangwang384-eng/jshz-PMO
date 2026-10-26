@@ -20,7 +20,7 @@ import java.util.Set;
 
 /**
  * 审批申请字段模板服务（需求 R-B4）。
- * 模板字段必须来自专家可编辑白名单（ApprovalService.WHITELIST_FIELDS + PHOTO_FIELDS）；
+ * 模板字段必须来自专家可编辑白名单（ApplicationService.WHITELIST_FIELDS + PHOTO_FIELDS）；
  * 停用模板不可再用于新申请（提交时校验 enabled）。
  */
 @Service
@@ -166,8 +166,8 @@ public class ApprovalTemplateService extends ServiceImpl<ApprovalTemplateMapper,
         if (fields == null || fields.isEmpty()) {
             throw new BusinessException("模板字段不能为空，请至少勾选一个字段");
         }
-        Set<String> allowed = new HashSet<>(ApprovalService.WHITELIST_FIELDS);
-        allowed.addAll(ApprovalService.PHOTO_FIELDS);
+        Set<String> allowed = new HashSet<>(ApplicationService.WHITELIST_FIELDS);
+        allowed.addAll(ApplicationService.PHOTO_FIELDS);
         Set<String> normalized = new LinkedHashSet<>();
         for (String field : fields) {
             if (!StringUtils.hasText(field)) {

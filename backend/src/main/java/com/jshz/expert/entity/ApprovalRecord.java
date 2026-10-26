@@ -21,9 +21,13 @@ public class ApprovalRecord {
     @JsonProperty("id")
     private Long id;
 
-    /** 审批单ID */
+    /** 审批单ID（存量=expert_change_request.id，与新链路同值保留） */
     @JsonProperty("requestId")
     private Long requestId;
+
+    /** 关联通用申请 application.id（新链路写入；存量按同 id 迁移映射回填） */
+    @JsonProperty("applicationId")
+    private Long applicationId;
 
     /** 节点名称 */
     @JsonProperty("nodeName")

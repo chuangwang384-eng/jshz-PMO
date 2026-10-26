@@ -974,7 +974,7 @@ async function submitCreateExpert() {
       reason: '员工新增专家',
       templateId: createTemplateId.value || undefined
     })
-    ElMessage.success('已提交新增专家申请，可在「我的审批」查看进度')
+    ElMessage.success('已提交新增专家申请，可在「我的申请」查看进度')
     createVisible.value = false
   } catch (e) {
     // 错误提示已由拦截器统一处理
@@ -1022,7 +1022,7 @@ async function submitEditChange() {
       reason: '卡片内直接编辑提交',
       templateId: editTemplateId.value || undefined
     })
-    ElMessage.success('已提交修改申请，可在「我的审批」查看进度')
+    ElMessage.success('已提交修改申请，可在「我的申请」查看进度')
     return true
   } catch (e) {
     // 错误提示已由拦截器统一处理

@@ -233,7 +233,7 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     /**
-     * 下架（status=0）：需权限码 knowledge:manage（业务层校验，参照 ApprovalService）。
+     * 下架（status=0）：需权限码 knowledge:manage（业务层校验，参照 ApplicationService）。
      */
     public void offShelf(Long id, AuthUser user) {
         if (user == null) {

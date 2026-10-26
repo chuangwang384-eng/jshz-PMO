@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 /**
  * 通用消息通知服务（消息通知中心）。
  * 提供五类事件埋点写入（notify）与本人消息列表 / 未读数 / 已读标记查询。
- * 仅依赖 notification 表，不依赖其他业务服务，供 ApprovalService / UserService /
+ * 仅依赖 notification 表，不依赖其他业务服务，供 ApplicationService / UserService /
  * KnowledgeDocumentService 等埋点调用，避免循环依赖。
  */
 @Service

@@ -1,8 +1,8 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">我的审批</span>
-      <span class="page-sub">查看我提交的专家信息修改申请及审批进度</span>
+      <span class="page-title">我的申请</span>
+      <span class="page-sub">查看我提交的全部申请及审批进度（专家修改 / 新增等）</span>
     </div>
 
     <div class="filter-bar">
@@ -16,23 +16,35 @@
 
     <el-table :data="requests" border stripe v-loading="loading" style="margin-top: 16px">
       <el-table-column prop="expertName" label="专家姓名" width="140" />
-      <el-table-column label="申请类型" width="110" align="center">
+      <el-table-column label="申请类型" width="130" align="center">
         <template #default="{ row }">
           <el-tag :type="row.requestType === 1 ? 'success' : 'info'">{{ row.requestTypeText || '修改申请' }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="申请时间" width="170" />
-      <el-table-column label="变更摘要" min-width="260" show-overflow-tooltip>
+      <el-table-column label="变更摘要" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ changeSummary(row.changes) }}</template>
       </el-table-column>
-      <el-table-column label="状态" width="110" align="center">
+      <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
           <el-tag :type="statusTagType(row.status)">{{ row.statusText }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="approveComment" label="审批意见" min-width="160" show-overflow-tooltip>
+      <el-table-column prop="approveComment" label="审批意见" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
           <span v-if="row.approveComment">{{ row.approveComment }}</span>
+          <span v-else class="muted">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="审批人" width="110" align="center">
+        <template #default="{ row }">
+          <span v-if="row.approveBy">{{ row.approveBy }}</span>
+          <span v-else class="muted">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="审批时间" width="170">
+        <template #default="{ row }">
+          <span v-if="row.approveTime">{{ row.approveTime }}</span>
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
@@ -78,10 +90,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMyApprovalRequests, withdrawRequest } from '../api/approval'
+import { getMyApplications, withdrawRequest } from '../api/approval'
 
 const route = useRoute()
 const router = useRouter()
@@ -99,10 +111,13 @@ const loading = ref(false)
 const progressVisible = ref(false)
 const progressRow = ref(null)
 
+// 列表轮询定时器（30s，onBeforeUnmount 清理）
+let pollTimer = null
+
 async function fetchList() {
   loading.value = true
   try {
-    const data = await getMyApprovalRequests({
+    const data = await getMyApplications({
       page: page.value,
       size: size.value,
       status: status.value !== undefined && status.value !== '' ? status.value : undefined
@@ -201,7 +216,23 @@ watch(
   }
 )
 
-onMounted(fetchList)
+onMounted(() => {
+  fetchList()
+  // 状态变更实时更新兜底：页面打开期间每 30 秒轮询刷新（通知驱动为主，轮询补位）；
+  // 轮询不重置分页与筛选，且上一轮未完成时跳过本轮，避免请求堆积
+  pollTimer = setInterval(() => {
+    if (!loading.value) {
+      fetchList()
+    }
+  }, 30000)
+})
+
+onBeforeUnmount(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+})
 </script>
 
 <style scoped>

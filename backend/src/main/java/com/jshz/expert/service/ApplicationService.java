@@ -5,17 +5,18 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jshz.expert.common.ApplicationType;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.ApprovalConfig;
 import com.jshz.expert.entity.ApprovalRecord;
+import com.jshz.expert.entity.Application;
 import com.jshz.expert.entity.Expert;
-import com.jshz.expert.entity.ExpertChangeRequest;
 import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.ApprovalConfigMapper;
 import com.jshz.expert.mapper.ApprovalRecordMapper;
-import com.jshz.expert.mapper.ExpertChangeRequestMapper;
+import com.jshz.expert.mapper.ApplicationMapper;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
@@ -34,22 +35,27 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * 专家信息修改审批流服务（需求5）。
- * 员工提交变更申请 -> 管理员审批通过/驳回；审批通过时把白名单字段写入 expert_info。
+ * 通用申请服务（「我的申请」改版，由 ApprovalService 演化）。
+ * 通用申请主表 application + biz_data JSON 承载业务差异；一期类型 EXPERT_MODIFY / EXPERT_CREATE。
+ * 员工提交 -> 审批人处理（approve/reject/转办/加签）；通过时把白名单字段写入 expert_info。
+ * 接口路径沿用 /api/approval/*（permission 表路径规则不变），HTTP 层见 ApplicationController。
  */
 @Service
 @RequiredArgsConstructor
-public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, ExpertChangeRequest> {
+public class ApplicationService extends ServiceImpl<ApplicationMapper, Application> {
 
     /** 审批流流程键 */
     public static final String FLOW_KEY = "EXPERT_MODIFY";
+
+    /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
+    public static final String PERM_APPROVAL_AUDIT = "approval:audit";
 
     /** 字段白名单（排除照片类、id、时间类、下载次数） */
     public static final List<String> WHITELIST_FIELDS = List.of(
             "姓名", "单位", "科室", "职称", "研究方向", "擅长领域",
             "联系方式", "简介", "身份证号", "银行卡号", "银行卡开户行");
 
-    /** 照片字段白名单（需求3：照片变更随审批流一并生效） */
+    /** 照片字段白名单（照片变更随审批流一并生效） */
     public static final List<String> PHOTO_FIELDS = List.of("照片", "身份证正面", "身份证反面");
 
     /** 临时照片值前缀 */
@@ -63,10 +69,6 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     private static final int STATUS_APPROVED = 1;
     private static final int STATUS_REJECTED = 2;
     private static final int STATUS_WITHDRAWN = 3;
-
-    /** 申请类型：0=修改申请 / 1=新增专家申请 */
-    private static final int REQUEST_TYPE_MODIFY = 0;
-    private static final int REQUEST_TYPE_CREATE = 1;
 
     /** 新增专家必填文本字段（审批通过后写入 expert_info；模板管理接口对外暴露该清单） */
     public static final List<String> CREATE_REQUIRED_FIELDS = List.of(
@@ -84,11 +86,11 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     /** 联系方式正则：11 位手机号或邮箱（与 ExpertService.validateRequired 对齐） */
     private static final Pattern CONTACT_PATTERN = Pattern.compile("^1\\d{10}$|^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$");
 
-    /** 敏感格式字段（仅在本次变更涉及且值非空时校验，与 ExpertService.validateRequired 的 hasText 逻辑对齐） */
+    /** 敏感格式字段（仅在本次变更涉及且值非空时校验） */
     private static final List<String> SENSITIVE_FIELDS = List.of("身份证号", "银行卡号", "联系方式");
 
-    /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
-    public static final String PERM_APPROVAL_AUDIT = "approval:audit";
+    /** 审批管理页面路由（菜单已迁移至个人中心） */
+    private static final String MANAGE_PATH = "/profile/approval/manage";
 
     private final ApprovalConfigMapper approvalConfigMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
@@ -156,14 +158,14 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     // ==================== 提交申请（员工） ====================
 
     /**
-     * 提交修改申请：
+     * 提交专家信息修改申请（application_type=EXPERT_MODIFY）：
      * - 拥有 expert:edit 权限的用户不允许走审批流（提示直接编辑）；
      * - 审批流未启用时拒绝；
      * - changes 非空且字段必须在白名单；
      * - 生成申请单(status=0)并写一条 SUBMIT 记录。
      */
-    public ExpertChangeRequest submitRequest(Long expertId, Map<String, Object> changes, String reason,
-                                             Long templateId, AuthUser user) {
+    public Application submitRequest(Long expertId, Map<String, Object> changes, String reason,
+                                     Long templateId, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
@@ -181,6 +183,72 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         if (expert == null) {
             throw new BusinessException("专家不存在");
         }
+        checkChanges(changes);
+        validateSensitiveFields(changes);
+        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
+        if (templateId != null) {
+            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
+        }
+
+        Application app = new Application();
+        app.setApplicantId(user.getUserId());
+        app.setApplicant(user.getUsername());
+        app.setApplicationType(ApplicationType.EXPERT_MODIFY.name());
+        app.setStatus(STATUS_PENDING);
+        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason, templateId));
+        app.setCreateTime(LocalDateTime.now());
+        this.save(app);
+
+        addRecord(app.getId(), "提交修改申请", "SUBMIT", user.getUsername(),
+                StringUtils.hasText(reason) ? reason : "提交专家信息修改申请");
+        return app;
+    }
+
+    /**
+     * 提交新增专家申请（application_type=EXPERT_CREATE）：
+     * - 校验与 submitRequest 一致（管理员拒绝、审批流启用、changes 非空、字段白名单、照片 TMP: 与临时文件存在）；
+     * - 额外校验新增必填项（姓名、单位等，姓名须满足 ^[一-龥·]{2,20}$）；
+     * - expertId 为空，审批通过后创建专家并回填 biz_data.expertId。
+     */
+    public Application submitCreateRequest(Map<String, Object> changes, String reason,
+                                           Long templateId, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (user.hasPermission("expert:edit")) {
+            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中新增专家，无需提交审批");
+        }
+        ApprovalConfig config = getConfig();
+        if (config.getEnabled() == null || config.getEnabled() != 1) {
+            throw new BusinessException("审批流未启用，暂不支持提交新增专家申请");
+        }
+        checkChanges(changes);
+        validateCreateChanges(changes);
+
+        Application app = new Application();
+        app.setApplicantId(user.getUserId());
+        app.setApplicant(user.getUsername());
+        app.setApplicationType(ApplicationType.EXPERT_CREATE.name());
+        app.setStatus(STATUS_PENDING);
+        String expertName = String.valueOf(changes.get("姓名")).trim();
+        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
+        if (templateId != null) {
+            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
+        }
+        app.setBizData(writeBizData(null, expertName, changes, reason, templateId));
+        app.setCreateTime(LocalDateTime.now());
+        this.save(app);
+
+        addRecord(app.getId(), "提交新增专家申请", "SUBMIT", user.getUsername(),
+                StringUtils.hasText(reason) ? reason : "提交新增专家申请");
+        notifyApprovalTodo(app);
+        return app;
+    }
+
+    /**
+     * 提交字段校验：changes 非空、白名单（文本+照片）、照片值须为 TMP: 前缀且临时文件存在。
+     */
+    private void checkChanges(Map<String, Object> changes) {
         if (changes == null || changes.isEmpty()) {
             throw new BusinessException("变更内容不能为空");
         }
@@ -200,88 +268,6 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
                 }
             }
         }
-        // 敏感字段格式兜底校验（身份证/银行卡/联系方式，与 ExpertService.validateRequired 对齐）
-        validateSensitiveFields(changes);
-        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
-        if (templateId != null) {
-            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
-        }
-
-        ExpertChangeRequest request = new ExpertChangeRequest();
-        request.setExpertId(expertId);
-        request.setExpertName(expert.getName());
-        request.setApplicant(user.getUsername());
-        request.setChangeData(writeJson(changes));
-        request.setReason(reason);
-        request.setTemplateId(templateId);
-        request.setStatus(STATUS_PENDING);
-        request.setCreateTime(LocalDateTime.now());
-        this.save(request);
-
-        addRecord(request.getId(), "提交修改申请", "SUBMIT", user.getUsername(),
-                StringUtils.hasText(reason) ? reason : "提交专家信息修改申请");
-        return request;
-    }
-
-    /**
-     * 提交新增专家申请（需求4）：
-     * - 校验与 submitRequest 一致（管理员拒绝、审批流启用、changes 非空、字段白名单、照片 TMP: 与临时文件存在）；
-     * - 额外校验新增必填项（姓名、单位等，姓名须满足 ^[一-龥·]{2,20}$）；
-     * - 生成 request_type=1 的申请单（expertId 为空，expertName 取 changes 里的姓名）。
-     */
-    public ExpertChangeRequest submitCreateRequest(Map<String, Object> changes, String reason,
-                                                   Long templateId, AuthUser user) {
-        if (user == null) {
-            throw new BusinessException("未登录");
-        }
-        if (user.hasPermission("expert:edit")) {
-            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中新增专家，无需提交审批");
-        }
-        ApprovalConfig config = getConfig();
-        if (config.getEnabled() == null || config.getEnabled() != 1) {
-            throw new BusinessException("审批流未启用，暂不支持提交新增专家申请");
-        }
-        if (changes == null || changes.isEmpty()) {
-            throw new BusinessException("变更内容不能为空");
-        }
-        for (String key : changes.keySet()) {
-            boolean textField = WHITELIST_FIELDS.contains(key);
-            boolean photoField = PHOTO_FIELDS.contains(key);
-            if (!textField && !photoField) {
-                throw new BusinessException("字段「" + key + "」不在可新增白名单内");
-            }
-            if (photoField) {
-                String value = changes.get(key) == null ? null : String.valueOf(changes.get(key)).trim();
-                if (!StringUtils.hasText(value) || !TMP_PATTERN.matcher(value).matches()) {
-                    throw new BusinessException("照片字段「" + key + "」的值不合法，请重新上传照片");
-                }
-                if (!photoStorageService.existsTempPhoto(value.substring(TMP_PREFIX.length()))) {
-                    throw new BusinessException("照片字段「" + key + "」对应的临时文件不存在，请重新上传");
-                }
-            }
-        }
-        validateCreateChanges(changes);
-
-        ExpertChangeRequest request = new ExpertChangeRequest();
-        request.setRequestType(REQUEST_TYPE_CREATE);
-        request.setExpertId(null);
-        request.setExpertName(String.valueOf(changes.get("姓名")).trim());
-        request.setApplicant(user.getUsername());
-        request.setChangeData(writeJson(changes));
-        request.setReason(reason);
-        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
-        if (templateId != null) {
-            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
-            request.setTemplateId(templateId);
-        }
-        request.setStatus(STATUS_PENDING);
-        request.setCreateTime(LocalDateTime.now());
-        this.save(request);
-
-        addRecord(request.getId(), "提交新增专家申请", "SUBMIT", user.getUsername(),
-                StringUtils.hasText(reason) ? reason : "提交新增专家申请");
-        notifyApprovalTodo(request);
-        return request;
     }
 
     /**
@@ -299,94 +285,97 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         if (!NAME_PATTERN.matcher(name).matches()) {
             throw new BusinessException("姓名格式不正确（2-20 个汉字，可含间隔号）");
         }
-        // 敏感字段格式兜底校验（身份证/银行卡/联系方式，与 ExpertService.validateRequired 对齐）
+        // 敏感字段格式兜底校验（身份证/银行卡/联系方式）
         validateSensitiveFields(changes);
     }
 
     // ==================== 我的申请（员工） ====================
 
     /**
-     * 我的申请分页列表：只查本人，可按状态过滤（status 为空查全部），附带变更内容、状态文本与审批流进度记录。
+     * 我的申请分页列表（新接口 my-applications；旧 my-requests 同实现兼容保留）：
+     * 按 applicant_id / applicant 双条件过滤本人（兼容存量 applicant_id 为空的迁移行），
+     * 可按状态过滤（status 为空查全部），附带 biz_data 解析展示字段与进度记录。
      */
-    public Page<ExpertChangeRequest> myRequests(long page, long size, Integer status, AuthUser user) {
+    public Page<Application> myApplications(long page, long size, Integer status, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
-        LambdaQueryWrapper<ExpertChangeRequest> wrapper = new LambdaQueryWrapper<ExpertChangeRequest>()
-                .eq(ExpertChangeRequest::getApplicant, user.getUsername());
+        LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<Application>()
+                .and(w -> w.eq(Application::getApplicantId, user.getUserId())
+                        .or().eq(Application::getApplicant, user.getUsername()));
         if (status != null) {
-            wrapper.eq(ExpertChangeRequest::getStatus, status);
+            wrapper.eq(Application::getStatus, status);
         }
-        wrapper.orderByDesc(ExpertChangeRequest::getCreateTime);
-        Page<ExpertChangeRequest> result = this.page(new Page<>(page, size), wrapper);
-        for (ExpertChangeRequest r : result.getRecords()) {
+        wrapper.orderByDesc(Application::getCreateTime);
+        Page<Application> result = this.page(new Page<>(page, size), wrapper);
+        for (Application r : result.getRecords()) {
             fillView(r);
         }
         return result;
     }
 
-    // ==================== 全部申请（管理员） ====================
+    // ==================== 全部申请（审批管理） ====================
 
     /**
-     * 全部申请单分页：可按状态过滤，keyword 模糊匹配申请人 / 专家姓名。
+     * 全部申请单分页：可按状态过滤，keyword 模糊匹配申请人 / 专家姓名（biz_data.expertName JSON 提取）。
      */
-    public Page<ExpertChangeRequest> listRequests(Integer status, String keyword, long page, long size) {
+    public Page<Application> listRequests(Integer status, String keyword, long page, long size) {
         return listRequests(status == null ? null : List.of(status), keyword, page, size);
     }
 
     /**
      * 全部申请单分页（多状态）：statuses 为空查全部；keyword 模糊匹配申请人 / 专家姓名。
-     * 已处理列表（status=1,2）统一在此分页，避免前端分页语义不稳定。
+     * 已处理列表（status=1,2,3）统一在此分页，避免前端分页语义不稳定。
      */
-    public Page<ExpertChangeRequest> listRequests(List<Integer> statuses, String keyword, long page, long size) {
-        LambdaQueryWrapper<ExpertChangeRequest> wrapper = new LambdaQueryWrapper<>();
+    public Page<Application> listRequests(List<Integer> statuses, String keyword, long page, long size) {
+        LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<>();
         if (statuses != null && !statuses.isEmpty()) {
-            wrapper.in(ExpertChangeRequest::getStatus, statuses);
+            wrapper.in(Application::getStatus, statuses);
         }
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
-            wrapper.and(w -> w.like(ExpertChangeRequest::getApplicant, kw)
-                    .or().like(ExpertChangeRequest::getExpertName, kw));
+            wrapper.and(w -> w.like(Application::getApplicant, kw)
+                    .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.expertName')) LIKE CONCAT('%', {0}, '%')", kw));
         }
-        wrapper.orderByDesc(ExpertChangeRequest::getCreateTime);
-        Page<ExpertChangeRequest> result = this.page(new Page<>(page, size), wrapper);
-        for (ExpertChangeRequest r : result.getRecords()) {
+        wrapper.orderByDesc(Application::getCreateTime);
+        Page<Application> result = this.page(new Page<>(page, size), wrapper);
+        for (Application r : result.getRecords()) {
             fillView(r);
         }
         return result;
     }
 
-    // ==================== 审批（管理员） ====================
+    // ==================== 审批（审批管理） ====================
 
     /**
-     * 审批通过：按申请类型分支处理（需求4）。
-     * - request_type=1 新增专家申请：先创建 Expert 再归档照片回填，最后回填申请单 expertId；
-     * - request_type=0 修改申请：走原修改逻辑。
+     * 审批通过：按申请类型分支处理。
+     * - EXPERT_CREATE 新增专家申请：先创建 Expert 再归档照片回填，最后回填 biz_data.expertId；
+     * - EXPERT_MODIFY 修改申请：走原修改逻辑。
      */
-    public ExpertChangeRequest approve(Long id, String comment, AuthUser user) {
-        ExpertChangeRequest request = getPending(id);
-        checkAssignee(request, user);
-        ExpertChangeRequest result;
-        if (isCreateRequest(request)) {
-            result = approveCreate(request, comment, user);
+    public Application approve(Long id, String comment, AuthUser user) {
+        Application app = getPending(id);
+        checkAssignee(app, user);
+        Application result;
+        if (isCreateRequest(app)) {
+            result = approveCreate(app, comment, user);
         } else {
-            result = approveModify(request, comment, user);
+            result = approveModify(app, comment, user);
         }
         notifyApprovalResult(result, user);
         return result;
     }
 
-    private boolean isCreateRequest(ExpertChangeRequest request) {
-        return request.getRequestType() != null && request.getRequestType() == REQUEST_TYPE_CREATE;
+    private boolean isCreateRequest(Application app) {
+        return ApplicationType.parse(app.getApplicationType()) == ApplicationType.EXPERT_CREATE;
     }
 
     /**
-     * 审批通过（新增专家申请，request_type=1）：
+     * 审批通过（新增专家申请）：
      * 先从 changes 提取文本字段创建 Expert（update_by=审批人），
-     * 再归档照片回填 photo/idCardFront/idCardBack，最后回填申请单 expertId。
+     * 再归档照片回填 photo/idCardFront/idCardBack，最后回填 biz_data 的 expertId / expertName。
      */
-    private ExpertChangeRequest approveCreate(ExpertChangeRequest request, String comment, AuthUser user) {
-        Map<String, Object> changes = readChanges(request);
+    private Application approveCreate(Application app, String comment, AuthUser user) {
+        Map<String, Object> changes = readChanges(app);
         // 防御性校验：提交后数据不应变化，审批时兜底校验一次
         validateCreateChanges(changes);
 
@@ -414,33 +403,36 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             }
         }
         // 方案A：审批通过时 update_by 记申请人（发起新增的人），而非审批人
-        expert.setUpdateBy(request.getApplicant());
+        expert.setUpdateBy(app.getApplicant());
         expertService.update(expert.getId(), expert, null);
 
-        // 3. 回填申请单 expertId
-        request.setExpertId(expert.getId());
-        request.setExpertName(expert.getName());
-        request.setStatus(STATUS_APPROVED);
-        request.setApproveBy(user == null ? null : user.getUsername());
-        request.setApproveComment(comment);
-        request.setApproveTime(LocalDateTime.now());
-        this.updateById(request);
+        // 3. 回填 biz_data 的 expertId / expertName
+        Map<String, Object> biz = readBiz(app);
+        biz.put("expertId", expert.getId());
+        biz.put("expertName", expert.getName());
+        app.setBizData(writeBiz(biz));
 
-        addRecord(request.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
+        app.setStatus(STATUS_APPROVED);
+        app.setApproveBy(user == null ? null : user.getUsername());
+        app.setApproveComment(comment);
+        app.setApproveTime(LocalDateTime.now());
+        this.updateById(app);
+
+        addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意新增专家");
-        return fillView(request);
+        return fillView(app);
     }
 
     /**
-     * 审批通过（修改申请，request_type=0）：校验待审批状态，将白名单字段写入 expert_info（update_by=审批人），
+     * 审批通过（修改申请）：校验待审批状态，将白名单字段写入 expert_info（update_by=申请人），
      * 状态置为已通过，写 APPROVE 记录。
      */
-    public ExpertChangeRequest approveModify(ExpertChangeRequest request, String comment, AuthUser user) {
-        Map<String, Object> changes = readChanges(request);
-        // 敏感字段格式兜底校验（身份证/银行卡/联系方式，与 ExpertService.validateRequired 对齐）
+    public Application approveModify(Application app, String comment, AuthUser user) {
+        Map<String, Object> changes = readChanges(app);
+        // 敏感字段格式兜底校验（身份证/银行卡/联系方式）
         validateSensitiveFields(changes);
 
-        Expert existing = expertService.getById(request.getExpertId());
+        Expert existing = expertService.getById(app.getExpertId());
         Expert patch = new Expert();
         Map<String, String> oldPhotos = new HashMap<>();
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
@@ -453,7 +445,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
                 continue;
             }
             String tempName = value.substring(TMP_PREFIX.length());
-            String newName = photoStorageService.moveTempPhoto(tempName, request.getExpertId(), photoTypeOf(key));
+            String newName = photoStorageService.moveTempPhoto(tempName, app.getExpertId(), photoTypeOf(key));
             switch (key) {
                 case "照片" -> {
                     if (existing != null) {
@@ -477,8 +469,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         }
         applyChanges(patch, changes);
         // 方案A：审批通过时 update_by 记申请人（发起修改的人），而非审批人
-        patch.setUpdateBy(request.getApplicant());
-        expertService.update(request.getExpertId(), patch, null);
+        patch.setUpdateBy(app.getApplicant());
+        expertService.update(app.getExpertId(), patch, null);
 
         // 照片已生效：物理删除旧照片（仅照片键有变更时）
         for (String oldName : oldPhotos.values()) {
@@ -487,85 +479,79 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             }
         }
         // 防御性清理临时文件（moveTempPhoto 已归档并删除，此处兜底）
-        for (Map.Entry<String, Object> entry : changes.entrySet()) {
-            if (PHOTO_FIELDS.contains(entry.getKey()) && entry.getValue() != null
-                    && String.valueOf(entry.getValue()).startsWith(TMP_PREFIX)) {
-                photoStorageService.deleteTempPhoto(
-                        String.valueOf(entry.getValue()).substring(TMP_PREFIX.length()));
-            }
-        }
+        cleanTempPhotos(app);
 
-        request.setStatus(STATUS_APPROVED);
-        request.setApproveBy(user == null ? null : user.getUsername());
-        request.setApproveComment(comment);
-        request.setApproveTime(LocalDateTime.now());
-        this.updateById(request);
+        app.setStatus(STATUS_APPROVED);
+        app.setApproveBy(user == null ? null : user.getUsername());
+        app.setApproveComment(comment);
+        app.setApproveTime(LocalDateTime.now());
+        this.updateById(app);
 
-        addRecord(request.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
+        addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意修改");
-        return fillView(request);
+        return fillView(app);
     }
 
     /**
      * 审批驳回：校验待审批状态与意见必填，状态置为已驳回，写 REJECT 记录。
      */
-    public ExpertChangeRequest reject(Long id, String comment, AuthUser user) {
+    public Application reject(Long id, String comment, AuthUser user) {
         if (!StringUtils.hasText(comment)) {
             throw new BusinessException("驳回意见不能为空");
         }
-        ExpertChangeRequest request = getPending(id);
-        checkAssignee(request, user);
+        Application app = getPending(id);
+        checkAssignee(app, user);
         // 驳回：清理该申请关联的所有临时照片（与撤回共用 cleanTempPhotos）
-        cleanTempPhotos(request);
-        request.setStatus(STATUS_REJECTED);
-        request.setApproveBy(user == null ? null : user.getUsername());
-        request.setApproveComment(comment);
-        request.setApproveTime(LocalDateTime.now());
-        this.updateById(request);
+        cleanTempPhotos(app);
+        app.setStatus(STATUS_REJECTED);
+        app.setApproveBy(user == null ? null : user.getUsername());
+        app.setApproveComment(comment);
+        app.setApproveTime(LocalDateTime.now());
+        this.updateById(app);
 
-        addRecord(request.getId(), "管理员驳回", "REJECT", user == null ? null : user.getUsername(), comment.trim());
-        notifyApprovalResult(request, user);
-        return fillView(request);
+        addRecord(app.getId(), "管理员驳回", "REJECT", user == null ? null : user.getUsername(), comment.trim());
+        notifyApprovalResult(app, user);
+        return fillView(app);
     }
 
     // ==================== 撤回申请（申请人） ====================
 
     /**
-     * 撤回申请（需求R-B3）：仅申请人本人可撤，status=0 才可撤。
+     * 撤回申请：仅申请人本人可撤，status=0 才可撤。
      * 撤回后状态置为已撤回(3)，清理该单全部临时照片，写 WITHDRAW 记录，通知审批人角色下用户。
-     * 撤回单不再满足 getPending 的 status=0 校验，审批接口天然拒绝（提示已处理）。
      */
-    public ExpertChangeRequest withdraw(Long id, AuthUser user) {
+    public Application withdraw(Long id, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
         if (id == null) {
             throw new BusinessException("申请单ID不能为空");
         }
-        ExpertChangeRequest request = getById(id);
-        if (request == null) {
+        Application app = getById(id);
+        if (app == null) {
             throw new BusinessException("申请单不存在");
         }
-        if (request.getStatus() == null || request.getStatus() != STATUS_PENDING) {
+        if (app.getStatus() == null || app.getStatus() != STATUS_PENDING) {
             throw new BusinessException("该申请单已处理，不能撤回");
         }
-        if (!request.getApplicant().equals(user.getUsername())) {
+        if (!app.getApplicant().equals(user.getUsername())) {
             throw new BusinessException("仅申请人本人可撤回申请");
         }
-        cleanTempPhotos(request);
-        request.setStatus(STATUS_WITHDRAWN);
-        this.updateById(request);
+        fillBiz(app);
+        cleanTempPhotos(app);
+        app.setStatus(STATUS_WITHDRAWN);
+        this.updateById(app);
 
-        addRecord(request.getId(), "申请人撤回", "WITHDRAW", user.getUsername(), "撤回本人提交的申请");
-        notifyApprovalWithdrawn(request);
-        return fillView(request);
+        addRecord(app.getId(), "申请人撤回", "WITHDRAW", user.getUsername(), "撤回本人提交的申请");
+        notifyApprovalWithdrawn(app);
+        return fillView(app);
     }
 
     /**
      * 清理申请单关联的全部临时照片（TMP: 前缀值对应的临时文件），供驳回 / 撤回复用。
      */
-    private void cleanTempPhotos(ExpertChangeRequest request) {
-        Map<String, Object> changes = readChanges(request);
+    private void cleanTempPhotos(Application app) {
+        Map<String, Object> changes = readChanges(app);
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
             if (PHOTO_FIELDS.contains(entry.getKey()) && entry.getValue() != null
                     && String.valueOf(entry.getValue()).startsWith(TMP_PREFIX)) {
@@ -575,99 +561,67 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         }
     }
 
-    /**
-     * 撤回通知（approval_withdrawn）：通知审批流配置的审批人角色下全部用户「申请已撤回」。
-     */
-    private void notifyApprovalWithdrawn(ExpertChangeRequest request) {
-        try {
-            ApprovalConfig config = getConfig();
-            String roleCode = config.getApproverRole();
-            if (!StringUtils.hasText(roleCode)) {
-                return;
-            }
-            Role role = roleMapper.selectOne(
-                    new LambdaQueryWrapper<Role>().eq(Role::getCode, roleCode).last("LIMIT 1"));
-            if (role == null) {
-                return;
-            }
-            List<UserRole> bindings = userRoleMapper.selectList(
-                    new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
-            if (bindings.isEmpty()) {
-                return;
-            }
-            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
-            for (UserRole ur : bindings) {
-                notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_WITHDRAWN,
-                        "申请已撤回：" + typeText,
-                        "申请人 " + request.getApplicant() + " 撤回了" + typeText + "，无需再处理",
-                        "/admin/approval/manage");
-            }
-        } catch (Exception e) {
-            // 通知失败不影响主流程
-        }
-    }
-
     // ==================== 转办 / 加签（B2） ====================
 
     /**
-     * 审批转办（R-B2-1）：当前审批人将待审批单移交指定用户。
+     * 审批转办：当前审批人将待审批单移交指定用户。
      * - 仅 status=0 待审批可转；
      * - 当前用户须有 approval:audit，且满足 current_assignee 为空或等于本人；
      * - 目标用户必须存在且拥有 approval:audit 权限码；
-     * - 转办后 current_assignee 置为目标用户，仅被转办人可审批（approve/reject 经 checkAssignee 校验）；
+     * - 转办后仅被转办人可审批（approve/reject 经 checkAssignee 校验）；
      * - 写 TRANSFER 记录并通知被转办人与申请人。
      */
-    public ExpertChangeRequest transfer(Long id, String targetUser, AuthUser user) {
+    public Application transfer(Long id, String targetUser, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
         if (!StringUtils.hasText(targetUser)) {
             throw new BusinessException("目标用户不能为空");
         }
-        ExpertChangeRequest request = getPending(id);
-        checkAssignee(request, user);
+        Application app = getPending(id);
+        checkAssignee(app, user);
         SysUser target = checkTargetApprover(targetUser.trim());
         if (target.getUsername().equals(user.getUsername())) {
             throw new BusinessException("不能转办给自己");
         }
-        request.setCurrentAssignee(target.getUsername());
-        this.updateById(request);
+        app.setCurrentAssignee(target.getUsername());
+        this.updateById(app);
 
-        addRecord(request.getId(), "审批转办", "TRANSFER", user.getUsername(),
+        addRecord(app.getId(), "审批转办", "TRANSFER", user.getUsername(),
                 "转给【" + target.getUsername() + "】");
-        notifyTransferred(request, target.getUsername(), user);
-        return fillView(request);
+        notifyTransferred(app, target.getUsername(), user);
+        return fillView(app);
     }
 
     /**
-     * 审批加签（R-B2-2，或签语义）：当前审批人追加一个指定用户共同审批。
-     * - 或签：原审批人与被加签人任一 approve 即通过、任一 reject 即驳回（不改变现有状态机）；
+     * 审批加签（或签语义）：当前审批人追加一个指定用户共同审批。
+     * - 或签：原审批人与被加签人任一 approve 即通过、任一 reject 即驳回（不改变状态机）；
      * - 已加签不可重复加签；不能加签给自己；
      * - extra_approver 置为目标用户，写 ADD_APPROVER 记录并通知被加签人。
      */
-    public ExpertChangeRequest addApprover(Long id, String targetUser, String comment, AuthUser user) {
+    public Application addApprover(Long id, String targetUser, String comment, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
         if (!StringUtils.hasText(targetUser)) {
             throw new BusinessException("目标用户不能为空");
         }
-        ExpertChangeRequest request = getPending(id);
-        checkAssignee(request, user);
-        if (StringUtils.hasText(request.getExtraApprover())) {
+        Application app = getPending(id);
+        checkAssignee(app, user);
+        if (StringUtils.hasText(app.getExtraApprover())) {
             throw new BusinessException("该申请单已加签，不能重复加签");
         }
         SysUser target = checkTargetApprover(targetUser.trim());
         if (target.getUsername().equals(user.getUsername())) {
             throw new BusinessException("不能加签给自己");
         }
-        request.setExtraApprover(target.getUsername());
-        this.updateById(request);
+        app.setExtraApprover(target.getUsername());
+        this.updateById(app);
 
-        addRecord(request.getId(), "审批加签", "ADD_APPROVER", user.getUsername(),
+        addRecord(app.getId(), "审批加签", "ADD_APPROVER", user.getUsername(),
                 StringUtils.hasText(comment) ? comment.trim() : "加签【" + target.getUsername() + "】共同审批");
-        notifyAssigned(request, target.getUsername());
-        return fillView(request);
+        notifyAssigned(app, target.getUsername());
+        return fillView(app);
     }
 
     /**
@@ -694,11 +648,11 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     /**
      * 审批权校验（B2）：current_assignee 非空时仅被转办人本人可审批；为空维持现状（任何有审批权限的用户可审）。
      */
-    private void checkAssignee(ExpertChangeRequest request, AuthUser user) {
+    private void checkAssignee(Application app, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
-        String assignee = request.getCurrentAssignee();
+        String assignee = app.getCurrentAssignee();
         if (StringUtils.hasText(assignee) && !assignee.equals(user.getUsername())) {
             throw new BusinessException("该申请单已转办给 " + assignee + "，仅被转办人可审批");
         }
@@ -722,57 +676,12 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         return target;
     }
 
-    /**
-     * 转办通知：通知被转办人新增待办（approval_transferred）；申请人可收到转办提醒。
-     */
-    private void notifyTransferred(ExpertChangeRequest request, String targetUser, AuthUser operator) {
-        try {
-            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
-            Long targetId = userIdOf(targetUser);
-            if (targetId != null) {
-                notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
-                        "转办待办：" + typeText,
-                        "「" + request.getExpertName() + "」的" + typeText + "已由 "
-                                + operator.getUsername() + " 转办给您，请及时处理",
-                        "/admin/approval/manage");
-            }
-            Long applicantId = userIdOf(request.getApplicant());
-            if (applicantId != null) {
-                notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
-                        "您的申请已转办",
-                        "您的「" + request.getExpertName() + "」" + typeText + "已转办给 " + targetUser + " 审批",
-                        "/profile/my-approvals");
-            }
-        } catch (Exception e) {
-            // 通知失败不影响主流程
-        }
-    }
-
-    /**
-     * 加签通知（approval_assigned）：通知被加签人新增待办。
-     */
-    private void notifyAssigned(ExpertChangeRequest request, String targetUser) {
-        try {
-            Long targetId = userIdOf(targetUser);
-            if (targetId == null) {
-                return;
-            }
-            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
-            notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_ASSIGNED,
-                    "加签待办：" + typeText,
-                    "「" + request.getExpertName() + "」的" + typeText + "已加签您共同审批（任一人审批即生效），请及时处理",
-                    "/admin/approval/manage");
-        } catch (Exception e) {
-            // 通知失败不影响主流程
-        }
-    }
-
-    // ==================== 私有方法 ====================
+    // ==================== 通知 ====================
 
     /**
      * 新申请待审通知（approval_todo）：通知审批流配置的审批人角色下全部用户。
      */
-    private void notifyApprovalTodo(ExpertChangeRequest request) {
+    private void notifyApprovalTodo(Application app) {
         try {
             ApprovalConfig config = getConfig();
             String roleCode = config.getApproverRole();
@@ -789,12 +698,44 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             if (bindings.isEmpty()) {
                 return;
             }
-            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
             for (UserRole ur : bindings) {
                 notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_TODO,
                         "新的" + typeText + "待审批",
-                        "申请人 " + request.getApplicant() + " 提交了新的申请，请及时处理",
-                        "/admin/approval/manage");
+                        "申请人 " + app.getApplicant() + " 提交了新的申请，请及时处理",
+                        MANAGE_PATH);
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 撤回通知（approval_withdrawn）：通知审批流配置的审批人角色下全部用户「申请已撤回」。
+     */
+    private void notifyApprovalWithdrawn(Application app) {
+        try {
+            ApprovalConfig config = getConfig();
+            String roleCode = config.getApproverRole();
+            if (!StringUtils.hasText(roleCode)) {
+                return;
+            }
+            Role role = roleMapper.selectOne(
+                    new LambdaQueryWrapper<Role>().eq(Role::getCode, roleCode).last("LIMIT 1"));
+            if (role == null) {
+                return;
+            }
+            List<UserRole> bindings = userRoleMapper.selectList(
+                    new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
+            if (bindings.isEmpty()) {
+                return;
+            }
+            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+            for (UserRole ur : bindings) {
+                notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_WITHDRAWN,
+                        "申请已撤回：" + typeText,
+                        "申请人 " + app.getApplicant() + " 撤回了" + typeText + "，无需再处理",
+                        MANAGE_PATH);
             }
         } catch (Exception e) {
             // 通知失败不影响主流程
@@ -804,18 +745,18 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     /**
      * 审批结果通知（approval_result）：通知申请人审批通过 / 驳回结果。
      */
-    private void notifyApprovalResult(ExpertChangeRequest request, AuthUser user) {
+    private void notifyApprovalResult(Application app, AuthUser user) {
         try {
-            Long applicantId = userIdOf(request.getApplicant());
+            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : userIdOf(app.getApplicant());
             if (applicantId == null) {
                 return;
             }
-            boolean approved = request.getStatus() != null && request.getStatus() == STATUS_APPROVED;
-            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            boolean approved = app.getStatus() != null && app.getStatus() == STATUS_APPROVED;
+            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
             String operator = user == null ? "管理员" : user.getUsername();
             String content = operator + (approved ? "已通过您的" : "已驳回您的") + typeText;
-            if (StringUtils.hasText(request.getApproveComment())) {
-                content += "，意见：" + request.getApproveComment();
+            if (StringUtils.hasText(app.getApproveComment())) {
+                content += "，意见：" + app.getApproveComment();
             }
             String jump = approved ? "/profile/my-approvals?status=1" : "/profile/my-approvals?status=2";
             notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
@@ -824,6 +765,53 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             // 通知失败不影响主流程
         }
     }
+
+    /**
+     * 转办通知：通知被转办人新增待办（approval_transferred）；申请人可收到转办提醒。
+     */
+    private void notifyTransferred(Application app, String targetUser, AuthUser operator) {
+        try {
+            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+            Long targetId = userIdOf(targetUser);
+            if (targetId != null) {
+                notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
+                        "转办待办：" + typeText,
+                        "「" + app.getExpertName() + "」的" + typeText + "已由 "
+                                + operator.getUsername() + " 转办给您，请及时处理",
+                        MANAGE_PATH);
+            }
+            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : userIdOf(app.getApplicant());
+            if (applicantId != null) {
+                notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
+                        "您的申请已转办",
+                        "您的「" + app.getExpertName() + "」" + typeText + "已转办给 " + targetUser + " 审批",
+                        "/profile/my-approvals");
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 加签通知（approval_assigned）：通知被加签人新增待办。
+     */
+    private void notifyAssigned(Application app, String targetUser) {
+        try {
+            Long targetId = userIdOf(targetUser);
+            if (targetId == null) {
+                return;
+            }
+            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+            notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_ASSIGNED,
+                    "加签待办：" + typeText,
+                    "「" + app.getExpertName() + "」的" + typeText + "已加签您共同审批（任一人审批即生效），请及时处理",
+                    MANAGE_PATH);
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    // ==================== 私有方法 ====================
 
     /**
      * 按用户名反查用户ID（sys_user.username 唯一）。
@@ -844,27 +832,30 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
 
     /**
      * 取待审批申请单；不存在或已处理时报错。
+     * 返回前先解析 biz_data 公共字段（expertId/expertName 等不再是数据库列，裸实体需补齐供审批链路使用）。
      */
-    private ExpertChangeRequest getPending(Long id) {
+    private Application getPending(Long id) {
         if (id == null) {
             throw new BusinessException("申请单ID不能为空");
         }
-        ExpertChangeRequest request = getById(id);
-        if (request == null) {
+        Application app = getById(id);
+        if (app == null) {
             throw new BusinessException("申请单不存在");
         }
-        if (request.getStatus() == null || request.getStatus() != STATUS_PENDING) {
+        if (app.getStatus() == null || app.getStatus() != STATUS_PENDING) {
             throw new BusinessException("该申请单已处理，不能重复审批");
         }
-        return request;
+        fillBiz(app);
+        return app;
     }
 
     /**
-     * 写一条审批流记录。
+     * 写一条审批流记录（application_id 为准；request_id 同值保留满足列非空约束与历史兼容）。
      */
-    private void addRecord(Long requestId, String nodeName, String action, String operator, String comment) {
+    private void addRecord(Long applicationId, String nodeName, String action, String operator, String comment) {
         ApprovalRecord record = new ApprovalRecord();
-        record.setRequestId(requestId);
+        record.setRequestId(applicationId);
+        record.setApplicationId(applicationId);
         record.setNodeName(nodeName);
         record.setAction(action);
         record.setOperator(operator);
@@ -874,40 +865,60 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     }
 
     /**
-     * 查询申请单全部进度记录（按时间升序）。
+     * 查询申请单全部进度记录（按时间升序，关联 application_id；存量行已按同 id 回填）。
      */
-    private List<ApprovalRecord> recordsOf(Long requestId) {
+    private List<ApprovalRecord> recordsOf(Long applicationId) {
         return approvalRecordMapper.selectList(
                 new LambdaQueryWrapper<ApprovalRecord>()
-                        .eq(ApprovalRecord::getRequestId, requestId)
+                        .eq(ApprovalRecord::getApplicationId, applicationId)
                         .orderByAsc(ApprovalRecord::getCreateTime));
     }
 
     /**
-     * 填充展示字段：changes（解析 JSON）、statusText、requestTypeText、records。
+     * 填充展示字段：biz_data 解析（expertId/expertName/reason/templateId/changes）、
+     * requestType/requestTypeText、statusText、records。
      */
-    private ExpertChangeRequest fillView(ExpertChangeRequest request) {
-        request.setChanges(friendlyChanges(readChanges(request)));
-        request.setStatusText(statusText(request.getStatus()));
-        request.setRequestTypeText(requestTypeText(request.getRequestType()));
-        request.setRecords(recordsOf(request.getId()));
-        return request;
+    private Application fillView(Application app) {
+        fillBiz(app);
+        app.setChanges(friendlyChanges(readChanges(app)));
+        ApplicationType type = ApplicationType.parse(app.getApplicationType());
+        app.setRequestType(type.requestType());
+        app.setRequestTypeText(type.text());
+        app.setStatusText(statusText(app.getStatus()));
+        app.setRecords(recordsOf(app.getId()));
+        return app;
     }
 
     /**
-     * 申请类型文本：1=新增专家，其余（0/空）=修改申请。
+     * 仅解析 biz_data 公共字段（不加进度记录等重查询），供审批/撤回等内部链路取 expertId/expertName。
      */
-    private String requestTypeText(Integer requestType) {
-        if (requestType == null || requestType == REQUEST_TYPE_MODIFY) {
-            return "修改申请";
+    private void fillBiz(Application app) {
+        Map<String, Object> biz = readBiz(app);
+        app.setExpertId(toLong(biz.get("expertId")));
+        Object expertName = biz.get("expertName");
+        app.setExpertName(expertName == null ? null : String.valueOf(expertName));
+        app.setTemplateId(toLong(biz.get("templateId")));
+        Object reason = biz.get("reason");
+        app.setReason(reason == null ? null : String.valueOf(reason));
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
         }
-        return "新增专家";
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
      * 敏感字段格式兜底校验（与 ExpertService.validateRequired 对齐）：
-     * 仅对本次变更涉及且值非空的身份证号/银行卡号/联系方式做格式校验；
-     * 变更中未涉及或值为空的字段不校验（保持与新增通道一致的 hasText 语义）。
+     * 仅对本次变更涉及且值非空的身份证号/银行卡号/联系方式做格式校验。
      */
     private void validateSensitiveFields(Map<String, Object> changes) {
         if (changes == null || changes.isEmpty()) {
@@ -1008,23 +1019,51 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         };
     }
 
-    private String writeJson(Map<String, Object> changes) {
+    // ==================== biz_data 读写 ====================
+
+    private String writeBizData(Long expertId, String expertName, Map<String, Object> changes,
+                                String reason, Long templateId) {
+        Map<String, Object> biz = new LinkedHashMap<>();
+        biz.put("expertId", expertId);
+        biz.put("expertName", expertName);
+        biz.put("changes", changes);
+        biz.put("reason", reason);
+        biz.put("templateId", templateId);
+        return writeBiz(biz);
+    }
+
+    private String writeBiz(Map<String, Object> biz) {
         try {
-            return objectMapper.writeValueAsString(changes);
+            return objectMapper.writeValueAsString(biz);
         } catch (Exception e) {
-            throw new BusinessException("变更内容序列化失败: " + e.getMessage());
+            throw new BusinessException("申请内容序列化失败: " + e.getMessage());
         }
     }
 
-    private Map<String, Object> readChanges(ExpertChangeRequest request) {
-        if (!StringUtils.hasText(request.getChangeData())) {
+    private Map<String, Object> readBiz(Application app) {
+        if (!StringUtils.hasText(app.getBizData())) {
             return new HashMap<>();
         }
         try {
-            return objectMapper.readValue(request.getChangeData(), new TypeReference<Map<String, Object>>() {
+            return objectMapper.readValue(app.getBizData(), new TypeReference<Map<String, Object>>() {
             });
         } catch (Exception e) {
             return new HashMap<>();
         }
+    }
+
+    /**
+     * 读取 biz_data.changes（照片 TMP: 值原样返回，展示层再友好化）。
+     */
+    private Map<String, Object> readChanges(Application app) {
+        Object changes = readBiz(app).get("changes");
+        if (changes instanceof Map<?, ?> map) {
+            Map<String, Object> result = new HashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            return result;
+        }
+        return new HashMap<>();
     }
 }

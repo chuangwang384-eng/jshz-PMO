@@ -1,12 +1,12 @@
 package com.jshz.expert.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.common.PageResult;
 import com.jshz.expert.entity.ApprovalConfig;
-import com.jshz.expert.entity.ExpertChangeRequest;
+import com.jshz.expert.entity.Application;
 import com.jshz.expert.security.AuthUser;
-import com.jshz.expert.service.ApprovalService;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.jshz.expert.service.ApplicationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
@@ -26,19 +26,23 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 专家信息修改审批流接口（需求5）。
- * - GET/PUT /api/approval/config：审批流配置（PUT 仅管理员）；
- * - POST /api/approval/requests：员工提交修改申请；
- * - GET /api/approval/my-requests：员工查看本人申请及进度；
- * - GET /api/approval/requests：管理员查看全部申请；
- * - POST /api/approval/requests/{id}/approve|reject：管理员审批。
+ * 通用申请接口（「我的申请」改版，由 ApprovalController 演化）。
+ * URL 沿用 /api/approval/*（permission 表路径规则与前端 api/approval.js 不变），业务读写 application 主表。
+ * - GET/PUT /api/approval/config：审批流配置（PUT 仅 ADMIN）；
+ * - POST /api/approval/requests：员工提交专家修改申请（EXPERT_MODIFY）；
+ * - POST /api/approval/create-request：员工提交新增专家申请（EXPERT_CREATE）；
+ * - GET /api/approval/my-applications：我的申请（新接口，登录即可，仅本人数据）；
+ * - GET /api/approval/my-requests：旧路径兼容（同实现）；
+ * - GET /api/approval/requests：审批管理全部申请（权限码 approval:audit）；
+ * - POST /api/approval/requests/{id}/approve|reject|withdraw|transfer|add-approver；
+ * - GET /api/approval/assignable-users：可转办/加签用户列表。
  */
 @RestController
 @RequestMapping("/api/approval")
 @RequiredArgsConstructor
-public class ApprovalController {
+public class ApplicationController {
 
-    private final ApprovalService approvalService;
+    private final ApplicationService applicationService;
 
     /**
      * 审批流配置：GET /api/approval/config（登录即可）。
@@ -46,7 +50,7 @@ public class ApprovalController {
      */
     @GetMapping("/config")
     public ApiResponse<Map<String, Object>> config() {
-        ApprovalConfig config = approvalService.getConfig();
+        ApprovalConfig config = applicationService.getConfig();
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("flowName", config.getFlowName());
         data.put("enabled", config.getEnabled());
@@ -62,7 +66,7 @@ public class ApprovalController {
     public ApiResponse<Map<String, Object>> updateConfig(@RequestBody(required = false) Map<String, Object> body) {
         Integer enabled = body == null ? null : toInteger(body.get("enabled"));
         String approverRole = body == null ? null : (String) body.get("approverRole");
-        ApprovalConfig config = approvalService.updateConfig(enabled, approverRole);
+        ApprovalConfig config = applicationService.updateConfig(enabled, approverRole);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("flowName", config.getFlowName());
         data.put("enabled", config.getEnabled());
@@ -73,11 +77,10 @@ public class ApprovalController {
     /**
      * 提交修改申请：POST /api/approval/requests（登录即可，管理员拒绝）。
      * body {expertId, changes: {中文键: 新值}, reason, templateId 可选}。
-     * 传 templateId 时校验 changes 字段集合 ⊆ 模板字段（模板须启用）；不传保持原逻辑。
      */
     @PostMapping("/requests")
-    public ApiResponse<ExpertChangeRequest> submit(@RequestBody(required = false) Map<String, Object> body,
-                                                   @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Application> submit(@RequestBody(required = false) Map<String, Object> body,
+                                           @AuthenticationPrincipal AuthUser authUser) {
         if (body == null) {
             throw new com.jshz.expert.common.BusinessException("请求体不能为空");
         }
@@ -86,16 +89,16 @@ public class ApprovalController {
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
         Long templateId = toLong(body.get("templateId"));
-        return ApiResponse.ok(approvalService.submitRequest(expertId, changes, reason, templateId, authUser));
+        return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, templateId, authUser));
     }
 
     /**
      * 提交新增专家申请：POST /api/approval/create-request（登录即可，管理员拒绝）。
-     * body {changes: {中文键: 新值}, reason, templateId 可选}，expertId 无需传（新增申请提交时专家不存在）。
+     * body {changes: {中文键: 新值}, reason, templateId 可选}，expertId 无需传。
      */
     @PostMapping("/create-request")
-    public ApiResponse<ExpertChangeRequest> createRequest(@RequestBody(required = false) Map<String, Object> body,
-                                                          @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Application> createRequest(@RequestBody(required = false) Map<String, Object> body,
+                                                  @AuthenticationPrincipal AuthUser authUser) {
         if (body == null) {
             throw new com.jshz.expert.common.BusinessException("请求体不能为空");
         }
@@ -103,7 +106,7 @@ public class ApprovalController {
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
         Long templateId = toLong(body.get("templateId"));
-        return ApiResponse.ok(approvalService.submitCreateRequest(changes, reason, templateId, authUser));
+        return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, templateId, authUser));
     }
 
     /**
@@ -112,31 +115,45 @@ public class ApprovalController {
      */
     @PostMapping("/photo-upload")
     public ApiResponse<Map<String, Object>> photoUpload(@RequestParam("file") MultipartFile file) {
-        String fileName = approvalService.uploadTempPhoto(file);
+        String fileName = applicationService.uploadTempPhoto(file);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("fileName", fileName);
         return ApiResponse.ok(data);
     }
 
     /**
-     * 我的申请：GET /api/approval/my-requests?page=&size=&status=（登录即可，status 为空查全部）。
+     * 我的申请（新接口）：GET /api/approval/my-applications?page=&size=&status=（登录即可）。
+     * 仅返回本人申请（applicant_id/applicant 双条件过滤），含审批人/审批时间/审批意见/进度记录。
      */
-    @GetMapping("/my-requests")
-    public ApiResponse<PageResult<ExpertChangeRequest>> myRequests(
+    @GetMapping("/my-applications")
+    public ApiResponse<PageResult<Application>> myApplications(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
             @RequestParam(required = false) Integer status,
             @AuthenticationPrincipal AuthUser authUser) {
-        Page<ExpertChangeRequest> p = approvalService.myRequests(page, size, status, authUser);
+        Page<Application> p = applicationService.myApplications(page, size, status, authUser);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
     }
 
     /**
-     * 全部申请单：GET /api/approval/requests?status=&statuses=1,2&keyword=&page=&size=（仅 ADMIN）。
-     * status：单状态过滤；statuses：多状态过滤（逗号分隔，如 1,2 表示已处理），优先于 status。
+     * 我的申请（旧路径兼容）：GET /api/approval/my-requests，实现与 my-applications 一致。
+     */
+    @GetMapping("/my-requests")
+    public ApiResponse<PageResult<Application>> myRequests(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) Integer status,
+            @AuthenticationPrincipal AuthUser authUser) {
+        Page<Application> p = applicationService.myApplications(page, size, status, authUser);
+        return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
+    }
+
+    /**
+     * 全部申请单：GET /api/approval/requests?status=&statuses=1,2&keyword=&page=&size=（权限码 approval:audit）。
+     * status：单状态过滤；statuses：多状态过滤（逗号分隔，如 1,2,3 表示已处理），优先于 status。
      */
     @GetMapping("/requests")
-    public ApiResponse<PageResult<ExpertChangeRequest>> listRequests(
+    public ApiResponse<PageResult<Application>> listRequests(
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) String statuses,
             @RequestParam(required = false) String keyword,
@@ -155,53 +172,51 @@ public class ApprovalController {
         } else if (status != null) {
             statusList = List.of(status);
         }
-        Page<ExpertChangeRequest> p = approvalService.listRequests(statusList, keyword, page, size);
+        Page<Application> p = applicationService.listRequests(statusList, keyword, page, size);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
     }
 
     /**
-     * 审批通过：POST /api/approval/requests/{id}/approve（仅 ADMIN），body {comment 可空}。
+     * 审批通过：POST /api/approval/requests/{id}/approve（权限码 approval:audit），body {comment 可空}。
      */
     @PostMapping("/requests/{id}/approve")
-    public ApiResponse<ExpertChangeRequest> approve(@PathVariable Long id,
-                                                    @RequestBody(required = false) Map<String, Object> body,
-                                                    @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Application> approve(@PathVariable Long id,
+                                            @RequestBody(required = false) Map<String, Object> body,
+                                            @AuthenticationPrincipal AuthUser authUser) {
         String comment = body == null ? null : (String) body.get("comment");
-        return ApiResponse.ok(approvalService.approve(id, comment, authUser));
+        return ApiResponse.ok(applicationService.approve(id, comment, authUser));
     }
 
     /**
-     * 审批驳回：POST /api/approval/requests/{id}/reject（仅 ADMIN），body {comment 必填}。
+     * 审批驳回：POST /api/approval/requests/{id}/reject（权限码 approval:audit），body {comment 必填}。
      */
     @PostMapping("/requests/{id}/reject")
-    public ApiResponse<ExpertChangeRequest> reject(@PathVariable Long id,
-                                                   @RequestBody(required = false) Map<String, Object> body,
-                                                   @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Application> reject(@PathVariable Long id,
+                                           @RequestBody(required = false) Map<String, Object> body,
+                                           @AuthenticationPrincipal AuthUser authUser) {
         String comment = body == null ? null : (String) body.get("comment");
-        return ApiResponse.ok(approvalService.reject(id, comment, authUser));
+        return ApiResponse.ok(applicationService.reject(id, comment, authUser));
     }
 
     /**
      * 撤回申请：POST /api/approval/requests/{id}/withdraw（仅申请人本人，status=0 可撤）。
      */
     @PostMapping("/requests/{id}/withdraw")
-    public ApiResponse<ExpertChangeRequest> withdraw(@PathVariable Long id,
-                                                     @AuthenticationPrincipal AuthUser authUser) {
-        return ApiResponse.ok(approvalService.withdraw(id, authUser));
+    public ApiResponse<Application> withdraw(@PathVariable Long id,
+                                             @AuthenticationPrincipal AuthUser authUser) {
+        return ApiResponse.ok(applicationService.withdraw(id, authUser));
     }
-
-    // ==================== 转办 / 加签（B2） ====================
 
     /**
      * 审批转办：POST /api/approval/requests/{id}/transfer（权限码 approval:audit）。
      * body {targetUser}；current_assignee 非空时仅被转办人本人可再转办。
      */
     @PostMapping("/requests/{id}/transfer")
-    public ApiResponse<ExpertChangeRequest> transfer(@PathVariable Long id,
-                                                     @RequestBody(required = false) Map<String, Object> body,
-                                                     @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Application> transfer(@PathVariable Long id,
+                                             @RequestBody(required = false) Map<String, Object> body,
+                                             @AuthenticationPrincipal AuthUser authUser) {
         String targetUser = body == null ? null : (String) body.get("targetUser");
-        return ApiResponse.ok(approvalService.transfer(id, targetUser, authUser));
+        return ApiResponse.ok(applicationService.transfer(id, targetUser, authUser));
     }
 
     /**
@@ -209,12 +224,12 @@ public class ApprovalController {
      * body {targetUser, comment?}；已加签不可重复加签。
      */
     @PostMapping("/requests/{id}/add-approver")
-    public ApiResponse<ExpertChangeRequest> addApprover(@PathVariable Long id,
-                                                        @RequestBody(required = false) Map<String, Object> body,
-                                                        @AuthenticationPrincipal AuthUser authUser) {
+    public ApiResponse<Application> addApprover(@PathVariable Long id,
+                                                @RequestBody(required = false) Map<String, Object> body,
+                                                @AuthenticationPrincipal AuthUser authUser) {
         String targetUser = body == null ? null : (String) body.get("targetUser");
         String comment = body == null ? null : (String) body.get("comment");
-        return ApiResponse.ok(approvalService.addApprover(id, targetUser, comment, authUser));
+        return ApiResponse.ok(applicationService.addApprover(id, targetUser, comment, authUser));
     }
 
     /**
@@ -223,7 +238,7 @@ public class ApprovalController {
      */
     @GetMapping("/assignable-users")
     public ApiResponse<List<Map<String, Object>>> assignableUsers() {
-        return ApiResponse.ok(approvalService.assignableUsers());
+        return ApiResponse.ok(applicationService.assignableUsers());
     }
 
     private Long toLong(Object value) {

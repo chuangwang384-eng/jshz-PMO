@@ -29,7 +29,13 @@ export function uploadApprovalPhoto(file) {
   return request.post('/approval/photo-upload', formData)
 }
 
-// 我的申请：GET /approval/my-requests?page=&size=
+// 我的申请（新接口）：GET /approval/my-applications?page=&size=&status=
+// 仅返回本人申请（后端按 applicant_id/applicant 双条件过滤），含审批人/审批时间/进度记录
+export function getMyApplications(params) {
+  return request.get('/approval/my-applications', { params })
+}
+
+// 我的申请（旧路径兼容）：GET /approval/my-requests?page=&size=
 export function getMyApprovalRequests(params) {
   return request.get('/approval/my-requests', { params })
 }

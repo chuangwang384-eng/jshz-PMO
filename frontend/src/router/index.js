@@ -60,7 +60,13 @@ const routes = [
         path: 'my-approvals',
         name: 'my-approvals',
         component: () => import('../views/MyApproval.vue'),
-        meta: { title: '我的审批' }
+        meta: { title: '我的申请' }
+      },
+      {
+        path: 'approval/manage',
+        name: 'approval-manage',
+        component: () => import('../views/ApprovalManage.vue'),
+        meta: { title: '审批管理', permissions: ['approval:audit'] }
       },
       {
         path: 'change-password',
@@ -88,7 +94,7 @@ const routes = [
     redirect: '/admin/experts/manage',
     meta: {
       title: '管理员设置',
-      permissions: ['expert:manage', 'audit:view', 'approval:audit', 'approval:config', 'user:manage', 'role:manage']
+      permissions: ['expert:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
     },
     children: [
       {
@@ -102,12 +108,6 @@ const routes = [
         name: 'audit-downloads',
         component: () => import('../views/DownloadAudit.vue'),
         meta: { title: '用户操作日志', permissions: ['audit:view'] }
-      },
-      {
-        path: 'approval/manage',
-        name: 'approval-manage',
-        component: () => import('../views/ApprovalManage.vue'),
-        meta: { title: '审批管理', permissions: ['approval:audit'] }
       },
       {
         path: 'approval/config',
