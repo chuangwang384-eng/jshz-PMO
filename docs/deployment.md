@@ -147,6 +147,16 @@ server {
 - **剩余动作**：系统观察稳定后，以 `-DiscardOldPassword` 参数再执行一次 `rotate-backend-credentials.ps1`，弃用旧数据库密码、结束双密码过渡期。
 *（内容由AI生成，仅供参考）*
 
+## 凭据长期策略与免重登发布（2026-10-26 固化）
+
+> **目标：日常发布/重启不影响任何已登录用户。** 已登录用户的 token 由 JWT 密钥签名，只要密钥不变，重启后端、蓝绿发布均不会使 token 失效。
+
+- **JWT_SECRET 为长期固定凭据**：只存于本地 `start-backend.bat` 与 NSSM 服务环境（AppEnvironmentExtra），发布、重启、机器重启均不更换。`deploy-backend.ps1` 阶段 1 内置一致性护栏：会话注入的 `MYSQL_PASSWORD` / `JWT_SECRET` 必须与 NSSM 注册表值完全一致，不一致直接中止发布（DryRun 模式下同样执行该检查）。
+- **发布前准备**（每次后端发布）：在会话中按 `start-backend.bat` 的值注入 `MYSQL_PASSWORD` 与 `JWT_SECRET`，再执行 `deploy-backend.ps1`。凭据一致 → 预检打印 `[OK] 凭据一致性...发布后用户无需重新登录`。
+- **密钥轮换为例外操作**（仅在怀疑泄露时执行，需负责人批准并提前知会全员重新登录）：修改 `start-backend.bat` 中两个值 → 管理员执行 `rotate-backend-credentials.ps1`（写 NSSM + 重启 + 冒烟）。数据库密码另支持双密码零中断过渡，JWT 密钥轮换则会立即使所有 token 失效，属预期行为。
+- 与发布无关的正常登录失效：JWT 有效期 8 小时（`expert.jwt.expire-hours`），到期需重新登录，属产品策略；如需调整有效期改配置并走正常发布。
+*（内容由AI生成，仅供参考）*
+
 ## R-1 发布记录（后端蓝绿）
 - 2026-10-26 09:29:01 R-1 发布 1.001 成功（jar: expert-system-1.001.jar）
 - 2026-10-26 10:46:13 R-1 发布 1.002 成功（jar: expert-system-1.002.jar；R-B4 审批模板 + 凭据环境变量化生效）

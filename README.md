@@ -105,6 +105,8 @@ jshz-PMO/
 
 参数：`-JarPath`（新 jar 绝对路径，缺省取 target 下最新）、`-Version`（归档目录名，缺省从 jar 名推导）、`-DryRun`、`-KeepVersions`。
 
+> **凭据策略（免全员重登）**：发布前在会话按 `start-backend.bat` 值注入 `MYSQL_PASSWORD` 与 `JWT_SECRET`；脚本阶段 1 强制校验会话与 NSSM 服务环境一致，不一致中止。`JWT_SECRET` 为长期固定凭据，发布/重启不更换——已登录用户 token 跨发布保持有效；轮换仅限疑似泄露场景且需全员重登（详见 `docs/deployment.md`「凭据长期策略与免重登发布」）。
+
 ### R-2 前端原子发布与回滚
 
 - **发布**：`scripts/deploy-frontend.ps1` —— 构建输出到临时目录 `dist-new.<时间戳>`（不直接覆盖 `dist`）→ 校验 `index.html` 与 `assets/` → 备份旧 `dist` 至 `frontend/releases/<版本>-<时间戳>/` → 原子替换（失败自动恢复）→ 自检首页 SHA256。

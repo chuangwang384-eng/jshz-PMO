@@ -141,6 +141,28 @@ function Step1-Preflight {
         throw '未设置 JWT_SECRET 环境变量：新版 application.yml 要求注入 JWT 签名密钥（与 NSSM AppEnvironmentExtra 一致），否则影子启动会失败'
     }
 
+    # 凭据一致性预检（长期免重登机制核心护栏）：
+    # 会话注入的 MYSQL_PASSWORD / JWT_SECRET 必须与 NSSM 服务环境完全一致。
+    # JWT_SECRET 属长期固定凭据——发布/重启不更换，已登录用户的 token 跨发布保持有效（免全员重登）；
+    # 密钥变更只能作为独立的轮换操作（rotate-backend-credentials.ps1）并在非发布时段执行。
+    # 本检查直接执行（不随 DryRun 跳过），注册表读取为只读操作。
+    $nssmParamsKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters'
+    $svcEnv = (Get-ItemProperty -Path $nssmParamsKey -ErrorAction SilentlyContinue).AppEnvironmentExtra
+    if ($svcEnv) {
+        $envJoined = $svcEnv -join "`n"
+        $nssmDb  = [regex]::Match($envJoined, '(?m)^MYSQL_PASSWORD=(.+)$').Groups[1].Value.Trim()
+        $nssmJwt = [regex]::Match($envJoined, '(?m)^JWT_SECRET=(.+)$').Groups[1].Value.Trim()
+        if ($nssmDb -and ($nssmDb -ne $MysqlPassword)) {
+            throw 'MYSQL_PASSWORD 与 NSSM 服务环境不一致：请以 start-backend.bat（=NSSM）当前值为准注入会话后再发布，防止影子实例连接异常'
+        }
+        if ($nssmJwt -and ($nssmJwt -ne $env:JWT_SECRET)) {
+            throw 'JWT_SECRET 与 NSSM 服务环境不一致：JWT 密钥为长期固定凭据（保证发布/重启免全员重登），禁止在发布时更换；确需轮换请单独执行 rotate-backend-credentials.ps1 并提前知会全员重新登录'
+        }
+        Write-Ok '凭据一致性: 会话环境与 NSSM 服务一致（JWT 密钥未变更，发布后用户无需重新登录）'
+    } else {
+        Write-Info '未读取到 NSSM AppEnvironmentExtra，跳过一致性比对（首次部署场景）'
+    }
+
     if ($Version) { $script:NewVersion = $Version }
     else {
         $base = [IO.Path]::GetFileNameWithoutExtension($script:NewJar)   # expert-system-1.002
