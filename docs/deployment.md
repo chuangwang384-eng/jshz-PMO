@@ -179,3 +179,11 @@ server {
 - **运维警告 2**：执行 database/migration 下含中文的 SQL 禁止经 PowerShell 管道（`$sql | mysql`）传参——PowerShell 5.1 管道默认 ASCII 编码，中文字面量会变 `?`(3F) 写入库（本次已用 database/migration/20261026_fix_b2_operation_log_utf8.sql 修复）。正确姿势：`Start-Process mysql -RedirectStandardInput 文件` 或 cmd 字节级重定向，并带 `--default-character-set=utf8mb4`。
 - 前端 1.004 原子发布：16:22:31 完成（dist SHA256 自检通过；回滚点 `frontend/releases/1.004-20261026_162231`）。
 - 本次 1.004 合并发布内容：知识星球格式显示优化（随工作区）+ B2 审批转办/加签（或签）+ 用户操作日志改版；双账号（jshz 超管 + 王创审批人）按验收清单逐项实测通过，详见 docs/20261026-handover-B2转办加签与用户操作日志.md。
+
+## 备份与恢复演练体系（2026-10-26 建立）
+
+- **一键备份**：`scripts/backup.ps1`（单脚本三模式 Backup/Verify/Drill）。备份产物 `backup\backup_时间戳\`：expert_system 全量 SQL（--single-transaction --set-gtid-purged=OFF）+ 照片库/知识文档库 zip（照片库_tmp 空则跳过）+ 每产物 .sha256 + manifest.txt；保留最近 5 份，超出移入回收站；日志 `logs\backup.log`。
+- **凭据**：优先环境变量 MYSQL_PASSWORD，缺省从本地 start-backend.bat（gitignored）运行时解析，不落盘明文。
+- **自动计划任务**：`jshzPMOBackupWeekly` 每周日 02:00 以当前用户运行 Backup 模式（已注册，NextRun 见 `Get-ScheduledTaskInfo`）。
+- **校验**：`-Mode Verify` 对产物做 SHA256 复核 + zip 全量读取（CRC）校验。
+- **恢复演练**：`-Mode Drill` 自动：校验→重建测试库 expert_system_restore_test（内置护栏仅操作该库）→导入→与生产库对比表数量与每表 COUNT(*) 精确行数→结论自动追加 `docs/恢复演练文档.md`（含手动灾难恢复步骤）。首次演练已通过：17 表 / 871 行完全一致（2026-10-26 19:19，耗时 42.8s）。
