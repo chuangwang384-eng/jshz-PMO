@@ -53,3 +53,35 @@ export function rejectRequest(id, data) {
 export function withdrawRequest(id) {
   return request.post(`/approval/requests/${id}/withdraw`)
 }
+
+// ==================== 审批申请字段模板（R-B4） ====================
+
+// 启用模板列表：GET /approval/templates（登录即可，员工提交申请下拉）
+export function getApprovalTemplates() {
+  return request.get('/approval/templates')
+}
+
+// 全部模板（含停用）：GET /approval/templates/all（权限码 approval:config）
+export function getAllApprovalTemplates() {
+  return request.get('/approval/templates/all')
+}
+
+// 可选字段清单：GET /approval/template-fields，返回 {textFields, photoFields, createRequiredFields}
+export function getApprovalFieldCatalog() {
+  return request.get('/approval/template-fields')
+}
+
+// 新增模板：POST /approval/templates，body {templateName, fields: [中文键], enabled}
+export function createApprovalTemplate(data) {
+  return request.post('/approval/templates', data)
+}
+
+// 修改/启停模板：PUT /approval/templates/{id}
+export function updateApprovalTemplate(id, data) {
+  return request.put(`/approval/templates/${id}`, data)
+}
+
+// 删除模板：DELETE /approval/templates/{id}
+export function deleteApprovalTemplate(id) {
+  return request.delete(`/approval/templates/${id}`)
+}

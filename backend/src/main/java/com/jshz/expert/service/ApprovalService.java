@@ -66,8 +66,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     private static final int REQUEST_TYPE_MODIFY = 0;
     private static final int REQUEST_TYPE_CREATE = 1;
 
-    /** 新增专家必填文本字段（审批通过后写入 expert_info） */
-    private static final List<String> CREATE_REQUIRED_FIELDS = List.of(
+    /** 新增专家必填文本字段（审批通过后写入 expert_info；模板管理接口对外暴露该清单） */
+    public static final List<String> CREATE_REQUIRED_FIELDS = List.of(
             "姓名", "单位", "科室", "职称", "研究方向", "擅长领域", "联系方式");
 
     /** 姓名正则：2-20 个汉字，可含间隔号 */
@@ -87,6 +87,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
 
     private final ApprovalConfigMapper approvalConfigMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
+    private final ApprovalTemplateService approvalTemplateService;
     private final ExpertService expertService;
     private final PhotoStorageService photoStorageService;
     private final RoleMapper roleMapper;
@@ -155,7 +156,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
      * - changes 非空且字段必须在白名单；
      * - 生成申请单(status=0)并写一条 SUBMIT 记录。
      */
-    public ExpertChangeRequest submitRequest(Long expertId, Map<String, Object> changes, String reason, AuthUser user) {
+    public ExpertChangeRequest submitRequest(Long expertId, Map<String, Object> changes, String reason,
+                                             Long templateId, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
@@ -194,6 +196,10 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         }
         // 敏感字段格式兜底校验（身份证/银行卡/联系方式，与 ExpertService.validateRequired 对齐）
         validateSensitiveFields(changes);
+        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
+        if (templateId != null) {
+            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
+        }
 
         ExpertChangeRequest request = new ExpertChangeRequest();
         request.setExpertId(expertId);
@@ -201,6 +207,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         request.setApplicant(user.getUsername());
         request.setChangeData(writeJson(changes));
         request.setReason(reason);
+        request.setTemplateId(templateId);
         request.setStatus(STATUS_PENDING);
         request.setCreateTime(LocalDateTime.now());
         this.save(request);
@@ -216,7 +223,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
      * - 额外校验新增必填项（姓名、单位等，姓名须满足 ^[一-龥·]{2,20}$）；
      * - 生成 request_type=1 的申请单（expertId 为空，expertName 取 changes 里的姓名）。
      */
-    public ExpertChangeRequest submitCreateRequest(Map<String, Object> changes, String reason, AuthUser user) {
+    public ExpertChangeRequest submitCreateRequest(Map<String, Object> changes, String reason,
+                                                   Long templateId, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
@@ -255,6 +263,11 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         request.setApplicant(user.getUsername());
         request.setChangeData(writeJson(changes));
         request.setReason(reason);
+        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
+        if (templateId != null) {
+            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
+            request.setTemplateId(templateId);
+        }
         request.setStatus(STATUS_PENDING);
         request.setCreateTime(LocalDateTime.now());
         this.save(request);

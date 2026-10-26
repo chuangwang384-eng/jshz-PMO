@@ -72,7 +72,8 @@ public class ApprovalController {
 
     /**
      * 提交修改申请：POST /api/approval/requests（登录即可，管理员拒绝）。
-     * body {expertId, changes: {中文键: 新值}, reason}。
+     * body {expertId, changes: {中文键: 新值}, reason, templateId 可选}。
+     * 传 templateId 时校验 changes 字段集合 ⊆ 模板字段（模板须启用）；不传保持原逻辑。
      */
     @PostMapping("/requests")
     public ApiResponse<ExpertChangeRequest> submit(@RequestBody(required = false) Map<String, Object> body,
@@ -84,23 +85,25 @@ public class ApprovalController {
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        return ApiResponse.ok(approvalService.submitRequest(expertId, changes, reason, authUser));
+        Long templateId = toLong(body.get("templateId"));
+        return ApiResponse.ok(approvalService.submitRequest(expertId, changes, reason, templateId, authUser));
     }
 
     /**
      * 提交新增专家申请：POST /api/approval/create-request（登录即可，管理员拒绝）。
-     * body {changes: {中文键: 新值}, reason}，expertId 无需传（新增申请提交时专家不存在）。
+     * body {changes: {中文键: 新值}, reason, templateId 可选}，expertId 无需传（新增申请提交时专家不存在）。
      */
     @PostMapping("/create-request")
     public ApiResponse<ExpertChangeRequest> createRequest(@RequestBody(required = false) Map<String, Object> body,
-                                                         @AuthenticationPrincipal AuthUser authUser) {
+                                                          @AuthenticationPrincipal AuthUser authUser) {
         if (body == null) {
             throw new com.jshz.expert.common.BusinessException("请求体不能为空");
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        return ApiResponse.ok(approvalService.submitCreateRequest(changes, reason, authUser));
+        Long templateId = toLong(body.get("templateId"));
+        return ApiResponse.ok(approvalService.submitCreateRequest(changes, reason, templateId, authUser));
     }
 
     /**

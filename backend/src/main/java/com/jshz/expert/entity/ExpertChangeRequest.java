@@ -48,6 +48,10 @@ public class ExpertChangeRequest {
     @JsonProperty("requestType")
     private Integer requestType;
 
+    /** 来源申请模板 approval_template.id（R-B4，可空=未使用模板，历史数据兼容） */
+    @JsonProperty("templateId")
+    private Long templateId;
+
     /** 审批状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 */
     @JsonProperty("status")
     private Integer status;

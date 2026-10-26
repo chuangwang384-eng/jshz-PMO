@@ -116,6 +116,12 @@ const routes = [
         meta: { title: '审批流配置', permissions: ['approval:config'] }
       },
       {
+        path: 'approval/templates',
+        name: 'approval-templates',
+        component: () => import('../views/ApprovalTemplateManage.vue'),
+        meta: { title: '审批模板管理', permissions: ['approval:config'] }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/UserManage.vue'),
