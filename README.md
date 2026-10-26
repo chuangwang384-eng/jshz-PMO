@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a21e74b7d0dd11f19fe7525400de85a5
+    ReservedCode1: 4i5O7d8oB1yuecPArFaQjsPiGwGxGVGc1O8+zdLCDRrKY//cyjPza1G0Lp4NFjTqo4yOOCPSCKSP6DcaKd8yYyeeEEj5tj9pMeEhb54yiIQ+huPoeD+VULjxqDZ9D2+dtquisqQTGdQNUUcqpRX6lf5r3NGIEQzrvxT+s6R5WStuPczdRQhHCSgn/Ag=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a21e74b7d0dd11f19fe7525400de85a5
+    ReservedCode2: 4i5O7d8oB1yuecPArFaQjsPiGwGxGVGc1O8+zdLCDRrKY//cyjPza1G0Lp4NFjTqo4yOOCPSCKSP6DcaKd8yYyeeEEj5tj9pMeEhb54yiIQ+huPoeD+VULjxqDZ9D2+dtquisqQTGdQNUUcqpRX6lf5r3NGIEQzrvxT+s6R5WStuPczdRQhHCSgn/Ag=
+---
+
 \---  
 AIGC:  
     Label: "1"  
@@ -68,3 +79,52 @@ jshz-PMO/
 - **数据库**：使用内网 MySQL 8 实例（`expert_system` 库），连接信息通过 `MYSQL_*` 环境变量注入，禁止硬编码提交
 - **认证**：JWT 存 httpOnly cookie（SameSite=Lax、无 Secure，适配内网 http），登出清 cookie；CORS 仅允许 `<PRIVATE_IP>:5173` / `localhost:5173`
 - **网络隔离**：前端通过内网域名或 Nginx 反代访问后端接口  
+
+## 不停机部署方案（发布运维规范）
+
+> **每次代码/配置更新上线，必须按本方案（R-1 后端蓝绿 / R-2 前端原子发布）执行，禁止直接覆盖运行文件、禁止 `nginx -s reload`。** 完整设计与流程图见 [docs/2026-10-24-发布运维体系与UI偏移修复-design.md](docs/2026-10-24-发布运维体系与UI偏移修复-design.md)。
+
+### R-1 后端蓝绿不停机发布
+
+脚本：`scripts/deploy-backend.ps1`，按设计文档 §4.1 实现 11 阶段蓝绿发布：
+
+```
+预检 → 影子启动 8081 → 健康+业务探测 → 备份 Nginx conf → 改 proxy_pass → nginx -t
+→ Restart-Service ExpertSystemNginx → 蓝验证 → 稳态化 NSSM → 切回 8080 → 清理+归档
+```
+
+- 端口约定：`8080`=生产（绿），`8081`=影子（蓝）
+- **Nginx 切流一律 `Restart-Service ExpertSystemNginx`**（NSSM 托管约束，禁止 `nginx -s reload`）
+- 阶段 9 先停 NSSM 服务再替换 `target/*.jar`（释放进程锁；不先停会替换失败）
+- 归档：`backend/releases/`，默认保留 5 个版本（`-KeepVersions` 可调）
+
+```powershell
+.\scripts\deploy-backend.ps1 -DryRun                                        # 预演（不改配置/不动服务）
+.\scripts\deploy-backend.ps1 -JarPath <LOCAL_PATH>
+```
+
+参数：`-JarPath`（新 jar 绝对路径，缺省取 target 下最新）、`-Version`（归档目录名，缺省从 jar 名推导）、`-DryRun`、`-KeepVersions`。
+
+### R-2 前端原子发布与回滚
+
+- **发布**：`scripts/deploy-frontend.ps1` —— 构建输出到临时目录 `dist-new.<时间戳>`（不直接覆盖 `dist`）→ 校验 `index.html` 与 `assets/` → 备份旧 `dist` 至 `frontend/releases/<版本>-<时间戳>/` → 原子替换（失败自动恢复）→ 自检首页 SHA256。
+- **回滚**：`scripts/rollback-frontend.ps1` —— 恢复 `frontend/releases/` 下最新版本（`-Version` 指定版本）；当前损坏 `dist` 存档为 `backup/frontend/dist_broken.<时间戳>`；兼容旧 `backup/frontend/dist_backup_*` 兜底。
+- **关键约束**：`dist` 即取即用，发布/回滚后**无需重启 Nginx**（禁止 `nginx -s reload`）。
+
+```powershell
+.\scripts\deploy-frontend.ps1 -DryRun                                       # 预演
+.\scripts\deploy-frontend.ps1                                               # 原子发布
+.\scripts\rollback-frontend.ps1 [-Version 1.0.5]                            # 回滚
+```
+
+### 发布流程总纲（每次更新必读）
+
+| 环节 | 动作 | 回滚 |
+| --- | --- | --- |
+| 后端更新 | `mvn package` 构建 → `deploy-backend.ps1` 蓝绿发布（先 `-DryRun` 预演） | 设计文档 §4.1.4 回滚预案 / `deployment.md` |
+| 前端更新 | `deploy-frontend.ps1` 原子发布（自动构建 + 备份 + 替换 + 自检） | `rollback-frontend.ps1` |
+| 数据库变更 | 遵循 R-3 向后兼容迁移规范（新增列/状态需兼容旧版本，禁止破坏性变更） | 迁移脚本保留现场 |
+| 文档同步 | 按 [AGENTS.md](AGENTS.md) 第 0 节同步 `docs/` 对应文档与交接文档 | — |
+
+R-3 数据库向后兼容迁移规范、R-4 一键发布脚本化、R-5 版本保留与回滚预案详见设计文档 §4.3~§4.5。
+*（内容由AI生成，仅供参考）*
