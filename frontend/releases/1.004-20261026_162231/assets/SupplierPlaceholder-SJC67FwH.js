@@ -1,0 +1,1 @@
+import{_ as o,c as s,a,w as c,r,o as n,e as p}from"./index-Cu_Xoxzo.js";const l={},_={class:"placeholder-page"};function d(i,e){const t=r("el-empty");return n(),s("div",_,[a(t,{description:"功能开发中"},{default:c(()=>[...e[0]||(e[0]=[p("span",{class:"tip"},"供应商管理模块为占位菜单，二期开发，敬请期待",-1)])]),_:1})])}const f=o(l,[["render",d],["__scopeId","data-v-618a2c24"]]);export{f as default};

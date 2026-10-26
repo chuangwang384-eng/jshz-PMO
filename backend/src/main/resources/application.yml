@@ -45,6 +45,9 @@ expert:
     preview-dir: 'D:\jshz-PMO\知识文档库\_preview'
     # LibreOffice 可执行文件路径（doc/docx/xls/xlsx/ppt/pptx 在线预览转换）
     libreoffice-path: 'C:\Program Files\LibreOffice\program\soffice.com'
+  # 供应商图片存储根目录（前端压缩后上传，多图画廊展示）
+  supplier:
+    storage-dir: 'D:\jshz-PMO\供应商图库'
   # JWT 登录鉴权
   jwt:
     # 签名密钥必须由环境变量 JWT_SECRET 注入（≥32 字节随机串），禁止写入仓库；

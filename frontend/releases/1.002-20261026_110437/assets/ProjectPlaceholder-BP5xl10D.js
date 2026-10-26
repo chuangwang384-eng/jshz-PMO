@@ -1,0 +1,1 @@
+import{_ as o,c as s,a,w as c,r,o as n,e as _}from"./index-BUnJhQqY.js";const d={},l={class:"placeholder-page"};function p(i,e){const t=r("el-empty");return n(),s("div",l,[a(t,{description:"功能开发中"},{default:c(()=>[...e[0]||(e[0]=[_("span",{class:"tip"},"项目管理模块为占位菜单，二期开发，敬请期待",-1)])]),_:1})])}const f=o(d,[["render",p],["__scopeId","data-v-d407260a"]]);export{f as default};

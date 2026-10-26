@@ -85,8 +85,14 @@ const routes = [
   {
     path: '/supplier',
     name: 'supplier',
-    component: () => import('../views/SupplierPlaceholder.vue'),
-    meta: { title: '供应商管理' }
+    component: () => import('../views/supplier/SupplierList.vue'),
+    meta: { title: '供应商管理', requiresAuth: true }
+  },
+  {
+    path: '/supplier/:id',
+    name: 'supplier-detail',
+    component: () => import('../views/supplier/SupplierDetail.vue'),
+    meta: { title: '供应商详情', requiresAuth: true, menu: false }
   },
   {
     path: '/project',
