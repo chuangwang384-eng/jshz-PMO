@@ -137,6 +137,9 @@ function Step1-Preflight {
     if (-not $MysqlPassword) {
         throw '未设置 MYSQL_PASSWORD 环境变量：影子启动(8081)与生产同库依赖该变量，请先注入后再发布'
     }
+    if (-not $env:JWT_SECRET) {
+        throw '未设置 JWT_SECRET 环境变量：新版 application.yml 要求注入 JWT 签名密钥（与 NSSM AppEnvironmentExtra 一致），否则影子启动会失败'
+    }
 
     if ($Version) { $script:NewVersion = $Version }
     else {

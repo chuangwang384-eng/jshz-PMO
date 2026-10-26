@@ -135,3 +135,17 @@ server {
 ## R-1 发布记录
 - 2026-10-26 09:29:01 R-1 发布 1.001 成功（jar: expert-system-1.001.jar）
 *（内容由AI生成，仅供参考）*
+
+## 凭据轮换记录（2026-10-26）
+
+> 安全整改：仓库内所有明文数据库密码与 JWT 密钥已清除（见 git 提交 20ef3bd），凭据一律环境变量注入，真实值只存于本地 `start-backend.bat`（gitignore 排除）与 NSSM 服务配置，禁止写入任何入库文件。
+
+- **数据库密码**：已通过 MySQL 双密码机制完成第一階段轮换（`ALTER USER 'root'@'localhost' IDENTIFIED BY <新密码> RETAIN CURRENT PASSWORD`），新密码即日生效、旧密码保留过渡，运行中服务零中断。
+- **JWT 密钥**：`application.yml` 改为 `${JWT_SECRET:}` 注入（未注入时后端启动失败属预期 fail-fast）。当前运行中的 jar 仍使用旧内置密钥；**新密钥将在下次后端发布时生效**，届时全体用户需重新登录。
+- **NSSM 服务**：`ExpertSystemBackend` 的 `AppEnvironmentExtra` 由 `MYSQL_PASSWORD` 单项升级为 `MYSQL_PASSWORD` + `JWT_SECRET` 两项，由 `scripts/rotate-backend-credentials.ps1`（管理员运行，凭据从 start-backend.bat 读取）写入。
+- **后续动作**：
+  1. 管理员执行 `scripts/rotate-backend-credentials.ps1`（写服务环境变量 + 重启后端 + 冒烟）；
+  2. 系统验证正常后，再以 `-DiscardOldPassword` 参数执行一次，弃用旧密码、结束过渡期；
+  3. 下次后端发布前，在会话中注入 `MYSQL_PASSWORD` 与 `JWT_SECRET`（deploy-backend.ps1 预检会校验这两个变量）。
+*（内容由AI生成，仅供参考）*
+
