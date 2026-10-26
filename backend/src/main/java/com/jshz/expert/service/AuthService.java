@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -31,7 +32,13 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final PermissionService permissionService;
+    private final UserService userService;
 
+    /**
+     * 登录：正常登录为只读流程；自动注册时注册 + 默认角色绑定须在同一事务内，
+     * 故在入口开启事务（自调用不经过代理，@Transactional 需标注在本方法）。
+     */
+    @Transactional(rollbackFor = Exception.class)
     public LoginResponse login(LoginRequest request) {
         if (request == null || !StringUtils.hasText(request.getUsername()) || !StringUtils.hasText(request.getPassword())) {
             throw new BusinessException("用户名和密码不能为空");
@@ -93,6 +100,8 @@ public class AuthService {
                 throw new BusinessException(401, "用户名或密码错误");
             }
         }
+        // 自动注册成功后绑定默认角色 EMPLOYEE（幂等；与注册同一事务，失败整体回滚）
+        userService.bindDefaultEmployeeRole(user.getId());
         boolean mustChange = Boolean.TRUE.equals(user.getMustChangePassword());
         Long userId = user.getId();
         List<String> roles = new ArrayList<>(permissionService.getUserRoles(userId));

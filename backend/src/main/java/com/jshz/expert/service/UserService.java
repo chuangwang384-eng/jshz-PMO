@@ -11,8 +11,10 @@ import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashSet;
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
  * 用户管理服务（正式版 V1.001，管理员名单管理）。
  * 新建 / 修改 / 停用 / 重置密码（重置为 111111）。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
@@ -58,7 +61,9 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
 
     /**
      * 新建用户：账号 = 姓名，密码默认 111111，首次登录强制改密。
+     * 创建成功后在同一事务内绑定默认角色 EMPLOYEE（未分配角色用户默认普通员工）。
      */
+    @Transactional(rollbackFor = Exception.class)
     public SysUser createUser(UserRequest request) {
         if (request == null || !StringUtils.hasText(request.getUsername())) {
             throw new BusinessException("账号不能为空");
@@ -80,7 +85,35 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         user.setMustChangePassword(true);
         user.setStatus(request.getStatus() == null ? 1 : request.getStatus());
         this.save(user);
+        // 默认角色：未分配角色用户一律绑定普通员工(EMPLOYEE)，与创建同一事务
+        bindDefaultEmployeeRole(user.getId());
         return user;
+    }
+
+    /**
+     * 绑定默认角色 EMPLOYEE（幂等）：
+     * - 按 role.code='EMPLOYEE' 查库获取 roleId，禁止硬编码 roleId；
+     * - EMPLOYEE 角色不存在时记录告警日志并跳过，不阻断主流程；
+     * - 已存在 (user_id, role_id) 绑定则跳过，避免重复与唯一键冲突。
+     * 供创建用户 / 自动注册复用；事务由调用方或本方法保证。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void bindDefaultEmployeeRole(Long userId) {
+        Role employeeRole = roleMapper.selectByCode("EMPLOYEE");
+        if (employeeRole == null) {
+            log.warn("绑定默认角色失败：角色 EMPLOYEE 不存在（builtin 角色缺失），用户 {} 将保持无角色状态", userId);
+            return;
+        }
+        Long count = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRoleId, employeeRole.getId()));
+        if (count != null && count > 0) {
+            return; // 已绑定，幂等跳过
+        }
+        UserRole ur = new UserRole();
+        ur.setUserId(userId);
+        ur.setRoleId(employeeRole.getId());
+        userRoleMapper.insert(ur);
     }
 
     /**
