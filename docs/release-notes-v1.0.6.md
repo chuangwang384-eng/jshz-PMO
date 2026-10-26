@@ -24,6 +24,7 @@
 - 侧栏父菜单箭头并入 el-sub-menu 原生展开热区，修复一级菜单点击错位/热区过小问题（SideMenuItem 重构）。
 - README 修正"init.sql 含 13 表"误述（实际 init.sql 6 表 + migration 7 表 = 13，现 14）；事实基线同步为 14 表 / 13 Controller。
 - AGENTS.md 规范文件定名入库（完善版替代原版），修复文档断链。
+- 审批管理页面（/admin/approval/manage）已处理 Tab 数据加载修复：`el-tabs` 绑定 `@tab-change`、新增 `handleTabChange(tabName)` 按 activeTab 加载对应列表，`onMounted` 追加 `fetchDone()` 预加载，解决首次切换"已处理"Tab 时列表恒为空的问题（仅前端 ApprovalManage.vue 改动）。
 
 ## 数据库变更
 

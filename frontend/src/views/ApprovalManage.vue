@@ -5,7 +5,7 @@
       <span class="page-sub">处理员工提交的专家信息修改申请</span>
     </div>
 
-    <el-tabs v-model="activeTab" style="margin-top: 12px">
+    <el-tabs v-model="activeTab" style="margin-top: 12px" @tab-change="handleTabChange">
       <!-- 待审批 -->
       <el-tab-pane label="待审批" name="pending">
         <el-table :data="pendingList" border stripe v-loading="pendingLoading" row-key="id">
@@ -287,8 +287,19 @@ function refresh() {
   }
 }
 
+// Tab 切换时按目标 Tab 加载对应数据（el-tabs @tab-change 传入切换后的 tabName）
+function handleTabChange(tabName) {
+  if (tabName === 'pending') {
+    fetchPending()
+  } else {
+    fetchDone()
+  }
+}
+
 onMounted(() => {
   fetchPending()
+  // 预加载已处理列表，保证首次切到"已处理"Tab 时数据已就绪
+  fetchDone()
 })
 </script>
 
