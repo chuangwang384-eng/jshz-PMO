@@ -10,6 +10,7 @@
         <el-option label="待审批" :value="0" />
         <el-option label="已通过" :value="1" />
         <el-option label="已驳回" :value="2" />
+        <el-option label="已撤回" :value="3" />
       </el-select>
     </div>
 
@@ -35,9 +36,10 @@
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="110" align="center" fixed="right">
+      <el-table-column label="操作" width="150" align="center" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openProgress(row)">查看进度</el-button>
+          <el-button v-if="row.status === 0" link type="danger" @click="handleWithdraw(row)">撤回</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -78,7 +80,8 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getMyApprovalRequests } from '../api/approval'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getMyApprovalRequests, withdrawRequest } from '../api/approval'
 
 const route = useRoute()
 const router = useRouter()
@@ -122,24 +125,51 @@ function changeSummary(changes) {
 function statusTagType(status) {
   if (status === 1) return 'success'
   if (status === 2) return 'danger'
+  if (status === 3) return 'info'
   return 'warning'
 }
 
 function timelineType(action) {
   if (action === 'APPROVE') return 'success'
   if (action === 'REJECT') return 'danger'
+  if (action === 'WITHDRAW') return 'danger'
   return 'primary'
 }
 
 function actionText(action) {
   if (action === 'APPROVE') return '审批通过'
   if (action === 'REJECT') return '驳回'
+  if (action === 'WITHDRAW') return '撤回申请'
   return '提交申请'
 }
 
 function openProgress(row) {
   progressRow.value = row
   progressVisible.value = true
+}
+
+// 撤回申请：仅待审批(status=0)行展示入口，二次确认后调用后端，成功刷新列表
+async function handleWithdraw(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认撤回「${row.expertName}」的申请吗？撤回后该申请将不可再审批，临时照片会被清理。`,
+      '撤回确认',
+      {
+        confirmButtonText: '确认撤回',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await withdrawRequest(row.id)
+    ElMessage.success('已撤回')
+    fetchList()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  }
 }
 
 function handleStatusChange() {

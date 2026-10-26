@@ -84,7 +84,7 @@
           </el-table-column>
           <el-table-column label="审批结果" width="110" align="center">
             <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.statusText }}</el-tag>
+              <el-tag :type="row.status === 1 ? 'success' : row.status === 3 ? 'info' : 'danger'">{{ row.statusText }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="approveComment" label="审批意见" min-width="180" show-overflow-tooltip>
@@ -194,12 +194,12 @@ async function fetchPending() {
   }
 }
 
-// 已处理 = 已通过(1) + 已驳回(2)，后端 statuses 多状态统一分页（避免各取一页合并导致总数不稳定）
+// 已处理 = 已通过(1) + 已驳回(2) + 已撤回(3)，后端 statuses 多状态统一分页（避免各取一页合并导致总数不稳定）
 async function fetchDone() {
   doneLoading.value = true
   try {
     const data = await getApprovalRequests({
-      statuses: '1,2',
+      statuses: '1,2,3',
       page: donePage.value,
       size: doneSize.value
     })

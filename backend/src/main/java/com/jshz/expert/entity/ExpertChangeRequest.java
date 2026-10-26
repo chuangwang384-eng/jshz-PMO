@@ -48,7 +48,7 @@ public class ExpertChangeRequest {
     @JsonProperty("requestType")
     private Integer requestType;
 
-    /** 审批状态：0 待审批 / 1 已通过 / 2 已驳回 */
+    /** 审批状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 */
     @JsonProperty("status")
     private Integer status;
 

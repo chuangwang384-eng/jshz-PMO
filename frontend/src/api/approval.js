@@ -48,3 +48,8 @@ export function approveRequest(id, data) {
 export function rejectRequest(id, data) {
   return request.post(`/approval/requests/${id}/reject`, data)
 }
+
+// 撤回申请：POST /approval/requests/{id}/withdraw（仅申请人本人，status=0 可撤）
+export function withdrawRequest(id) {
+  return request.post(`/approval/requests/${id}/withdraw`)
+}

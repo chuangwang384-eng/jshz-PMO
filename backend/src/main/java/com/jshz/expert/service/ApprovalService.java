@@ -56,10 +56,11 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     /** 临时照片值格式：TMP:文件名 */
     private static final Pattern TMP_PATTERN = Pattern.compile("^TMP:[A-Za-z0-9._-]+$");
 
-    /** 状态：0 待审批 / 1 已通过 / 2 已驳回 */
+    /** 状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 */
     private static final int STATUS_PENDING = 0;
     private static final int STATUS_APPROVED = 1;
     private static final int STATUS_REJECTED = 2;
+    private static final int STATUS_WITHDRAWN = 3;
 
     /** 申请类型：0=修改申请 / 1=新增专家申请 */
     private static final int REQUEST_TYPE_MODIFY = 0;
@@ -493,15 +494,8 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             throw new BusinessException("驳回意见不能为空");
         }
         ExpertChangeRequest request = getPending(id);
-        // 驳回：清理该申请关联的所有临时照片
-        Map<String, Object> changes = readChanges(request);
-        for (Map.Entry<String, Object> entry : changes.entrySet()) {
-            if (PHOTO_FIELDS.contains(entry.getKey()) && entry.getValue() != null
-                    && String.valueOf(entry.getValue()).startsWith(TMP_PREFIX)) {
-                photoStorageService.deleteTempPhoto(
-                        String.valueOf(entry.getValue()).substring(TMP_PREFIX.length()));
-            }
-        }
+        // 驳回：清理该申请关联的所有临时照片（与撤回共用 cleanTempPhotos）
+        cleanTempPhotos(request);
         request.setStatus(STATUS_REJECTED);
         request.setApproveBy(user == null ? null : user.getUsername());
         request.setApproveComment(comment);
@@ -511,6 +505,85 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         addRecord(request.getId(), "管理员驳回", "REJECT", user == null ? null : user.getUsername(), comment.trim());
         notifyApprovalResult(request, user);
         return fillView(request);
+    }
+
+    // ==================== 撤回申请（申请人） ====================
+
+    /**
+     * 撤回申请（需求R-B3）：仅申请人本人可撤，status=0 才可撤。
+     * 撤回后状态置为已撤回(3)，清理该单全部临时照片，写 WITHDRAW 记录，通知审批人角色下用户。
+     * 撤回单不再满足 getPending 的 status=0 校验，审批接口天然拒绝（提示已处理）。
+     */
+    public ExpertChangeRequest withdraw(Long id, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (id == null) {
+            throw new BusinessException("申请单ID不能为空");
+        }
+        ExpertChangeRequest request = getById(id);
+        if (request == null) {
+            throw new BusinessException("申请单不存在");
+        }
+        if (request.getStatus() == null || request.getStatus() != STATUS_PENDING) {
+            throw new BusinessException("该申请单已处理，不能撤回");
+        }
+        if (!request.getApplicant().equals(user.getUsername())) {
+            throw new BusinessException("仅申请人本人可撤回申请");
+        }
+        cleanTempPhotos(request);
+        request.setStatus(STATUS_WITHDRAWN);
+        this.updateById(request);
+
+        addRecord(request.getId(), "申请人撤回", "WITHDRAW", user.getUsername(), "撤回本人提交的申请");
+        notifyApprovalWithdrawn(request);
+        return fillView(request);
+    }
+
+    /**
+     * 清理申请单关联的全部临时照片（TMP: 前缀值对应的临时文件），供驳回 / 撤回复用。
+     */
+    private void cleanTempPhotos(ExpertChangeRequest request) {
+        Map<String, Object> changes = readChanges(request);
+        for (Map.Entry<String, Object> entry : changes.entrySet()) {
+            if (PHOTO_FIELDS.contains(entry.getKey()) && entry.getValue() != null
+                    && String.valueOf(entry.getValue()).startsWith(TMP_PREFIX)) {
+                photoStorageService.deleteTempPhoto(
+                        String.valueOf(entry.getValue()).substring(TMP_PREFIX.length()));
+            }
+        }
+    }
+
+    /**
+     * 撤回通知（approval_withdrawn）：通知审批流配置的审批人角色下全部用户「申请已撤回」。
+     */
+    private void notifyApprovalWithdrawn(ExpertChangeRequest request) {
+        try {
+            ApprovalConfig config = getConfig();
+            String roleCode = config.getApproverRole();
+            if (!StringUtils.hasText(roleCode)) {
+                return;
+            }
+            Role role = roleMapper.selectOne(
+                    new LambdaQueryWrapper<Role>().eq(Role::getCode, roleCode).last("LIMIT 1"));
+            if (role == null) {
+                return;
+            }
+            List<UserRole> bindings = userRoleMapper.selectList(
+                    new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
+            if (bindings.isEmpty()) {
+                return;
+            }
+            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            for (UserRole ur : bindings) {
+                notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_WITHDRAWN,
+                        "申请已撤回：" + typeText,
+                        "申请人 " + request.getApplicant() + " 撤回了" + typeText + "，无需再处理",
+                        "/admin/approval/manage");
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
     }
 
     // ==================== 私有方法 ====================
@@ -709,6 +782,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
         return switch (status) {
             case STATUS_APPROVED -> "已通过";
             case STATUS_REJECTED -> "已驳回";
+            case STATUS_WITHDRAWN -> "已撤回";
             default -> "待审批";
         };
     }

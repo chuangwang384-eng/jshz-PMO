@@ -178,6 +178,15 @@ public class ApprovalController {
         return ApiResponse.ok(approvalService.reject(id, comment, authUser));
     }
 
+    /**
+     * 撤回申请：POST /api/approval/requests/{id}/withdraw（仅申请人本人，status=0 可撤）。
+     */
+    @PostMapping("/requests/{id}/withdraw")
+    public ApiResponse<ExpertChangeRequest> withdraw(@PathVariable Long id,
+                                                     @AuthenticationPrincipal AuthUser authUser) {
+        return ApiResponse.ok(approvalService.withdraw(id, authUser));
+    }
+
     private Long toLong(Object value) {
         if (value == null) {
             return null;
