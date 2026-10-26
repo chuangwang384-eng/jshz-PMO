@@ -190,6 +190,42 @@ public class ApprovalController {
         return ApiResponse.ok(approvalService.withdraw(id, authUser));
     }
 
+    // ==================== 转办 / 加签（B2） ====================
+
+    /**
+     * 审批转办：POST /api/approval/requests/{id}/transfer（权限码 approval:audit）。
+     * body {targetUser}；current_assignee 非空时仅被转办人本人可再转办。
+     */
+    @PostMapping("/requests/{id}/transfer")
+    public ApiResponse<ExpertChangeRequest> transfer(@PathVariable Long id,
+                                                     @RequestBody(required = false) Map<String, Object> body,
+                                                     @AuthenticationPrincipal AuthUser authUser) {
+        String targetUser = body == null ? null : (String) body.get("targetUser");
+        return ApiResponse.ok(approvalService.transfer(id, targetUser, authUser));
+    }
+
+    /**
+     * 审批加签（或签）：POST /api/approval/requests/{id}/add-approver（权限码 approval:audit）。
+     * body {targetUser, comment?}；已加签不可重复加签。
+     */
+    @PostMapping("/requests/{id}/add-approver")
+    public ApiResponse<ExpertChangeRequest> addApprover(@PathVariable Long id,
+                                                        @RequestBody(required = false) Map<String, Object> body,
+                                                        @AuthenticationPrincipal AuthUser authUser) {
+        String targetUser = body == null ? null : (String) body.get("targetUser");
+        String comment = body == null ? null : (String) body.get("comment");
+        return ApiResponse.ok(approvalService.addApprover(id, targetUser, comment, authUser));
+    }
+
+    /**
+     * 可转办/加签用户列表：GET /api/approval/assignable-users（权限码 approval:audit）。
+     * 返回启用且拥有 approval:audit 权限码的用户 [{id, username}]。
+     */
+    @GetMapping("/assignable-users")
+    public ApiResponse<List<Map<String, Object>>> assignableUsers() {
+        return ApiResponse.ok(approvalService.assignableUsers());
+    }
+
     private Long toLong(Object value) {
         if (value == null) {
             return null;

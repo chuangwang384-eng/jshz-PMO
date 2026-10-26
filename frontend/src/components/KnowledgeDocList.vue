@@ -1,5 +1,18 @@
 <template>
   <div class="knowledge-doc-list">
+    <!-- 格式筛选标签栏（分类视图；收藏视图为客户端跨分类筛选，不参与） -->
+    <div v-if="!isFavoritesMode" class="format-filters">
+      <el-radio-group v-model="fileTypeFilter" size="small" @change="handleFileTypeChange">
+        <el-radio-button value="">全部</el-radio-button>
+        <el-radio-button value="pdf">PDF</el-radio-button>
+        <el-radio-button value="docx">DOCX</el-radio-button>
+        <el-radio-button value="doc">DOC</el-radio-button>
+        <el-radio-button value="xlsx">XLSX</el-radio-button>
+        <el-radio-button value="pptx">PPTX</el-radio-button>
+        <el-radio-button value="image">图片</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <!-- 工具栏：检索 + 上传 -->
     <div class="toolbar">
       <el-input
@@ -16,7 +29,17 @@
     <!-- 文档列表 -->
     <el-card shadow="never" class="doc-card">
       <el-table :data="displayDocs" v-loading="loading" style="width: 100%">
-        <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+        <el-table-column label="标题" min-width="220">
+          <template #default="{ row }">
+            <span class="doc-title">{{ row.title }}</span>
+            <span class="doc-ext">{{ extOf(row.fileType) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="格式" width="86" align="center">
+          <template #default="{ row }">
+            <span class="format-badge" :style="badgeStyle(row.fileType)">{{ badgeLabel(row.fileType) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="分类" width="150">
           <template #default="{ row }">{{ rowCategoryLabel(row) }}</template>
         </el-table-column>
@@ -88,13 +111,13 @@
             :auto-upload="false"
             :show-file-list="true"
             :limit="1"
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png"
             :on-change="handleFileChange"
             :on-remove="handleFileRemove"
           >
             <el-button size="small" type="primary" plain>选择文件</el-button>
             <template #tip>
-              <div class="el-upload__tip">支持 pdf/doc/docx/jpg/jpeg/png，单文件 ≤50MB</div>
+              <div class="el-upload__tip">支持 pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png，单文件 ≤50MB</div>
             </template>
           </el-upload>
         </el-form-item>
@@ -117,12 +140,36 @@
         <el-table-column prop="uploadTime" label="上传时间" width="170" />
       </el-table>
     </el-dialog>
+
+    <!-- 内嵌预览抽屉：PDF/Office 用 pdf.js 渲染（Office 为后端转换的 PDF 流），图片直接 img 展示 -->
+    <el-drawer v-model="previewVisible" size="72%" :title="previewTitle" destroy-on-close class="preview-drawer">
+      <div class="preview-toolbar">
+        <div v-if="previewMode === 'pdf'" class="preview-nav">
+          <el-button-group>
+            <el-button size="small" :disabled="previewPage <= 1" @click="previewPage -= 1">上一页</el-button>
+            <el-button size="small" :disabled="previewPage >= previewNumPages" @click="previewPage += 1">下一页</el-button>
+          </el-button-group>
+          <span class="preview-info">{{ previewPage }} / {{ previewNumPages }}</span>
+          <el-button size="small" @click="previewScale = Math.max(0.3, +(previewScale - 0.1).toFixed(1))">缩小</el-button>
+          <span class="preview-info">{{ Math.round(previewScale * 100) }}%</span>
+          <el-button size="small" @click="previewScale = Math.min(3, +(previewScale + 0.1).toFixed(1))">放大</el-button>
+        </div>
+        <el-button size="small" type="primary" @click="downloadPreviewRow">下载</el-button>
+      </div>
+      <div class="preview-body" v-loading="previewLoading">
+        <img v-if="previewMode === 'image'" :src="previewImageUrl" class="preview-image" alt="文档预览" />
+        <canvas v-else-if="previewMode === 'pdf'" ref="previewCanvasRef" class="preview-canvas"></canvas>
+        <el-empty v-else description="该格式暂不支持在线预览，请下载查看" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useAuthStore } from '../store/auth'
 import {
   listKnowledgeDocs,
@@ -136,6 +183,9 @@ import {
   favoriteKnowledgeDoc,
   unfavoriteKnowledgeDoc
 } from '../api/knowledge'
+
+// pdf.js worker 指向打包后的 worker 文件（Vite ?url 导入）
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const props = defineProps({
   category: { type: String, default: '' },
@@ -169,6 +219,39 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
+
+// 格式筛选：''=全部；pdf/docx/doc/xlsx/pptx=等值；image=图片集合
+const fileTypeFilter = ref('')
+
+// ==================== 格式展示辅助 ====================
+const FORMAT_BADGES = {
+  pdf: { label: 'PDF', color: '#f56c6c' },
+  docx: { label: 'DOCX', color: '#409eff' },
+  doc: { label: 'DOC', color: '#7a9cbb' },
+  xlsx: { label: 'XLSX', color: '#e6a23c' },
+  xls: { label: 'XLS', color: '#e6a23c' },
+  pptx: { label: 'PPTX', color: '#b37feb' },
+  ppt: { label: 'PPT', color: '#b37feb' },
+  jpg: { label: '图片', color: '#67c23a' },
+  jpeg: { label: '图片', color: '#67c23a' },
+  png: { label: '图片', color: '#67c23a' }
+}
+function badgeLabel(type) {
+  if (!type) return '未知'
+  const t = String(type).toLowerCase()
+  return FORMAT_BADGES[t]?.label || t.toUpperCase()
+}
+function badgeStyle(type) {
+  const t = type ? String(type).toLowerCase() : ''
+  const color = FORMAT_BADGES[t]?.color || '#909399'
+  return { backgroundColor: color, borderColor: color, color: '#fff' }
+}
+function extOf(type) {
+  return type ? '.' + type : ''
+}
+function isImageType(type) {
+  return ['jpg', 'jpeg', 'png'].includes((type || '').toLowerCase())
+}
 
 // 收藏模式：客户端按标题/文件名筛选
 const displayDocs = computed(() => {
@@ -243,6 +326,7 @@ async function fetchList() {
       const data = await listKnowledgeDocs({
         category: props.category || undefined,
         keyword: keyword.value || undefined,
+        fileType: fileTypeFilter.value || undefined,
         page: page.value,
         pageSize: pageSize.value
       })
@@ -255,6 +339,11 @@ async function fetchList() {
 }
 
 function handleSearch() {
+  page.value = 1
+  fetchList()
+}
+
+function handleFileTypeChange() {
   page.value = 1
   fetchList()
 }
@@ -323,14 +412,103 @@ async function submitUpload() {
   }
 }
 
+// ==================== 内嵌预览抽屉（pdf.js / img / Office 后端 PDF 流） ====================
+const previewVisible = ref(false)
+const previewLoading = ref(false)
+const previewMode = ref('') // image | pdf | unsupported
+const previewTitle = ref('')
+const previewRow = ref(null)
+const previewImageUrl = ref('')
+const previewBlobUrl = ref('')
+const pdfDoc = ref(null)
+const previewPage = ref(1)
+const previewNumPages = ref(0)
+const previewScale = ref(1)
+const previewCanvasRef = ref(null)
+
 async function handlePreview(row) {
+  previewRow.value = row
+  previewTitle.value = `${row.title}${extOf(row.fileType)}`
+  previewMode.value = ''
+  previewImageUrl.value = ''
+  previewBlobUrl.value = ''
+  pdfDoc.value = null
+  previewPage.value = 1
+  previewNumPages.value = 0
+  previewScale.value = 1
+  previewVisible.value = true
+  previewLoading.value = true
   try {
     const response = await fetchKnowledgeFile(row.filePath, false)
     const blob = response.data
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank')
+    if (isImageType(row.fileType)) {
+      // 图片：直接 img 展示
+      previewMode.value = 'image'
+      previewImageUrl.value = URL.createObjectURL(blob)
+    } else {
+      // PDF 直接渲染；Office（doc/docx/xls/xlsx/ppt/pptx）后端已转换为 PDF 流，统一按 PDF 渲染
+      previewMode.value = 'pdf'
+      previewBlobUrl.value = URL.createObjectURL(blob)
+      const doc = await pdfjsLib.getDocument({ url: previewBlobUrl.value }).promise
+      pdfDoc.value = doc
+      previewNumPages.value = doc.numPages
+      await renderPdfPage()
+    }
   } catch (e) {
-    ElMessage.error('预览失败')
+    previewMode.value = 'unsupported'
+    ElMessage.error('暂无法在线预览，请下载查看')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function renderPdfPage() {
+  const doc = pdfDoc.value
+  const canvas = previewCanvasRef.value
+  if (!doc || !canvas || !doc.numPages) return
+  const page = await doc.getPage(previewPage.value)
+  const viewport = page.getViewport({ scale: previewScale.value })
+  const ctx = canvas.getContext('2d')
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = Math.floor(viewport.width * dpr)
+  canvas.height = Math.floor(viewport.height * dpr)
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  await page.render({ canvasContext: ctx, viewport }).promise
+}
+
+watch([previewPage, previewScale], () => {
+  if (previewMode.value === 'pdf') {
+    renderPdfPage()
+  }
+})
+
+watch(previewVisible, (visible) => {
+  if (!visible) {
+    // 关闭抽屉：销毁 pdf.js 文档与 blob URL，避免泄漏
+    if (pdfDoc.value) {
+      try {
+        pdfDoc.value.destroy()
+      } catch (e) {
+        // ignore
+      }
+      pdfDoc.value = null
+    }
+    if (previewImageUrl.value) {
+      URL.revokeObjectURL(previewImageUrl.value)
+      previewImageUrl.value = ''
+    }
+    if (previewBlobUrl.value) {
+      URL.revokeObjectURL(previewBlobUrl.value)
+      previewBlobUrl.value = ''
+    }
+    previewRow.value = null
+    previewMode.value = ''
+  }
+})
+
+function downloadPreviewRow() {
+  if (previewRow.value) {
+    handleDownload(previewRow.value)
   }
 }
 
@@ -411,6 +589,10 @@ onMounted(fetchList)
   padding: 4px;
 }
 
+.format-filters {
+  margin-bottom: 12px;
+}
+
 .toolbar {
   display: flex;
   gap: 12px;
@@ -425,10 +607,64 @@ onMounted(fetchList)
   cursor: default;
 }
 
+.doc-title {
+  color: #303133;
+}
+
+.doc-ext {
+  color: #a8abb2;
+  font-size: 12px;
+}
+
+.format-badge {
+  display: inline-block;
+  min-width: 48px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .table-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-top: 12px;
+}
+
+/* 预览抽屉 */
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.preview-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-info {
+  font-size: 13px;
+  color: #606266;
+}
+
+.preview-body {
+  min-height: 400px;
+  text-align: center;
+  overflow: auto;
+}
+
+.preview-image {
+  max-width: 100%;
+}
+
+.preview-canvas {
+  display: inline-block;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
 }
 </style>

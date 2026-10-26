@@ -5,8 +5,12 @@ import com.jshz.expert.common.PageResult;
 import com.jshz.expert.dto.RoleAssignRequest;
 import com.jshz.expert.dto.UserRequest;
 import com.jshz.expert.entity.SysUser;
+import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.service.OperationLogService;
 import com.jshz.expert.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,6 +27,7 @@ import java.util.stream.Collectors;
 /**
  * 用户管理接口（正式版 V1.001，管理员名单管理，仅 ADMIN）。
  * 新建 / 修改 / 停用 / 删除 / 重置密码（重置为 111111）。
+ * 用户与角色敏感写操作埋点写入 operation_log（用户操作日志改版）。
  */
 @RestController
 @RequestMapping("/api/users")
@@ -30,6 +35,7 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserService userService;
+    private final OperationLogService operationLogService;
 
     @GetMapping
     public ApiResponse<PageResult<SysUser>> list(@RequestParam(required = false) String keyword,
@@ -45,16 +51,27 @@ public class UserController {
     }
 
     @PostMapping
-    public ApiResponse<SysUser> create(@RequestBody UserRequest request) {
+    public ApiResponse<SysUser> create(@RequestBody UserRequest request,
+                                       @AuthenticationPrincipal AuthUser authUser,
+                                       HttpServletRequest httpRequest) {
         SysUser user = userService.createUser(request);
         user.setPassword(null);
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_CREATE_USER, "新增用户「" + user.getUsername() + "」",
+                "USER", user.getUsername(), httpRequest);
         return ApiResponse.ok(user);
     }
 
     @PutMapping("/{id}")
-    public ApiResponse<SysUser> update(@PathVariable Long id, @RequestBody UserRequest request) {
+    public ApiResponse<SysUser> update(@PathVariable Long id,
+                                       @RequestBody UserRequest request,
+                                       @AuthenticationPrincipal AuthUser authUser,
+                                       HttpServletRequest httpRequest) {
         SysUser user = userService.updateUser(id, request);
         user.setPassword(null);
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_UPDATE_USER, "修改用户「" + user.getUsername() + "」",
+                "USER", user.getUsername(), httpRequest);
         return ApiResponse.ok(user);
     }
 
@@ -62,14 +79,27 @@ public class UserController {
      * 重置密码为 111111（强制改密标记置真）。
      */
     @PostMapping("/{id}/reset-password")
-    public ApiResponse<Void> resetPassword(@PathVariable Long id) {
+    public ApiResponse<Void> resetPassword(@PathVariable Long id,
+                                           @AuthenticationPrincipal AuthUser authUser,
+                                           HttpServletRequest httpRequest) {
+        SysUser target = userService.getById(id);
         userService.resetPassword(id);
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_RESET_PASSWORD,
+                "重置用户「" + (target == null ? String.valueOf(id) : target.getUsername()) + "」密码",
+                "USER", target == null ? String.valueOf(id) : target.getUsername(), httpRequest);
         return ApiResponse.ok(null);
     }
 
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
+    public ApiResponse<Void> delete(@PathVariable Long id,
+                                    @AuthenticationPrincipal AuthUser authUser,
+                                    HttpServletRequest httpRequest) {
+        SysUser target = userService.getById(id);
         userService.deleteUser(id);
+        String name = target == null ? String.valueOf(id) : target.getUsername();
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_DELETE_USER, "删除用户「" + name + "」", "USER", name, httpRequest);
         return ApiResponse.ok(null);
     }
 
@@ -78,8 +108,26 @@ public class UserController {
      * 权限由 user:manage 权限码在 permission 数据中配置。
      */
     @PutMapping("/{id}/roles")
-    public ApiResponse<Void> assignRoles(@PathVariable Long id, @RequestBody RoleAssignRequest request) {
+    public ApiResponse<Void> assignRoles(@PathVariable Long id,
+                                         @RequestBody RoleAssignRequest request,
+                                         @AuthenticationPrincipal AuthUser authUser,
+                                         HttpServletRequest httpRequest) {
         userService.assignRoles(id, request == null ? null : request.getRoleIds());
+        SysUser target = userService.getById(id);
+        String name = target == null ? String.valueOf(id) : target.getUsername();
+        String roleIds = request == null || request.getRoleIds() == null
+                ? "[]" : request.getRoleIds().toString();
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_ASSIGN_ROLES, "为用户「" + name + "」分配角色 " + roleIds,
+                "USER", name, httpRequest);
         return ApiResponse.ok(null);
+    }
+
+    private Long userIdOf(AuthUser authUser) {
+        return authUser == null ? null : authUser.getUserId();
+    }
+
+    private String usernameOf(AuthUser authUser) {
+        return authUser == null ? null : authUser.getUsername();
     }
 }

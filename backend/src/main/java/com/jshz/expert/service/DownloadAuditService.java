@@ -7,6 +7,7 @@ import com.jshz.expert.entity.DownloadLog;
 import com.jshz.expert.mapper.DownloadLogMapper;
 import com.jshz.expert.security.AuthUser;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -16,9 +17,33 @@ import java.util.Map;
 
 /**
  * 下载审计服务（正式版 V1.001，R5 下载留痕 + 下载次数）。
+ * 用户操作日志改版：写入 download_log 的同时双写 operation_log（action_type=DOWNLOAD），
+ * download_log 保留（下载次数统计等仍依赖），历史数据已由迁移脚本并入 operation_log。
  */
 @Service
+@RequiredArgsConstructor
 public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, DownloadLog> {
+
+    private final OperationLogService operationLogService;
+
+    /** 下载类型中文映射（操作日志描述用，与前端 downloadTypeMap 口径一致） */
+    private static final Map<String, String> DOWNLOAD_TYPE_TEXT = Map.ofEntries(
+            Map.entry("selected_xlsx", "选中导出Excel"),
+            Map.entry("selected_zip", "选中导出ZIP"),
+            Map.entry("full_xlsx", "全量Excel"),
+            Map.entry("full_zip", "全量ZIP"),
+            Map.entry("employee_zip", "员工ZIP"),
+            Map.entry("md", "下载说明"),
+            Map.entry("md_full", "下载说明（完整）"),
+            Map.entry("template_xlsx", "导入模板"),
+            Map.entry("knowledge_doc", "知识文档下载"),
+            // 历史 CSV 类型兼容
+            Map.entry("selected_csv", "选中导出CSV（历史）"),
+            Map.entry("full_csv", "全量CSV（历史）"));
+
+    private static String downloadTypeText(String downloadType) {
+        return DOWNLOAD_TYPE_TEXT.getOrDefault(downloadType, downloadType);
+    }
 
     /**
      * 记录一次下载行为。
@@ -40,6 +65,11 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
         log.setDownloadTime(LocalDateTime.now());
         log.setIp(clientIp(request));
         this.save(log);
+        // 双写通用操作日志（下载/导出）
+        operationLogService.record(
+                log.getUserId(), log.getUsername(), OperationLogService.ACTION_DOWNLOAD,
+                (expertName == null ? "全量数据" : "专家「" + expertName + "」") + "·" + downloadTypeText(downloadType),
+                "EXPERT", expertId, request);
     }
 
     /**
@@ -58,6 +88,11 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
         log.setDownloadTime(LocalDateTime.now());
         log.setIp(clientIp(request));
         this.save(log);
+        // 双写通用操作日志（知识文档下载）
+        operationLogService.record(
+                log.getUserId(), log.getUsername(), OperationLogService.ACTION_DOWNLOAD,
+                "知识文档《" + docTitle + "》",
+                "DOC", docId, request);
     }
 
     /**

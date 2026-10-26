@@ -8,6 +8,7 @@ import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.DownloadAuditService;
 import com.jshz.expert.service.ExpertService;
 import com.jshz.expert.service.ExportService;
+import com.jshz.expert.service.OperationLogService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -48,6 +49,7 @@ public class ExpertController {
     private final ExpertService expertService;
     private final ExportService exportService;
     private final DownloadAuditService downloadAuditService;
+    private final OperationLogService operationLogService;
 
     /** Excel（.xlsx）MIME 类型 */
     private static final MediaType XLSX_MEDIA_TYPE =
@@ -102,11 +104,16 @@ public class ExpertController {
     @PostMapping
     public ApiResponse<Expert> create(HttpServletRequest request,
                                       @AuthenticationPrincipal AuthUser authUser) {
+        Expert saved;
         if (request instanceof MultipartHttpServletRequest mpr) {
-            return ApiResponse.ok(expertService.createFromMultipart(mpr, authUser));
+            saved = expertService.createFromMultipart(mpr, authUser);
+        } else {
+            saved = expertService.create(readJsonBody(request), authUser);
         }
-        Expert expert = readJsonBody(request);
-        return ApiResponse.ok(expertService.create(expert, authUser));
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_CREATE_EXPERT, "新增专家「" + saved.getName() + "」",
+                "EXPERT", saved.getId(), request);
+        return ApiResponse.ok(saved);
     }
 
     /**
@@ -115,19 +122,30 @@ public class ExpertController {
     @PutMapping("/{id}")
     public ApiResponse<Expert> update(@PathVariable Long id, HttpServletRequest request,
                                       @AuthenticationPrincipal AuthUser authUser) {
+        Expert saved;
         if (request instanceof MultipartHttpServletRequest mpr) {
-            return ApiResponse.ok(expertService.updateFromMultipart(id, mpr, authUser));
+            saved = expertService.updateFromMultipart(id, mpr, authUser);
+        } else {
+            saved = expertService.update(id, readJsonBody(request), authUser);
         }
-        Expert expert = readJsonBody(request);
-        return ApiResponse.ok(expertService.update(id, expert, authUser));
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_UPDATE_EXPERT, "修改专家「" + saved.getName() + "」",
+                "EXPERT", id, request);
+        return ApiResponse.ok(saved);
     }
 
     /**
      * 删除：物理删除三类照片文件。
      */
     @DeleteMapping("/{id}")
-    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id) {
+    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id,
+                                                   @AuthenticationPrincipal AuthUser authUser,
+                                                   HttpServletRequest request) {
+        Expert target = expertService.getById(id);
         expertService.deleteExpert(id);
+        String name = target == null ? String.valueOf(id) : target.getName();
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_DELETE_EXPERT, "删除专家「" + name + "」", "EXPERT", id, request);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("ok", true);
         data.put("id", id);
@@ -234,6 +252,9 @@ public class ExpertController {
                                                         @AuthenticationPrincipal AuthUser authUser) {
         var file = request.getFile("file");
         Map<String, Object> result = exportService.importXlsx(file, authUser);
+        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+                OperationLogService.ACTION_IMPORT_EXPERT, "导入专家 Excel " + result,
+                "EXPERT", null, request);
         return ApiResponse.ok(result);
     }
 
@@ -244,6 +265,14 @@ public class ExpertController {
      */
 
     // ==================== 私有方法 ====================
+
+    private Long userIdOf(AuthUser authUser) {
+        return authUser == null ? null : authUser.getUserId();
+    }
+
+    private String usernameOf(AuthUser authUser) {
+        return authUser == null ? null : authUser.getUsername();
+    }
 
     private Expert readJsonBody(HttpServletRequest request) {
         try {

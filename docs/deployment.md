@@ -40,7 +40,7 @@ mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 
 执行后创建 `expert_system` 库及全部 **13 张表**（`expert_info` / `sys_user` / `download_log` / `approval_config` / `expert_change_request` / `approval_record` / `role` / `permission` / `role_permission` / `user_role` / `knowledge_document` / `knowledge_doc_version` / `notification`），并写入初始管理员数据。
 
-> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表与 RBAC 四表；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）；知识星球文档环境执行 `database/migration/20261023_add_knowledge_tables.sql` 补建 knowledge_document / knowledge_doc_version 两表并写入接口权限码 knowledge:manage（绑定 ADMIN，幂等可重复执行）；消息通知中心环境执行 `database/migration/20261023_add_notification_table.sql` 补建 notification 表（幂等可重复执行）；审批模板环境执行 `database/migration/20261026_add_approval_template.sql` 补建 approval_template 表并给 expert_change_request 加 template_id 列、写入模板管理接口权限码与 3 个种子模板（幂等可重复执行）；知识星球增强（C1 内容检索/C3 收藏/C4 下载统计）环境执行 `database/migration/20261026_add_knowledge_c1c3c4.sql` 给 knowledge_document 加 content 列、download_log 加 doc_id 列并补建 knowledge_favorite 收藏表（幂等可重复执行）。以实际库 **15 张表**为准。
+> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表与 RBAC 四表；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）；知识星球文档环境执行 `database/migration/20261023_add_knowledge_tables.sql` 补建 knowledge_document / knowledge_doc_version 两表并写入接口权限码 knowledge:manage（绑定 ADMIN，幂等可重复执行）；消息通知中心环境执行 `database/migration/20261023_add_notification_table.sql` 补建 notification 表（幂等可重复执行）；审批模板环境执行 `database/migration/20261026_add_approval_template.sql` 补建 approval_template 表并给 expert_change_request 加 template_id 列、写入模板管理接口权限码与 3 个种子模板（幂等可重复执行）；知识星球增强（C1 内容检索/C3 收藏/C4 下载统计）环境执行 `database/migration/20261026_add_knowledge_c1c3c4.sql` 给 knowledge_document 加 content 列、download_log 加 doc_id 列并补建 knowledge_favorite 收藏表（幂等可重复执行）；B2 审批转办/加签 + 用户操作日志环境执行 `database/migration/20261026_add_b2_transfer_operation_log.sql` 给 expert_change_request 加 current_assignee / extra_approver 两列、新建 operation_log 操作日志表、把历史 download_log 迁移为 operation_log（action_type=DOWNLOAD）并写入转办/加签/可转办用户列表接口权限码（均幂等可重复执行）。以实际库 **16 张表**为准。
 
 ## 3. 后端部署
 
@@ -165,3 +165,17 @@ server {
 ## R-2 发布记录（前端原子）
 - 2026-10-26 10:51:27 R-2 发布 1.002 成功（dist SHA256 自检通过；回滚点 `frontend/releases/1.002-20261026_105127`）
 *（内容由AI生成，仅供参考）*
+
+## R-1 发布记录
+- 2026-10-26 11:26:53 R-1 发布 1.003 成功（jar: expert-system-1.003.jar）
+
+## R-1 发布记录
+- 2026-10-26 16:21:51 R-1 发布 1.004 成功（jar: expert-system-1.004.jar）
+
+## 1.004 发布后修复记录（2026-10-26）
+- 16:21:51 R-1 蓝绿发布 1.004 后健康检查全过，但实测新接口 404——**根因：NSSM `ExpertSystemBackend` 的 AppParameters 被此前发布改为直接指向 `expert-system-1.003.jar`**（偏离 deploy-backend.ps1 约定的固定名 `expert-system-1.001.jar`），导致阶段 9c 替换 1.001.jar 无效、服务重启后仍运行 1.003 旧代码（健康检查只探活、探不出版本错位）。
+- 16:33 已用提权 wrapper（logs/deploy-1p004-fix-wrapper.ps1）把 AppParameters 改回 `-jar <LOCAL_PATH>`（该文件当时已含 1.004 构建内容）并重启服务，1.004 实际生效。回滚点：`backend/releases/1.004-20261026_162127`。
+- **运维警告 1**：发布前必须核对 NSSM AppParameters 指向 `target\expert-system-1.001.jar`（固定名契约）；建议后续给 deploy-backend.ps1 增加版本探针（如 /health 返回构建版本比对）防止同类静默错位。
+- **运维警告 2**：执行 database/migration 下含中文的 SQL 禁止经 PowerShell 管道（`$sql | mysql`）传参——PowerShell 5.1 管道默认 ASCII 编码，中文字面量会变 `?`(3F) 写入库（本次已用 database/migration/20261026_fix_b2_operation_log_utf8.sql 修复）。正确姿势：`Start-Process mysql -RedirectStandardInput 文件` 或 cmd 字节级重定向，并带 `--default-character-set=utf8mb4`。
+- 前端 1.004 原子发布：16:22:31 完成（dist SHA256 自检通过；回滚点 `frontend/releases/1.004-20261026_162231`）。
+- 本次 1.004 合并发布内容：知识星球格式显示优化（随工作区）+ B2 审批转办/加签（或签）+ 用户操作日志改版；双账号（jshz 超管 + 王创审批人）按验收清单逐项实测通过，详见 docs/20261026-handover-B2转办加签与用户操作日志.md。

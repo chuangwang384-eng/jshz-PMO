@@ -29,6 +29,12 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
     /** 事件类型：申请已撤回（审批人） */
     public static final String TYPE_APPROVAL_WITHDRAWN = "approval_withdrawn";
 
+    /** 事件类型：审批转办（被转办人 + 申请人，B2） */
+    public static final String TYPE_APPROVAL_TRANSFERRED = "approval_transferred";
+
+    /** 事件类型：审批加签（被加签人，B2） */
+    public static final String TYPE_APPROVAL_ASSIGNED = "approval_assigned";
+
     /** 事件类型：角色调整 */
     public static final String TYPE_ROLE_CHANGED = "role_changed";
 

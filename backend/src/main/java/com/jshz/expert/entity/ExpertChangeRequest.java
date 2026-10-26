@@ -60,6 +60,14 @@ public class ExpertChangeRequest {
     @JsonProperty("approveBy")
     private String approveBy;
 
+    /** 当前审批人（B2 转办后有值；为空=未转办，任何拥有 approval:audit 的用户可审批） */
+    @JsonProperty("currentAssignee")
+    private String currentAssignee;
+
+    /** 加签审批人（B2 加签后有值；或签语义：与原审批人任一审批即终态） */
+    @JsonProperty("extraApprover")
+    private String extraApprover;
+
     /** 审批意见 */
     @JsonProperty("approveComment")
     private String approveComment;

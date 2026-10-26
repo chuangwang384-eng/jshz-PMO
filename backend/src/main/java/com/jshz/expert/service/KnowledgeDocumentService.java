@@ -41,6 +41,7 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     private final KnowledgeDocVersionMapper versionMapper;
     private final NotificationService notificationService;
     private final SysUserMapper sysUserMapper;
+    private final DocPreviewService docPreviewService;
 
     /**
      * 上传新文档：写主表 version=1，并写版本表第一条记录。登录即可。
@@ -76,17 +77,27 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     /**
-     * 分页列表：category 可选（不传=全部分类）；keyword 对 title / file_name / content 检索（C1 内容检索）。
+     * 分页列表：category 可选（不传=全部分类）；fileType 对 file_type 等值过滤（image 特判为
+     * jpg/jpeg/png 集合，供前端「图片」筛选标签使用）；keyword 对 title / file_name / content 检索（C1 内容检索）。
      * 按权限过滤 status：管理员（knowledge:manage）返回上架+下架，普通员工仅上架（status=1）。
      * 结果批量填充 downloadCount（C4，单次聚合）与 isFavorite（C3，当前用户收藏状态）。
      */
-    public Page<KnowledgeDocument> pageList(String category, String keyword, long page, long pageSize, AuthUser user) {
+    public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
+                                            long page, long pageSize, AuthUser user) {
         LambdaQueryWrapper<KnowledgeDocument> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(category)) {
             if (!CATEGORIES.contains(category)) {
                 throw new BusinessException("分类不合法");
             }
             wrapper.eq(KnowledgeDocument::getCategory, category);
+        }
+        if (StringUtils.hasText(fileType)) {
+            String ft = fileType.trim().toLowerCase(Locale.ROOT);
+            if ("image".equals(ft)) {
+                wrapper.in(KnowledgeDocument::getFileType, "jpg", "jpeg", "png");
+            } else {
+                wrapper.eq(KnowledgeDocument::getFileType, ft);
+            }
         }
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
@@ -148,6 +159,9 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
 
         saveVersion(id, newVersion, file.getOriginalFilename(), storedName,
                 doc.getFileType(), file.getSize(), userName);
+
+        // 格式展示：旧版本预览缓存失效，按文档 id 清理（新版本尚未产生缓存）
+        docPreviewService.clearPreviews(id);
 
         // C3：更新成功后通知全部收藏者（排除操作人本人）
         notifyFavoriters(doc.getId(), doc.getTitle(), newVersion, userName);
@@ -264,6 +278,8 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
                 .eq(KnowledgeDocVersion::getDocId, id));
         // 3. 删除主记录
         this.removeById(id);
+        // 3.5 清理该文档全部预览缓存（LibreOffice 转换产物）
+        docPreviewService.clearPreviews(id);
         // 4. 物理删除磁盘文件（当前 + 历史版本，容错不阻断）
         if (StringUtils.hasText(doc.getFilePath())) {
             storageService.deleteDocument(doc.getFilePath());

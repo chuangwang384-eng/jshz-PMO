@@ -10,6 +10,8 @@ import com.jshz.expert.service.KnowledgeDocStorageService;
 import com.jshz.expert.service.KnowledgeDocumentService;
 import com.jshz.expert.service.KnowledgeFavoriteService;
 import com.jshz.expert.service.DownloadAuditService;
+import com.jshz.expert.service.DocPreviewService;
+import com.jshz.expert.service.OperationLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
@@ -51,6 +53,8 @@ public class KnowledgeController {
     private final KnowledgeDocStorageService storageService;
     private final KnowledgeFavoriteService favoriteService;
     private final DownloadAuditService downloadAuditService;
+    private final DocPreviewService docPreviewService;
+    private final OperationLogService operationLogService;
 
     // ==================== 上传 ====================
 
@@ -61,24 +65,32 @@ public class KnowledgeController {
     public ApiResponse<KnowledgeDocument> upload(@RequestParam String category,
                                                  @RequestParam String title,
                                                  @RequestParam("file") MultipartFile file,
-                                                 @AuthenticationPrincipal AuthUser authUser) {
-        return ApiResponse.ok(documentService.upload(category, title, file, authUser));
+                                                 @AuthenticationPrincipal AuthUser authUser,
+                                                 HttpServletRequest request) {
+        KnowledgeDocument doc = documentService.upload(category, title, file, authUser);
+        operationLogService.record(authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_CREATE_DOC, "上传知识文档《" + doc.getTitle() + "》",
+                "DOC", doc.getId(), request);
+        return ApiResponse.ok(doc);
     }
 
     // ==================== 分页列表 ====================
 
     /**
-     * 分页列表：GET /api/knowledge/docs?category=&keyword=&page=&pageSize=。登录即可。
+     * 分页列表：GET /api/knowledge/docs?category=&keyword=&fileType=&page=&pageSize=。登录即可。
      * category 可选：不传 = 全部分类；传 = 按分类过滤。
+     * fileType 可选：按文件格式等值过滤（image = jpg/jpeg/png 图片集合）。
      * 列表按权限过滤 status：管理员（knowledge:manage）返回上架+下架，普通员工仅上架。
      */
     @GetMapping("/docs")
     public ApiResponse<PageResult<KnowledgeDocument>> list(@RequestParam(required = false) String category,
                                                            @RequestParam(required = false) String keyword,
+                                                           @RequestParam(required = false) String fileType,
                                                            @RequestParam(defaultValue = "1") long page,
                                                            @RequestParam(defaultValue = "20") long pageSize,
                                                            @AuthenticationPrincipal AuthUser authUser) {
-        Page<KnowledgeDocument> p = documentService.pageList(category, keyword, page, pageSize, authUser);
+        Page<KnowledgeDocument> p = documentService.pageList(category, keyword, fileType, page, pageSize, authUser);
         return ApiResponse.ok(PageResult.of(p));
     }
 
@@ -92,8 +104,14 @@ public class KnowledgeController {
     public ApiResponse<KnowledgeDocument> update(@PathVariable Long id,
                                                  @RequestParam(required = false) String title,
                                                  @RequestParam("file") MultipartFile file,
-                                                 @AuthenticationPrincipal AuthUser authUser) {
-        return ApiResponse.ok(documentService.updateVersion(id, title, file, authUser));
+                                                 @AuthenticationPrincipal AuthUser authUser,
+                                                 HttpServletRequest request) {
+        KnowledgeDocument doc = documentService.updateVersion(id, title, file, authUser);
+        operationLogService.record(authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_UPDATE_DOC, "更新知识文档《" + doc.getTitle() + "》（新版本）",
+                "DOC", id, request);
+        return ApiResponse.ok(doc);
     }
 
     // ==================== 下架 ====================
@@ -103,8 +121,15 @@ public class KnowledgeController {
      */
     @DeleteMapping("/docs/{id}")
     public ApiResponse<Void> offShelf(@PathVariable Long id,
-                                      @AuthenticationPrincipal AuthUser authUser) {
+                                      @AuthenticationPrincipal AuthUser authUser,
+                                      HttpServletRequest request) {
+        KnowledgeDocument before = documentService.getById(id);
         documentService.offShelf(id, authUser);
+        operationLogService.record(authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_OFF_SHELF_DOC,
+                "下架知识文档《" + (before == null ? id : before.getTitle()) + "》",
+                "DOC", id, request);
         return ApiResponse.ok();
     }
 
@@ -114,8 +139,15 @@ public class KnowledgeController {
      */
     @DeleteMapping("/docs/{id}/permanent")
     public ApiResponse<Void> permanentDelete(@PathVariable Long id,
-                                             @AuthenticationPrincipal AuthUser authUser) {
+                                             @AuthenticationPrincipal AuthUser authUser,
+                                             HttpServletRequest request) {
+        KnowledgeDocument before = documentService.getById(id);
         documentService.permanentDelete(id, authUser);
+        operationLogService.record(authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_DELETE_DOC,
+                "永久删除知识文档《" + (before == null ? id : before.getTitle()) + "》",
+                "DOC", id, request);
         return ApiResponse.ok();
     }
 
@@ -136,6 +168,8 @@ public class KnowledgeController {
      * Content-Disposition 使用 RFC 5987 filename* 支持中文文件名。
      * C4：download=1（附件下载）时写入 download_log 计数（doc_id + type=knowledge_doc）；
      * inline 预览不计入下载次数。
+     * 格式展示：inline 预览模式下，Office 文档（doc/docx/xls/xlsx/ppt/pptx）先经 DocPreviewService
+     * 转换为 PDF 缓存后返回 PDF 流；PDF / 图片直接返回原文件流。
      */
     @GetMapping("/docs/files/{fileName}")
     public ResponseEntity<FileSystemResource> file(@PathVariable String fileName,
@@ -159,6 +193,22 @@ public class KnowledgeController {
             }
         }
         MediaType mediaType = mediaTypeOf(fileName);
+        if (!forceDownload) {
+            // 预览模式：Office 文档先经 DocPreviewService 转为 PDF 缓存，返回 PDF 流
+            try {
+                KnowledgeDocument doc = documentService.findByFilePath(fileName);
+                if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
+                    Path pdf = docPreviewService.getPreviewFile(
+                            doc.getFilePath(), doc.getId(), doc.getVersion(), doc.getFileType());
+                    path = pdf;
+                    mediaType = MediaType.APPLICATION_PDF;
+                }
+            } catch (com.jshz.expert.common.BusinessException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new com.jshz.expert.common.BusinessException("暂无法在线预览，请下载查看");
+            }
+        }
         String safeName = path.getFileName().toString();
         String encoded = URLEncoder.encode(safeName, StandardCharsets.UTF_8).replace("+", "%20");
         String disposition = (forceDownload ? "attachment" : "inline")

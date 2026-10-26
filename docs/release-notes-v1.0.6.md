@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_c1b2a421d10311f19fe7525400de85a5
+    ReservedCode1: JGcL8aysvdQaQMuLFwUKnw4ZfQNsfX1HS2tzVJXC5FuhzPanVMv66xH1uGK5YIcDgVKqPMa+vKXDi66fQl0agzTrd9uqm07OgP59qOQzBKSti5t5QYNns7H9FIjJNGIujBy3yMw0ZobN+KSzM4OnQ6vc/byZH4OxM9c86dVr3nMxoDiRYwoTg9cZq14=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_c1b2a421d10311f19fe7525400de85a5
+    ReservedCode2: JGcL8aysvdQaQMuLFwUKnw4ZfQNsfX1HS2tzVJXC5FuhzPanVMv66xH1uGK5YIcDgVKqPMa+vKXDi66fQl0agzTrd9uqm07OgP59qOQzBKSti5t5QYNns7H9FIjJNGIujBy3yMw0ZobN+KSzM4OnQ6vc/byZH4OxM9c86dVr3nMxoDiRYwoTg9cZq14=
+---
+
 # v1.0.6 发布说明（2026-10-26）
 
 > 构建版本 **1.002**（后端 pom / 前端 package.json 同步升版）。本版包含 v1.0.5 之后的三批变更：审批申请撤回、安全整改（凭据治理）、R-B4 审批申请字段模板。
@@ -42,4 +53,5 @@
 - 验收③实测：用「联系方式变更」模板提交「简介」字段被拒（"字段「简介」不在模板范围内"）；模板内字段仍走原敏感格式校验。
 - 不传 templateId 的旧提交路径逻辑零改动（代码路径 templateId=null 直接跳过模板校验）。
 
+*（内容由AI生成，仅供参考）*
 *（内容由AI生成，仅供参考）*

@@ -54,6 +54,23 @@ export function withdrawRequest(id) {
   return request.post(`/approval/requests/${id}/withdraw`)
 }
 
+// ==================== 审批转办 / 加签（B2，或签语义） ====================
+
+// 审批转办：POST /approval/requests/{id}/transfer，body {targetUser}
+export function transferRequest(id, data) {
+  return request.post(`/approval/requests/${id}/transfer`, data)
+}
+
+// 审批加签（或签）：POST /approval/requests/{id}/add-approver，body {targetUser, comment?}
+export function addApproverRequest(id, data) {
+  return request.post(`/approval/requests/${id}/add-approver`, data)
+}
+
+// 可转办/加签用户列表：GET /approval/assignable-users，返回 [{id, username}]（仅拥有 approval:audit 的启用用户）
+export function getAssignableUsers() {
+  return request.get('/approval/assignable-users')
+}
+
 // ==================== 审批申请字段模板（R-B4） ====================
 
 // 启用模板列表：GET /approval/templates（登录即可，员工提交申请下拉）

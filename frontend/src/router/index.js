@@ -101,7 +101,7 @@ const routes = [
         path: 'audit/downloads',
         name: 'audit-downloads',
         component: () => import('../views/DownloadAudit.vue'),
-        meta: { title: '下载留痕', permissions: ['audit:view'] }
+        meta: { title: '用户操作日志', permissions: ['audit:view'] }
       },
       {
         path: 'approval/manage',

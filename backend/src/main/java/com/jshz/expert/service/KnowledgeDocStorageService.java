@@ -17,14 +17,14 @@ import java.util.Set;
 
 /**
  * 知识文档存储服务（知识星球）。
- * 允许扩展名：pdf/doc/docx/jpg/jpeg/png；单文件 ≤50MB。
+ * 允许扩展名：pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png；单文件 ≤50MB。
  * 命名规则：doc_<时间戳>_<原文件名>。
  * 存储目录：D:\jshz-PMO\知识文档库（application.yml expert.knowledge.storage-dir）。
  */
 @Service
 public class KnowledgeDocStorageService {
 
-    private static final Set<String> ALLOWED_EXT = Set.of("pdf", "doc", "docx", "jpg", "jpeg", "png");
+    private static final Set<String> ALLOWED_EXT = Set.of("pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "jpg", "jpeg", "png");
     private static final long MAX_SIZE = 50L * 1024 * 1024; // 50MB
 
     private final Path storageDir;

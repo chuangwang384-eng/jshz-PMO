@@ -7,7 +7,8 @@ export function uploadKnowledgeDoc(data) {
   return request.post('/knowledge/docs', data)
 }
 
-// 分页列表：category 必填；keyword/page/pageSize 可选
+// 分页列表：category / keyword / fileType / page / pageSize 可选
+// fileType 按格式等值过滤（pdf/docx/doc/xlsx/pptx/image=图片集合），与 category/keyword 组合生效
 export function listKnowledgeDocs(params) {
   return request.get('/knowledge/docs', { params })
 }
@@ -33,6 +34,8 @@ export function getKnowledgeVersions(id) {
 }
 
 // 文件下载/预览（登录即可，blob 响应，response.data 为 Blob）
+// 预览适配：download=false 时 Office 文档（doc/docx/xls/xlsx/ppt/pptx）后端先转 PDF 再返回流，
+// 前端按 row.fileType 判断渲染方式（Office 视作 PDF 用 pdf.js 渲染）；download=true 返回原文件流
 export function fetchKnowledgeFile(fileName, download = false) {
   const q = download ? '?download=1' : ''
   return request.get(`/knowledge/docs/files/${encodeURIComponent(fileName)}${q}`, { responseType: 'blob' })

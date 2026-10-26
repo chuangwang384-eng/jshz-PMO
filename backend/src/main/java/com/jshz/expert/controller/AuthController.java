@@ -7,6 +7,8 @@ import com.jshz.expert.dto.LoginResponse;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.security.JwtTokenProvider;
 import com.jshz.expert.service.AuthService;
+import com.jshz.expert.service.OperationLogService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -24,6 +26,7 @@ import java.util.Map;
 /**
  * 认证接口（正式版 V1.001）。
  * /api/auth/login 账号=员工姓名登录、/api/auth/me、强制改密；企微登录为占位（二期）。
+ * 登录 / 登出 / 修改密码埋点写入 operation_log（用户操作日志改版）。
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -32,6 +35,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final OperationLogService operationLogService;
 
     /**
      * 账号密码登录：账号 = 员工姓名，BCrypt 校验，签发 JWT。
@@ -39,6 +43,7 @@ public class AuthController {
      */
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@RequestBody LoginRequest request,
+                                            HttpServletRequest httpRequest,
                                             HttpServletResponse response) {
         LoginResponse loginResponse = authService.login(request);
         ResponseCookie cookie = ResponseCookie.from("expert_token", loginResponse.getToken())
@@ -51,6 +56,9 @@ public class AuthController {
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
         // token 已写入 cookie，响应体不再回传，避免前端落入 localStorage
         loginResponse.setToken(null);
+        // 敏感操作日志：登录成功
+        operationLogService.record(null, loginResponse.getUsername(), OperationLogService.ACTION_LOGIN,
+                "登录成功", "USER", loginResponse.getUsername(), httpRequest);
         return ApiResponse.ok(loginResponse);
     }
 
@@ -58,7 +66,9 @@ public class AuthController {
      * 登出：清除登录 cookie（白名单放行，token 失效后仍可清理）。
      */
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(HttpServletResponse response) {
+    public ApiResponse<Void> logout(@AuthenticationPrincipal AuthUser authUser,
+                                    HttpServletRequest httpRequest,
+                                    HttpServletResponse response) {
         ResponseCookie cookie = ResponseCookie.from("expert_token", "")
                 .httpOnly(true)
                 .secure(false)
@@ -67,6 +77,11 @@ public class AuthController {
                 .maxAge(0)
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        // 敏感操作日志：登出（token 已失效时无登录态，跳过记录）
+        if (authUser != null) {
+            operationLogService.record(authUser.getUserId(), authUser.getUsername(),
+                    OperationLogService.ACTION_LOGOUT, "退出登录", "USER", authUser.getUsername(), httpRequest);
+        }
         return ApiResponse.ok(null);
     }
 
@@ -83,8 +98,13 @@ public class AuthController {
      */
     @PostMapping("/change-password")
     public ApiResponse<Void> changePassword(@AuthenticationPrincipal AuthUser authUser,
-                                            @RequestBody ChangePasswordRequest request) {
+                                            @RequestBody ChangePasswordRequest request,
+                                            HttpServletRequest httpRequest) {
         authService.changePassword(authUser, request);
+        // 敏感操作日志：修改本人密码
+        operationLogService.record(authUser.getUserId(), authUser.getUsername(),
+                OperationLogService.ACTION_CHANGE_PASSWORD, "修改本人密码", "USER", authUser.getUsername(),
+                httpRequest);
         return ApiResponse.ok(null);
     }
 

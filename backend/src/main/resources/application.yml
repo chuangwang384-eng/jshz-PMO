@@ -41,6 +41,10 @@ expert:
   # 知识文档存储根目录（知识星球：会议执行/协会合规要求/企业合规要求/客户喜好）
   knowledge:
     storage-dir: 'D:\jshz-PMO\知识文档库'
+    # Office 文档转 PDF 预览缓存目录（LibreOffice 转换结果，按文档id+版本缓存）
+    preview-dir: 'D:\jshz-PMO\知识文档库\_preview'
+    # LibreOffice 可执行文件路径（doc/docx/xls/xlsx/ppt/pptx 在线预览转换）
+    libreoffice-path: 'C:\Program Files\LibreOffice\program\soffice.com'
   # JWT 登录鉴权
   jwt:
     # 签名密钥必须由环境变量 JWT_SECRET 注入（≥32 字节随机串），禁止写入仓库；

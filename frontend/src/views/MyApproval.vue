@@ -133,6 +133,8 @@ function timelineType(action) {
   if (action === 'APPROVE') return 'success'
   if (action === 'REJECT') return 'danger'
   if (action === 'WITHDRAW') return 'danger'
+  if (action === 'TRANSFER') return 'warning'
+  if (action === 'ADD_APPROVER') return 'primary'
   return 'primary'
 }
 
@@ -140,6 +142,8 @@ function actionText(action) {
   if (action === 'APPROVE') return '审批通过'
   if (action === 'REJECT') return '驳回'
   if (action === 'WITHDRAW') return '撤回申请'
+  if (action === 'TRANSFER') return '审批转办'
+  if (action === 'ADD_APPROVER') return '审批加签'
   return '提交申请'
 }
 

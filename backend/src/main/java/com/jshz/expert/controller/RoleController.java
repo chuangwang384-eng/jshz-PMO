@@ -11,8 +11,12 @@ import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.RolePermissionMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
+import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.service.OperationLogService;
 import com.jshz.expert.service.PermissionService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,6 +46,7 @@ public class RoleController {
     private final RolePermissionMapper rolePermissionMapper;
     private final UserRoleMapper userRoleMapper;
     private final PermissionService permissionService;
+    private final OperationLogService operationLogService;
 
     @GetMapping
     public ApiResponse<List<Role>> list() {
@@ -126,7 +131,10 @@ public class RoleController {
     }
 
     @PutMapping("/{id}/permissions")
-    public ApiResponse<Void> assignPermissions(@PathVariable Long id, @RequestBody PermissionAssignRequest request) {
+    public ApiResponse<Void> assignPermissions(@PathVariable Long id,
+                                               @RequestBody PermissionAssignRequest request,
+                                               @AuthenticationPrincipal AuthUser authUser,
+                                               HttpServletRequest httpRequest) {
         Role role = roleMapper.selectById(id);
         if (role == null) {
             throw new BusinessException("角色不存在");
@@ -145,6 +153,13 @@ public class RoleController {
             rolePermissionMapper.insert(rp);
         }
         permissionService.clearCaches();
+        // 敏感操作日志：角色权限变更
+        operationLogService.record(
+                authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_ROLE_PERMISSION,
+                "调整角色「" + role.getName() + "」权限绑定 " + codes,
+                "ROLE", role.getCode(), httpRequest);
         return ApiResponse.ok(null);
     }
 }

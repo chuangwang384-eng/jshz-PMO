@@ -25,6 +25,12 @@
           </el-table-column>
           <el-table-column prop="applicant" label="申请人" width="140" />
           <el-table-column prop="expertName" label="专家姓名" width="140" />
+          <el-table-column label="当前审批人" width="120" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.currentAssignee" type="warning" effect="plain">{{ row.currentAssignee }}</el-tag>
+              <span v-else class="muted">未指定</span>
+            </template>
+          </el-table-column>
           <el-table-column label="申请类型" width="110" align="center">
             <template #default="{ row }">
               <el-tag :type="row.requestType === 1 ? 'success' : 'info'">{{ row.requestTypeText || '修改申请' }}</el-tag>
@@ -35,10 +41,24 @@
           </el-table-column>
           <el-table-column prop="reason" label="申请原因" min-width="180" show-overflow-tooltip />
           <el-table-column prop="createTime" label="申请时间" width="170" />
-          <el-table-column label="操作" width="150" align="center" fixed="right">
+          <el-table-column label="操作" width="220" align="center" fixed="right">
             <template #default="{ row }">
               <el-button v-permission="'approval:audit'" link type="success" @click="openApprove(row)">通过</el-button>
               <el-button v-permission="'approval:audit'" link type="danger" @click="openReject(row)">驳回</el-button>
+              <el-button
+                v-if="rowOwnedByMe(row)"
+                v-permission="'approval:audit'"
+                link
+                type="warning"
+                @click="openTransfer(row)"
+              >转办</el-button>
+              <el-button
+                v-if="rowOwnedByMe(row) && !row.extraApprover"
+                v-permission="'approval:audit'"
+                link
+                type="primary"
+                @click="openAddSign(row)"
+              >加签</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -143,14 +163,68 @@
         <el-button v-permission="'approval:audit'" type="danger" :loading="actionSubmitting" @click="confirmReject">确认驳回</el-button>
       </template>
     </el-dialog>
+    <!-- 转办弹窗：选人（仅列出有审批权限的用户） -->
+    <el-dialog v-model="transferVisible" title="审批转办" width="480px" destroy-on-close>
+      <div class="dialog-expert">专家：{{ actionRow?.expertName }}（申请人：{{ actionRow?.applicant }}）</div>
+      <div class="dialog-summary">转办后仅被转办人可审批该申请单，请在下方选择接收人。</div>
+      <el-select
+        v-model="transferTarget"
+        filterable
+        placeholder="选择被转办人（仅列出有审批权限的用户）"
+        style="width: 100%"
+      >
+        <el-option v-for="u in assignableUsers" :key="u.id" :label="u.username" :value="u.username" />
+      </el-select>
+      <template #footer>
+        <el-button @click="transferVisible = false">取消</el-button>
+        <el-button type="warning" :loading="actionSubmitting" @click="confirmTransfer">确认转办</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 加签弹窗（或签：任一人审批即生效） -->
+    <el-dialog v-model="addSignVisible" title="审批加签" width="480px" destroy-on-close>
+      <div class="dialog-expert">专家：{{ actionRow?.expertName }}（申请人：{{ actionRow?.applicant }}）</div>
+      <div class="dialog-summary">
+        加签采用或签语义：您与被加签人任一人审批（通过/驳回）即生效，无需两人都审。
+      </div>
+      <el-select
+        v-model="addSignTarget"
+        filterable
+        placeholder="选择被加签人（仅列出有审批权限的用户）"
+        style="width: 100%; margin-bottom: 12px"
+      >
+        <el-option v-for="u in assignableUsers" :key="u.id" :label="u.username" :value="u.username" />
+      </el-select>
+      <el-input
+        v-model="addSignComment"
+        type="textarea"
+        :rows="2"
+        maxlength="200"
+        placeholder="加签说明（可空）"
+      />
+      <template #footer>
+        <el-button @click="addSignVisible = false">取消</el-button>
+        <el-button type="primary" :loading="actionSubmitting" @click="confirmAddSign">确认加签</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getApprovalRequests, approveRequest, rejectRequest } from '../api/approval'
+import {
+  getApprovalRequests,
+  approveRequest,
+  rejectRequest,
+  transferRequest,
+  addApproverRequest,
+  getAssignableUsers
+} from '../api/approval'
 import { getExpert } from '../api/expert'
+import { useAuthStore } from '../store/auth'
+
+const authStore = useAuthStore()
 
 const activeTab = ref('pending')
 
@@ -178,6 +252,86 @@ const actionRow = ref(null)
 const approveComment = ref('')
 const rejectComment = ref('')
 const actionSubmitting = ref(false)
+
+// 转办 / 加签（B2）
+const transferVisible = ref(false)
+const transferTarget = ref('')
+const addSignVisible = ref(false)
+const addSignTarget = ref('')
+const addSignComment = ref('')
+const assignableUsers = ref([])
+
+// 该行转办/加签操作是否对当前用户可用：未指定审批人 或 当前审批人是本人（与后端校验一致）
+function rowOwnedByMe(row) {
+  return !row.currentAssignee || row.currentAssignee === authStore.username
+}
+
+async function fetchAssignableUsers() {
+  try {
+    const data = await getAssignableUsers()
+    assignableUsers.value = data?.items || data || []
+  } catch (e) {
+    assignableUsers.value = []
+  }
+}
+
+function openTransfer(row) {
+  actionRow.value = row
+  transferTarget.value = ''
+  transferVisible.value = true
+  if (!assignableUsers.value.length) {
+    fetchAssignableUsers()
+  }
+}
+
+function openAddSign(row) {
+  actionRow.value = row
+  addSignTarget.value = ''
+  addSignComment.value = ''
+  addSignVisible.value = true
+  if (!assignableUsers.value.length) {
+    fetchAssignableUsers()
+  }
+}
+
+async function confirmTransfer() {
+  if (!transferTarget.value) {
+    ElMessage.warning('请选择被转办人')
+    return
+  }
+  actionSubmitting.value = true
+  try {
+    await transferRequest(actionRow.value.id, { targetUser: transferTarget.value })
+    ElMessage.success(`已转办给 ${transferTarget.value}`)
+    transferVisible.value = false
+    refresh()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  } finally {
+    actionSubmitting.value = false
+  }
+}
+
+async function confirmAddSign() {
+  if (!addSignTarget.value) {
+    ElMessage.warning('请选择被加签人')
+    return
+  }
+  actionSubmitting.value = true
+  try {
+    await addApproverRequest(actionRow.value.id, {
+      targetUser: addSignTarget.value,
+      comment: addSignComment.value.trim() || undefined
+    })
+    ElMessage.success(`已加签 ${addSignTarget.value}，或签生效：任一人审批即终态`)
+    addSignVisible.value = false
+    refresh()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  } finally {
+    actionSubmitting.value = false
+  }
+}
 
 async function fetchPending() {
   pendingLoading.value = true

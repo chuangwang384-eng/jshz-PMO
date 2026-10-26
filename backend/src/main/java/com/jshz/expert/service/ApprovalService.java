@@ -26,7 +26,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -85,6 +87,9 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     /** 敏感格式字段（仅在本次变更涉及且值非空时校验，与 ExpertService.validateRequired 的 hasText 逻辑对齐） */
     private static final List<String> SENSITIVE_FIELDS = List.of("身份证号", "银行卡号", "联系方式");
 
+    /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
+    public static final String PERM_APPROVAL_AUDIT = "approval:audit";
+
     private final ApprovalConfigMapper approvalConfigMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
     private final ApprovalTemplateService approvalTemplateService;
@@ -95,6 +100,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
     private final NotificationService notificationService;
     private final SysUserMapper sysUserMapper;
     private final UserRoleMapper userRoleMapper;
+    private final PermissionService permissionService;
 
     // ==================== 审批流配置 ====================
 
@@ -359,6 +365,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
      */
     public ExpertChangeRequest approve(Long id, String comment, AuthUser user) {
         ExpertChangeRequest request = getPending(id);
+        checkAssignee(request, user);
         ExpertChangeRequest result;
         if (isCreateRequest(request)) {
             result = approveCreate(request, comment, user);
@@ -507,6 +514,7 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
             throw new BusinessException("驳回意见不能为空");
         }
         ExpertChangeRequest request = getPending(id);
+        checkAssignee(request, user);
         // 驳回：清理该申请关联的所有临时照片（与撤回共用 cleanTempPhotos）
         cleanTempPhotos(request);
         request.setStatus(STATUS_REJECTED);
@@ -594,6 +602,166 @@ public class ApprovalService extends ServiceImpl<ExpertChangeRequestMapper, Expe
                         "申请人 " + request.getApplicant() + " 撤回了" + typeText + "，无需再处理",
                         "/admin/approval/manage");
             }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    // ==================== 转办 / 加签（B2） ====================
+
+    /**
+     * 审批转办（R-B2-1）：当前审批人将待审批单移交指定用户。
+     * - 仅 status=0 待审批可转；
+     * - 当前用户须有 approval:audit，且满足 current_assignee 为空或等于本人；
+     * - 目标用户必须存在且拥有 approval:audit 权限码；
+     * - 转办后 current_assignee 置为目标用户，仅被转办人可审批（approve/reject 经 checkAssignee 校验）；
+     * - 写 TRANSFER 记录并通知被转办人与申请人。
+     */
+    public ExpertChangeRequest transfer(Long id, String targetUser, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (!StringUtils.hasText(targetUser)) {
+            throw new BusinessException("目标用户不能为空");
+        }
+        ExpertChangeRequest request = getPending(id);
+        checkAssignee(request, user);
+        SysUser target = checkTargetApprover(targetUser.trim());
+        if (target.getUsername().equals(user.getUsername())) {
+            throw new BusinessException("不能转办给自己");
+        }
+        request.setCurrentAssignee(target.getUsername());
+        this.updateById(request);
+
+        addRecord(request.getId(), "审批转办", "TRANSFER", user.getUsername(),
+                "转给【" + target.getUsername() + "】");
+        notifyTransferred(request, target.getUsername(), user);
+        return fillView(request);
+    }
+
+    /**
+     * 审批加签（R-B2-2，或签语义）：当前审批人追加一个指定用户共同审批。
+     * - 或签：原审批人与被加签人任一 approve 即通过、任一 reject 即驳回（不改变现有状态机）；
+     * - 已加签不可重复加签；不能加签给自己；
+     * - extra_approver 置为目标用户，写 ADD_APPROVER 记录并通知被加签人。
+     */
+    public ExpertChangeRequest addApprover(Long id, String targetUser, String comment, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (!StringUtils.hasText(targetUser)) {
+            throw new BusinessException("目标用户不能为空");
+        }
+        ExpertChangeRequest request = getPending(id);
+        checkAssignee(request, user);
+        if (StringUtils.hasText(request.getExtraApprover())) {
+            throw new BusinessException("该申请单已加签，不能重复加签");
+        }
+        SysUser target = checkTargetApprover(targetUser.trim());
+        if (target.getUsername().equals(user.getUsername())) {
+            throw new BusinessException("不能加签给自己");
+        }
+        request.setExtraApprover(target.getUsername());
+        this.updateById(request);
+
+        addRecord(request.getId(), "审批加签", "ADD_APPROVER", user.getUsername(),
+                StringUtils.hasText(comment) ? comment.trim() : "加签【" + target.getUsername() + "】共同审批");
+        notifyAssigned(request, target.getUsername());
+        return fillView(request);
+    }
+
+    /**
+     * 可转办/加签用户列表：启用用户中拥有 approval:audit 权限码的用户（仅返回 id + 用户名）。
+     */
+    public List<Map<String, Object>> assignableUsers() {
+        List<SysUser> users = sysUserMapper.selectList(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getStatus, 1)
+                        .orderByAsc(SysUser::getUsername));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (SysUser u : users) {
+            if (!permissionService.hasPermission(u.getId(), PERM_APPROVAL_AUDIT)) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", u.getId());
+            item.put("username", u.getUsername());
+            result.add(item);
+        }
+        return result;
+    }
+
+    /**
+     * 审批权校验（B2）：current_assignee 非空时仅被转办人本人可审批；为空维持现状（任何有审批权限的用户可审）。
+     */
+    private void checkAssignee(ExpertChangeRequest request, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        String assignee = request.getCurrentAssignee();
+        if (StringUtils.hasText(assignee) && !assignee.equals(user.getUsername())) {
+            throw new BusinessException("该申请单已转办给 " + assignee + "，仅被转办人可审批");
+        }
+    }
+
+    /**
+     * 转办/加签目标用户校验：用户存在、未停用、拥有 approval:audit 权限码（与现有审批权限体系一致）。
+     */
+    private SysUser checkTargetApprover(String targetUser) {
+        SysUser target = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, targetUser).last("LIMIT 1"));
+        if (target == null) {
+            throw new BusinessException("目标用户「" + targetUser + "」不存在");
+        }
+        if (target.getStatus() != null && target.getStatus() != 1) {
+            throw new BusinessException("目标用户「" + targetUser + "」已停用");
+        }
+        if (!permissionService.hasPermission(target.getId(), PERM_APPROVAL_AUDIT)) {
+            throw new BusinessException("目标用户「" + targetUser + "」没有审批权限，不能被转办/加签");
+        }
+        return target;
+    }
+
+    /**
+     * 转办通知：通知被转办人新增待办（approval_transferred）；申请人可收到转办提醒。
+     */
+    private void notifyTransferred(ExpertChangeRequest request, String targetUser, AuthUser operator) {
+        try {
+            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            Long targetId = userIdOf(targetUser);
+            if (targetId != null) {
+                notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
+                        "转办待办：" + typeText,
+                        "「" + request.getExpertName() + "」的" + typeText + "已由 "
+                                + operator.getUsername() + " 转办给您，请及时处理",
+                        "/admin/approval/manage");
+            }
+            Long applicantId = userIdOf(request.getApplicant());
+            if (applicantId != null) {
+                notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
+                        "您的申请已转办",
+                        "您的「" + request.getExpertName() + "」" + typeText + "已转办给 " + targetUser + " 审批",
+                        "/profile/my-approvals");
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 加签通知（approval_assigned）：通知被加签人新增待办。
+     */
+    private void notifyAssigned(ExpertChangeRequest request, String targetUser) {
+        try {
+            Long targetId = userIdOf(targetUser);
+            if (targetId == null) {
+                return;
+            }
+            String typeText = isCreateRequest(request) ? "新增专家申请" : "专家信息修改申请";
+            notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_ASSIGNED,
+                    "加签待办：" + typeText,
+                    "「" + request.getExpertName() + "」的" + typeText + "已加签您共同审批（任一人审批即生效），请及时处理",
+                    "/admin/approval/manage");
         } catch (Exception e) {
             // 通知失败不影响主流程
         }
