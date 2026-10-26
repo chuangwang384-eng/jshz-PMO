@@ -25,7 +25,7 @@ AIGC:
 
 - 前端为 SPA 应用，构建产物由 Nginx 托管，通过反向代理将 `/api` 请求转发至后端。
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
-- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、消息通知（notification）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **14 张表**。
+- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、审批流配置（approval_config）、审批申请单（expert_change_request）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、文档收藏（knowledge_favorite，C3）、消息通知（notification）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **15 张表**。
 
 ## 2. 后端分层
 
@@ -34,8 +34,8 @@ AIGC:
 | Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApprovalController`（审批流全套：配置、修改/新增申请、照片上传、审批） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController` / `HealthController` / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询） / `KnowledgeController`（知识星球：文档上传/分页检索（category 可选=全分类、按权限过滤下架文档）/版本更新/下架/永久删除/版本历史/文件下载预览） / `NotificationController`（消息通知中心：本人列表 / 未读数 / 单条已读 / 全部已读） / `ApprovalTemplateController`（R-B4 审批申请字段模板：启用列表登录可用 / 全部列表+增删改启停 approval:config / 字段清单）（共 **13 个**） |
 | Service | 业务逻辑、事务控制 | `AuthService` / `ExpertService` / `ApprovalService`（审批核心：白名单字段校验、TMP 临时照片通道、修改/新增分支审批、审批/提交通知埋点） / `ExportService` / `PhotoStorageService` / `DownloadAuditService` / `UserService`（含角色调整/密码重置通知埋点） / `KnowledgeDocumentService`（知识星球业务，含下架/永久删除通知埋点） / `KnowledgeDocStorageService`（文档落盘与校验，含物理删除） / `NotificationService`（通用消息通知：写入五类事件、本人列表/未读数/已读标记） |
 | Security | 认证鉴权 | `JwtTokenProvider` / `JwtAuthenticationFilter` / `AuthUser` |
-| Mapper | 数据访问（MyBatis-Plus，共 14 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `ApprovalTemplateMapper`（R-B4） / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` / `NotificationMapper` |
-| Entity | 数据库实体映射（共 14 个） | `Expert` / `SysUser` / `DownloadLog` / `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText/templateId）/ `ApprovalRecord` / `ApprovalTemplate`（R-B4，含 fields 解析展示）/ `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument` / `KnowledgeDocVersion` / `Notification` |
+| Mapper | 数据访问（MyBatis-Plus，共 15 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `ApprovalConfigMapper` / `ExpertChangeRequestMapper` / `ApprovalRecordMapper` / `ApprovalTemplateMapper`（R-B4） / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` / `KnowledgeFavoriteMapper`（C3） / `NotificationMapper` |
+| Entity | 数据库实体映射（共 15 个） | `Expert` / `SysUser` / `DownloadLog`（含 docId）/ `ApprovalConfig` / `ExpertChangeRequest`（含 requestType/requestTypeText/templateId）/ `ApprovalRecord` / `ApprovalTemplate`（R-B4，含 fields 解析展示）/ `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument`（含 content 正文/downloadCount/isFavorite）/ `KnowledgeDocVersion` / `KnowledgeFavorite`（C3）/ `Notification` |
 | Config | 安全、跨域、全局配置 | `SecurityConfig` / `WebConfig` / `GlobalExceptionHandler` / `MybatisPlusConfig` |
 
 ## 3. 前端结构
@@ -50,13 +50,13 @@ AIGC:
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **14 张表**，含 RBAC 四表（role / permission / role_permission / user_role）、消息通知表（notification）与审批申请字段模板表（approval_template，R-B4）：
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **15 张表**，含 RBAC 四表（role / permission / role_permission / user_role）、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）与知识文档收藏表（knowledge_favorite，C3）：
 
 | 表 | 说明 | 关键字段 |
 | --- | --- | --- |
 | `expert_info` | 专家主表（18 字段） | id、name、unit、department、title、research_direction、expertise_area、contact、profile、id_card、bank_card、photo、bank_branch、id_card_front、id_card_back、create_time、update_time、update_by |
 | `sys_user` | 登录账号 | username=姓名、password（BCrypt）、is_admin（管理员名单兼容标记）、must_change_password（强制改密）、wecom_userid（预留）、status |
-| `download_log` | 下载审计 | 下载人、专家、时间、类型、IP；selected 导出逐专家一条、全量/md 单条 |
+| `download_log` | 下载审计 | 下载人、专家、时间、类型、IP；selected 导出逐专家一条、全量/md 单条；C4 起知识文档下载（download_type=knowledge_doc）记 doc_id 与文档标题 |
 | `approval_config` | 审批流配置 | flow_key（UNIQUE，EXPERT_MODIFY）、flow_name、enabled、approver_role |
 | `expert_change_request` | 审批申请单 | expert_id（可空，新增申请通过后回填）、expert_name、applicant、change_data（JSON）、reason、status（0待审/1通过/2驳回/3撤回）、request_type（0修改/1新增）、template_id（R-B4 来源模板，可空）、approve_by、approve_comment |
 | `approval_record` | 审批流转记录 | request_id、node_name、action（SUBMIT/APPROVE/REJECT/WITHDRAW）、operator、comment、create_time |
@@ -65,13 +65,16 @@ AIGC:
 | `permission` | RBAC 权限点表 | id、code（可重复，一码多路径）、name、type（1菜单/2接口）、method、path、parent_code；UNIQUE(method,path) |
 | `role_permission` | 角色-权限关联表 | id、role_id、permission_code；UNIQUE(role_id,permission_code) |
 | `user_role` | 用户-角色关联表 | id、user_id、role_id；UNIQUE(user_id,role_id) |
-| `knowledge_document` | 知识星球文档主表 | id、title、category、file_name、file_path、file_type、file_size、version、upload_by、status（1上架/0下架）、create_time、update_time |
+| `knowledge_document` | 知识星球文档主表 | id、title、category、file_name、file_path、file_type、file_size、content（C1 正文，抽取截断存储）、version、upload_by、status（1上架/0下架）、create_time、update_time |
 | `knowledge_doc_version` | 知识星球文档版本历史 | id、doc_id、version、file_name、file_path、file_type、file_size、upload_by、create_time |
-| `notification` | 消息通知中心 | id、user_id（接收人）、type（approval_result / approval_todo / role_changed / password_reset / doc_off_shelf / doc_deleted）、title、content、jump_path（点击跳转前端路由，可为空）、is_read（0未读/1已读）、create_time |
+| `knowledge_favorite` | 知识文档收藏（C3） | id、doc_id、user_id、create_time；UNIQUE(doc_id,user_id) |
+| `notification` | 消息通知中心 | id、user_id（接收人）、type（approval_result / approval_todo / approval_withdrawn / role_changed / password_reset / doc_off_shelf / doc_deleted / doc_updated）、title、content、jump_path（点击跳转前端路由，可为空）、is_read（0未读/1已读）、create_time |
 
 > `expert_info.update_by` 写入语义：直接编辑（ExpertService.update，由超管/具备 expert:edit 权限用户调用）记操作者本人；审批通过（ApprovalService.approveModify / approveCreate）记申请单申请人 `expert_change_request.applicant`（发起修改/新增的人），审批人仅记录于 `approve_by`。`update_time` 由数据库 `ON UPDATE CURRENT_TIMESTAMP` 自动维护。
 
 > RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:manage`（ADMIN/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:manage`（已绑定 ADMIN），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
+
+> 知识星球增强（2026-10-26，C1/C3/C4）：① C1 内容检索——knowledge_document.content 存上传/更新时抽取的正文（PDFBox/POI，截断 200k 字符），GET /api/knowledge/docs 的 keyword 扩展为 title/file_name/content 三列 LIKE；前端 placeholder「按标题 / 内容关键字检索」。② C3 收藏——knowledge_favorite 表（UNIQUE(doc_id,user_id)），接口 POST/DELETE/GET /api/knowledge/favorites[/{docId}]（登录即可，userId 取当前用户防越权；路径避开 permission 表 DELETE /api/knowledge/docs/** 通配规则），PUT /api/knowledge/docs/{id} 更新成功后向全部收藏者（排除操作人）写 doc_updated 通知；前端列表/总览操作列收藏按钮即时切换，知识星球父页「全部文档/我的收藏」切换。③ C4 下载次数——download_log 加 doc_id 列，附件下载（download=1，预览不计）写 download_type=knowledge_doc 记录，列表接口单次 GROUP BY 聚合返回 downloadCount，前端「下载次数」列仅上传人本人与管理员（knowledge:manage）可见数值，他人显示 —。
 
 > R-B4 审批申请字段模板说明：表 `approval_template`（template_name 唯一、fields 为中文键 JSON 数组、enabled 启停）；员工端 GET /api/approval/templates 返回启用模板（登录即可），管理端 GET /api/approval/templates/all 与 POST/PUT/DELETE /api/approval/templates[/{id}] 复用权限码 `approval:config`（permission 表一码多路径）；提交申请（POST /api/approval/requests、/api/approval/create-request）带可选 templateId：传入时校验 changes 字段集合 ⊆ 模板字段且模板启用，并落库 expert_change_request.template_id；不传走原逻辑，历史申请兼容（template_id NULL）。模板字段必须 ⊆ ApprovalService.WHITELIST_FIELDS + PHOTO_FIELDS（服务端校验）；「专家新增」种子模板覆盖 CREATE_REQUIRED_FIELDS 全部必填项；前端 ExpertList 修改/新增弹窗提供模板下拉，选择后仅渲染并提交模板字段，新增弹窗仅展示覆盖必填项的模板；管理员设置菜单新增「审批模板管理」页（/admin/approval/templates）。
 
