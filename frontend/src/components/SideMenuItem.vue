@@ -1,10 +1,10 @@
 <template>
   <!-- 父菜单：点标题跳父路由，点箭头展开/收起子菜单 -->
-  <el-sub-menu v-if="item.children?.length" :index="item.path">
+  <el-sub-menu v-if="item.children?.length" :index="item.path" @open="expanded = true" @close="expanded = false">
     <template #title>
       <div class="side-submenu-title">
         <span class="side-submenu-label" @click.stop="navigateTo(item.path)">{{ item.title }}</span>
-        <el-icon class="side-submenu-arrow" :class="{ 'is-expanded': expanded }" @click.stop="toggleExpand">
+        <el-icon class="side-submenu-arrow" :class="{ 'is-expanded': expanded }">
           <ArrowDown />
         </el-icon>
       </div>
@@ -16,12 +16,12 @@
 </template>
 
 <script setup>
-import { inject, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowDown } from '@element-plus/icons-vue'
 
 defineOptions({ name: 'SideMenuItem' })
-defineProps({
+const props = defineProps({
   item: {
     type: Object,
     required: true
@@ -29,20 +29,15 @@ defineProps({
 })
 
 const router = useRouter()
-// 父级 App.vue 通过 provide 注入 el-menu 组件实例，用于 open/close 展开子菜单
-const menuRef = inject('sideMenuRef', null)
 const expanded = ref(false)
 
-function toggleExpand() {
-  expanded.value = !expanded.value
-  if (menuRef?.value) {
-    if (expanded.value) {
-      menuRef.value.open(props.item.path)
-    } else {
-      menuRef.value.close(props.item.path)
-    }
+// 初始展开兜底：当前路由命中本菜单路径或子路径时默认展开
+onMounted(() => {
+  const p = router.currentRoute.value.path
+  if (p === props.item.path || p.startsWith(props.item.path + '/')) {
+    expanded.value = true
   }
-}
+})
 
 function navigateTo(path) {
   if (router.currentRoute.value.path !== path) {
@@ -67,11 +62,17 @@ function navigateTo(path) {
   cursor: pointer;
 }
 .side-submenu-arrow {
+  width: 24px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.2s;
   color: rgba(255, 255, 255, 0.45);
   cursor: pointer;
   flex-shrink: 0;
 }
+.el-sub-menu.is-opened .side-submenu-arrow,
 .side-submenu-arrow.is-expanded {
   transform: rotate(180deg);
 }
