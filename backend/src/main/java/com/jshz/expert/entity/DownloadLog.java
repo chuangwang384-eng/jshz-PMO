@@ -37,6 +37,10 @@ public class DownloadLog {
     @JsonProperty("expertName")
     private String expertName;
 
+    /** 知识文档ID（C4：download_type=knowledge_doc 时有值，其余为 null） */
+    @JsonProperty("docId")
+    private Long docId;
+
     /** 下载类型：selected_xlsx / selected_zip / full_xlsx / full_zip / md / template_xlsx（历史 selected_csv / full_csv 兼容） */
     @JsonProperty("downloadType")
     private String downloadType;

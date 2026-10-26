@@ -4,24 +4,29 @@
     <div class="toolbar">
       <el-input
         v-model="keyword"
-        placeholder="按标题 / 文件名检索"
+        :placeholder="isFavoritesMode ? '在收藏中按标题 / 文件名筛选' : '按标题 / 内容关键字检索'"
         clearable
         class="search-input"
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
-      <el-button v-if="props.allowUpload" type="primary" @click="openUpload">上传文档</el-button>
+      <el-button v-if="props.allowUpload && !isFavoritesMode" type="primary" @click="openUpload">上传文档</el-button>
     </div>
 
     <!-- 文档列表 -->
     <el-card shadow="never" class="doc-card">
-      <el-table :data="docs" v-loading="loading" style="width: 100%">
+      <el-table :data="displayDocs" v-loading="loading" style="width: 100%">
         <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
         <el-table-column label="分类" width="150">
-          <template #default>{{ categoryName }}</template>
+          <template #default="{ row }">{{ rowCategoryLabel(row) }}</template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="80" align="center" />
         <el-table-column prop="uploadBy" label="上传人" width="110" />
+        <el-table-column label="下载次数" width="90" align="center">
+          <template #default="{ row }">
+            {{ canViewCount(row) ? row.downloadCount ?? 0 : '—' }}
+          </template>
+        </el-table-column>
         <el-table-column label="更新时间" width="170">
           <template #default="{ row }">{{ row.updateTime || '—' }}</template>
         </el-table-column>
@@ -32,19 +37,28 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="350" align="center">
+        <el-table-column label="操作" width="380" align="center">
           <template #default="{ row }">
+            <el-button
+              link
+              :type="row.isFavorite ? 'warning' : 'primary'"
+              size="small"
+              @click="toggleFavorite(row)"
+            >
+              {{ row.isFavorite ? '取消收藏' : '收藏' }}
+            </el-button>
             <el-button link type="primary" size="small" @click="handlePreview(row)">预览</el-button>
             <el-button link type="primary" size="small" @click="handleDownload(row)">下载</el-button>
-            <el-button link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
+            <el-button v-if="!isFavoritesMode" link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
             <el-button link type="info" size="small" @click="openVersions(row)">历史</el-button>
-            <el-button link type="danger" size="small" v-if="canManage" @click="handleOffShelf(row)">下架</el-button>
-            <el-button link type="danger" size="small" v-if="canManage" @click="handlePermanentDelete(row)">永久删除</el-button>
+            <el-button link type="danger" size="small" v-if="canManage && !isFavoritesMode" @click="handleOffShelf(row)">下架</el-button>
+            <el-button link type="danger" size="small" v-if="canManage && !isFavoritesMode" @click="handlePermanentDelete(row)">永久删除</el-button>
           </template>
         </el-table-column>
       </el-table>
       <div class="table-footer">
         <el-pagination
+          v-if="!isFavoritesMode"
           class="pagination"
           background
           layout="total, prev, pager, next, sizes"
@@ -54,6 +68,7 @@
           @current-change="handlePageChange"
           @size-change="handleSizeChange"
         />
+        <span v-else class="favorites-total">共 {{ displayDocs.length }} 篇收藏</span>
       </div>
     </el-card>
 
@@ -116,13 +131,18 @@ import {
   offShelfKnowledgeDoc,
   permanentDeleteKnowledgeDoc,
   getKnowledgeVersions,
-  fetchKnowledgeFile
+  fetchKnowledgeFile,
+  listMyFavoriteDocs,
+  favoriteKnowledgeDoc,
+  unfavoriteKnowledgeDoc
 } from '../api/knowledge'
 
 const props = defineProps({
-  category: { type: String, required: true },
-  categoryName: { type: String, required: true },
-  allowUpload: { type: Boolean, default: true }
+  category: { type: String, default: '' },
+  categoryName: { type: String, default: '' },
+  allowUpload: { type: Boolean, default: true },
+  // C3：favorites = 我的收藏视图（跨分类，读接口 + 客户端筛选，仅保留 预览/下载/历史/取消收藏 操作）
+  mode: { type: String, default: 'category' }
 })
 
 const categoryOptions = [
@@ -132,8 +152,16 @@ const categoryOptions = [
   { label: '客户喜好', value: 'customer-preferences' }
 ]
 
+const categoryLabels = {
+  'meeting-execution': '会议执行',
+  'association-compliance': '协会合规要求',
+  'enterprise-compliance': '企业合规要求',
+  'customer-preferences': '客户喜好'
+}
+
 const authStore = useAuthStore()
 const canManage = computed(() => authStore.hasPermission('knowledge:manage'))
+const isFavoritesMode = computed(() => props.mode === 'favorites')
 
 const keyword = ref('')
 const docs = ref([])
@@ -141,6 +169,53 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
+
+// 收藏模式：客户端按标题/文件名筛选
+const displayDocs = computed(() => {
+  if (!isFavoritesMode.value) {
+    return docs.value
+  }
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return docs.value
+  return docs.value.filter(
+    (d) =>
+      (d.title || '').toLowerCase().includes(kw) ||
+      (d.fileName || '').toLowerCase().includes(kw)
+  )
+})
+
+// 分类列：分类视图显示固定分类名，收藏视图显示各文档自身分类
+function rowCategoryLabel(row) {
+  if (isFavoritesMode.value) {
+    return categoryLabels[row.category] || row.category || '—'
+  }
+  return props.categoryName
+}
+
+// C4：下载次数对 上传人本人 / 管理员（knowledge:manage）可见，其他用户显示 —
+function canViewCount(row) {
+  return canManage.value || row.uploadBy === authStore.username
+}
+
+// C3：收藏 / 取消收藏（本地状态即时切换；收藏视图取消后从列表移除）
+async function toggleFavorite(row) {
+  try {
+    if (row.isFavorite) {
+      await unfavoriteKnowledgeDoc(row.id)
+      row.isFavorite = false
+      ElMessage.success('已取消收藏')
+      if (isFavoritesMode.value) {
+        docs.value = docs.value.filter((d) => d.id !== row.id)
+      }
+    } else {
+      await favoriteKnowledgeDoc(row.id)
+      row.isFavorite = true
+      ElMessage.success('已收藏，文档更新时将通知您')
+    }
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  }
+}
 
 const dialogVisible = ref(false)
 const uploadMode = ref('create') // create | update
@@ -156,14 +231,24 @@ const versions = ref([])
 async function fetchList() {
   loading.value = true
   try {
-    const data = await listKnowledgeDocs({
-      category: props.category,
-      keyword: keyword.value || undefined,
-      page: page.value,
-      pageSize: pageSize.value
-    })
-    docs.value = data?.items || []
-    total.value = data?.total || 0
+    if (isFavoritesMode.value) {
+      // 我的收藏：一次性拉取（含 doc 与 favoriteTime），客户端筛选
+      const data = await listMyFavoriteDocs()
+      docs.value = (Array.isArray(data) ? data : []).map((item) => ({
+        ...(item.doc || {}),
+        favoriteTime: item.favoriteTime
+      }))
+      total.value = docs.value.length
+    } else {
+      const data = await listKnowledgeDocs({
+        category: props.category || undefined,
+        keyword: keyword.value || undefined,
+        page: page.value,
+        pageSize: pageSize.value
+      })
+      docs.value = data?.items || []
+      total.value = data?.total || 0
+    }
   } finally {
     loading.value = false
   }

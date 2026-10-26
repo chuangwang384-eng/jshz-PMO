@@ -8,6 +8,9 @@ import com.jshz.expert.entity.KnowledgeDocument;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.KnowledgeDocStorageService;
 import com.jshz.expert.service.KnowledgeDocumentService;
+import com.jshz.expert.service.KnowledgeFavoriteService;
+import com.jshz.expert.service.DownloadAuditService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
@@ -29,8 +32,10 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 知识星球内容管理接口（知识文档库）。
@@ -44,6 +49,8 @@ public class KnowledgeController {
 
     private final KnowledgeDocumentService documentService;
     private final KnowledgeDocStorageService storageService;
+    private final KnowledgeFavoriteService favoriteService;
+    private final DownloadAuditService downloadAuditService;
 
     // ==================== 上传 ====================
 
@@ -127,24 +134,96 @@ public class KnowledgeController {
     /**
      * 文件流：GET /api/knowledge/docs/files/{fileName}?download=1（默认 inline 预览）。登录即可。
      * Content-Disposition 使用 RFC 5987 filename* 支持中文文件名。
+     * C4：download=1（附件下载）时写入 download_log 计数（doc_id + type=knowledge_doc）；
+     * inline 预览不计入下载次数。
      */
     @GetMapping("/docs/files/{fileName}")
     public ResponseEntity<FileSystemResource> file(@PathVariable String fileName,
-                                                   @RequestParam(required = false) String download) throws IOException {
+                                                   @RequestParam(required = false) String download,
+                                                   @AuthenticationPrincipal AuthUser authUser,
+                                                   HttpServletRequest request) throws IOException {
         Path path = storageService.resolveDocument(fileName);
         if (!Files.exists(path) || !Files.isRegularFile(path)) {
             return ResponseEntity.notFound().build();
         }
+        boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
+        if (forceDownload) {
+            // 下载留痕（C4）：按存储文件名反查文档，失败不阻断下载
+            try {
+                KnowledgeDocument doc = documentService.findByFilePath(fileName);
+                if (doc != null) {
+                    downloadAuditService.recordKnowledgeDoc(authUser, doc.getId(), doc.getTitle(), request);
+                }
+            } catch (Exception e) {
+                // 计数失败不影响下载
+            }
+        }
         MediaType mediaType = mediaTypeOf(fileName);
         String safeName = path.getFileName().toString();
         String encoded = URLEncoder.encode(safeName, StandardCharsets.UTF_8).replace("+", "%20");
-        boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
         String disposition = (forceDownload ? "attachment" : "inline")
                 + "; filename=\"" + safeName.replace("\"", "") + "\"; filename*=UTF-8''" + encoded;
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
                 .contentType(mediaType)
                 .body(new FileSystemResource(path));
+    }
+
+    // ==================== 文档收藏（C3） ====================
+    // 挂 /favorites 路径：避开 permission 表 DELETE /api/knowledge/docs/**（knowledge:manage）通配规则，
+    // 收藏/取消收藏登录即可；userId 一律取当前登录用户，禁止操作他人收藏。
+
+    /**
+     * 收藏文档：POST /api/knowledge/favorites/{docId}（登录即可，幂等）。
+     */
+    @PostMapping("/favorites/{docId}")
+    public ApiResponse<Void> favorite(@PathVariable Long docId,
+                                      @AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        favoriteService.favorite(docId, authUser.getUserId());
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 取消收藏：DELETE /api/knowledge/favorites/{docId}（登录即可，幂等）。
+     */
+    @DeleteMapping("/favorites/{docId}")
+    public ApiResponse<Void> unfavorite(@PathVariable Long docId,
+                                        @AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        favoriteService.unfavorite(docId, authUser.getUserId());
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 我的收藏列表：GET /api/knowledge/favorites（登录即可）。
+     * 返回 [{doc: 文档信息(isFavorite=true,downloadCount 已填充), favoriteTime}]，按收藏时间倒序。
+     */
+    @GetMapping("/favorites")
+    public ApiResponse<List<Map<String, Object>>> myFavorites(@AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        List<Map<String, Object>> favorites = favoriteService.myFavorites(authUser.getUserId());
+        documentService.enrichFavorites(favorites);
+        return ApiResponse.ok(favorites);
+    }
+
+    /**
+     * 单文档收藏状态：GET /api/knowledge/favorites/{docId}（登录即可）。
+     */
+    @GetMapping("/favorites/{docId}")
+    public ApiResponse<Map<String, Object>> favoriteStatus(@PathVariable Long docId,
+                                                           @AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("docId", docId);
+        data.put("favorited", favoriteService.exists(docId, authUser.getUserId()));
+        return ApiResponse.ok(data);
+    }
+
+    private void requireUser(AuthUser authUser) {
+        if (authUser == null) {
+            throw new com.jshz.expert.common.BusinessException("未登录");
+        }
     }
 
     private MediaType mediaTypeOf(String fileName) {

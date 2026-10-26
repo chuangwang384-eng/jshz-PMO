@@ -41,6 +41,9 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
     /** 事件类型：文档永久删除 */
     public static final String TYPE_DOC_DELETED = "doc_deleted";
 
+    /** 事件类型：收藏文档已更新（C3：通知收藏者） */
+    public static final String TYPE_DOC_UPDATED = "doc_updated";
+
     /**
      * 写入一条通知（未读）。
      */

@@ -43,6 +43,42 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
     }
 
     /**
+     * 记录一次知识文档下载（C4）：download_type=knowledge_doc，doc_id 关联文档，
+     * expert_name 复用为文档标题（下载留痕列表展示用）。
+     */
+    public void recordKnowledgeDoc(AuthUser authUser, Long docId, String docTitle,
+                                   HttpServletRequest request) {
+        DownloadLog log = new DownloadLog();
+        log.setUserId(authUser != null ? authUser.getUserId() : null);
+        log.setUsername(authUser != null ? authUser.getUsername() : null);
+        log.setExpertId(null);
+        log.setExpertName(docTitle);
+        log.setDocId(docId);
+        log.setDownloadType("knowledge_doc");
+        log.setDownloadTime(LocalDateTime.now());
+        log.setIp(clientIp(request));
+        this.save(log);
+    }
+
+    /**
+     * 各知识文档下载次数（docId -> count，C4 列表展示用，单次聚合查询）。
+     */
+    public Map<Long, Long> countGroupByDoc() {
+        List<Map<String, Object>> rows = baseMapper.countGroupByDoc();
+        Map<Long, Long> result = new java.util.HashMap<>();
+        if (rows != null) {
+            for (Map<String, Object> row : rows) {
+                Object docId = row.get("docId");
+                Object cnt = row.get("cnt");
+                if (docId != null && cnt != null) {
+                    result.put(((Number) docId).longValue(), ((Number) cnt).longValue());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * 各专家下载次数统计（expertId -> count）。
      */
     public Map<Long, Long> countGroupByExpert() {

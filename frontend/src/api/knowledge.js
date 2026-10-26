@@ -37,3 +37,25 @@ export function fetchKnowledgeFile(fileName, download = false) {
   const q = download ? '?download=1' : ''
   return request.get(`/knowledge/docs/files/${encodeURIComponent(fileName)}${q}`, { responseType: 'blob' })
 }
+
+// ==================== 文档收藏（C3） ====================
+
+// 收藏文档：POST /knowledge/favorites/{docId}（登录即可，幂等）
+export function favoriteKnowledgeDoc(docId) {
+  return request.post(`/knowledge/favorites/${docId}`)
+}
+
+// 取消收藏：DELETE /knowledge/favorites/{docId}（登录即可，幂等）
+export function unfavoriteKnowledgeDoc(docId) {
+  return request.delete(`/knowledge/favorites/${docId}`)
+}
+
+// 我的收藏列表：GET /knowledge/favorites，返回 [{doc, favoriteTime}]（收藏时间倒序）
+export function listMyFavoriteDocs() {
+  return request.get('/knowledge/favorites')
+}
+
+// 单文档收藏状态：GET /knowledge/favorites/{docId}，返回 {docId, favorited}
+export function getKnowledgeFavoriteStatus(docId) {
+  return request.get(`/knowledge/favorites/${docId}`)
+}

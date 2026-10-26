@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,6 +35,9 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
             "meeting-execution", "association-compliance", "enterprise-compliance", "customer-preferences");
 
     private final KnowledgeDocStorageService storageService;
+    private final KnowledgeDocTextExtractor textExtractor;
+    private final KnowledgeFavoriteService favoriteService;
+    private final DownloadAuditService downloadAuditService;
     private final KnowledgeDocVersionMapper versionMapper;
     private final NotificationService notificationService;
     private final SysUserMapper sysUserMapper;
@@ -60,6 +64,7 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         doc.setFilePath(storedName);
         doc.setFileType(extensionOf(file.getOriginalFilename()));
         doc.setFileSize(file.getSize());
+        doc.setContent(textExtractor.extract(file));
         doc.setUploadBy(userName);
         doc.setUpdateBy(userName);
         doc.setStatus(1);
@@ -71,8 +76,9 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     /**
-     * 分页列表：category 可选（不传=全部分类）；keyword 对 title / file_name LIKE 检索。
+     * 分页列表：category 可选（不传=全部分类）；keyword 对 title / file_name / content 检索（C1 内容检索）。
      * 按权限过滤 status：管理员（knowledge:manage）返回上架+下架，普通员工仅上架（status=1）。
+     * 结果批量填充 downloadCount（C4，单次聚合）与 isFavorite（C3，当前用户收藏状态）。
      */
     public Page<KnowledgeDocument> pageList(String category, String keyword, long page, long pageSize, AuthUser user) {
         LambdaQueryWrapper<KnowledgeDocument> wrapper = new LambdaQueryWrapper<>();
@@ -85,14 +91,34 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
             wrapper.and(w -> w.like(KnowledgeDocument::getTitle, kw)
-                    .or().like(KnowledgeDocument::getFileName, kw));
+                    .or().like(KnowledgeDocument::getFileName, kw)
+                    .or().like(KnowledgeDocument::getContent, kw));
         }
         boolean isManager = user != null && user.hasPermission("knowledge:manage");
         if (!isManager) {
             wrapper.eq(KnowledgeDocument::getStatus, 1);
         }
         wrapper.orderByDesc(KnowledgeDocument::getUpdateTime);
-        return this.page(new Page<>(page, pageSize), wrapper);
+        Page<KnowledgeDocument> result = this.page(new Page<>(page, pageSize), wrapper);
+        fillListExtras(result.getRecords(), user);
+        return result;
+    }
+
+    /**
+     * 列表附加信息填充：downloadCount（download_log 聚合一次查询）+ isFavorite（当前用户批量查询）。
+     */
+    private void fillListExtras(List<KnowledgeDocument> docs, AuthUser user) {
+        if (docs == null || docs.isEmpty()) {
+            return;
+        }
+        List<Long> ids = docs.stream().map(KnowledgeDocument::getId).toList();
+        Map<Long, Long> counts = downloadAuditService.countGroupByDoc();
+        Set<Long> favoriteIds = user == null ? Set.of()
+                : favoriteService.favoriteDocIds(user.getUserId(), ids);
+        for (KnowledgeDocument doc : docs) {
+            doc.setDownloadCount(counts.getOrDefault(doc.getId(), 0L));
+            doc.setIsFavorite(favoriteIds.contains(doc.getId()));
+        }
     }
 
     /**
@@ -115,13 +141,81 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         doc.setFilePath(storedName);
         doc.setFileType(extensionOf(file.getOriginalFilename()));
         doc.setFileSize(file.getSize());
+        doc.setContent(textExtractor.extract(file));
         doc.setUpdateBy(userName);
         // update_time 由数据库 ON UPDATE CURRENT_TIMESTAMP 自动维护
         this.updateById(doc);
 
         saveVersion(id, newVersion, file.getOriginalFilename(), storedName,
                 doc.getFileType(), file.getSize(), userName);
+
+        // C3：更新成功后通知全部收藏者（排除操作人本人）
+        notifyFavoriters(doc.getId(), doc.getTitle(), newVersion, userName);
+
         return getById(id);
+    }
+
+    /**
+     * 更新通知（C3，doc_updated）：通知该文档全部收藏者「已更新至 vN」，
+     * 排除执行本次更新的操作人；通知失败不影响主流程。
+     */
+    private void notifyFavoriters(Long docId, String title, int newVersion, String operatorName) {
+        try {
+            Long operatorId = operatorName == null ? null : userIdOf(operatorName);
+            for (Long userId : favoriteService.userIdsOfDoc(docId)) {
+                if (operatorId != null && operatorId.equals(userId)) {
+                    continue;
+                }
+                notificationService.notify(userId, NotificationService.TYPE_DOC_UPDATED,
+                        "您收藏的文档《" + title + "》已更新至 v" + newVersion,
+                        "文档《" + title + "》有新版本（v" + newVersion + "），可前往知识星球查看",
+                        "/knowledge-planet");
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 按用户名反查用户ID（sys_user.username 唯一）。
+     */
+    private Long userIdOf(String username) {
+        if (!StringUtils.hasText(username)) {
+            return null;
+        }
+        SysUser u = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username).last("LIMIT 1"));
+        return u == null ? null : u.getId();
+    }
+
+    /**
+     * 收藏列表结果填充（C3）：为 [{doc, favoriteTime}] 中的文档填充 downloadCount 并置 isFavorite=true。
+     * 由 Controller 编排调用（避免 KnowledgeFavoriteService 反向依赖本服务形成循环）。
+     */
+    public void enrichFavorites(List<Map<String, Object>> favorites) {
+        if (favorites == null || favorites.isEmpty()) {
+            return;
+        }
+        List<KnowledgeDocument> docs = favorites.stream()
+                .map(item -> (KnowledgeDocument) item.get("doc"))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        Map<Long, Long> counts = downloadAuditService.countGroupByDoc();
+        for (KnowledgeDocument doc : docs) {
+            doc.setDownloadCount(counts.getOrDefault(doc.getId(), 0L));
+            doc.setIsFavorite(true);
+        }
+    }
+
+    /**
+     * 按存储文件名查文档（C4：文件下载端点记录下载次数用）。
+     */
+    public KnowledgeDocument findByFilePath(String storedName) {
+        if (!StringUtils.hasText(storedName)) {
+            return null;
+        }
+        return this.getOne(new LambdaQueryWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getFilePath, storedName).last("LIMIT 1"));
     }
 
     /**

@@ -26,4 +26,11 @@ public interface DownloadLogMapper extends BaseMapper<DownloadLog> {
      */
     @Select("SELECT COUNT(*) FROM download_log WHERE expert_id = #{expertId}")
     Long countByExpertId(Long expertId);
+
+    /**
+     * 各知识文档下载次数统计（C4：download_type=knowledge_doc 按 doc_id 聚合）。
+     */
+    @Select("SELECT doc_id AS docId, COUNT(*) AS cnt FROM download_log " +
+            "WHERE download_type = 'knowledge_doc' AND doc_id IS NOT NULL GROUP BY doc_id")
+    List<Map<String, Object>> countGroupByDoc();
 }
