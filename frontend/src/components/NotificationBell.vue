@@ -1,5 +1,6 @@
 <template>
   <el-popover
+    v-model:visible="popoverVisible"
     placement="bottom-end"
     :width="380"
     trigger="click"
@@ -39,12 +40,16 @@
           <div class="notify-time">{{ n.createTime || '' }}</div>
         </div>
       </div>
+
+      <div class="notify-foot">
+        <el-button link type="primary" size="small" @click="handleViewAll">查看全部 »</el-button>
+      </div>
     </div>
   </el-popover>
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { useNotificationStore } from '../store/notification'
@@ -53,6 +58,8 @@ import { useAuthStore } from '../store/auth'
 const router = useRouter()
 const notification = useNotificationStore()
 const auth = useAuthStore()
+// 弹层开关受控：跳转消息中心前主动收起，避免浮层盖在新页面上
+const popoverVisible = ref(false)
 
 onMounted(() => {
   if (!auth.isLoggedIn) return
@@ -80,6 +87,12 @@ async function handleClick(n) {
 
 async function handleMarkAllRead() {
   await notification.markAllRead()
+}
+
+// 查看全部：收起弹层并进入消息中心页
+function handleViewAll() {
+  popoverVisible.value = false
+  router.push('/profile/notifications')
 }
 </script>
 
@@ -169,5 +182,11 @@ async function handleMarkAllRead() {
   margin-top: 6px;
   font-size: 11px;
   color: #a8abb2;
+}
+.notify-foot {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+  border-top: 1px solid #ebeef5;
 }
 </style>

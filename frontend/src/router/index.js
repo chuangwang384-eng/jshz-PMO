@@ -63,6 +63,12 @@ const routes = [
         meta: { title: '我的申请' }
       },
       {
+        path: 'notifications',
+        name: 'notifications',
+        component: () => import('../views/MessageCenter.vue'),
+        meta: { title: '消息中心' }
+      },
+      {
         path: 'approval/manage',
         name: 'approval-manage',
         component: () => import('../views/ApprovalManage.vue'),

@@ -4,7 +4,10 @@ import {
   fetchNotifications,
   fetchUnreadCount,
   markNotificationRead,
-  markAllNotificationsRead
+  markAllNotificationsRead,
+  readNotificationsBatch,
+  deleteNotification,
+  deleteNotificationsBatch
 } from '../api/notification'
 
 // 消息通知中心状态管理：
@@ -93,6 +96,29 @@ export const useNotificationStore = defineStore('notification', {
         i.isRead = 1
       })
       this.unread = 0
+    },
+    // 批量已读：返回实际置为已读的条数，未读数以服务端为准刷新
+    async readBatch(ids) {
+      const count = (await readNotificationsBatch(ids)) || 0
+      ids.forEach((id) => {
+        const item = this.items.find((i) => i.id === id)
+        if (item) item.isRead = 1
+      })
+      await this.loadUnread()
+      return count
+    },
+    // 单条删除：物理删除，未读数以服务端为准刷新
+    async removeOne(id) {
+      await deleteNotification(id)
+      this.items = this.items.filter((i) => i.id !== id)
+      await this.loadUnread()
+    },
+    // 批量删除：物理删除，返回实际删除条数
+    async removeBatch(ids) {
+      const count = (await deleteNotificationsBatch(ids)) || 0
+      this.items = this.items.filter((i) => !ids.includes(i.id))
+      await this.loadUnread()
+      return count
     }
   }
 })

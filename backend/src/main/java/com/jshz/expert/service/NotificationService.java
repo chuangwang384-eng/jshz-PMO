@@ -7,8 +7,10 @@ import com.jshz.expert.entity.Notification;
 import com.jshz.expert.mapper.NotificationMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 通用消息通知服务（消息通知中心）。
@@ -72,9 +74,22 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
      * 本人消息分页列表（按时间倒序）。
      */
     public Page<Notification> pageByUser(Long userId, long page, long pageSize) {
-        LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Notification::getUserId, userId)
-                .orderByDesc(Notification::getCreateTime);
+        return pageByUser(userId, page, pageSize, null, null);
+    }
+
+    /**
+     * 本人消息分页列表（消息中心）：isRead（0未读/1已读，空=全部）与 type（空=全部类型）可组合过滤。
+     */
+    public Page<Notification> pageByUser(Long userId, long page, long pageSize, Integer isRead, String type) {
+        LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getUserId, userId);
+        if (isRead != null) {
+            wrapper.eq(Notification::getIsRead, isRead);
+        }
+        if (StringUtils.hasText(type)) {
+            wrapper.eq(Notification::getType, type.trim());
+        }
+        wrapper.orderByDesc(Notification::getCreateTime);
         return this.page(new Page<>(page, pageSize), wrapper);
     }
 
@@ -114,5 +129,47 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
                 new LambdaQueryWrapper<Notification>()
                         .eq(Notification::getUserId, userId)
                         .eq(Notification::getIsRead, 0));
+    }
+
+    /**
+     * 批量标记已读（仅本人消息，仅未读条目生效），返回实际置为已读的条数。
+     */
+    public int markReadBatch(Long userId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        Notification patch = new Notification();
+        patch.setIsRead(1);
+        return baseMapper.update(patch,
+                new LambdaQueryWrapper<Notification>()
+                        .eq(Notification::getUserId, userId)
+                        .in(Notification::getId, ids)
+                        .eq(Notification::getIsRead, 0));
+    }
+
+    /**
+     * 单条删除（物理删除，仅本人消息；不存在或非本人时静默跳过，幂等）。
+     */
+    public void deleteOne(Long userId, Long id) {
+        if (id == null) {
+            return;
+        }
+        Notification n = getById(id);
+        if (n == null || !userId.equals(n.getUserId())) {
+            return;
+        }
+        this.removeById(id);
+    }
+
+    /**
+     * 批量删除（物理删除，仅本人消息），返回实际删除条数。
+     */
+    public int deleteBatch(Long userId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.delete(new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getUserId, userId)
+                .in(Notification::getId, ids));
     }
 }
