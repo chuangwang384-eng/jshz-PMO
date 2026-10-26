@@ -12,6 +12,18 @@
           <el-button @click="handleSearch">搜索</el-button>
         </template>
       </el-input>
+      <!-- 外部链接：卫健委机构查询平台（新窗口打开，仅前端跳转，不依赖后端） -->
+      <el-button
+        tag="a"
+        href="https://zgcx.nhc.gov.cn/unit"
+        target="_blank"
+        rel="noopener"
+        type="primary"
+        plain
+        style="margin-left: 12px"
+      >
+        专家单位查询
+      </el-button>
       <div class="spacer" />
       <template v-if="canAddExpert">
         <el-button type="primary" @click="openAdminCreate">新增专家</el-button>
