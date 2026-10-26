@@ -52,15 +52,16 @@ mvn clean package -DskipTests
 配置应用（通过环境变量注入，避免敏感信息入库）：
 
 ```bash
-# Windows（PowerShell/CMD）注入数据库环境变量
+# Windows（PowerShell/CMD）注入数据库与 JWT 环境变量
 set MYSQL_HOST=<内网数据库地址>
 set MYSQL_PORT=3306
 set MYSQL_DB=expert_system
 set MYSQL_USER=<账号>
 set MYSQL_PASSWORD=<密码>
+set JWT_SECRET=<32字节以上随机密钥>
 ```
 
-**启动方式（Windows 唯一合法方式）**：使用项目根目录 `start-backend.bat`（内含 `set MYSQL_PASSWORD=111111` 后 `java -jar target\expert-system-1.001.jar`）。
+**启动方式（Windows 唯一合法方式）**：使用项目根目录 `start-backend.bat`（内含 `set MYSQL_PASSWORD=<真实密码>` 与 `set JWT_SECRET=<真实密钥>` 后 `java -jar target\expert-system-1.001.jar`；真实值只存于该本地未入库文件与 NSSM 服务配置，禁止写入任何入库文件）。
 
 > ⚠️ **禁止直接 `java -jar`**：`application.yml` 中 `password: ${MYSQL_PASSWORD:}` 未注入时为空，会报 `Access denied for user 'root'@'localhost'`；`start-backend.bat` 已注入密码，是唯一合法启动方式。
 
