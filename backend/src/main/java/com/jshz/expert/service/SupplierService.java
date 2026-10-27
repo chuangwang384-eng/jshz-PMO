@@ -222,7 +222,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
 
     public Supplier createSupplier(Map<String, Object> body, AuthUser user) {
         Supplier s = new Supplier();
-        applyBody(s, body);
+        applyBody(s, body, true);
         if (!StringUtils.hasText(s.getName())) {
             throw new BusinessException("供应商名称不能为空");
         }
@@ -238,7 +238,8 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
             throw new BusinessException("供应商不存在");
         }
         List<String> oldImages = parseImages(s.getImages());
-        applyBody(s, body);
+        // 部分更新语义：仅校验/应用传入字段（画廊增删图只传 images，不能强制要求类型/城市）
+        applyBody(s, body, false);
         this.updateById(s);
         // 清理被移除的图片文件（保留仍引用的）
         List<String> newImages = parseImages(s.getImages());
@@ -251,9 +252,10 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     }
 
     /**
-     * 从请求体填充字段：name/typeId/cityName(自动沉淀)/address/contact/phone/wechat/description/images。
+     * 从请求体填充字段：name/typeId/cityId|cityName(自动沉淀)/address/contact/phone/wechat/description/images。
+     * creating=true（新增）时 name/typeId/城市 必填；false（更新）时仅校验传入的字段，未传入保持原值。
      */
-    private void applyBody(Supplier s, Map<String, Object> body) {
+    private void applyBody(Supplier s, Map<String, Object> body, boolean creating) {
         if (body == null) {
             throw new BusinessException("请求体不能为空");
         }
@@ -263,34 +265,52 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
                 throw new BusinessException("供应商名称不能为空");
             }
             s.setName(name);
+        } else if (creating) {
+            throw new BusinessException("供应商名称不能为空");
         }
-        Long typeId = toLong(body.get("typeId"));
-        if (typeId == null) {
+        if (body.containsKey("typeId")) {
+            Long typeId = toLong(body.get("typeId"));
+            if (typeId == null) {
+                throw new BusinessException("供应商类型不能为空");
+            }
+            if (typeMapper.selectById(typeId) == null) {
+                throw new BusinessException("供应商类型不存在");
+            }
+            s.setTypeId(typeId);
+        } else if (creating) {
             throw new BusinessException("供应商类型不能为空");
         }
-        if (typeMapper.selectById(typeId) == null) {
-            throw new BusinessException("供应商类型不存在");
-        }
-        s.setTypeId(typeId);
-        Object cityObj = body.containsKey("cityId") && body.get("cityId") != null ? body.get("cityId") : body.get("cityName");
-        if (cityObj == null || !StringUtils.hasText(String.valueOf(cityObj))) {
+        boolean hasCityId = body.containsKey("cityId") && body.get("cityId") != null;
+        boolean hasCityName = body.containsKey("cityName") && StringUtils.hasText(String.valueOf(body.get("cityName")));
+        if (hasCityId || hasCityName) {
+            if (hasCityId) {
+                Long cityId = toLong(body.get("cityId"));
+                if (cityId == null || cityMapper.selectById(cityId) == null) {
+                    throw new BusinessException("城市不存在");
+                }
+                s.setCityId(cityId);
+            } else {
+                // 城市名：字典命中或自动沉淀
+                s.setCityId(resolveCityIdByName(String.valueOf(body.get("cityName"))));
+            }
+        } else if (creating) {
             throw new BusinessException("城市不能为空");
         }
-        if (body.get("cityId") != null) {
-            Long cityId = toLong(body.get("cityId"));
-            if (cityId == null || cityMapper.selectById(cityId) == null) {
-                throw new BusinessException("城市不存在");
-            }
-            s.setCityId(cityId);
-        } else {
-            // 城市名：字典命中或自动沉淀
-            s.setCityId(resolveCityIdByName(String.valueOf(cityObj)));
+        if (body.containsKey("address")) {
+            s.setAddress(str(body.get("address")));
         }
-        s.setAddress(str(body.get("address")));
-        s.setContact(str(body.get("contact")));
-        s.setPhone(str(body.get("phone")));
-        s.setWechat(str(body.get("wechat")));
-        s.setDescription(str(body.get("description")));
+        if (body.containsKey("contact")) {
+            s.setContact(str(body.get("contact")));
+        }
+        if (body.containsKey("phone")) {
+            s.setPhone(str(body.get("phone")));
+        }
+        if (body.containsKey("wechat")) {
+            s.setWechat(str(body.get("wechat")));
+        }
+        if (body.containsKey("description")) {
+            s.setDescription(str(body.get("description")));
+        }
         if (body.containsKey("images")) {
             Object imgs = body.get("images");
             List<String> list = new ArrayList<>();
