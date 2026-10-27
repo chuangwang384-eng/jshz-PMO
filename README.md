@@ -1,25 +1,3 @@
----
-AIGC:
-    Label: "1"
-    ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a21e74b7d0dd11f19fe7525400de85a5
-    ReservedCode1: 4i5O7d8oB1yuecPArFaQjsPiGwGxGVGc1O8+zdLCDRrKY//cyjPza1G0Lp4NFjTqo4yOOCPSCKSP6DcaKd8yYyeeEEj5tj9pMeEhb54yiIQ+huPoeD+VULjxqDZ9D2+dtquisqQTGdQNUUcqpRX6lf5r3NGIEQzrvxT+s6R5WStuPczdRQhHCSgn/Ag=
-    ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a21e74b7d0dd11f19fe7525400de85a5
-    ReservedCode2: 4i5O7d8oB1yuecPArFaQjsPiGwGxGVGc1O8+zdLCDRrKY//cyjPza1G0Lp4NFjTqo4yOOCPSCKSP6DcaKd8yYyeeEEj5tj9pMeEhb54yiIQ+huPoeD+VULjxqDZ9D2+dtquisqQTGdQNUUcqpRX6lf5r3NGIEQzrvxT+s6R5WStuPczdRQhHCSgn/Ag=
----
-
-\---  
-AIGC:  
-    Label: "1"  
-    ContentProducer: 001191440300708461136T1XGW3  
-    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_0539750ccb8011f1acd7525400cd780f  
-    ReservedCode1: DJkwL4VF0JDctvGVEOnFJXzKy6Nw6as+QBA2fsdKPBP8Nfe4gzoiP/+WN3p5Yd1pLPLmTi9Q17wsImcEG3M/Rj2rj7Ed/6tVSvg9Su+jQR5klGl0t4LGF8H+vXdcjFiLz9s0jnreiTj3+RRleIeIgGSkNi0nIweXZih9Dz/Yzy02FaSvLs+2pAqNVzI=  
-    ContentPropagator: 001191440300708461136T1XGW3  
-    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_0539750ccb8011f1acd7525400cd780f  
-    ReservedCode2: DJkwL4VF0JDctvGVEOnFJXzKy6Nw6as+QBA2fsdKPBP8Nfe4gzoiP/+WN3p5Yd1pLPLmTi9Q17wsImcEG3M/Rj2rj7Ed/6tVSvg9Su+jQR5klGl0t4LGF8H+vXdcjFiLz9s0jnreiTj3+RRleIeIgGSkNi0nIweXZih9Dz/Yzy02FaSvLs+2pAqNVzI=  
-\---
-
 # 景帅会展内部管理库系统（Expert Library System）
 
 > 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 15 张表、后端 Controller 13 个。
@@ -129,4 +107,3 @@ jshz-PMO/
 | 文档同步 | 按 [AGENTS.md](AGENTS.md) 第 0 节同步 `docs/` 对应文档与交接文档 | — |
 
 R-3 数据库向后兼容迁移规范、R-4 一键发布脚本化、R-5 版本保留与回滚预案详见设计文档 §4.3~§4.5。
-*（内容由AI生成，仅供参考）*
