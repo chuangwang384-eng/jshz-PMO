@@ -175,7 +175,7 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
      */
     private void notifyFavoriters(Long docId, String title, int newVersion, String operatorName) {
         try {
-            Long operatorId = operatorName == null ? null : userIdOf(operatorName);
+            Long operatorId = operatorName == null ? null : notificationService.userIdOf(operatorName);
             for (Long userId : favoriteService.userIdsOfDoc(docId)) {
                 if (operatorId != null && operatorId.equals(userId)) {
                     continue;
@@ -190,17 +190,6 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         }
     }
 
-    /**
-     * 按用户名反查用户ID（sys_user.username 唯一）。
-     */
-    private Long userIdOf(String username) {
-        if (!StringUtils.hasText(username)) {
-            return null;
-        }
-        SysUser u = sysUserMapper.selectOne(
-                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username).last("LIMIT 1"));
-        return u == null ? null : u.getId();
-    }
 
     /**
      * 收藏列表结果填充（C3）：为 [{doc, favoriteTime}] 中的文档填充 downloadCount 并置 isFavorite=true。
