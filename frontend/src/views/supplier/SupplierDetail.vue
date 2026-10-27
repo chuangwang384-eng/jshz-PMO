@@ -198,7 +198,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
@@ -472,6 +472,16 @@ onMounted(() => {
   fetchDicts()
   fetchDetail()
 })
+
+// 路由参数变化（绑定双向跳转 /supplier/1 → /supplier/2）时组件被复用，需重新拉取详情
+watch(
+  () => route.params.id,
+  (nv, ov) => {
+    if (nv && nv !== ov) {
+      fetchDetail()
+    }
+  }
+)
 </script>
 
 <style scoped>
