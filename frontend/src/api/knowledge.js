@@ -57,8 +57,3 @@ export function unfavoriteKnowledgeDoc(docId) {
 export function listMyFavoriteDocs() {
   return request.get('/knowledge/favorites')
 }
-
-// 单文档收藏状态：GET /knowledge/favorites/{docId}，返回 {docId, favorited}
-export function getKnowledgeFavoriteStatus(docId) {
-  return request.get(`/knowledge/favorites/${docId}`)
-}

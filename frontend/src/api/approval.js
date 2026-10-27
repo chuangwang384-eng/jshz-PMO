@@ -35,11 +35,6 @@ export function getMyApplications(params) {
   return request.get('/approval/my-applications', { params })
 }
 
-// 我的申请（旧路径兼容）：GET /approval/my-requests?page=&size=
-export function getMyApprovalRequests(params) {
-  return request.get('/approval/my-requests', { params })
-}
-
 // 全部申请单：GET /approval/requests?status=&keyword=&page=&size=（仅管理员）
 export function getApprovalRequests(params) {
   return request.get('/approval/requests', { params })
