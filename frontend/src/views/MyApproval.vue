@@ -23,7 +23,7 @@
       </el-table-column>
       <el-table-column prop="createTime" label="申请时间" width="170" />
       <el-table-column label="变更摘要" min-width="220" show-overflow-tooltip>
-        <template #default="{ row }">{{ changeSummary(row.changes) }}</template>
+        <template #default="{ row }">{{ changeSummary(row.changes, row.oldData) }}</template>
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
@@ -48,9 +48,10 @@
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" align="center" fixed="right">
+      <el-table-column label="操作" width="200" align="center" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openProgress(row)">查看进度</el-button>
+          <el-button link type="primary" @click="openDiff(row)">查看对比</el-button>
           <el-button v-if="row.status === 0" link type="danger" @click="handleWithdraw(row)">撤回</el-button>
         </template>
       </el-table-column>
@@ -86,6 +87,9 @@
       </el-timeline>
       <el-empty v-else description="暂无进度记录" :image-size="80" />
     </el-dialog>
+
+    <!-- 变更前后对比弹窗（只读，无审批操作区） -->
+    <ApprovalDiffDialog v-model="diffVisible" :row="diffRow" mode="view" />
   </div>
 </template>
 
@@ -95,6 +99,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyApplications, withdrawRequest } from '../api/approval'
 import { changeSummary, approvalStatusTagType } from '../utils/format'
+import ApprovalDiffDialog from '../components/ApprovalDiffDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -111,6 +116,9 @@ const loading = ref(false)
 
 const progressVisible = ref(false)
 const progressRow = ref(null)
+
+const diffVisible = ref(false)
+const diffRow = ref(null)
 
 // 列表轮询定时器（30s，onBeforeUnmount 清理）
 let pollTimer = null
@@ -151,6 +159,11 @@ function actionText(action) {
 function openProgress(row) {
   progressRow.value = row
   progressVisible.value = true
+}
+
+function openDiff(row) {
+  diffRow.value = row
+  diffVisible.value = true
 }
 
 // 撤回申请：仅待审批(status=0)行展示入口，二次确认后调用后端，成功刷新列表

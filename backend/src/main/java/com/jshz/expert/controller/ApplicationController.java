@@ -159,7 +159,8 @@ public class ApplicationController {
             @RequestParam(required = false) String statuses,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size) {
+            @RequestParam(defaultValue = "20") long size,
+            @AuthenticationPrincipal AuthUser authUser) {
         List<Integer> statusList = null;
         if (StringUtils.hasText(statuses)) {
             statusList = new ArrayList<>();
@@ -173,7 +174,7 @@ public class ApplicationController {
         } else if (status != null) {
             statusList = List.of(status);
         }
-        Page<Application> p = applicationService.listRequests(statusList, keyword, page, size);
+        Page<Application> p = applicationService.listRequests(statusList, keyword, page, size, authUser);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
     }
 

@@ -12,11 +12,10 @@
           mode="pending"
           :rows="pendingList"
           :loading="pendingLoading"
-          :old-values="oldValuesMap"
           :current-username="authStore.username"
-          @expand="handleExpand"
-          @approve="openApprove"
-          @reject="openReject"
+          @diff="openDiff"
+          @approve="(row) => openDiff(row, 'approve')"
+          @reject="(row) => openDiff(row, 'reject')"
           @transfer="openTransfer"
           @addsign="openAddSign"
         />
@@ -39,9 +38,8 @@
           mode="done"
           :rows="doneList"
           :loading="doneLoading"
-          :old-values="oldValuesMap"
           :current-username="authStore.username"
-          @expand="handleExpand"
+          @diff="openDiff"
         />
         <div class="pagination-wrap">
           <el-pagination
@@ -57,40 +55,13 @@
       </el-tab-pane>
     </el-tabs>
 
-    <!-- 通过弹窗：意见可空 -->
-    <el-dialog v-model="approveVisible" title="审批通过" width="480px" destroy-on-close>
-      <div class="dialog-expert">专家：{{ actionRow?.expertName }}（申请人：{{ actionRow?.applicant }}）</div>
-      <div class="dialog-summary">{{ changeSummary(actionRow?.changes) }}</div>
-      <el-input
-        v-model="approveComment"
-        type="textarea"
-        :rows="3"
-        maxlength="200"
-        placeholder="审批意见（可空）"
-      />
-      <template #footer>
-        <el-button @click="approveVisible = false">取消</el-button>
-        <el-button v-permission="'approval:audit'" type="success" :loading="actionSubmitting" @click="confirmApprove">确认通过</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 驳回弹窗：意见必填 -->
-    <el-dialog v-model="rejectVisible" title="审批驳回" width="480px" destroy-on-close>
-      <div class="dialog-expert">专家：{{ actionRow?.expertName }}（申请人：{{ actionRow?.applicant }}）</div>
-      <div class="dialog-summary">{{ changeSummary(actionRow?.changes) }}</div>
-      <el-input
-        v-model="rejectComment"
-        type="textarea"
-        :rows="3"
-        maxlength="200"
-        show-word-limit
-        placeholder="请填写驳回意见（必填）"
-      />
-      <template #footer>
-        <el-button @click="rejectVisible = false">取消</el-button>
-        <el-button v-permission="'approval:audit'" type="danger" :loading="actionSubmitting" @click="confirmReject">确认驳回</el-button>
-      </template>
-    </el-dialog>
+    <!-- 变更前后对比弹窗（查看/通过/驳回三合一，审批意见在弹窗底部） -->
+    <ApprovalDiffDialog
+      v-model="diffVisible"
+      :row="diffRow"
+      :mode="diffMode"
+      @success="refresh"
+    />
 
     <!-- 转办弹窗：选人（仅列出有审批权限的用户） -->
     <el-dialog v-model="transferVisible" title="审批转办" width="480px" destroy-on-close>
@@ -144,16 +115,13 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getApprovalRequests,
-  approveRequest,
-  rejectRequest,
   transferRequest,
   addApproverRequest,
   getAssignableUsers
 } from '../api/approval'
-import { getExpert } from '../api/expert'
-import { changeSummary } from '../utils/format'
 import { useAuthStore } from '../store/auth'
 import ApprovalTable from '../components/ApprovalTable.vue'
+import ApprovalDiffDialog from '../components/ApprovalDiffDialog.vue'
 
 const authStore = useAuthStore()
 
@@ -173,16 +141,10 @@ const donePage = ref(1)
 const doneSize = ref(20)
 const doneLoading = ref(false)
 
-// 展开行时加载的专家旧值缓存：expertId -> {中文键: 旧值}
-const oldValuesMap = ref({})
-
-// 审批弹窗
-const approveVisible = ref(false)
-const rejectVisible = ref(false)
-const actionRow = ref(null)
-const approveComment = ref('')
-const rejectComment = ref('')
-const actionSubmitting = ref(false)
+// 变更前后对比弹窗（view/approve/reject 三态）
+const diffVisible = ref(false)
+const diffRow = ref(null)
+const diffMode = ref('view')
 
 // 转办 / 加签（B2）
 const transferVisible = ref(false)
@@ -191,6 +153,8 @@ const addSignVisible = ref(false)
 const addSignTarget = ref('')
 const addSignComment = ref('')
 const assignableUsers = ref([])
+const actionRow = ref(null)
+const actionSubmitting = ref(false)
 
 async function fetchPending() {
   pendingLoading.value = true
@@ -223,62 +187,11 @@ async function fetchDone() {
   }
 }
 
-// 展开行：加载专家详情（sensitive=1 全量），记录旧值
-// 新增申请单（expertId 为 null）不存在旧值，跳过加载，避免发出 GET /api/experts/null 无效请求
-async function handleExpand(row, expandedRows) {
-  const expanded = expandedRows.some((r) => r.id === row.id)
-  if (expanded && row.expertId != null && !oldValuesMap.value[row.expertId]) {
-    try {
-      const expert = await getExpert(row.expertId, { sensitive: 1 })
-      oldValuesMap.value = { ...oldValuesMap.value, [row.expertId]: expert || {} }
-    } catch (e) {
-      oldValuesMap.value = { ...oldValuesMap.value, [row.expertId]: {} }
-    }
-  }
-}
-
-function openApprove(row) {
-  actionRow.value = row
-  approveComment.value = ''
-  approveVisible.value = true
-}
-
-function openReject(row) {
-  actionRow.value = row
-  rejectComment.value = ''
-  rejectVisible.value = true
-}
-
-async function confirmApprove() {
-  actionSubmitting.value = true
-  try {
-    await approveRequest(actionRow.value.id, { comment: approveComment.value.trim() || undefined })
-    ElMessage.success('已通过')
-    approveVisible.value = false
-    refresh()
-  } catch (e) {
-    // 错误提示已由拦截器统一处理
-  } finally {
-    actionSubmitting.value = false
-  }
-}
-
-async function confirmReject() {
-  if (!rejectComment.value.trim()) {
-    ElMessage.warning('请填写驳回意见')
-    return
-  }
-  actionSubmitting.value = true
-  try {
-    await rejectRequest(actionRow.value.id, { comment: rejectComment.value.trim() })
-    ElMessage.success('已驳回')
-    rejectVisible.value = false
-    refresh()
-  } catch (e) {
-    // 错误提示已由拦截器统一处理
-  } finally {
-    actionSubmitting.value = false
-  }
+// 打开变更前后对比弹窗（默认只读 view；通过/驳回经对应 mode 进入）
+function openDiff(row, mode = 'view') {
+  diffRow.value = row
+  diffMode.value = mode
+  diffVisible.value = true
 }
 
 // ==================== 转办 / 加签（B2） ====================

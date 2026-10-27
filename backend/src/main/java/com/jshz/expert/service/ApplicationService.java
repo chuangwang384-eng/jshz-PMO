@@ -187,7 +187,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setApplicant(user.getUsername());
         app.setApplicationType(ApplicationType.EXPERT_MODIFY.name());
         app.setStatus(STATUS_PENDING);
-        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason, templateId));
+        // 提交时落专家全量旧值快照：审批通过更新 expert_info 后仍可还原「变更前」
+        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason, templateId,
+                buildOldSnapshot(expert)));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -218,7 +220,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (templateId != null) {
             approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
         }
-        app.setBizData(writeBizData(null, expertName, changes, reason, templateId));
+        // 新增申请无「变更前」，oldData 置空
+        app.setBizData(writeBizData(null, expertName, changes, reason, templateId, null));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -309,7 +312,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         wrapper.orderByDesc(Application::getCreateTime);
         Page<Application> result = this.page(new Page<>(page, size), wrapper);
         for (Application r : result.getRecords()) {
-            fillView(r);
+            fillView(r, isFullSensitive(user));
         }
         return result;
     }
@@ -319,15 +322,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /**
      * 全部申请单分页：可按状态过滤，keyword 模糊匹配申请人 / 专家姓名（biz_data.expertName JSON 提取）。
      */
-    public Page<Application> listRequests(Integer status, String keyword, long page, long size) {
-        return listRequests(status == null ? null : List.of(status), keyword, page, size);
+    public Page<Application> listRequests(Integer status, String keyword, long page, long size, AuthUser viewer) {
+        return listRequests(status == null ? null : List.of(status), keyword, page, size, viewer);
     }
 
     /**
      * 全部申请单分页（多状态）：statuses 为空查全部；keyword 模糊匹配申请人 / 专家姓名。
      * 已处理列表（status=1,2,3）统一在此分页，避免前端分页语义不稳定。
      */
-    public Page<Application> listRequests(List<Integer> statuses, String keyword, long page, long size) {
+    public Page<Application> listRequests(List<Integer> statuses, String keyword, long page, long size, AuthUser viewer) {
         LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<>();
         if (statuses != null && !statuses.isEmpty()) {
             wrapper.in(Application::getStatus, statuses);
@@ -340,7 +343,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         wrapper.orderByDesc(Application::getCreateTime);
         Page<Application> result = this.page(new Page<>(page, size), wrapper);
         for (Application r : result.getRecords()) {
-            fillView(r);
+            fillView(r, isFullSensitive(viewer));
         }
         return result;
     }
@@ -385,6 +388,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         expertService.create(expert, user);
 
         // 2. 归档照片并回填
+        Map<String, String> photoApplied = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
             String key = entry.getKey();
             if (!PHOTO_FIELDS.contains(key)) {
@@ -396,6 +400,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             }
             String tempName = value.substring(TMP_PREFIX.length());
             String newName = photoStorageService.moveTempPhoto(tempName, expert.getId(), photoTypeOf(key));
+            photoApplied.put(key, newName);
             switch (key) {
                 case "照片" -> expert.setPhoto(newName);
                 case "身份证正面" -> expert.setIdCardFront(newName);
@@ -406,10 +411,11 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         expert.setUpdateBy(app.getApplicant());
         expertService.update(expert.getId(), expert, null);
 
-        // 3. 回填 biz_data 的 expertId / expertName
+        // 3. 回填 biz_data 的 expertId / expertName，并把照片 TMP: 值替换为归档文件名（生效后可预览）
         Map<String, Object> biz = readBiz(app);
         biz.put("expertId", expert.getId());
         biz.put("expertName", expert.getName());
+        applyPhotoArchivedNames(biz, photoApplied);
         app.setBizData(writeBiz(biz));
 
         app.setStatus(STATUS_APPROVED);
@@ -420,7 +426,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意新增专家");
-        return fillView(app);
+        return fillView(app, isFullSensitive(user));
     }
 
     /**
@@ -435,6 +441,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         Expert existing = expertService.getById(app.getExpertId());
         Expert patch = new Expert();
         Map<String, String> oldPhotos = new HashMap<>();
+        Map<String, String> photoApplied = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
             String key = entry.getKey();
             if (!PHOTO_FIELDS.contains(key)) {
@@ -446,6 +453,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             }
             String tempName = value.substring(TMP_PREFIX.length());
             String newName = photoStorageService.moveTempPhoto(tempName, app.getExpertId(), photoTypeOf(key));
+            photoApplied.put(key, newName);
             switch (key) {
                 case "照片" -> {
                     if (existing != null) {
@@ -472,14 +480,24 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         patch.setUpdateBy(app.getApplicant());
         expertService.update(app.getExpertId(), patch, null);
 
-        // 照片已生效：物理删除旧照片（仅照片键有变更时）
-        for (String oldName : oldPhotos.values()) {
-            if (StringUtils.hasText(oldName)) {
-                photoStorageService.deletePhoto(oldName);
+        // 旧照片处理：oldData 快照存在时保留旧文件（对比弹窗随时可回看「变更前」）；
+        // 无快照的历史单维持原有物理删除行为（仅照片键有变更时删）
+        if (readOldData(app).isEmpty()) {
+            for (String oldName : oldPhotos.values()) {
+                if (StringUtils.hasText(oldName)) {
+                    photoStorageService.deletePhoto(oldName);
+                }
             }
         }
         // 防御性清理临时文件（moveTempPhoto 已归档并删除，此处兜底）
         cleanTempPhotos(app);
+
+        // 照片生效后把 biz_data.changes 的 TMP: 值替换为归档文件名（生效后可预览），随状态更新一并落库
+        if (!photoApplied.isEmpty()) {
+            Map<String, Object> biz = readBiz(app);
+            applyPhotoArchivedNames(biz, photoApplied);
+            app.setBizData(writeBiz(biz));
+        }
 
         app.setStatus(STATUS_APPROVED);
         app.setApproveBy(user == null ? null : user.getUsername());
@@ -489,7 +507,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意修改");
-        return fillView(app);
+        return fillView(app, isFullSensitive(user));
     }
 
     /**
@@ -511,7 +529,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "管理员驳回", "REJECT", user == null ? null : user.getUsername(), comment.trim());
         notifyApprovalResult(app, user);
-        return fillView(app);
+        return fillView(app, isFullSensitive(user));
     }
 
     // ==================== 撤回申请（申请人） ====================
@@ -544,7 +562,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "申请人撤回", "WITHDRAW", user.getUsername(), "撤回本人提交的申请");
         notifyApprovalWithdrawn(app);
-        return fillView(app);
+        return fillView(app, isFullSensitive(user));
     }
 
     /**
@@ -590,7 +608,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         addRecord(app.getId(), "审批转办", "TRANSFER", user.getUsername(),
                 "转给【" + target.getUsername() + "】");
         notifyTransferred(app, target.getUsername(), user);
-        return fillView(app);
+        return fillView(app, isFullSensitive(user));
     }
 
     /**
@@ -621,7 +639,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         addRecord(app.getId(), "审批加签", "ADD_APPROVER", user.getUsername(),
                 StringUtils.hasText(comment) ? comment.trim() : "加签【" + target.getUsername() + "】共同审批");
         notifyAssigned(app, target.getUsername());
-        return fillView(app);
+        return fillView(app, isFullSensitive(user));
     }
 
     /**
@@ -845,18 +863,28 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 填充展示字段：biz_data 解析（expertId/expertName/reason/templateId/changes）、
+     * 填充展示字段：biz_data 解析（expertId/expertName/reason/templateId/changes/oldData/photoChanges）、
      * requestType/requestTypeText、statusText、records。
+     * fullSensitive=false 时 oldData 的身份证号/银行卡号按前3后4脱敏（与 /api/experts/{id} 非管理员视图一致，不扩大可见范围）。
      */
-    private Application fillView(Application app) {
+    private Application fillView(Application app, boolean fullSensitive) {
         fillBiz(app);
-        app.setChanges(friendlyChanges(readChanges(app)));
+        Map<String, Object> biz = readBiz(app);
+        Map<String, Object> rawChanges = asStringKeyMap(biz.get("changes"));
+        app.setChanges(friendlyChanges(rawChanges));
+        app.setPhotoChanges(photoChanges(rawChanges));
+        app.setOldData(maskedOldData(asStringKeyMap(biz.get("oldData")), fullSensitive));
         ApplicationType type = ApplicationType.parse(app.getApplicationType());
         app.setRequestType(type.requestType());
         app.setRequestTypeText(type.text());
         app.setStatusText(statusText(app.getStatus()));
         app.setRecords(recordsOf(app.getId()));
         return app;
+    }
+
+    /** 查看者是否可见敏感原文（管理员全量，其余脱敏；与 /api/experts/{id}?sensitive=1 规则一致）。 */
+    private boolean isFullSensitive(AuthUser user) {
+        return user != null && user.isAdmin();
     }
 
     /**
@@ -908,7 +936,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 照片字段展示友好化：TMP: 临时文件名替换为「已更换新照片」，避免审批列表裸显临时文件名。
+     * 照片字段展示友好化：TMP: 临时文件名与生效后回填的归档文件名统一替换为「已更换新照片」，
+     * 避免审批列表裸显文件名（原始文件名经 photoChanges 字段供前端预览，不出现在 changes 中）。
      */
     private Map<String, Object> friendlyChanges(Map<String, Object> changes) {
         if (changes == null || changes.isEmpty()) {
@@ -917,8 +946,43 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         Map<String, Object> result = new HashMap<>(changes);
         for (String key : PHOTO_FIELDS) {
             Object value = result.get(key);
-            if (value != null && String.valueOf(value).startsWith(TMP_PREFIX)) {
+            if (value != null && StringUtils.hasText(String.valueOf(value))) {
                 result.put(key, "已更换新照片");
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 照片字段的原始值视图（TMP: 临时名或生效后回填的归档文件名），供对比弹窗加载「变更后」照片缩略图。
+     * 仅含照片文件名，不含任何敏感原文。
+     */
+    private Map<String, Object> photoChanges(Map<String, Object> rawChanges) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (rawChanges == null) {
+            return result;
+        }
+        for (String key : PHOTO_FIELDS) {
+            if (rawChanges.containsKey(key)) {
+                result.put(key, rawChanges.get(key));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 旧值快照脱敏视图：非管理员查看时身份证号/银行卡号前3后4（复用 ExpertService.maskSensitive），
+     * 其余字段与照片文件名不脱敏。
+     */
+    private Map<String, Object> maskedOldData(Map<String, Object> oldData, boolean fullSensitive) {
+        if (oldData.isEmpty() || fullSensitive) {
+            return oldData;
+        }
+        Map<String, Object> result = new LinkedHashMap<>(oldData);
+        for (String key : List.of("身份证号", "银行卡号")) {
+            Object value = result.get(key);
+            if (value != null && StringUtils.hasText(String.valueOf(value))) {
+                result.put(key, ExpertService.maskSensitive(String.valueOf(value)));
             }
         }
         return result;
@@ -979,14 +1043,60 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== biz_data 读写 ====================
 
     private String writeBizData(Long expertId, String expertName, Map<String, Object> changes,
-                                String reason, Long templateId) {
+                                String reason, Long templateId, Map<String, Object> oldData) {
         Map<String, Object> biz = new LinkedHashMap<>();
         biz.put("expertId", expertId);
         biz.put("expertName", expertName);
         biz.put("changes", changes);
         biz.put("reason", reason);
         biz.put("templateId", templateId);
+        if (oldData != null) {
+            biz.put("oldData", oldData);
+        }
         return writeBiz(biz);
+    }
+
+    /**
+     * 专家当前全量快照（中文键 -> 旧值，11 个文本字段 + 3 个照片文件名，键序与白名单一致）。
+     * 提交修改申请时写入 biz_data.oldData，保证审批通过更新 expert_info 后仍可还原「变更前」。
+     */
+    private Map<String, Object> buildOldSnapshot(Expert expert) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("姓名", expert.getName());
+        snapshot.put("单位", expert.getUnit());
+        snapshot.put("科室", expert.getDepartment());
+        snapshot.put("职称", expert.getTitle());
+        snapshot.put("研究方向", expert.getResearchDirection());
+        snapshot.put("擅长领域", expert.getExpertiseArea());
+        snapshot.put("联系方式", expert.getContact());
+        snapshot.put("简介", expert.getProfile());
+        snapshot.put("身份证号", expert.getIdCard());
+        snapshot.put("银行卡号", expert.getBankCard());
+        snapshot.put("银行卡开户行", expert.getBankBranch());
+        snapshot.put("照片", expert.getPhoto());
+        snapshot.put("身份证正面", expert.getIdCardFront());
+        snapshot.put("身份证反面", expert.getIdCardBack());
+        return snapshot;
+    }
+
+    /** 读取 biz_data.oldData（提交时的专家旧值快照；无则空 Map）。 */
+    private Map<String, Object> readOldData(Application app) {
+        return asStringKeyMap(readBiz(app).get("oldData"));
+    }
+
+    /**
+     * 把 biz_data.changes 中已生效照片键的 TMP: 值替换为归档文件名（审批通过后回填，
+     * 使已通过单的「变更后」照片仍可预览）。
+     */
+    private void applyPhotoArchivedNames(Map<String, Object> biz, Map<String, String> photoApplied) {
+        if (photoApplied.isEmpty()) {
+            return;
+        }
+        Map<String, Object> changes = asStringKeyMap(biz.get("changes"));
+        for (Map.Entry<String, String> entry : photoApplied.entrySet()) {
+            changes.put(entry.getKey(), entry.getValue());
+        }
+        biz.put("changes", changes);
     }
 
     private String writeBiz(Map<String, Object> biz) {
@@ -1009,18 +1119,22 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
     }
 
-    /**
-     * 读取 biz_data.changes（照片 TMP: 值原样返回，展示层再友好化）。
-     */
-    private Map<String, Object> readChanges(Application app) {
-        Object changes = readBiz(app).get("changes");
-        if (changes instanceof Map<?, ?> map) {
-            Map<String, Object> result = new HashMap<>();
+    /** 任意 JSON 对象转 String 键 Map（保持键序；非 Map 或 null 返回空 Map）。 */
+    private Map<String, Object> asStringKeyMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> result = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 result.put(String.valueOf(entry.getKey()), entry.getValue());
             }
             return result;
         }
-        return new HashMap<>();
+        return new LinkedHashMap<>();
+    }
+
+    /**
+     * 读取 biz_data.changes（照片 TMP: 值原样返回，展示层再友好化）。
+     */
+    private Map<String, Object> readChanges(Application app) {
+        return asStringKeyMap(readBiz(app).get("changes"));
     }
 }

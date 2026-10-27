@@ -15,7 +15,8 @@ import java.util.Map;
 /**
  * 通用申请实体（对应数据库表 application，「我的申请」改版）。
  * 各业务线申请的公共字段存本表，业务差异存 biz_data JSON：
- * 专家申请 biz_data = {expertId, expertName, changes, reason, templateId}（照片 TMP: 前缀语义保留）。
+ * 专家申请 biz_data = {expertId, expertName, changes, reason, templateId, oldData?}
+ * （照片 TMP: 前缀语义保留；oldData 为修改申请提交时的专家旧值快照，新增申请无）。
  * status：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回（四态通用）。
  */
 @Data
@@ -99,10 +100,20 @@ public class Application {
     @JsonProperty("templateId")
     private Long templateId;
 
-    /** 变更内容解析对象（biz_data.changes，照片 TMP: 已友好化；非数据库列） */
+    /** 变更内容解析对象（biz_data.changes，照片值已友好化为「已更换新照片」；非数据库列） */
     @TableField(exist = false)
     @JsonProperty("changes")
     private Map<String, Object> changes;
+
+    /** 旧值快照解析对象（biz_data.oldData，提交修改申请时专家全量字段快照；非管理员身份证号/银行卡号脱敏；非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("oldData")
+    private Map<String, Object> oldData;
+
+    /** 照片字段原始值（TMP: 临时名或生效后回填的归档文件名，供对比弹窗加载新照片缩略图；非数据库列） */
+    @TableField(exist = false)
+    @JsonProperty("photoChanges")
+    private Map<String, Object> photoChanges;
 
     /** 申请类型数值（兼容旧前端：0=修改 / 1=新增；非数据库列） */
     @TableField(exist = false)

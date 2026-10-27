@@ -68,3 +68,8 @@ export function exportSelectedZip(ids) {
 export function fetchPhotoBlob(filename) {
   return request.get(`/files/${encodeURIComponent(filename)}`, { responseType: 'blob' })
 }
+
+// 临时照片访问（审批流预上传目录 /api/files-tmp，需登录；供对比弹窗预览待审批单的新照片）
+export function fetchTempPhotoBlob(filename) {
+  return request.get(`/files-tmp/${encodeURIComponent(filename)}`, { responseType: 'blob' })
+}

@@ -8,19 +8,22 @@
     class="photo-image"
     :style="{ width: width + 'px', height: height + 'px' }"
   />
-  <span v-else class="photo-empty">未上传</span>
+  <span v-else class="photo-empty">{{ emptyText }}</span>
 </template>
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import { fetchPhotoBlob } from '../api/expert'
+import { fetchPhotoBlob, fetchTempPhotoBlob } from '../api/expert'
 
 // 照片展示组件：后端照片需登录（Bearer token），通过 blob 方式加载展示
+// temp=true 走临时照片目录 /api/files-tmp（待审批单的新照片预览）
 const props = defineProps({
   filename: { type: String, default: '' },
   preview: { type: Boolean, default: true },
   width: { type: [Number, String], default: 64 },
-  height: { type: [Number, String], default: 64 }
+  height: { type: [Number, String], default: 64 },
+  temp: { type: Boolean, default: false },
+  emptyText: { type: String, default: '未上传' }
 })
 
 const url = ref('')
@@ -29,7 +32,7 @@ async function load() {
   url.value = ''
   if (!props.filename) return
   try {
-    const resp = await fetchPhotoBlob(props.filename)
+    const resp = props.temp ? await fetchTempPhotoBlob(props.filename) : await fetchPhotoBlob(props.filename)
     url.value = URL.createObjectURL(resp.data)
   } catch (e) {
     // 照片不存在或无权限：保持占位
@@ -38,6 +41,7 @@ async function load() {
 
 onMounted(load)
 watch(() => props.filename, load)
+watch(() => props.temp, load)
 </script>
 
 <style scoped>
