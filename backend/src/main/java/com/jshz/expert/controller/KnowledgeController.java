@@ -41,8 +41,9 @@ import java.util.Map;
 
 /**
  * 知识星球内容管理接口（知识文档库）。
- * 上传 / 分页列表 / 更新（版本+1保留历史）/ 下架（knowledge:manage）/ 版本历史 / 文件下载预览。
- * 下架需权限码 knowledge:manage（过滤器 + 业务层双重校验）；其余接口登录即可。
+ * 上传 / 分页列表 / 更新（版本+1保留历史）/ 下架 / 上架 / 永久删除 / 版本历史 / 文件下载预览。
+ * 管理类接口由「知识星球维护人」权限码 knowledge:maintain 控制（过滤器 + 业务层双重校验）；
+ * 上传 / 更新 / 下架 / 永久删除 / 上架 / 版本历史；收藏 / 预览 / 下载 / 列表浏览保留登录即可。
  */
 @RestController
 @RequestMapping("/api/knowledge")
@@ -59,7 +60,7 @@ public class KnowledgeController {
     // ==================== 上传 ====================
 
     /**
-     * 上传文档：POST /api/knowledge/docs?category=&title= + multipart file。登录即可。
+     * 上传文档：POST /api/knowledge/docs?category=&title= + multipart file。仅维护人（knowledge:maintain）。
      */
     @PostMapping("/docs")
     public ApiResponse<KnowledgeDocument> upload(@RequestParam String category,
@@ -67,6 +68,7 @@ public class KnowledgeController {
                                                  @RequestParam("file") MultipartFile file,
                                                  @AuthenticationPrincipal AuthUser authUser,
                                                  HttpServletRequest request) {
+        requireMaintain(authUser);
         KnowledgeDocument doc = documentService.upload(category, title, file, authUser);
         operationLogService.record(authUser == null ? null : authUser.getUserId(),
                 authUser == null ? null : authUser.getUsername(),
@@ -117,7 +119,7 @@ public class KnowledgeController {
     // ==================== 下架 ====================
 
     /**
-     * 下架：DELETE /api/knowledge/docs/{id}（status=0）。需权限码 knowledge:manage。
+     * 下架：DELETE /api/knowledge/docs/{id}（status=0）。需权限码 knowledge:maintain（业务层校验）。
      */
     @DeleteMapping("/docs/{id}")
     public ApiResponse<Void> offShelf(@PathVariable Long id,
@@ -135,7 +137,7 @@ public class KnowledgeController {
 
     /**
      * 永久删除：DELETE /api/knowledge/docs/{id}/permanent。
-     * 删除主记录 + 全部版本历史 + 磁盘文件（不可恢复）。需权限码 knowledge:manage。
+     * 删除主记录 + 全部版本历史 + 磁盘文件（不可恢复）。需权限码 knowledge:maintain（业务层校验）。
      */
     @DeleteMapping("/docs/{id}/permanent")
     public ApiResponse<Void> permanentDelete(@PathVariable Long id,
@@ -154,11 +156,34 @@ public class KnowledgeController {
     // ==================== 版本历史 ====================
 
     /**
-     * 版本历史：GET /api/knowledge/docs/{id}/versions。登录即可。
+     * 版本历史：GET /api/knowledge/docs/{id}/versions。仅维护人（knowledge:maintain）可见。
      */
     @GetMapping("/docs/{id}/versions")
-    public ApiResponse<List<KnowledgeDocVersion>> versions(@PathVariable Long id) {
+    public ApiResponse<List<KnowledgeDocVersion>> versions(@PathVariable Long id,
+                                                           @AuthenticationPrincipal AuthUser authUser) {
+        requireMaintain(authUser);
         return ApiResponse.ok(documentService.versions(id));
+    }
+
+    // ==================== 上架 ====================
+
+    /**
+     * 上架：POST /api/knowledge/docs/{id}/relist（status=1）。
+     * 仅维护人（knowledge:maintain）。普通用户立即可见，收藏列表自动恢复；通知全部收藏者。
+     */
+    @PostMapping("/docs/{id}/relist")
+    public ApiResponse<Void> relist(@PathVariable Long id,
+                                    @AuthenticationPrincipal AuthUser authUser,
+                                    HttpServletRequest request) {
+        requireMaintain(authUser);
+        KnowledgeDocument before = documentService.getById(id);
+        documentService.relist(id, authUser);
+        operationLogService.record(authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_RELIST_DOC,
+                "上架知识文档《" + (before == null ? id : before.getTitle()) + "》",
+                "DOC", id, request);
+        return ApiResponse.ok();
     }
 
     // ==================== 文件下载/预览 ====================
@@ -273,6 +298,14 @@ public class KnowledgeController {
     private void requireUser(AuthUser authUser) {
         if (authUser == null) {
             throw new com.jshz.expert.common.BusinessException("未登录");
+        }
+    }
+
+    /** 知识星球维护人权限校验（knowledge:maintain；SuperAdmin 由 PermissionService 强制全权）。 */
+    private void requireMaintain(AuthUser authUser) {
+        requireUser(authUser);
+        if (!authUser.hasPermission("knowledge:maintain")) {
+            throw new com.jshz.expert.common.BusinessException("无权限执行该操作");
         }
     }
 

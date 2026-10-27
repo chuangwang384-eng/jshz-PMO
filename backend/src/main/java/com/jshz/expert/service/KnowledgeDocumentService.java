@@ -24,8 +24,9 @@ import java.util.Set;
 
 /**
  * 知识文档业务服务（知识星球）。
- * 上传 / 分页检索 / 版本更新（保留历史）/ 下架（knowledge:manage）/ 永久删除（knowledge:manage）/ 版本历史。
- * 消息通知：下架 / 永久删除时通知上传人。
+ * 上传 / 分页检索 / 版本更新（保留历史）/ 下架 / 上架 / 永久删除 / 版本历史。
+ * 管理操作（上传/更新/下架/上架/永久删除/版本历史）均需权限码 knowledge:maintain。
+ * 消息通知：下架通知上传人与收藏者；上架通知全部收藏者；更新通知收藏者。
  */
 @Service
 @RequiredArgsConstructor
@@ -79,8 +80,8 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     /**
      * 分页列表：category 可选（不传=全部分类）；fileType 对 file_type 等值过滤（image 特判为
      * jpg/jpeg/png 集合，供前端「图片」筛选标签使用）；keyword 对 title / file_name / content 检索（C1 内容检索）。
-     * 按权限过滤 status：管理员（knowledge:manage）返回上架+下架，普通员工仅上架（status=1）。
-     * 结果批量填充 downloadCount（C4，单次聚合）与 isFavorite（C3，当前用户收藏状态）。
+     * 按权限过滤 status：维护人（knowledge:maintain）返回上架+下架，普通用户仅上架（status=1）。
+     * 结果批量填充 downloadCount（C4，仅维护人可见）与 isFavorite（C3，当前用户收藏状态）。
      */
     public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
                                             long page, long pageSize, AuthUser user) {
@@ -105,29 +106,33 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
                     .or().like(KnowledgeDocument::getFileName, kw)
                     .or().like(KnowledgeDocument::getContent, kw));
         }
-        boolean isManager = user != null && user.hasPermission("knowledge:manage");
-        if (!isManager) {
+        boolean isMaintainer = user != null && user.hasPermission("knowledge:maintain");
+        if (!isMaintainer) {
             wrapper.eq(KnowledgeDocument::getStatus, 1);
         }
         wrapper.orderByDesc(KnowledgeDocument::getUpdateTime);
         Page<KnowledgeDocument> result = this.page(new Page<>(page, pageSize), wrapper);
-        fillListExtras(result.getRecords(), user);
+        fillListExtras(result.getRecords(), user, isMaintainer);
         return result;
     }
 
     /**
-     * 列表附加信息填充：downloadCount（download_log 聚合一次查询）+ isFavorite（当前用户批量查询）。
+     * 列表附加信息填充：downloadCount（download_log 聚合一次查询，仅维护人可见）+ isFavorite（当前用户批量查询）。
      */
-    private void fillListExtras(List<KnowledgeDocument> docs, AuthUser user) {
+    private void fillListExtras(List<KnowledgeDocument> docs, AuthUser user, boolean isMaintainer) {
         if (docs == null || docs.isEmpty()) {
             return;
         }
         List<Long> ids = docs.stream().map(KnowledgeDocument::getId).toList();
-        Map<Long, Long> counts = downloadAuditService.countGroupByDoc();
+        Map<Long, Long> counts = isMaintainer ? downloadAuditService.countGroupByDoc() : Map.of();
         Set<Long> favoriteIds = user == null ? Set.of()
                 : favoriteService.favoriteDocIds(user.getUserId(), ids);
         for (KnowledgeDocument doc : docs) {
-            doc.setDownloadCount(counts.getOrDefault(doc.getId(), 0L));
+            if (isMaintainer) {
+                doc.setDownloadCount(counts.getOrDefault(doc.getId(), 0L));
+            } else {
+                doc.setDownloadCount(null);
+            }
             doc.setIsFavorite(favoriteIds.contains(doc.getId()));
         }
     }
@@ -222,13 +227,14 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     /**
-     * 下架（status=0）：需权限码 knowledge:manage（业务层校验，参照 ApplicationService）。
+     * 下架（status=0）：需权限码 knowledge:maintain（业务层校验，参照 ApplicationService）。
+     * 通知：收藏者（新）+ 上传人（现有保留）。
      */
     public void offShelf(Long id, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
-        if (!user.hasPermission("knowledge:manage")) {
+        if (!user.hasPermission("knowledge:maintain")) {
             throw new BusinessException("无权限执行该操作");
         }
         KnowledgeDocument doc = getById(id);
@@ -240,20 +246,61 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         }
         doc.setStatus(0);
         this.updateById(doc);
+        // 上传人通知（现有保留）
         notifyDocEvent(NotificationService.TYPE_DOC_OFF_SHELF, doc,
-                "文档「" + doc.getTitle() + "」已被下架", "您上传的文档已被管理员下架，内容不再对全员可见");
+                "文档「" + doc.getTitle() + "」已被下架", "您上传的文档已被下架，内容不再对全员可见");
+        // 收藏者通知（新）
+        notifyAllFavoriters(NotificationService.TYPE_DOC_OFF_SHELF, doc,
+                "您收藏的文档《" + doc.getTitle() + "》已下架", "文档《" + doc.getTitle() + "》已下架，收藏列表中将自动隐藏，上架后恢复显示");
     }
 
     /**
-     * 永久删除（知识:manage）：删除主记录 + 全部版本历史 + 磁盘文件（含各版本文件），不可恢复。
-     * 需权限码 knowledge:manage（业务层校验）。删除后通知上传人。
+     * 上架（status=1）：仅维护人（knowledge:maintain）。普通用户立即可见，收藏列表自动恢复。
+     * 通知全部收藏者（新）。
+     */
+    public void relist(Long id, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (!user.hasPermission("knowledge:maintain")) {
+            throw new BusinessException("无权限执行该操作");
+        }
+        KnowledgeDocument doc = getById(id);
+        if (doc == null) {
+            throw new BusinessException("文档不存在");
+        }
+        if (doc.getStatus() != null && doc.getStatus() == 1) {
+            throw new BusinessException("文档已上架");
+        }
+        doc.setStatus(1);
+        this.updateById(doc);
+        notifyAllFavoriters(NotificationService.TYPE_DOC_RELISTED, doc,
+                "您收藏的文档《" + doc.getTitle() + "》已恢复上架", "文档《" + doc.getTitle() + "》已重新上架，可前往知识星球查看");
+    }
+
+    /**
+     * 收藏者通知（doc_off_shelf / doc_relisted 共用）：通知该文档全部收藏者；通知失败不影响主流程。
+     */
+    private void notifyAllFavoriters(String type, KnowledgeDocument doc, String title, String content) {
+        try {
+            for (Long userId : favoriteService.userIdsOfDoc(doc.getId())) {
+                notificationService.notify(userId, type, title, content, "/knowledge-planet");
+            }
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
+    }
+
+    /**
+     * 永久删除（knowledge:maintain）：删除主记录 + 全部版本历史 + 磁盘文件（含各版本文件），不可恢复。
+     * 需权限码 knowledge:maintain（业务层校验）。删除后通知上传人。
      */
     @Transactional(rollbackFor = Exception.class)
     public void permanentDelete(Long id, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
-        if (!user.hasPermission("knowledge:manage")) {
+        if (!user.hasPermission("knowledge:maintain")) {
             throw new BusinessException("无权限执行该操作");
         }
         KnowledgeDocument doc = getById(id);

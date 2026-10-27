@@ -62,6 +62,8 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_OFF_SHELF_DOC = "OFF_SHELF_DOC";
     /** 永久删除知识文档 */
     public static final String ACTION_DELETE_DOC = "DELETE_DOC";
+    /** 上架知识文档 */
+    public static final String ACTION_RELIST_DOC = "RELIST_DOC";
 
     /**
      * 统一写入一条操作日志；任何异常仅记 warn，不向上抛（日志失败不影响主业务）。

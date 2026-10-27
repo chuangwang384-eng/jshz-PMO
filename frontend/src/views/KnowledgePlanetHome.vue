@@ -5,8 +5,8 @@
 
     <!-- 父页内容：上传中心 + 全部文档总览（仅 /knowledge-planet 展示） -->
     <template v-if="isRootPage">
-    <!-- 上传中心 -->
-    <el-card shadow="never" class="upload-card">
+    <!-- 上传中心（仅知识星球维护人 knowledge:maintain 可见） -->
+    <el-card v-if="canManage" shadow="never" class="upload-card">
       <template #header>
         <span class="card-title">上传中心</span>
       </template>
@@ -117,8 +117,9 @@
             </el-button>
             <el-button link type="primary" size="small" @click="handlePreview(row)">预览</el-button>
             <el-button link type="primary" size="small" @click="handleDownload(row)">下载</el-button>
-            <el-button v-if="viewMode === 'all'" link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
-            <el-button link type="info" size="small" @click="openVersions(row)">历史</el-button>
+            <el-button v-if="canManage && viewMode === 'all'" link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
+            <el-button link type="info" size="small" v-if="canManage" @click="openVersions(row)">历史</el-button>
+            <el-button link type="success" size="small" v-if="canManage && viewMode === 'all' && row.status === 0" @click="handleRelist(row)">上架</el-button>
             <el-button link type="danger" size="small" v-if="canManage && viewMode === 'all'" @click="handleOffShelf(row)">下架</el-button>
             <el-button link type="danger" size="small" v-if="canManage && viewMode === 'all'" @click="handlePermanentDelete(row)">永久删除</el-button>
           </template>
@@ -219,6 +220,7 @@ import {
   updateKnowledgeDoc,
   offShelfKnowledgeDoc,
   permanentDeleteKnowledgeDoc,
+  relistKnowledgeDoc,
   getKnowledgeVersions,
   fetchKnowledgeFile,
   listMyFavoriteDocs,
@@ -248,7 +250,7 @@ function categoryName(value) {
 
 const route = useRoute()
 const authStore = useAuthStore()
-const canManage = computed(() => authStore.hasPermission('knowledge:manage'))
+const canManage = computed(() => authStore.hasPermission('knowledge:maintain'))
 // 仅父路由 /knowledge-planet 展示上传中心 + 全部文档总览；分类子页只渲染 router-view 内的分类列表
 const isRootPage = computed(() => route.name === 'knowledge-planet')
 
@@ -319,9 +321,9 @@ function handleViewChange() {
   fetchList()
 }
 
-// C4：下载次数对 上传人本人 / 管理员（knowledge:manage）可见
+// C4：下载次数仅知识星球维护人（knowledge:maintain）可见，普通用户显示 —
 function canViewCount(row) {
-  return canManage.value || row.uploadBy === authStore.username
+  return canManage.value
 }
 
 // C3：收藏 / 取消收藏（本地状态即时切换；收藏视图取消后从列表移除）
@@ -592,6 +594,21 @@ function handleOffShelf(row) {
     .then(async () => {
       await offShelfKnowledgeDoc(row.id)
       ElMessage.success('已下架')
+      fetchList()
+    })
+    .catch(() => {})
+}
+
+// 上架：普通用户立即可见，收藏列表自动恢复，并通知全部收藏者
+function handleRelist(row) {
+  ElMessageBox.confirm(`确认上架文档「${row.title}」？上架后文档将对全员可见，收藏者将收到通知。`, '上架确认', {
+    confirmButtonText: '确认上架',
+    cancelButtonText: '取消',
+    type: 'info'
+  })
+    .then(async () => {
+      await relistKnowledgeDoc(row.id)
+      ElMessage.success('已上架')
       fetchList()
     })
     .catch(() => {})
