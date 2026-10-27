@@ -9,7 +9,7 @@
         <div class="head-row">
           <div>
             <span class="sup-name">{{ s.name }}</span>
-            <el-tag :type="typeTagColor(s.typeBizKey)" style="margin-left: 10px">{{ s.typeName }}</el-tag>
+            <el-tag :type="supplierTypeTagColor(s.value.typeBizKey)" style="margin-left: 10px">{{ s.typeName }}</el-tag>
           </div>
           <div>
             <el-button plain @click="openEdit">编辑</el-button>
@@ -210,6 +210,7 @@ import {
   uploadSupplierImage, supplierImageUrl
 } from '../../api/supplier'
 import { compressImage } from '../../utils/imageCompress'
+import { supplierTypeTagColor, groupCitiesByProvince } from '../../utils/supplier'
 
 const route = useRoute()
 const router = useRouter()
@@ -222,30 +223,13 @@ const bindings = ref([])
 const types = ref([])
 const cities = ref([])
 
-const cityGroups = computed(() => {
-  const groups = []
-  const map = {}
-  for (const c of cities.value) {
-    if (!map[c.province]) {
-      map[c.province] = { province: c.province, cities: [] }
-      groups.push(map[c.province])
-    }
-    map[c.province].cities.push(c)
-  }
-  return groups
-})
-
+const cityGroups = computed(() => groupCitiesByProvince(cities.value))
 const isHotel = computed(() => s.value?.typeBizKey === 'HOTEL')
 const isPrint = computed(() => s.value?.typeBizKey === 'PRINT')
 const imageList = computed(() => s.value?.imageList || [])
 
 function imageUrl(fileName) {
   return supplierImageUrl(fileName)
-}
-
-function typeTagColor(bizKey) {
-  const map = { HOTEL: 'success', PRINT: 'warning', MEDIA: 'primary', IMAGING: 'danger', FLEET: 'info', TICKET: 'success' }
-  return map[bizKey] || 'info'
 }
 
 async function fetchDetail() {

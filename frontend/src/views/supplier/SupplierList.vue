@@ -45,7 +45,7 @@
         <div class="card-body">
           <div class="card-title-row">
             <span class="card-name">{{ s.name }}</span>
-            <el-tag size="small" :type="typeTagColor(s.typeBizKey)">{{ s.typeName }}</el-tag>
+            <el-tag size="small" :type="supplierTypeTagColor(s.typeBizKey)">{{ s.typeName }}</el-tag>
           </div>
           <div class="card-meta">{{ s.province ? s.province + ' · ' : '' }}{{ s.cityName || '-' }}</div>
           <div class="card-rate">
@@ -197,6 +197,7 @@ import {
   uploadSupplierImage, supplierImageUrl
 } from '../../api/supplier'
 import { compressImage } from '../../utils/imageCompress'
+import { supplierTypeTagColor, groupCitiesByProvince } from '../../utils/supplier'
 
 const router = useRouter()
 
@@ -209,27 +210,11 @@ const loading = ref(false)
 
 const types = ref([])
 const cities = ref([])
-const cityGroups = computed(() => {
-  const groups = []
-  const map = {}
-  for (const c of cities.value) {
-    if (!map[c.province]) {
-      map[c.province] = { province: c.province, cities: [] }
-      groups.push(map[c.province])
-    }
-    map[c.province].cities.push(c)
-  }
-  return groups
-})
+const cityGroups = computed(() => groupCitiesByProvince(cities.value))
 const provinceNames = computed(() => cityGroups.value.map((g) => g.province))
 
 function imageUrl(fileName) {
   return supplierImageUrl(fileName)
-}
-
-function typeTagColor(bizKey) {
-  const map = { HOTEL: 'success', PRINT: 'warning', MEDIA: 'primary', IMAGING: 'danger', FLEET: 'info', TICKET: 'success' }
-  return map[bizKey] || 'info'
 }
 
 async function fetchDicts() {

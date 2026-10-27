@@ -27,7 +27,7 @@
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)">{{ row.statusText }}</el-tag>
+          <el-tag :type="approvalStatusTagType(row.status)">{{ row.statusText }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="approveComment" label="审批意见" min-width="150" show-overflow-tooltip>
@@ -94,6 +94,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyApplications, withdrawRequest } from '../api/approval'
+import { changeSummary, approvalStatusTagType } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -127,21 +128,6 @@ async function fetchList() {
   } finally {
     loading.value = false
   }
-}
-
-// 变更摘要：字段: 新值 逗号连接
-function changeSummary(changes) {
-  if (!changes || !Object.keys(changes).length) return '-'
-  return Object.entries(changes)
-    .map(([k, v]) => `${k}: ${v ?? ''}`)
-    .join('；')
-}
-
-function statusTagType(status) {
-  if (status === 1) return 'success'
-  if (status === 2) return 'danger'
-  if (status === 3) return 'info'
-  return 'warning'
 }
 
 function timelineType(action) {
