@@ -8,6 +8,7 @@ import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.OperationLogService;
 import com.jshz.expert.service.UserService;
+import com.jshz.expert.common.ParamUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -56,7 +57,7 @@ public class UserController {
                                        HttpServletRequest httpRequest) {
         SysUser user = userService.createUser(request);
         user.setPassword(null);
-        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 OperationLogService.ACTION_CREATE_USER, "新增用户「" + user.getUsername() + "」",
                 "USER", user.getUsername(), httpRequest);
         return ApiResponse.ok(user);
@@ -69,7 +70,7 @@ public class UserController {
                                        HttpServletRequest httpRequest) {
         SysUser user = userService.updateUser(id, request);
         user.setPassword(null);
-        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 OperationLogService.ACTION_UPDATE_USER, "修改用户「" + user.getUsername() + "」",
                 "USER", user.getUsername(), httpRequest);
         return ApiResponse.ok(user);
@@ -84,7 +85,7 @@ public class UserController {
                                            HttpServletRequest httpRequest) {
         SysUser target = userService.getById(id);
         userService.resetPassword(id);
-        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 OperationLogService.ACTION_RESET_PASSWORD,
                 "重置用户「" + (target == null ? String.valueOf(id) : target.getUsername()) + "」密码",
                 "USER", target == null ? String.valueOf(id) : target.getUsername(), httpRequest);
@@ -98,7 +99,7 @@ public class UserController {
         SysUser target = userService.getById(id);
         userService.deleteUser(id);
         String name = target == null ? String.valueOf(id) : target.getUsername();
-        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 OperationLogService.ACTION_DELETE_USER, "删除用户「" + name + "」", "USER", name, httpRequest);
         return ApiResponse.ok(null);
     }
@@ -117,17 +118,11 @@ public class UserController {
         String name = target == null ? String.valueOf(id) : target.getUsername();
         String roleIds = request == null || request.getRoleIds() == null
                 ? "[]" : request.getRoleIds().toString();
-        operationLogService.record(userIdOf(authUser), usernameOf(authUser),
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 OperationLogService.ACTION_ASSIGN_ROLES, "为用户「" + name + "」分配角色 " + roleIds,
                 "USER", name, httpRequest);
         return ApiResponse.ok(null);
     }
 
-    private Long userIdOf(AuthUser authUser) {
-        return authUser == null ? null : authUser.getUserId();
-    }
 
-    private String usernameOf(AuthUser authUser) {
-        return authUser == null ? null : authUser.getUsername();
-    }
 }

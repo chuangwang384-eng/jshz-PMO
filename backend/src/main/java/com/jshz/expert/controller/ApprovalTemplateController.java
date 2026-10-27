@@ -4,6 +4,7 @@ import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.entity.ApprovalTemplate;
 import com.jshz.expert.service.ApplicationService;
 import com.jshz.expert.service.ApprovalTemplateService;
+import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -73,7 +74,7 @@ public class ApprovalTemplateController {
         requireBody(body);
         ApprovalTemplate template = approvalTemplateService.create(
                 (String) body.get("templateName"), toStringList(body.get("fields")),
-                toInteger(body.get("enabled")));
+                ParamUtils.toInteger(body.get("enabled")));
         return ApiResponse.ok(template);
     }
 
@@ -86,7 +87,7 @@ public class ApprovalTemplateController {
         requireBody(body);
         ApprovalTemplate template = approvalTemplateService.update(
                 id, (String) body.get("templateName"), toStringList(body.get("fields")),
-                toInteger(body.get("enabled")));
+                ParamUtils.toInteger(body.get("enabled")));
         return ApiResponse.ok(template);
     }
 
@@ -119,13 +120,4 @@ public class ApprovalTemplateController {
         return null;
     }
 
-    private Integer toInteger(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.intValue();
-        }
-        return Integer.valueOf(String.valueOf(value).trim());
-    }
 }

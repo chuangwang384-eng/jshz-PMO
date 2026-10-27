@@ -12,6 +12,7 @@ import com.jshz.expert.entity.SupplierType;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.SupplierService;
 import com.jshz.expert.service.SupplierStorageService;
+import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
@@ -55,8 +56,8 @@ public class SupplierController {
     /** 管理端：新增类型（supplier:dict）。body {name, sort?} */
     @PostMapping("/types")
     public ApiResponse<SupplierType> createType(@RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.ok(supplierService.createType(str(body == null ? null : body.get("name")),
-                toInteger(body == null ? null : body.get("sort"))));
+        return ApiResponse.ok(supplierService.createType(ParamUtils.str(body == null ? null : body.get("name")),
+                ParamUtils.toInteger(body == null ? null : body.get("sort"))));
     }
 
     /** 管理端：修改类型名称/排序（supplier:dict）。body {name, sort?} */
@@ -64,8 +65,8 @@ public class SupplierController {
     public ApiResponse<SupplierType> updateType(@PathVariable Long id,
                                                 @RequestBody(required = false) Map<String, Object> body) {
         return ApiResponse.ok(supplierService.updateType(id,
-                str(body == null ? null : body.get("name")),
-                toInteger(body == null ? null : body.get("sort"))));
+                ParamUtils.str(body == null ? null : body.get("name")),
+                ParamUtils.toInteger(body == null ? null : body.get("sort"))));
     }
 
     /** 管理端：删除类型（有供应商引用时拒绝；supplier:dict） */
@@ -87,8 +88,8 @@ public class SupplierController {
     @PostMapping("/cities")
     public ApiResponse<SupplierCity> createCity(@RequestBody(required = false) Map<String, Object> body) {
         return ApiResponse.ok(supplierService.createCity(
-                str(body == null ? null : body.get("province")),
-                str(body == null ? null : body.get("name"))));
+                ParamUtils.str(body == null ? null : body.get("province")),
+                ParamUtils.str(body == null ? null : body.get("name"))));
     }
 
     /** 管理端：删除城市（有供应商引用时拒绝；supplier:dict） */
@@ -200,8 +201,8 @@ public class SupplierController {
     public ApiResponse<SupplierReview> addReview(@PathVariable Long id,
                                                  @RequestBody(required = false) Map<String, Object> body,
                                                  @AuthenticationPrincipal AuthUser authUser) {
-        Integer stars = toInteger(body == null ? null : body.get("stars"));
-        String content = str(body == null ? null : body.get("content"));
+        Integer stars = ParamUtils.toInteger(body == null ? null : body.get("stars"));
+        String content = ParamUtils.str(body == null ? null : body.get("content"));
         return ApiResponse.ok(supplierService.addReview(id, stars, content, authUser));
     }
 
@@ -215,7 +216,7 @@ public class SupplierController {
     public ApiResponse<Void> bind(@PathVariable Long id,
                                   @RequestBody(required = false) Map<String, Object> body,
                                   @AuthenticationPrincipal AuthUser authUser) {
-        Long targetId = toLong(body == null ? null : body.get("targetId"));
+        Long targetId = ParamUtils.toLong(body == null ? null : body.get("targetId"));
         if (targetId == null) {
             throw new BusinessException("目标供应商不能为空");
         }
@@ -234,39 +235,6 @@ public class SupplierController {
 
     // ==================== 私有 ====================
 
-    private String str(Object value) {
-        if (value == null) {
-            return null;
-        }
-        String s = String.valueOf(value).trim();
-        return s.isEmpty() ? null : s;
-    }
 
-    private Integer toInteger(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.intValue();
-        }
-        try {
-            return Integer.valueOf(String.valueOf(value).trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        try {
-            return Long.valueOf(String.valueOf(value).trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 }

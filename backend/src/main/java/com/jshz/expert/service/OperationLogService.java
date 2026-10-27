@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.entity.OperationLog;
 import com.jshz.expert.mapper.OperationLogMapper;
+import com.jshz.expert.common.IpUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -83,7 +84,7 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
             entry.setActionDesc(actionDesc);
             entry.setTargetType(targetType);
             entry.setTargetId(targetId == null ? null : String.valueOf(targetId));
-            entry.setIp(clientIp(request));
+            entry.setIp(IpUtils.clientIp(request));
             entry.setCreateTime(LocalDateTime.now());
             this.save(entry);
         } catch (Exception e) {
@@ -115,18 +116,4 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
         return this.page(new Page<>(page, size), wrapper);
     }
 
-    private String clientIp(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        String ip = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.split(",")[0].trim();
-        }
-        ip = request.getHeader("X-Real-IP");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.trim();
-        }
-        return request.getRemoteAddr();
-    }
 }

@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.entity.Notification;
+import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.mapper.NotificationMapper;
+import com.jshz.expert.mapper.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -14,13 +16,27 @@ import java.util.List;
 
 /**
  * 通用消息通知服务（消息通知中心）。
- * 提供五类事件埋点写入（notify）与本人消息列表 / 未读数 / 已读标记查询。
- * 仅依赖 notification 表，不依赖其他业务服务，供 ApplicationService / UserService /
+ * 提供事件埋点写入（notify）、按用户名反查接收人 id（userIdOf）与本人消息列表 / 未读数 / 已读标记查询。
+ * 仅依赖 notification / sys_user 表，不依赖其他业务服务，供 ApplicationService / UserService /
  * KnowledgeDocumentService 等埋点调用，避免循环依赖。
  */
 @Service
 @RequiredArgsConstructor
 public class NotificationService extends ServiceImpl<NotificationMapper, Notification> {
+
+    private final SysUserMapper sysUserMapper;
+
+    /**
+     * 按用户名反查用户ID（sys_user.username 唯一），供通知埋点定位接收人；查不到返回 null。
+     */
+    public Long userIdOf(String username) {
+        if (!StringUtils.hasText(username)) {
+            return null;
+        }
+        SysUser u = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username).last("LIMIT 1"));
+        return u == null ? null : u.getId();
+    }
 
     /** 事件类型：审批结果（我的审批） */
     public static final String TYPE_APPROVAL_RESULT = "approval_result";

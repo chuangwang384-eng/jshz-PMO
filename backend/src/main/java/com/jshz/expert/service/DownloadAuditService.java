@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.entity.DownloadLog;
 import com.jshz.expert.mapper.DownloadLogMapper;
 import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.common.IpUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -63,7 +64,7 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
         log.setExpertName(expertName);
         log.setDownloadType(downloadType);
         log.setDownloadTime(LocalDateTime.now());
-        log.setIp(clientIp(request));
+        log.setIp(IpUtils.clientIp(request));
         this.save(log);
         // 双写通用操作日志（下载/导出）
         operationLogService.record(
@@ -86,7 +87,7 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
         log.setDocId(docId);
         log.setDownloadType("knowledge_doc");
         log.setDownloadTime(LocalDateTime.now());
-        log.setIp(clientIp(request));
+        log.setIp(IpUtils.clientIp(request));
         this.save(log);
         // 双写通用操作日志（知识文档下载）
         operationLogService.record(
@@ -154,18 +155,4 @@ public class DownloadAuditService extends ServiceImpl<DownloadLogMapper, Downloa
         return this.page(new Page<>(page, size), wrapper);
     }
 
-    private String clientIp(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        String ip = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.split(",")[0].trim();
-        }
-        ip = request.getHeader("X-Real-IP");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.trim();
-        }
-        return request.getRemoteAddr();
-    }
 }

@@ -7,6 +7,7 @@ import com.jshz.expert.entity.ApprovalConfig;
 import com.jshz.expert.entity.Application;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ApplicationService;
+import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
@@ -64,7 +65,7 @@ public class ApplicationController {
      */
     @PutMapping("/config")
     public ApiResponse<Map<String, Object>> updateConfig(@RequestBody(required = false) Map<String, Object> body) {
-        Integer enabled = body == null ? null : toInteger(body.get("enabled"));
+        Integer enabled = body == null ? null : ParamUtils.toInteger(body.get("enabled"));
         String approverRole = body == null ? null : (String) body.get("approverRole");
         ApprovalConfig config = applicationService.updateConfig(enabled, approverRole);
         Map<String, Object> data = new LinkedHashMap<>();
@@ -84,11 +85,11 @@ public class ApplicationController {
         if (body == null) {
             throw new com.jshz.expert.common.BusinessException("请求体不能为空");
         }
-        Long expertId = toLong(body.get("expertId"));
+        Long expertId = ParamUtils.toLong(body.get("expertId"));
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        Long templateId = toLong(body.get("templateId"));
+        Long templateId = ParamUtils.toLong(body.get("templateId"));
         return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, templateId, authUser));
     }
 
@@ -105,7 +106,7 @@ public class ApplicationController {
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        Long templateId = toLong(body.get("templateId"));
+        Long templateId = ParamUtils.toLong(body.get("templateId"));
         return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, templateId, authUser));
     }
 
@@ -241,23 +242,5 @@ public class ApplicationController {
         return ApiResponse.ok(applicationService.assignableUsers());
     }
 
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        return Long.valueOf(String.valueOf(value).trim());
-    }
 
-    private Integer toInteger(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.intValue();
-        }
-        return Integer.valueOf(String.valueOf(value).trim());
-    }
 }

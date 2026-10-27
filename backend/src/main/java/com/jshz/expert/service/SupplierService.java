@@ -19,6 +19,7 @@ import com.jshz.expert.mapper.SupplierPriceItemMapper;
 import com.jshz.expert.mapper.SupplierReviewMapper;
 import com.jshz.expert.mapper.SupplierTypeMapper;
 import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -269,7 +270,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
             throw new BusinessException("供应商名称不能为空");
         }
         if (body.containsKey("typeId")) {
-            Long typeId = toLong(body.get("typeId"));
+            Long typeId = ParamUtils.toLong(body.get("typeId"));
             if (typeId == null) {
                 throw new BusinessException("供应商类型不能为空");
             }
@@ -284,7 +285,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         boolean hasCityName = body.containsKey("cityName") && StringUtils.hasText(String.valueOf(body.get("cityName")));
         if (hasCityId || hasCityName) {
             if (hasCityId) {
-                Long cityId = toLong(body.get("cityId"));
+                Long cityId = ParamUtils.toLong(body.get("cityId"));
                 if (cityId == null || cityMapper.selectById(cityId) == null) {
                     throw new BusinessException("城市不存在");
                 }
@@ -297,19 +298,19 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
             throw new BusinessException("城市不能为空");
         }
         if (body.containsKey("address")) {
-            s.setAddress(str(body.get("address")));
+            s.setAddress(ParamUtils.str(body.get("address")));
         }
         if (body.containsKey("contact")) {
-            s.setContact(str(body.get("contact")));
+            s.setContact(ParamUtils.str(body.get("contact")));
         }
         if (body.containsKey("phone")) {
-            s.setPhone(str(body.get("phone")));
+            s.setPhone(ParamUtils.str(body.get("phone")));
         }
         if (body.containsKey("wechat")) {
-            s.setWechat(str(body.get("wechat")));
+            s.setWechat(ParamUtils.str(body.get("wechat")));
         }
         if (body.containsKey("description")) {
-            s.setDescription(str(body.get("description")));
+            s.setDescription(ParamUtils.str(body.get("description")));
         }
         if (body.containsKey("images")) {
             Object imgs = body.get("images");
@@ -365,7 +366,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         int sort = 0;
         if (items != null) {
             for (Map<String, Object> item : items) {
-                String itemName = str(item.get("itemName"));
+                String itemName = ParamUtils.str(item.get("itemName"));
                 if (!StringUtils.hasText(itemName)) {
                     continue;
                 }
@@ -383,8 +384,8 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
                     throw new BusinessException("行价「" + itemName + "」价格不能为负");
                 }
                 p.setPrice(dec.setScale(2, RoundingMode.HALF_UP));
-                p.setUnit(str(item.get("unit")));
-                p.setRemark(str(item.get("remark")));
+                p.setUnit(ParamUtils.str(item.get("unit")));
+                p.setRemark(ParamUtils.str(item.get("remark")));
                 Object st = item.get("sort");
                 p.setSort(st instanceof Number n ? n.intValue() : sort);
                 priceItemMapper.insert(p);
@@ -600,25 +601,5 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         }
     }
 
-    private String str(Object value) {
-        if (value == null) {
-            return null;
-        }
-        String s = String.valueOf(value).trim();
-        return s.isEmpty() ? null : s;
-    }
 
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        try {
-            return Long.valueOf(String.valueOf(value).trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 }
