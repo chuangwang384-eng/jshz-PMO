@@ -68,3 +68,9 @@ frontend/build_out.txt
 frontend/$err
 frontend/$log
 scripts/__pycache__/
+
+# --- build artifacts / tool artifacts (not committed) ---
+frontend/releases/
+!frontend/releases/.gitkeep
+.zcode/
+供应商图库/
