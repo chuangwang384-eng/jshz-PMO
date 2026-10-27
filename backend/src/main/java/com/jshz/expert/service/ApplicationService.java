@@ -21,6 +21,7 @@ import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
 import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -166,16 +167,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     public Application submitRequest(Long expertId, Map<String, Object> changes, String reason,
                                      Long templateId, AuthUser user) {
-        if (user == null) {
-            throw new BusinessException("未登录");
-        }
-        if (user.hasPermission("expert:edit")) {
-            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中编辑专家信息，无需提交审批");
-        }
-        ApprovalConfig config = getConfig();
-        if (config.getEnabled() == null || config.getEnabled() != 1) {
-            throw new BusinessException("审批流未启用，暂不支持提交修改申请");
-        }
+        checkSubmitEligible(user, "编辑");
         if (expertId == null) {
             throw new BusinessException("专家ID不能为空");
         }
@@ -212,16 +204,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     public Application submitCreateRequest(Map<String, Object> changes, String reason,
                                            Long templateId, AuthUser user) {
-        if (user == null) {
-            throw new BusinessException("未登录");
-        }
-        if (user.hasPermission("expert:edit")) {
-            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中新增专家，无需提交审批");
-        }
-        ApprovalConfig config = getConfig();
-        if (config.getEnabled() == null || config.getEnabled() != 1) {
-            throw new BusinessException("审批流未启用，暂不支持提交新增专家申请");
-        }
+        checkSubmitEligible(user, "新增");
         checkChanges(changes);
         validateCreateChanges(changes);
 
@@ -243,6 +226,23 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 StringUtils.hasText(reason) ? reason : "提交新增专家申请");
         notifyApprovalTodo(app);
         return app;
+    }
+
+    /**
+     * 提交资格共用前导：未登录拒绝；拥有 expert:edit 的用户走直编通道拒绝；审批流未启用拒绝。
+     * action 仅用于提示文案（"编辑"/"新增"）。
+     */
+    private void checkSubmitEligible(AuthUser user, String action) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (user.hasPermission("expert:edit")) {
+            throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中" + action + "专家，无需提交审批");
+        }
+        ApprovalConfig config = getConfig();
+        if (config.getEnabled() == null || config.getEnabled() != 1) {
+            throw new BusinessException("审批流未启用，暂不支持提交" + action + "申请");
+        }
     }
 
     /**
@@ -679,9 +679,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== 通知 ====================
 
     /**
-     * 新申请待审通知（approval_todo）：通知审批流配置的审批人角色下全部用户。
+     * 广播通知给审批流配置角色下的全部用户（todo/withdrawn 共用骨架）。
      */
-    private void notifyApprovalTodo(Application app) {
+    private void notifyApproverRole(Application app, String type, String title, String content) {
         try {
             ApprovalConfig config = getConfig();
             String roleCode = config.getApproverRole();
@@ -695,15 +695,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             }
             List<UserRole> bindings = userRoleMapper.selectList(
                     new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
-            if (bindings.isEmpty()) {
-                return;
-            }
-            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
             for (UserRole ur : bindings) {
-                notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_TODO,
-                        "新的" + typeText + "待审批",
-                        "申请人 " + app.getApplicant() + " 提交了新的申请，请及时处理",
-                        MANAGE_PATH);
+                notificationService.notify(ur.getUserId(), type, title, content, MANAGE_PATH);
             }
         } catch (Exception e) {
             // 通知失败不影响主流程
@@ -711,35 +704,23 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 撤回通知（approval_withdrawn）：通知审批流配置的审批人角色下全部用户「申请已撤回」。
+     * 新申请待审通知（approval_todo）：通知审批人角色下全部用户。
+     */
+    private void notifyApprovalTodo(Application app) {
+        String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+        notifyApproverRole(app, NotificationService.TYPE_APPROVAL_TODO,
+                "新的" + typeText + "待审批",
+                "申请人 " + app.getApplicant() + " 提交了新的申请，请及时处理");
+    }
+
+    /**
+     * 撤回通知（approval_withdrawn）：通知审批人角色下全部用户「申请已撤回」。
      */
     private void notifyApprovalWithdrawn(Application app) {
-        try {
-            ApprovalConfig config = getConfig();
-            String roleCode = config.getApproverRole();
-            if (!StringUtils.hasText(roleCode)) {
-                return;
-            }
-            Role role = roleMapper.selectOne(
-                    new LambdaQueryWrapper<Role>().eq(Role::getCode, roleCode).last("LIMIT 1"));
-            if (role == null) {
-                return;
-            }
-            List<UserRole> bindings = userRoleMapper.selectList(
-                    new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
-            if (bindings.isEmpty()) {
-                return;
-            }
-            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
-            for (UserRole ur : bindings) {
-                notificationService.notify(ur.getUserId(), NotificationService.TYPE_APPROVAL_WITHDRAWN,
-                        "申请已撤回：" + typeText,
-                        "申请人 " + app.getApplicant() + " 撤回了" + typeText + "，无需再处理",
-                        MANAGE_PATH);
-            }
-        } catch (Exception e) {
-            // 通知失败不影响主流程
-        }
+        String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+        notifyApproverRole(app, NotificationService.TYPE_APPROVAL_WITHDRAWN,
+                "申请已撤回：" + typeText,
+                "申请人 " + app.getApplicant() + " 撤回了" + typeText + "，无需再处理");
     }
 
     /**
@@ -747,7 +728,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     private void notifyApprovalResult(Application app, AuthUser user) {
         try {
-            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : userIdOf(app.getApplicant());
+            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : notificationService.userIdOf(app.getApplicant());
             if (applicantId == null) {
                 return;
             }
@@ -772,7 +753,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     private void notifyTransferred(Application app, String targetUser, AuthUser operator) {
         try {
             String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
-            Long targetId = userIdOf(targetUser);
+            Long targetId = notificationService.userIdOf(targetUser);
             if (targetId != null) {
                 notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
                         "转办待办：" + typeText,
@@ -780,7 +761,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                                 + operator.getUsername() + " 转办给您，请及时处理",
                         MANAGE_PATH);
             }
-            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : userIdOf(app.getApplicant());
+            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : notificationService.userIdOf(app.getApplicant());
             if (applicantId != null) {
                 notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
                         "您的申请已转办",
@@ -797,7 +778,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     private void notifyAssigned(Application app, String targetUser) {
         try {
-            Long targetId = userIdOf(targetUser);
+            Long targetId = notificationService.userIdOf(targetUser);
             if (targetId == null) {
                 return;
             }
@@ -813,17 +794,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     // ==================== 私有方法 ====================
 
-    /**
-     * 按用户名反查用户ID（sys_user.username 唯一）。
-     */
-    private Long userIdOf(String username) {
-        if (!StringUtils.hasText(username)) {
-            return null;
-        }
-        SysUser u = sysUserMapper.selectOne(
-                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username).last("LIMIT 1"));
-        return u == null ? null : u.getId();
-    }
 
     private ApprovalConfig findConfig() {
         return approvalConfigMapper.selectOne(
@@ -894,27 +864,14 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     private void fillBiz(Application app) {
         Map<String, Object> biz = readBiz(app);
-        app.setExpertId(toLong(biz.get("expertId")));
+        app.setExpertId(ParamUtils.toLong(biz.get("expertId")));
         Object expertName = biz.get("expertName");
         app.setExpertName(expertName == null ? null : String.valueOf(expertName));
-        app.setTemplateId(toLong(biz.get("templateId")));
+        app.setTemplateId(ParamUtils.toLong(biz.get("templateId")));
         Object reason = biz.get("reason");
         app.setReason(reason == null ? null : String.valueOf(reason));
     }
 
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        try {
-            return Long.valueOf(String.valueOf(value).trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 
     /**
      * 敏感字段格式兜底校验（与 ExpertService.validateRequired 对齐）：
