@@ -45,6 +45,24 @@
       </template>
     </div>
 
+    <!-- 首页公告卡片栏：最多5条，置顶优先 + 发布时间倒序；无公告时不渲染 -->
+    <div v-if="announcements.length" class="announcement-banner">
+      <el-card
+        v-for="a in announcements"
+        :key="a.id"
+        shadow="hover"
+        class="ann-card"
+        @click="goAnnouncement(a.id)"
+      >
+        <div class="ann-card-main">
+          <el-tag v-if="a.isTop === 1" type="danger" size="small">置顶</el-tag>
+          <span class="ann-card-title">{{ a.title }}</span>
+          <span v-if="a.read === false" class="ann-card-dot" title="未读"></span>
+        </div>
+        <div class="ann-card-meta">{{ formatAnnTime(a.createTime) }}</div>
+      </el-card>
+    </div>
+
     <!-- 已选专家姓名展示：跨搜索/翻页保留，可逐项取消或一键清空 -->
     <div v-if="!canExport && selectedExperts.length" class="selected-bar">
       <span class="selected-label">已选 {{ selectedExperts.length }} 位：</span>
@@ -1242,7 +1260,29 @@ async function submitAdminCreate() {
 onMounted(() => {
   fetchList()
   fetchTemplates()
+  fetchAnnouncements()
 })
+
+// ==================== 首页公告卡片栏 ====================
+const announcements = ref([])
+
+function formatAnnTime(t) {
+  if (!t) return ''
+  return String(t).replace('T', ' ').slice(0, 16)
+}
+
+async function fetchAnnouncements() {
+  try {
+    announcements.value = (await getEffectiveAnnouncements(5)) || []
+  } catch (e) {
+    // 公告栏失败不影响首页：不渲染即可
+    announcements.value = []
+  }
+}
+
+function goAnnouncement(id) {
+  router.push(`/announcements/${id}`)
+}
 </script>
 
 <style scoped>
@@ -1292,6 +1332,49 @@ onMounted(() => {
   transition: box-shadow 0.2s ease, transform 0.2s ease;
   position: relative;
   overflow: hidden;
+}
+/* 首页公告卡片栏 */
+.announcement-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+.ann-card {
+  width: 260px;
+  cursor: pointer;
+  margin: 0;
+}
+.ann-card :deep(.el-card__body) {
+  padding: 12px 14px;
+}
+.ann-card-main {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+.ann-card-title {
+  margin-left: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.ann-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f56c6c;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.ann-card-meta {
+  margin-top: 6px;
+  color: #909399;
+  font-size: 12px;
 }
 .selected-bar {
   display: flex;

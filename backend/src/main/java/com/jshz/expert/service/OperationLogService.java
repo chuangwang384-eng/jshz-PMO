@@ -64,6 +64,13 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_DELETE_DOC = "DELETE_DOC";
     /** 上架知识文档 */
     public static final String ACTION_RELIST_DOC = "RELIST_DOC";
+    /** 系统公告：增删改/上下架/置顶 */
+    public static final String ACTION_CREATE_ANNOUNCEMENT = "CREATE_ANNOUNCEMENT";
+    public static final String ACTION_UPDATE_ANNOUNCEMENT = "UPDATE_ANNOUNCEMENT";
+    public static final String ACTION_DELETE_ANNOUNCEMENT = "DELETE_ANNOUNCEMENT";
+    public static final String ACTION_ONLINE_ANNOUNCEMENT = "ONLINE_ANNOUNCEMENT";
+    public static final String ACTION_OFFLINE_ANNOUNCEMENT = "OFFLINE_ANNOUNCEMENT";
+    public static final String ACTION_TOP_ANNOUNCEMENT = "TOP_ANNOUNCEMENT";
 
     /**
      * 统一写入一条操作日志；任何异常仅记 warn，不向上抛（日志失败不影响主业务）。

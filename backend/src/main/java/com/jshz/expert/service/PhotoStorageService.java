@@ -89,6 +89,22 @@ public class PhotoStorageService {
         }
     }
 
+    /**
+     * 保存富文本插图：与照片同一存储目录（storageDir），命名 richtext_<时间戳>.<ext>，
+     * 通过既有 /api/files/** 静态映射访问，持久保留不随临时目录清理。
+     */
+    public String saveRichtextImage(MultipartFile file) {
+        validateImage(file);
+        String ext = extension(file.getOriginalFilename());
+        String fileName = "richtext_" + Instant.now().toEpochMilli() + "_" + System.nanoTime() + "." + ext;
+        try {
+            Files.copy(file.getInputStream(), this.storageDir.resolve(fileName));
+        } catch (IOException e) {
+            throw new BusinessException("富文本插图保存失败: " + e.getMessage());
+        }
+        return fileName;
+    }
+
     // ==================== 临时照片（需求3：审批流照片预上传） ====================
 
     /**

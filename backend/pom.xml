@@ -13,7 +13,7 @@
 
     <groupId>com.jshz</groupId>
     <artifactId>expert-system</artifactId>
-    <version>1.006</version>
+    <version>1.008</version>
     <name>expert-system</name>
     <description>专家库系统后端服务（正式版 V1.003）</description>
 
@@ -27,6 +27,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- 富文本 XSS 白名单清洗（公告正文） -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
         </dependency>
 
         <!-- 参数校验 -->

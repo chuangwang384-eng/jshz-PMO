@@ -19,6 +19,24 @@ const routes = [
     meta: { title: '专家库', requiresAuth: true }
   },
   {
+    path: '/announcements',
+    name: 'announcements',
+    component: () => import('../views/announcement/AnnouncementList.vue'),
+    meta: { title: '公告', requiresAuth: true }
+  },
+  {
+    path: '/announcements/manage',
+    name: 'announcements-manage',
+    component: () => import('../views/announcement/AnnouncementManage.vue'),
+    meta: { title: '公告管理', requiresAuth: true, permissions: ['announcement:manage'] }
+  },
+  {
+    path: '/announcements/:id',
+    name: 'announcement-detail',
+    component: () => import('../views/announcement/AnnouncementDetail.vue'),
+    meta: { title: '公告详情', requiresAuth: true, menu: false }
+  },
+  {
     path: '/knowledge-planet',
     name: 'knowledge-planet',
     component: () => import('../views/KnowledgePlanetHome.vue'),
