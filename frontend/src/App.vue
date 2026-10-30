@@ -11,6 +11,7 @@
       <el-menu
         ref="sideMenuRef"
         :default-active="activeMenu"
+        :default-openeds="defaultOpeneds"
         router
         background-color="#001529"
         text-color="rgba(255,255,255,0.65)"
@@ -27,6 +28,7 @@
         <div class="header-title">{{ pageTitle }}</div>
         <div class="user-area">
           <NotificationBell />
+          <AnnouncementBell />
           <span class="username">{{ auth.username }}</span>
           <el-button link type="primary" @click="handleLogout">退出登录</el-button>
         </div>
@@ -49,6 +51,8 @@ import { useAuthStore } from './store/auth'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
 import SideMenuItem from './components/SideMenuItem.vue'
 import NotificationBell from './components/NotificationBell.vue'
+import AnnouncementBell from './components/AnnouncementBell.vue'
+import { listAnnouncements, markAnnouncementRead } from './api/announcement'
 import { buildMenuTree } from './utils/menu'
 
 const route = useRoute()
@@ -62,6 +66,17 @@ provide('sideMenuRef', sideMenuRef)
 const isLoginPage = computed(() => route.path === '/login')
 const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => route.meta?.title || '景帅会展内部管理系统')
+
+// 需求 2：一级菜单仅作展开容器，当前路由所属的一级菜单默认展开子菜单
+const defaultOpeneds = computed(() => {
+  const p = route.path
+  if (!p || p === '/login') return []
+  const top = router.options.routes.find((r) => {
+    if (!r.path || r.path === '/') return false
+    return p === r.path || p.startsWith(r.path + '/')
+  })
+  return top ? [top.path] : []
+})
 
 // 从路由表生成菜单树：只取业务路由（排除登录页），管理菜单由 meta.permissions 权限码自动过滤
 const menuTree = computed(() => {
@@ -84,6 +99,9 @@ onMounted(() => {
       }
     })
     .catch(() => {})
+  // 全局未读公告提示（挂载点击跳转入口，供 ElMessageBox 弹窗条目 onclick 调用）
+  window.__jshzOpenAnnouncement = openAnnouncement
+  checkUnreadAnnouncements()
 })
 
 async function handleLogout() {
@@ -94,6 +112,66 @@ async function handleLogout() {
   }
   await auth.logout()
   router.push('/login')
+}
+
+// 全局未读公告检查（从专家库首页迁移至全局）：非超管且非公告管理员才检查
+// sessionStorage key 沿用 jshz_announce_popup_shown_${id}，避免会话内重复弹窗
+function escHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+function annBriefText(a) {
+  if (!a || !a.content) return ''
+  const div = document.createElement('div')
+  div.innerHTML = a.content
+  return (div.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+async function checkUnreadAnnouncements() {
+  if (!auth.isLoggedIn || auth.isAdmin || auth.hasPermission('announcement:manage')) return
+  try {
+    const data = await listAnnouncements({ page: 1, size: 50 })
+    const items = (data && data.items) || []
+    const key = `jshz_announce_popup_shown_${auth.id ?? 'anon'}`
+    let shown = []
+    try {
+      shown = JSON.parse(sessionStorage.getItem(key) || '[]')
+    } catch (e) {
+      shown = []
+    }
+    const unread = items.filter((a) => !a.read && !a.expired && !shown.includes(a.id))
+    if (!unread.length) return
+    // 弹窗展示前先记录已弹 id，避免会话内重复提示
+    sessionStorage.setItem(key, JSON.stringify([...new Set([...shown, ...unread.map((a) => a.id)])]))
+    const html = unread
+      .map(
+        (a) =>
+          `<div class="jshz-unread-item" onclick="window.__jshzOpenAnnouncement(${a.id})" style="padding:10px 12px;border-bottom:1px solid #f2f4f7;cursor:pointer;">
+            <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#303133;">
+              ${a.isTop === 1 ? '<span style="color:#f56c6c;font-size:12px;font-weight:400;">置顶</span>' : ''}
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(a.title)}</span>
+            </div>
+            <div style="margin-top:4px;font-size:12px;color:#909399;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(annBriefText(a))}</div>
+          </div>`
+      )
+      .join('')
+    await ElMessageBox.confirm(html, `未读公告（${unread.length} 条）`, {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '查看全部',
+      cancelButtonText: '稍后再说',
+      type: 'warning'
+    })
+    router.push('/profile/announcements')
+  } catch (e) {
+    // 取消或接口失败均静默，不影响页面
+  }
+}
+
+// 点击未读公告弹窗条目：标记已读并跳详情（由 ElMessageBox HTML 的 onclick 调用）
+function openAnnouncement(id) {
+  ElMessageBox.close()
+  markAnnouncementRead(id).catch(() => {})
+  router.push(`/profile/announcements/${id}`)
 }
 </script>
 
@@ -127,6 +205,21 @@ body {
   border-right: none;
   flex: 1;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.side-menu::-webkit-scrollbar {
+  width: 6px;
+}
+.side-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+.side-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+.side-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
 }
 .sidebar-version {
   flex-shrink: 0;

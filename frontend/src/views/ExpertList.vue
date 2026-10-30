@@ -45,24 +45,6 @@
       </template>
     </div>
 
-    <!-- 首页公告卡片栏：最多5条，置顶优先 + 发布时间倒序；无公告时不渲染 -->
-    <div v-if="announcements.length" class="announcement-banner">
-      <el-card
-        v-for="a in announcements"
-        :key="a.id"
-        shadow="hover"
-        class="ann-card"
-        @click="goAnnouncement(a.id)"
-      >
-        <div class="ann-card-main">
-          <el-tag v-if="a.isTop === 1" type="danger" size="small">置顶</el-tag>
-          <span class="ann-card-title">{{ a.title }}</span>
-          <span v-if="a.read === false" class="ann-card-dot" title="未读"></span>
-        </div>
-        <div class="ann-card-meta">{{ formatAnnTime(a.createTime) }}</div>
-      </el-card>
-    </div>
-
     <!-- 已选专家姓名展示：跨搜索/翻页保留，可逐项取消或一键清空 -->
     <div v-if="!canExport && selectedExperts.length" class="selected-bar">
       <span class="selected-label">已选 {{ selectedExperts.length }} 位：</span>
@@ -144,115 +126,15 @@
       />
     </div>
 
-    <!-- 专家详情（有编辑权限：可编辑表单 + 删除，免审批直写） -->
-    <el-dialog v-if="canEditExpert" v-model="detailVisible" title="编辑专家（免审批直改）" width="760px" destroy-on-close>
-      <el-form v-if="detail" :model="adminForm" label-width="110px" class="edit-form">
-        <div class="edit-photos">
-          <div class="edit-photo-item">
-            <div class="edit-photo-label">证件照</div>
-            <div class="edit-photo-box round">
-              <img v-if="adminPhotoPreview.photo" :src="adminPhotoPreview.photo" class="edit-photo-img" alt="证件照预览" />
-              <PhotoImage v-else :filename="detail.照片" :width="80" :height="80" />
-            </div>
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="image/*"
-              :on-change="(f) => onAdminPickPhoto('photo', f)"
-            >
-              <el-button size="small" type="primary" plain>更换照片</el-button>
-            </el-upload>
-          </div>
-          <div class="edit-photo-item">
-            <div class="edit-photo-label">身份证正面</div>
-            <div class="edit-photo-box">
-              <img v-if="adminPhotoPreview.front" :src="adminPhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
-              <div v-else-if="idFrontUrl" class="masked-photo">
-                <img :src="idFrontUrl" class="masked-img" alt="身份证正面（已脱敏）" />
-                <span class="masked-tip">已脱敏</span>
-              </div>
-              <span v-else class="photo-empty">未上传</span>
-            </div>
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="image/*"
-              :on-change="(f) => onAdminPickPhoto('front', f)"
-            >
-              <el-button size="small" type="primary" plain>更换照片</el-button>
-            </el-upload>
-          </div>
-          <div class="edit-photo-item">
-            <div class="edit-photo-label">身份证反面</div>
-            <div class="edit-photo-box">
-              <img v-if="adminPhotoPreview.back" :src="adminPhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
-              <div v-else-if="idBackUrl" class="masked-photo">
-                <img :src="idBackUrl" class="masked-img" alt="身份证反面（已脱敏）" />
-                <span class="masked-tip">已脱敏</span>
-              </div>
-              <span v-else class="photo-empty">未上传</span>
-            </div>
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="image/*"
-              :on-change="(f) => onAdminPickPhoto('back', f)"
-            >
-              <el-button size="small" type="primary" plain>更换照片</el-button>
-            </el-upload>
-          </div>
-        </div>
-        <el-form-item label="姓名">
-          <el-input v-model="adminForm.姓名" placeholder="请输入姓名" />
-        </el-form-item>
-        <el-form-item label="单位">
-          <el-input v-model="adminForm.单位" placeholder="请输入单位" />
-        </el-form-item>
-        <el-form-item label="科室">
-          <el-input v-model="adminForm.科室" placeholder="请输入科室" />
-        </el-form-item>
-        <el-form-item label="职称">
-          <el-input v-model="adminForm.职称" placeholder="请输入职称" />
-        </el-form-item>
-        <el-form-item label="联系方式">
-          <el-input v-model="adminForm.联系方式" placeholder="请输入联系方式" />
-        </el-form-item>
-        <el-form-item label="研究方向">
-          <el-input v-model="adminForm.研究方向" placeholder="请输入研究方向" />
-        </el-form-item>
-        <el-form-item label="擅长领域">
-          <el-input v-model="adminForm.擅长领域" placeholder="请输入擅长领域" />
-        </el-form-item>
-        <el-form-item label="简介">
-          <el-input v-model="adminForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
-        </el-form-item>
-        <el-form-item label="身份证号">
-          <el-input v-model="adminForm.身份证号" placeholder="请输入身份证号（18 位）" />
-        </el-form-item>
-        <el-form-item label="银行卡号">
-          <el-input v-model="adminForm.银行卡号" placeholder="请输入银行卡号" />
-        </el-form-item>
-        <el-form-item label="银行卡开户行">
-          <el-input v-model="adminForm.银行卡开户行" placeholder="请输入开户行" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button v-permission="'expert:delete'" type="danger" :loading="adminDeleting" @click="handleAdminDelete">删除专家</el-button>
-        <el-button @click="detailVisible = false">取消</el-button>
-        <el-button type="primary" :loading="adminSubmitting" @click="submitAdminEdit">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 专家详情（员工：卡片内直接编辑，关闭时检测变更并引导提交审批） -->
+    <!-- 专家详情（统一视图：管理员/超管可保存直写与删除，员工走审批流） -->
     <el-dialog
-      v-else
       v-model="detailVisible"
-      title="专家详情（可编辑）"
+      title="专家详情"
       width="760px"
       destroy-on-close
       :before-close="handleDetailClose"
     >
-      <el-form v-if="detail" :model="editForm" label-width="110px" class="edit-form">
+      <el-form v-if="detail" :model="editForm" label-width="150px" class="edit-form">
         <el-form-item label="申请模板">
           <el-select
             v-model="editTemplateId"
@@ -288,7 +170,7 @@
           <div v-if="editFieldVisible('身份证正面')" class="edit-photo-item">
             <div class="edit-photo-label">身份证正面</div>
             <div class="edit-photo-box">
-              <img v-if="photoPreview.front" :src="photoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
+              <img v-if="activePhotoPreview.front" :src="activePhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
               <div v-else-if="idFrontUrl" class="masked-photo">
                 <img :src="idFrontUrl" class="masked-img" alt="身份证正面（已脱敏）" />
                 <span class="masked-tip">已脱敏</span>
@@ -307,7 +189,7 @@
           <div v-if="editFieldVisible('身份证反面')" class="edit-photo-item">
             <div class="edit-photo-label">身份证反面</div>
             <div class="edit-photo-box">
-              <img v-if="photoPreview.back" :src="photoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
+              <img v-if="activePhotoPreview.back" :src="activePhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
               <div v-else-if="idBackUrl" class="masked-photo">
                 <img :src="idBackUrl" class="masked-img" alt="身份证反面（已脱敏）" />
                 <span class="masked-tip">已脱敏</span>
@@ -325,45 +207,98 @@
           </div>
         </div>
         <el-form-item v-if="editFieldVisible('姓名')" label="姓名">
-          <el-input v-model="editForm.姓名" placeholder="请输入姓名" />
+          <el-input v-model="editForm.姓名" placeholder="请输入姓名">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['姓名'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('单位')" label="单位">
-          <el-input v-model="editForm.单位" placeholder="请输入单位" />
+          <el-input v-model="editForm.单位" placeholder="请输入单位">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['单位'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('科室')" label="科室">
-          <el-input v-model="editForm.科室" placeholder="请输入科室" />
+          <el-input v-model="editForm.科室" placeholder="请输入科室">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['科室'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('职称')" label="职称">
-          <el-input v-model="editForm.职称" placeholder="请输入职称" />
+          <el-input v-model="editForm.职称" placeholder="请输入职称">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['职称'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('联系方式')" label="联系方式">
-          <el-input v-model="editForm.联系方式" placeholder="请输入联系方式" />
-        </el-form-item>
-        <el-form-item v-if="editFieldVisible('研究方向')" label="研究方向">
-          <el-input v-model="editForm.研究方向" placeholder="请输入研究方向" />
-        </el-form-item>
-        <el-form-item v-if="editFieldVisible('擅长领域')" label="擅长领域">
-          <el-input v-model="editForm.擅长领域" placeholder="请输入擅长领域" />
+          <el-input v-model="editForm.联系方式" placeholder="请输入联系方式">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['联系方式'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('简介')" label="简介">
-          <el-input v-model="editForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
+          <div class="textarea-copy-wrap">
+            <el-input v-model="editForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
+            <el-tooltip content="复制" placement="top">
+              <el-icon class="copy-icon textarea-copy" @click="copyFieldValue(editForm['简介'])"><CopyDocument /></el-icon>
+            </el-tooltip>
+          </div>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('身份证号')" label="身份证号">
-          <el-input v-model="editForm.身份证号" placeholder="身份证号已脱敏，如需修改请填写完整" />
+          <el-input v-model="editForm.身份证号" placeholder="请输入身份证号（18 位）">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['身份证号'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('银行卡号')" label="银行卡号">
-          <el-input v-model="editForm.银行卡号" placeholder="银行卡号已脱敏，如需修改请填写完整" />
+          <el-input v-model="editForm.银行卡号" placeholder="请输入银行卡号">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['银行卡号'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="editFieldVisible('银行卡开户行')" label="银行卡开户行">
-          <el-input v-model="editForm.银行卡开户行" placeholder="请输入开户行" />
+          <el-input v-model="editForm.银行卡开户行" placeholder="请输入开户行">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['银行卡开户行'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
         </el-form-item>
         <el-alert
           type="info"
           :closable="false"
           show-icon
-          title="修改将在审批通过后生效，关闭弹窗时如检测到修改会引导您提交申请"
+          :title="canEditExpert ? '管理员编辑免审批，保存后直接生效' : '修改将在审批通过后生效，关闭弹窗时如检测到修改会引导您提交申请'"
         />
       </el-form>
+      <template #footer>
+        <el-button v-permission="'expert:delete'" type="danger" :loading="adminDeleting" @click="handleAdminDelete">删除专家</el-button>
+        <el-button @click="handleDetailCancel">取消</el-button>
+        <el-button v-if="canEditExpert" type="primary" :loading="adminSubmitting" @click="submitAdminEdit">保存</el-button>
+        <el-button v-else type="primary" @click="handleDetailSubmit">提交申请</el-button>
+      </template>
     </el-dialog>
 
     <!-- 新增专家申请弹窗（员工：复用可编辑表单字段结构与照片选择，提交审批流） -->
@@ -578,17 +513,21 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest, getApprovalTemplates, getApprovalFieldCatalog } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
+import { CopyDocument } from '@element-plus/icons-vue'
 
+const router = useRouter()
 const authStore = useAuthStore()
-const isAdmin = computed(() => authStore.isAdmin)
 const canAddExpert = computed(() => authStore.hasPermission('expert:add'))
 const canEditExpert = computed(() => authStore.hasPermission('expert:edit'))
 const canExport = computed(() => authStore.hasPermission('expert:export'))
+// 统一详情弹窗照片预览：管理员/超管显示 admin 预览，员工显示 edit 预览
+const activePhotoPreview = computed(() => (canEditExpert.value ? adminPhotoPreview : photoPreview))
 const selectedIds = ref(new Set())
 // 已选专家姓名（{id, 姓名}），跨搜索/翻页保留，用于标签展示与逐项取消
 const selectedExperts = ref([])
@@ -755,13 +694,15 @@ function removeSelectedExpert(expert) {
 }
 
 async function openDetail(row) {
-  const data = await getExpert(row.id, isAdmin.value ? { sensitive: 1 } : undefined)
+  const data = await getExpert(row.id, canEditExpert.value ? { sensitive: 1 } : undefined)
   detail.value = data
-  // 管理员可编辑视角：填充全量表单并清空照片选择
-  if (isAdmin.value) {
+  // 统一视图初始化：管理员/超管回填全量表单（免审批直写），员工初始化编辑表单与初始快照（审批流）
+  if (canEditExpert.value) {
     for (const k of TEXT_FIELDS) {
       adminForm[k] = data?.[k] ?? ''
     }
+    // 简介用后端返回的原始简介回填（data['简介'] 为拼接展示值，避免把拼接内容写回存储）
+    adminForm['简介'] = data?.['原始简介'] ?? data?.['简介'] ?? ''
     adminPhotoPreview.photo = ''
     adminPhotoPreview.front = ''
     adminPhotoPreview.back = ''
@@ -769,26 +710,23 @@ async function openDetail(row) {
     adminPickedFiles.front = null
     adminPickedFiles.back = null
   }
-  // 员工可编辑视角：初始化表单与初始快照
-  if (!isAdmin.value) {
-    editTemplateId.value = null
-    for (const k of TEXT_FIELDS) {
-      editForm[k] = data?.[k] ?? ''
-    }
-    editSnapshot.value = {}
-    for (const k of TEXT_FIELDS) {
-      editSnapshot.value[k] = data?.[k] ?? ''
-    }
-    photoChanged.photo = false
-    photoChanged.front = false
-    photoChanged.back = false
-    photoPreview.photo = ''
-    photoPreview.front = ''
-    photoPreview.back = ''
-    pickedFiles.photo = null
-    pickedFiles.front = null
-    pickedFiles.back = null
+  editTemplateId.value = null
+  for (const k of TEXT_FIELDS) {
+    editForm[k] = data?.[k] ?? ''
   }
+  editSnapshot.value = {}
+  for (const k of TEXT_FIELDS) {
+    editSnapshot.value[k] = data?.[k] ?? ''
+  }
+  photoChanged.photo = false
+  photoChanged.front = false
+  photoChanged.back = false
+  photoPreview.photo = ''
+  photoPreview.front = ''
+  photoPreview.back = ''
+  pickedFiles.photo = null
+  pickedFiles.front = null
+  pickedFiles.back = null
   // 加载身份证正反面照片（仅用于脱敏模糊展示，不提供原图预览）
   idFrontUrl.value = ''
   idBackUrl.value = ''
@@ -811,24 +749,36 @@ async function openDetail(row) {
   detailVisible.value = true
 }
 
-// 手机号脱敏：中间 4 位打码（138****1234）；邮箱等非手机号原样返回；已含 * 的值直接返回
-function maskPhone(value) {
-  if (!value) return ''
-  const s = String(value).trim()
-  if (s.includes('*')) return s
-  if (/^1\d{10}$/.test(s)) {
-    return s.slice(0, 3) + '****' + s.slice(7)
+// 复制字段值到剪贴板：优先 navigator.clipboard，不可用时兜底 document.execCommand('copy')
+async function copyFieldValue(value) {
+  const text = String(value ?? '').trim()
+  if (!text) {
+    ElMessage.warning('暂无可复制的内容')
+    return
   }
-  return s
-}
-
-// 敏感号兜底脱敏：前 3 后 4（普通员工接口后端已脱敏，此处仅防意外返回全量）
-function maskSensitive(value) {
-  if (!value) return ''
-  const s = String(value).trim()
-  if (s.includes('*')) return s
-  if (s.length <= 7) return s
-  return s.slice(0, 3) + '****' + s.slice(-4)
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      ElMessage.success('已复制')
+      return
+    }
+    throw new Error('clipboard unavailable')
+  } catch (e) {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+      ElMessage.success('已复制')
+    } catch (err) {
+      ElMessage.error('复制失败，请手动复制')
+    } finally {
+      document.body.removeChild(ta)
+    }
+  }
 }
 
 function handleExportExcel() {
@@ -855,7 +805,8 @@ function handleExportSelectedZip() {
   exportSelectedZip([...selectedIds.value]).catch(() => {})
 }
 
-// 选择新照片：本地预览 + 标记变更 + 暂存文件（提交审批时再上传临时接口）
+// 选择新照片：本地预览 + 标记变更 + 暂存文件（提交审批时再上传临时接口）；
+// 统一弹窗按角色分派：管理员/超管存入 admin 变量（保存时随 FormData 直传），员工存入 edit 变量（提交审批时上传）
 function onPickPhoto(kind, file) {
   const raw = file?.raw || file
   if (!raw) {
@@ -863,6 +814,14 @@ function onPickPhoto(kind, file) {
   }
   if (raw.size > 5 * 1024 * 1024) {
     ElMessage.warning('图片大小不能超过 5MB')
+    return
+  }
+  if (canEditExpert.value) {
+    adminPickedFiles[kind] = raw
+    if (adminPhotoPreview[kind]) {
+      URL.revokeObjectURL(adminPhotoPreview[kind])
+    }
+    adminPhotoPreview[kind] = URL.createObjectURL(raw)
     return
   }
   pickedFiles[kind] = raw
@@ -1048,8 +1007,14 @@ async function submitEditChange() {
   }
 }
 
-// 关闭详情弹窗：dirty 时确认提交 / 放弃修改；未修改直接关闭
+// 关闭详情弹窗：管理员/超管免审批直写直接关闭（未保存修改不提示，与原行为一致）；
+// 员工 dirty 时确认提交 / 放弃修改；未修改直接关闭
 async function handleDetailClose(done) {
+  if (canEditExpert.value) {
+    detailVisible.value = false
+    done()
+    return
+  }
   if (!dirty.value) {
     detailVisible.value = false
     done()
@@ -1081,6 +1046,20 @@ async function handleDetailClose(done) {
   done()
 }
 
+// 统一弹窗"提交申请"按钮（员工）：直接提交当前编辑为审批申请
+async function handleDetailSubmit() {
+  const ok = await submitEditChange()
+  if (ok) {
+    detailVisible.value = false
+    fetchList()
+  }
+}
+
+// 统一弹窗"取消"按钮：管理员直接关闭；员工走 before-close 相同的确认流程
+function handleDetailCancel() {
+  handleDetailClose(() => {})
+}
+
 // ==================== 管理员：新增 / 编辑 / 删除（免审批直写） ====================
 const adminSubmitting = ref(false)
 const adminDeleting = ref(false)
@@ -1101,23 +1080,6 @@ const adminCreateForm = reactive({
 })
 const adminCreatePhotoPreview = reactive({ photo: '', front: '', back: '' })
 const adminCreatePickedFiles = reactive({ photo: null, front: null, back: null })
-
-// 管理员编辑弹窗选照片：本地预览 + 暂存文件（保存时随 FormData 直传）
-function onAdminPickPhoto(kind, file) {
-  const raw = file?.raw || file
-  if (!raw) {
-    return
-  }
-  if (raw.size > 5 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过 5MB')
-    return
-  }
-  adminPickedFiles[kind] = raw
-  if (adminPhotoPreview[kind]) {
-    URL.revokeObjectURL(adminPhotoPreview[kind])
-  }
-  adminPhotoPreview[kind] = URL.createObjectURL(raw)
-}
 
 // 管理员新增弹窗选照片：本地预览 + 暂存文件
 function onAdminCreatePickPhoto(kind, file) {
@@ -1260,29 +1222,7 @@ async function submitAdminCreate() {
 onMounted(() => {
   fetchList()
   fetchTemplates()
-  fetchAnnouncements()
 })
-
-// ==================== 首页公告卡片栏 ====================
-const announcements = ref([])
-
-function formatAnnTime(t) {
-  if (!t) return ''
-  return String(t).replace('T', ' ').slice(0, 16)
-}
-
-async function fetchAnnouncements() {
-  try {
-    announcements.value = (await getEffectiveAnnouncements(5)) || []
-  } catch (e) {
-    // 公告栏失败不影响首页：不渲染即可
-    announcements.value = []
-  }
-}
-
-function goAnnouncement(id) {
-  router.push(`/announcements/${id}`)
-}
 </script>
 
 <style scoped>
@@ -1333,48 +1273,25 @@ function goAnnouncement(id) {
   position: relative;
   overflow: hidden;
 }
-/* 首页公告卡片栏 */
-.announcement-banner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 12px;
-}
-.ann-card {
-  width: 260px;
+/* 详情弹窗字段复制图标 */
+.copy-icon {
+  font-size: 16px;
+  color: #909399;
   cursor: pointer;
-  margin: 0;
+  transition: color 0.2s;
 }
-.ann-card :deep(.el-card__body) {
-  padding: 12px 14px;
+.copy-icon:hover {
+  color: #409eff;
 }
-.ann-card-main {
-  display: flex;
-  align-items: center;
-  min-height: 22px;
-}
-.ann-card-title {
-  margin-left: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #303133;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.textarea-copy-wrap {
+  position: relative;
   flex: 1;
 }
-.ann-card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f56c6c;
-  flex-shrink: 0;
-  margin-left: 6px;
-}
-.ann-card-meta {
-  margin-top: 6px;
-  color: #909399;
-  font-size: 12px;
+.textarea-copy {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 1;
 }
 .selected-bar {
   display: flex;
