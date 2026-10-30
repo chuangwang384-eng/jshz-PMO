@@ -13,7 +13,7 @@
 
     <groupId>com.jshz</groupId>
     <artifactId>expert-system</artifactId>
-    <version>1.008</version>
+    <version>1.010</version>
     <name>expert-system</name>
     <description>专家库系统后端服务（正式版 V1.003）</description>
 

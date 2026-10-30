@@ -2,6 +2,17 @@
 AIGC:
     Label: "1"
     ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a7bc732fd1fd11f18068525400de85a5
+    ReservedCode1: ri/LYHlPGmcj1qxl9oFhziVGgKX1/E6aRu/kGo84MTPQzUMcNUrdbyJvb6Mca+Q8CSlRfkIz9uyk/lluSIB9LEjABXElqn7Gv3wJ1NHhlTnjxNoaLtqpwN8yimPvwsuinluWezqZrQliydaKS59/DTS5a61yuFHiUDz5IPjVjHOHk++BVU/hNBzQH8s=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a7bc732fd1fd11f18068525400de85a5
+    ReservedCode2: ri/LYHlPGmcj1qxl9oFhziVGgKX1/E6aRu/kGo84MTPQzUMcNUrdbyJvb6Mca+Q8CSlRfkIz9uyk/lluSIB9LEjABXElqn7Gv3wJ1NHhlTnjxNoaLtqpwN8yimPvwsuinluWezqZrQliydaKS59/DTS5a61yuFHiUDz5IPjVjHOHk++BVU/hNBzQH8s=
+---
+
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
     ProduceID: d9cc1e9f35e2e4edfa52a2013dbcd9a5_a3cde50cd0dd11f1814c525400cd780f
     ReservedCode1: Ify4TlCoLcIIhplv2IO/bfAOiHmDf56p/YpY70mCPKu/7pGtTDynCId/TkJJS+ahQDM5XHp4MOR7MCWBo851CgN1fkauereC18I79DAKg0fDWN13obNtJN10kAdqiaj8xlex4BPBTav1RKrdVRq3/O94KBzu6QxadWaCCma4Ne9ev74tcnLIJDL4pM8=
     ContentPropagator: 001191440300708461136T1XGW3
@@ -40,7 +51,7 @@ mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 
 执行后创建 `expert_system` 库及全部 **13 张表**（`expert_info` / `sys_user` / `download_log` / `approval_config` / `expert_change_request` / `approval_record` / `role` / `permission` / `role_permission` / `user_role` / `knowledge_document` / `knowledge_doc_version` / `notification`），并写入初始管理员数据。
 
-> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表与 RBAC 四表；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）；知识星球文档环境执行 `database/migration/20261023_add_knowledge_tables.sql` 补建 knowledge_document / knowledge_doc_version 两表并写入接口权限码 knowledge:manage（绑定 ADMIN，幂等可重复执行）；消息通知中心环境执行 `database/migration/20261023_add_notification_table.sql` 补建 notification 表（幂等可重复执行）；审批模板环境执行 `database/migration/20261026_add_approval_template.sql` 补建 approval_template 表并给 expert_change_request 加 template_id 列、写入模板管理接口权限码与 3 个种子模板（幂等可重复执行）；知识星球增强（C1 内容检索/C3 收藏/C4 下载统计）环境执行 `database/migration/20261026_add_knowledge_c1c3c4.sql` 给 knowledge_document 加 content 列、download_log 加 doc_id 列并补建 knowledge_favorite 收藏表（幂等可重复执行）；B2 审批转办/加签 + 用户操作日志环境执行 `database/migration/20261026_add_b2_transfer_operation_log.sql` 给 expert_change_request 加 current_assignee / extra_approver 两列、新建 operation_log 操作日志表、把历史 download_log 迁移为 operation_log（action_type=DOWNLOAD）并写入转办/加签/可转办用户列表接口权限码（均幂等可重复执行）；「我的申请」改版环境执行 `database/migration/20261026_add_application_table.sql` 新建 application 通用申请主表、把 expert_change_request 全量迁移并入（保留原 id，旧表保留作历史备份）、给 approval_record 加 application_id 列并回填、修正存量通知跳转路径（幂等可重复执行，含 sys_user 与业务表 collation 差异的显式 COLLATE 处理）；供应商管理环境执行 `database/migration/20261026_add_supplier_module.sql` 新建供应商六表、预置 6 类型与 349 城市、写入 supplier:dict 权限码并绑定 ADMIN（幂等可重复执行）；审批「申请前后变化」对比环境执行 `database/migration/20261027_backfill_application_old_data.sql` 回填 application.biz_data.oldData 旧值快照（仅 EXPERT_MODIFY 且 status∈{0,2,3} 的存量单，无 DDL，幂等可重复执行；status=1 已通过单不回填，前端显示历史单提示）。以实际库 **23 张表**为准。
+> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表与 RBAC 四表；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）；知识星球文档环境执行 `database/migration/20261023_add_knowledge_tables.sql` 补建 knowledge_document / knowledge_doc_version 两表并写入接口权限码 knowledge:manage（绑定 ADMIN，幂等可重复执行）；消息通知中心环境执行 `database/migration/20261023_add_notification_table.sql` 补建 notification 表（幂等可重复执行）；审批模板环境执行 `database/migration/20261026_add_approval_template.sql` 补建 approval_template 表并给 expert_change_request 加 template_id 列、写入模板管理接口权限码与 3 个种子模板（幂等可重复执行）；知识星球增强（C1 内容检索/C3 收藏/C4 下载统计）环境执行 `database/migration/20261026_add_knowledge_c1c3c4.sql` 给 knowledge_document 加 content 列、download_log 加 doc_id 列并补建 knowledge_favorite 收藏表（幂等可重复执行）；B2 审批转办/加签 + 用户操作日志环境执行 `database/migration/20261026_add_b2_transfer_operation_log.sql` 给 expert_change_request 加 current_assignee / extra_approver 两列、新建 operation_log 操作日志表、把历史 download_log 迁移为 operation_log（action_type=DOWNLOAD）并写入转办/加签/可转办用户列表接口权限码（均幂等可重复执行）；「我的申请」改版环境执行 `database/migration/20261026_add_application_table.sql` 新建 application 通用申请主表、把 expert_change_request 全量迁移并入（保留原 id，旧表保留作历史备份）、给 approval_record 加 application_id 列并回填、修正存量通知跳转路径（幂等可重复执行，含 sys_user 与业务表 collation 差异的显式 COLLATE 处理）；供应商管理环境执行 `database/migration/20261026_add_supplier_module.sql` 新建供应商六表、预置 6 类型与 349 城市、写入 supplier:dict 权限码并绑定 ADMIN（幂等可重复执行）；审批「申请前后变化」对比环境执行 `database/migration/20261027_backfill_application_old_data.sql` 回填 application.biz_data.oldData 旧值快照（仅 EXPERT_MODIFY 且 status∈{0,2,3} 的存量单，无 DDL，幂等可重复执行；status=1 已通过单不回填，前端显示历史单提示）；企微通讯录同步与账号体系改造环境执行 `database/migration/20261026_add_wecom_contact_sync.sql` 新建 wecom_department / wecom_user_department / wecom_sync_log 三表、给 sys_user 加 mobile / position 列、建 uk_wecom_userid / uk_mobile 唯一索引、删除 uk_username 前备份为 wecom_migration_uk_username_backup、写入 wecom:sync 权限码（6 条路径绑 ADMIN，幂等可重复执行，已在本机测试库演练 3 遍通过）。以实际库 **26 张表**为准。
 
 ## 3. 后端部署
 
@@ -59,9 +70,13 @@ set MYSQL_DB=expert_system
 set MYSQL_USER=<账号>
 set MYSQL_PASSWORD=<密码>
 set JWT_SECRET=<32字节以上随机密钥>
+# 企微通讯录同步（1.007 起；未配置时同步功能不可用但登录不受影响，具体见「企微通讯录同步部署准备」）
+set WECOM_CORP_ID=<企微企业 CorpID>
+set WECOM_CONTACT_SECRET=<通讯录同步助手只读 secret>
+set AUTH_LOGIN_MODE=COMPAT
 ```
 
-**启动方式（Windows 唯一合法方式）**：使用项目根目录 `start-backend.bat`（内含 `set MYSQL_PASSWORD=<真实密码>` 与 `set JWT_SECRET=<真实密钥>` 后 `java -jar target\expert-system-1.001.jar`；真实值只存于该本地未入库文件与 NSSM 服务配置，禁止写入任何入库文件）。
+**启动方式（Windows 唯一合法方式）**：使用项目根目录 `start-backend.bat`（内含 `set MYSQL_PASSWORD=<真实密码>`、`set JWT_SECRET=<真实密钥>` 与企微三变量占位（`WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE=NAME`，2026-10-27 已加入注入点）后 `java -jar target\expert-system-1.001.jar`；真实值只存于该本地未入库文件与 NSSM 服务配置，禁止写入任何入库文件）。
 
 > ⚠️ **禁止直接 `java -jar`**：`application.yml` 中 `password: ${MYSQL_PASSWORD:}` 未注入时为空，会报 `Access denied for user 'root'@'localhost'`；`start-backend.bat` 已注入密码，是唯一合法启动方式。
 
@@ -129,6 +144,7 @@ server {
 - [ ] 消息通知接口可用：`GET /api/notifications`、`GET /api/notifications/unread-count`、`POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`
 - [ ] 知识星球管理员永久删除可用：`DELETE /api/knowledge/docs/{id}/permanent`（删除主记录+版本历史+磁盘文件）
 - [ ] 前端页面可正常加载并展示专家列表，顶栏铃铛可见、知识星球父页点击标题跳转/点击箭头展开子菜单
+- [ ] （1.007 企微通讯录同步）`database/migration/20261026_add_wecom_contact_sync.sql` 已在目标库执行，`SHOW TABLES` 确认 26 张表；登录页文案随 `AUTH_LOGIN_MODE` 变化；管理页 DryRun 试算→实跑→组织架构树→未绑定清单→人工绑定链路可用；个人中心「通讯录」页展示本部门链路与成员
 - [ ] 内网安全策略（IP 白名单 / 端口监听）已生效
 *（内容由AI生成，仅供参考）*
 
@@ -202,3 +218,53 @@ server {
 
 ## R-1 发布记录
 - 2026-10-27 14:55:12 R-1 发布 1.006 成功（jar: expert-system-1.006.jar）
+
+## 企微通讯录同步部署准备（2026-10-27，实施完成，发布执行留待负责人批准）
+
+> 本文档只记录部署准备与注入点；**生产发布未执行**（需负责人批准后按 §11 部署步骤执行，与 1.005 同场 UAC 模式操作 NSSM）。
+
+### 企微后台配置指引（负责人操作，约 10 分钟）
+1. 登录[企微管理后台](https://work.weixin.qq.com/wework_admin) → 管理工具 → **通讯录同步助手**：开启，生成**只读** secret（勿申请写权限）。
+2. 我的企业 → 企业信息：记录 **CorpID**。
+3. 若企业开启「IP 可信/白名单」校验：把**公司网络出口公网 IP** 加入可信列表（本机当前在 192.168.110.x 网段，出口 IP 需在公司网络实测获取）。
+4. 保持只读 secret，系统**不回写**企微。
+
+### 环境变量注入点（代码侧已就绪）
+- `start-backend.bat`（2026-10-27 已加占位）：`set WECOM_CORP_ID=`、`set WECOM_CONTACT_SECRET=`、`set AUTH_LOGIN_MODE=NAME`，真实值由负责人在部署时填写。
+- NSSM 服务 `ExpertSystemBackend` 的 `AppEnvironmentExtra`：需在发布时（管理员/UAC）追加 `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE` 三项；可参考 `scripts/rotate-backend-credentials.ps1` 的写注册表方式新增 `scripts/set-wecom-env.ps1`（未创建）。
+- `application.yml`：`expert.wecom.corp-id=${WECOM_CORP_ID:}`、`contact-secret=${WECOM_CONTACT_SECRET:}`、`sync-cron="0 30 2 * * ?"`、`sync-cron-enabled: false`（默认关闭，运维稳定后打开）、`login-mode=${AUTH_LOGIN_MODE:NAME}`。
+- **fail-fast 约定**：`sync-cron-enabled=true` 且 corp-id/secret 为空 → 启动失败（对齐 JWT_SECRET 校验风格）。
+
+### 登录模式切换节奏（评审结论）
+- 1.007 上线初始建议 `AUTH_LOGIN_MODE=COMPAT`（姓名/手机号双通道过渡，未绑定用户仍姓名登录）；
+- 全员绑定率 100% 后再切 `MOBILE`（仅手机号登录、关闭自动注册；`is_admin=1` 管理员豁免不受影响）；
+- 回滚档 `NAME`：一键改环境变量重启即恢复原状。
+
+### 上线发布步骤（执行时）
+1. 在目标库执行 `database/migration/20261026_add_wecom_contact_sync.sql`（幂等，先测试库演练——已在本机测试库演练 3 遍通过）；
+2. 管理员/UAC：`start-backend.bat` 与 NSSM 服务环境追加 `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE=COMPAT`；
+3. 后端 `mvn -DskipTests package` → `scripts/deploy-backend.ps1` 蓝绿发布；前端 `scripts/deploy-frontend.ps1` 原子发布；
+4. 冒烟：登录页文案切换 → DryRun 同步 → 实跑 → 组织架构树 → 双通道登录 → 设计文档 §9 验收清单 ①-⑧。
+*（内容由AI生成，仅供参考）*
+*（内容由AI生成，仅供参考）*
+
+## R-1 发布记录
+- 2026-10-27 20:40:35 R-1 发布 1.007 成功（jar: expert-system-1.007.jar）
+
+## R-1 发布记录
+- 2026-10-29 08:33:53 R-1 发布 1.009 成功（jar: expert-system-1.009.jar）
+
+## R-1 发布记录
+- 2026-10-29 17:15:33 R-1 发布 1.009 成功（jar: expert-system-1.009-fix.jar）
+
+## R-1 发布记录
+- 2026-10-29 19:21:57 R-1 发布 1.009 成功（jar: expert-system-1.009.jar）
+
+## R-1 发布记录
+- 2026-10-30 09:08:48 R-1 发布 1.010 成功（jar: expert-system-1.010.jar）
+
+## R-1 发布记录
+- 2026-10-30 12:31:26 R-1 发布 1.010 成功（jar: expert-system-1.010.jar）
+
+## R-1 发布记录
+- 2026-10-30 14:23:57 R-1 发布 1.011 成功（jar: expert-system-1.011.jar）

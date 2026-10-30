@@ -22,7 +22,7 @@ AIGC:
 
 # 景帅会展内部管理库系统（Expert Library System）
 
-> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 15 张表、后端 Controller 13 个。
+> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线：数据库 39 张表、后端 Controller 18 个。
 
 ## 项目定位
 
@@ -44,7 +44,7 @@ AIGC:
 | --- | ---------------------------------------- | ----------- |
 | 后端  | Java 17 + Spring Boot 3.2.5 + MyBatis-Plus 3.5.7 + Spring Security + jjwt 0.11.5 | `backend/` |
 | 前端  | Vue 3.4 + Vite 5 + Element Plus + Pinia + vue-router + axios | `frontend/` |
-| 数据库 | MySQL 8.x（expert_system 库 15 张表：expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record / approval_template / role / permission / role_permission / user_role / knowledge_document / knowledge_doc_version / knowledge_favorite / notification） | `database/` |
+| 数据库 | MySQL 8.x（expert_system 库 39 张表：expert_info / sys_user / download_log / expert_change_request / approval_config / approval_record / approval_template / role / permission / role_permission / user_role / knowledge_document / knowledge_doc_version / knowledge_favorite / notification / application / operation_log / announcement / announcement_read / project / project_type / project_template / project_phase / project_phase_template_rel / project_contract / project_doc / project_executor / project_expert / project_supplier / supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel / wecom_department / wecom_user_department / wecom_sync_log / wecom_migration_uk_username_backup） | `database/` |
 | 照片存储 | 本地磁盘照片库（三类照片 + 静态资源映射） | `照片库/` |
 | 文档  | 设计、架构、部署、验收报告 | `docs/`     |
 
@@ -56,7 +56,7 @@ jshz-PMO/
 ├── .gitignore             # Git 忽略规则
 ├── backend/               # 后端服务（Spring Boot 3.2.5，V1.001，含审批流三表服务）
 ├── frontend/              # 前端应用（Vue 3.4 + Vite 5）
-├── database/              # 数据库脚本（init.sql 基础 6 表；migration/ 增量迁移补齐至 14 表）
+├── database/              # 数据库脚本（init.sql 基础 6 表；migration/ 增量迁移补齐至 39 表）
 ├── scripts/               # 迁移脚本（SQLite → MySQL）
 ├── docs/                  # 项目文档（设计/架构/部署/验收）
 └── 照片库/                # 照片存储（avatar / idcard_front / idcard_back）
@@ -65,7 +65,7 @@ jshz-PMO/
 
 ## 快速开始（概要）
 
-1. 初始化数据库：创建 `expert_system` 库并执行 `database/init.sql`，再依次执行 `database/migration/` 全部增量脚本（合计 15 张表：专家信息 / 用户 / 下载审计 / 审批流 / 审批模板 / RBAC / 知识星球 / 收藏 / 通知）
+1. 初始化数据库：创建 `expert_system` 库并执行 `database/init.sql`，再依次执行 `database/migration/` 全部增量脚本（合计 39 张表：专家信息 / 用户 / 下载审计 / 审批流 / 审批模板 / RBAC / 知识星球 / 收藏 / 通知 / 专家申请 / 审计操作日志 / 公告 / 项目 / 供应商 / 企微通讯录）
 2. 启动后端：配置数据库环境变量后 `cd backend && mvn spring-boot:run`（默认端口 8080）
 3. 启动前端：`cd frontend && npm install && npm run dev`（默认端口 5173）
 

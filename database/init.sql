@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
   username             VARCHAR(50)  NOT NULL                COMMENT '登录账号 = 员工姓名',
   password             VARCHAR(100) NOT NULL                COMMENT 'BCrypt 加密密码（禁止明文）',
   is_admin             TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '0 普通员工 / 1 管理员（管理员名单）',
-  wecom_userid         VARCHAR(64)  DEFAULT NULL            COMMENT '二期企微 userid（预留）',
+  wecom_userid         VARCHAR(64)  DEFAULT NULL            COMMENT '企微 userid（企微同步填充；登录标识，唯一索引 uk_wecom_userid）',
   must_change_password TINYINT(1)   NOT NULL DEFAULT 1      COMMENT '是否需强制改密：1是 0否（设计文档 5.1 首次登录强制改密）',
   status               TINYINT(1)   NOT NULL DEFAULT 1      COMMENT '1 启用 / 0 停用',
   create_time          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

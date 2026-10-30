@@ -89,7 +89,7 @@ Write-Step '[1/6] 构建到临时目录（不直接覆盖 dist）'
 Invoke-Action "npm run build -- --outDir $distNew（工作目录 $FrontendDir）" {
     Push-Location $FrontendDir
     try {
-        & npm run build -- --outDir $distNew
+        cmd /c "npm run build -- --outDir ""$distNew"" 2>&1"
         if ($LASTEXITCODE -ne 0) { throw "npm run build 失败，退出码 $LASTEXITCODE" }
     } finally { Pop-Location }
 }
