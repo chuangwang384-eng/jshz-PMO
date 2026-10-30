@@ -39,11 +39,14 @@ export function getKnowledgeVersions(id) {
 }
 
 // 文件下载/预览（登录即可，blob 响应，response.data 为 Blob）
-// 预览适配：download=false 时 Office 文档（doc/docx/xls/xlsx/ppt/pptx）后端先转 PDF 再返回流，
-// 前端按 row.fileType 判断渲染方式（Office 视作 PDF 用 pdf.js 渲染）；download=true 返回原文件流
-export function fetchKnowledgeFile(fileName, download = false) {
-  const q = download ? '?download=1' : ''
-  return request.get(`/knowledge/docs/files/${encodeURIComponent(fileName)}${q}`, { responseType: 'blob' })
+// download=true 返回原文件流（?download=1）；preview=true 走预览模式（?preview=true）：
+// 成功返回文件流（SUCCESS 语义）；失败返回结构化 JSON {code:CONVERT_FAILED|PREVIEW_FAILED,message}
+export function fetchKnowledgeFile(fileName, download = false, preview = false) {
+  const params = new URLSearchParams()
+  if (download) params.set('download', '1')
+  if (preview) params.set('preview', 'true')
+  const qs = params.toString()
+  return request.get(`/knowledge/docs/files/${encodeURIComponent(fileName)}${qs ? '?' + qs : ''}`, { responseType: 'blob' })
 }
 
 // ==================== 文档收藏（C3） ====================

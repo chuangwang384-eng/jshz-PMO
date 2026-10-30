@@ -189,23 +189,28 @@ public class KnowledgeController {
     // ==================== 文件下载/预览 ====================
 
     /**
-     * 文件流：GET /api/knowledge/docs/files/{fileName}?download=1（默认 inline 预览）。登录即可。
+     * 文件流：GET /api/knowledge/docs/files/{fileName}?download=1&preview=true。登录即可。
      * Content-Disposition 使用 RFC 5987 filename* 支持中文文件名。
      * C4：download=1（附件下载）时写入 download_log 计数（doc_id + type=knowledge_doc）；
      * inline 预览不计入下载次数。
-     * 格式展示：inline 预览模式下，Office 文档（doc/docx/xls/xlsx/ppt/pptx）先经 DocPreviewService
-     * 转换为 PDF 缓存后返回 PDF 流；PDF / 图片直接返回原文件流。
+     * preview=true：预览模式。Office 文档（doc/docx/xls/xlsx/ppt/pptx）先经 DocPreviewService
+     * 转换为 PDF 缓存后返回 PDF 流（成功即 SUCCESS 语义）；转换失败（含重试后仍失败）返回结构化
+     * JSON {code:CONVERT_FAILED, message}；PDF / 图片直接返回原文件流，其他异常返回
+     * {code:PREVIEW_FAILED, message}。
+     * 未传 preview 时兼容旧调用（维持原 inline 预览行为，Office 转换失败抛业务异常）。
      */
     @GetMapping("/docs/files/{fileName}")
-    public ResponseEntity<FileSystemResource> file(@PathVariable String fileName,
-                                                   @RequestParam(required = false) String download,
-                                                   @AuthenticationPrincipal AuthUser authUser,
-                                                   HttpServletRequest request) throws IOException {
+    public ResponseEntity<?> file(@PathVariable String fileName,
+                                  @RequestParam(required = false) String download,
+                                  @RequestParam(required = false) String preview,
+                                  @AuthenticationPrincipal AuthUser authUser,
+                                  HttpServletRequest request) throws IOException {
         Path path = storageService.resolveDocument(fileName);
         if (!Files.exists(path) || !Files.isRegularFile(path)) {
             return ResponseEntity.notFound().build();
         }
         boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
+        boolean previewMode = !forceDownload && ("true".equalsIgnoreCase(preview) || "1".equals(preview));
         if (forceDownload) {
             // 下载留痕（C4）：按存储文件名反查文档，失败不阻断下载
             try {
@@ -218,8 +223,24 @@ public class KnowledgeController {
             }
         }
         MediaType mediaType = mediaTypeOf(fileName);
-        if (!forceDownload) {
-            // 预览模式：Office 文档先经 DocPreviewService 转为 PDF 缓存，返回 PDF 流
+        if (previewMode) {
+            // 预览模式（?preview=true）：Office 转换失败返回结构化错误码 CONVERT_FAILED，
+            // 其他异常返回 PREVIEW_FAILED；成功返回 PDF / 原文件流（SUCCESS 语义）
+            try {
+                KnowledgeDocument doc = documentService.findByFilePath(fileName);
+                if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
+                    Path pdf = docPreviewService.getPreviewFile(
+                            doc.getFilePath(), doc.getId(), doc.getVersion(), doc.getFileType());
+                    path = pdf;
+                    mediaType = MediaType.APPLICATION_PDF;
+                }
+            } catch (com.jshz.expert.common.BusinessException e) {
+                return previewError("CONVERT_FAILED", "文档转换失败，可下载查看");
+            } catch (Exception e) {
+                return previewError("PREVIEW_FAILED", "预览失败，可下载查看");
+            }
+        } else if (!forceDownload) {
+            // 兼容旧调用（未传 preview 参数）：维持原 inline 预览行为
             try {
                 KnowledgeDocument doc = documentService.findByFilePath(fileName);
                 if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
@@ -242,6 +263,16 @@ public class KnowledgeController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
                 .contentType(mediaType)
                 .body(new FileSystemResource(path));
+    }
+
+    /** 预览失败结构化响应：{"code":"CONVERT_FAILED|PREVIEW_FAILED","message":"..."}；成功时以文件流返回（SUCCESS 语义）。 */
+    private ResponseEntity<?> previewError(String code, String message) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("code", code);
+        body.put("message", message);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
     }
 
     // ==================== 文档收藏（C3） ====================

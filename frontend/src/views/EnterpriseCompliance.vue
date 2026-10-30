@@ -1,6 +1,6 @@
 <template>
   <div class="page-container">
-    <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="false" />
+    <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="true" />
   </div>
 </template>
 
