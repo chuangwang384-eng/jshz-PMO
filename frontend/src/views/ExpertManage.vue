@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-input
         v-model="keyword"
-        placeholder="按姓名 / 单位 / 科室 / 职称 / 研究方向 / 擅长领域检索"
+        placeholder="按姓名 / 单位 / 科室 / 职称 / 联系方式 / 简介检索"
         clearable
         style="width: 320px"
         @keyup.enter="handleSearch"
@@ -43,8 +43,6 @@
       <el-table-column prop="单位" label="单位" width="140" show-overflow-tooltip />
       <el-table-column prop="科室" label="科室" width="120" show-overflow-tooltip />
       <el-table-column prop="职称" label="职称" width="100" />
-      <el-table-column prop="研究方向" label="研究方向" width="130" show-overflow-tooltip />
-      <el-table-column prop="擅长领域" label="擅长领域" width="130" show-overflow-tooltip />
       <el-table-column prop="联系方式" label="联系方式" width="130" />
       <el-table-column prop="简介" label="简介" width="130" show-overflow-tooltip />
       <el-table-column prop="身份证号" label="身份证号" width="175" />

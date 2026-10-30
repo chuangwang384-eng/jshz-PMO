@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-input
         v-model="keyword"
-        placeholder="按姓名 / 单位 / 科室 / 职称 / 研究方向 / 擅长领域检索"
+        placeholder="按姓名 / 单位 / 科室 / 职称 / 联系方式 / 简介检索"
         clearable
         style="width: 360px"
         @keyup.enter="handleSearch"
@@ -318,7 +318,7 @@
               :value="t.id"
             />
           </el-select>
-          <div class="form-tip">新增申请的模板需覆盖全部必填项（姓名、单位、科室、职称、研究方向、擅长领域、联系方式），未覆盖的模板不在下拉中</div>
+          <div class="form-tip">新增申请的模板需覆盖全部必填项（姓名、单位、科室、职称、联系方式），未覆盖的模板不在下拉中</div>
         </el-form-item>
         <div class="edit-photos">
           <div v-if="createFieldVisible('照片')" class="edit-photo-item">
@@ -381,12 +381,6 @@
         </el-form-item>
         <el-form-item v-if="createFieldVisible('联系方式')" label="联系方式">
           <el-input v-model="createForm.联系方式" placeholder="请输入联系方式" />
-        </el-form-item>
-        <el-form-item v-if="createFieldVisible('研究方向')" label="研究方向">
-          <el-input v-model="createForm.研究方向" placeholder="请输入研究方向" />
-        </el-form-item>
-        <el-form-item v-if="createFieldVisible('擅长领域')" label="擅长领域">
-          <el-input v-model="createForm.擅长领域" placeholder="请输入擅长领域" />
         </el-form-item>
         <el-form-item v-if="createFieldVisible('简介')" label="简介">
           <el-input v-model="createForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
@@ -478,12 +472,6 @@
         <el-form-item label="联系方式">
           <el-input v-model="adminCreateForm.联系方式" placeholder="请输入联系方式" />
         </el-form-item>
-        <el-form-item label="研究方向">
-          <el-input v-model="adminCreateForm.研究方向" placeholder="请输入研究方向" />
-        </el-form-item>
-        <el-form-item label="擅长领域">
-          <el-input v-model="adminCreateForm.擅长领域" placeholder="请输入擅长领域" />
-        </el-form-item>
         <el-form-item label="简介">
           <el-input v-model="adminCreateForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
         </el-form-item>
@@ -546,14 +534,12 @@ const idFrontUrl = ref('')
 const idBackUrl = ref('')
 
 // 卡片内直接编辑（需求3：员工视角详情弹窗可编辑，关闭时检测变更生成审批流）
-const TEXT_FIELDS = ['姓名', '单位', '科室', '职称', '研究方向', '擅长领域', '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行']
+const TEXT_FIELDS = ['姓名', '单位', '科室', '职称', '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行']
 const editForm = reactive({
   姓名: '',
   单位: '',
   科室: '',
   职称: '',
-  研究方向: '',
-  擅长领域: '',
   联系方式: '',
   简介: '',
   身份证号: '',
@@ -696,13 +682,8 @@ function removeSelectedExpert(expert) {
 async function openDetail(row) {
   const data = await getExpert(row.id, canEditExpert.value ? { sensitive: 1 } : undefined)
   detail.value = data
-  // 统一视图初始化：管理员/超管回填全量表单（免审批直写），员工初始化编辑表单与初始快照（审批流）
+  // 统一视图初始化：详情弹窗文本字段统一回填 editForm（管理员免审批直写 / 员工审批流共用）
   if (canEditExpert.value) {
-    for (const k of TEXT_FIELDS) {
-      adminForm[k] = data?.[k] ?? ''
-    }
-    // 简介用后端返回的原始简介回填（data['简介'] 为拼接展示值，避免把拼接内容写回存储）
-    adminForm['简介'] = data?.['原始简介'] ?? data?.['简介'] ?? ''
     adminPhotoPreview.photo = ''
     adminPhotoPreview.front = ''
     adminPhotoPreview.back = ''
@@ -714,10 +695,13 @@ async function openDetail(row) {
   for (const k of TEXT_FIELDS) {
     editForm[k] = data?.[k] ?? ''
   }
+  // 简介回填原始简介（data['简介'] 为后端拼接展示值，避免把拼接内容提交审批写回存储）
+  editForm['简介'] = data?.['原始简介'] ?? data?.['简介'] ?? ''
   editSnapshot.value = {}
   for (const k of TEXT_FIELDS) {
     editSnapshot.value[k] = data?.[k] ?? ''
   }
+  editSnapshot.value['简介'] = data?.['原始简介'] ?? data?.['简介'] ?? ''
   photoChanged.photo = false
   photoChanged.front = false
   photoChanged.back = false
@@ -727,7 +711,13 @@ async function openDetail(row) {
   pickedFiles.photo = null
   pickedFiles.front = null
   pickedFiles.back = null
-  // 加载身份证正反面照片（仅用于脱敏模糊展示，不提供原图预览）
+  // 加载身份证正反面照片（仅用于脱敏模糊展示，不提供原图预览）；先 revoke 旧 blob URL 防内存泄漏
+  if (idFrontUrl.value) {
+    URL.revokeObjectURL(idFrontUrl.value)
+  }
+  if (idBackUrl.value) {
+    URL.revokeObjectURL(idBackUrl.value)
+  }
   idFrontUrl.value = ''
   idBackUrl.value = ''
   if (data['身份证正面']) {
@@ -840,8 +830,6 @@ const createForm = reactive({
   单位: '',
   科室: '',
   职称: '',
-  研究方向: '',
-  擅长领域: '',
   联系方式: '',
   简介: '',
   身份证号: '',
@@ -891,7 +879,7 @@ function onCreatePickPhoto(kind, file) {
 
 // 提交新增专家申请：先逐个上传照片取 TMP: 文件名并入 changes，再调用 create-request
 async function submitCreateExpert() {
-  const requiredFields = ['姓名', '单位', '科室', '职称', '研究方向', '擅长领域', '联系方式']
+  const requiredFields = ['姓名', '单位', '科室', '职称', '联系方式']
   for (const k of requiredFields) {
     if (!String(createForm[k] ?? '').trim()) {
       ElMessage.warning(`请填写${k}`)
@@ -1063,11 +1051,6 @@ function handleDetailCancel() {
 // ==================== 管理员：新增 / 编辑 / 删除（免审批直写） ====================
 const adminSubmitting = ref(false)
 const adminDeleting = ref(false)
-// 管理员编辑表单（全量，来自 sensitive=1 详情）
-const adminForm = reactive({
-  姓名: '', 单位: '', 科室: '', 职称: '', 研究方向: '', 擅长领域: '',
-  联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
-})
 const adminPhotoPreview = reactive({ photo: '', front: '', back: '' })
 const adminPickedFiles = reactive({ photo: null, front: null, back: null })
 
@@ -1075,7 +1058,7 @@ const adminPickedFiles = reactive({ photo: null, front: null, back: null })
 const adminCreateVisible = ref(false)
 const adminCreateSubmitting = ref(false)
 const adminCreateForm = reactive({
-  姓名: '', 单位: '', 科室: '', 职称: '', 研究方向: '', 擅长领域: '',
+  姓名: '', 单位: '', 科室: '', 职称: '',
   联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
 })
 const adminCreatePhotoPreview = reactive({ photo: '', front: '', back: '' })
@@ -1101,8 +1084,9 @@ function onAdminCreatePickPhoto(kind, file) {
 // 管理员编辑提交：FormData 中文字段 + photo/idCardFront/idCardBack，PUT /api/experts/{id} 直写
 function buildAdminFormData() {
   const fd = new FormData()
+  // 统一表单 editForm：管理员/超管在详情弹窗中的文本修改即写 editForm（打开时已回填全量）
   for (const k of TEXT_FIELDS) {
-    fd.append(k, String(adminForm[k] ?? '').trim())
+    fd.append(k, String(editForm[k] ?? '').trim())
   }
   if (adminPickedFiles.photo) fd.append('photo', adminPickedFiles.photo)
   if (adminPickedFiles.front) fd.append('idCardFront', adminPickedFiles.front)
@@ -1111,7 +1095,7 @@ function buildAdminFormData() {
 }
 
 async function submitAdminEdit() {
-  if (!String(adminForm.姓名 ?? '').trim()) {
+  if (!String(editForm.姓名 ?? '').trim()) {
     ElMessage.warning('请填写姓名')
     return
   }
@@ -1179,7 +1163,7 @@ function buildAdminCreateFormData() {
 }
 
 async function submitAdminCreate() {
-  const requiredFields = ['姓名', '单位', '科室', '职称', '研究方向', '擅长领域', '联系方式']
+  const requiredFields = ['姓名', '单位', '科室', '职称', '联系方式']
   for (const k of requiredFields) {
     if (!String(adminCreateForm[k] ?? '').trim()) {
       ElMessage.warning(`请填写${k}`)
