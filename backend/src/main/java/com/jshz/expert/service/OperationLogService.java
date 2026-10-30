@@ -64,6 +64,43 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_DELETE_DOC = "DELETE_DOC";
     /** 上架知识文档 */
     public static final String ACTION_RELIST_DOC = "RELIST_DOC";
+    /** 触发企微通讯录同步（手动/定时/DryRun） */
+    public static final String ACTION_WECOM_SYNC = "WECOM_SYNC";
+    /** 企微成员人工指认绑定 */
+    public static final String ACTION_WECOM_BIND = "WECOM_BIND";
+    // ---------------- 项目管理模块（target_type=PROJECT，时间线同源） ----------------
+    /** 新建项目 */
+    public static final String ACTION_CREATE_PROJECT = "CREATE_PROJECT";
+    /** 编辑项目 */
+    public static final String ACTION_UPDATE_PROJECT = "UPDATE_PROJECT";
+    /** 软删项目 */
+    public static final String ACTION_DELETE_PROJECT = "DELETE_PROJECT";
+    /** 取消项目（必填原因） */
+    public static final String ACTION_CANCEL_PROJECT = "CANCEL_PROJECT";
+    /** 阶段推进/回退 */
+    public static final String ACTION_CHANGE_PHASE = "CHANGE_PHASE";
+    /** 调派专家（项目关联） */
+    public static final String ACTION_ASSIGN_EXPERT = "ASSIGN_EXPERT";
+    /** 移出专家（项目关联） */
+    public static final String ACTION_REMOVE_EXPERT = "REMOVE_EXPERT";
+    /** 关联供应商 */
+    public static final String ACTION_ASSIGN_SUPPLIER = "ASSIGN_SUPPLIER";
+    /** 移出供应商 */
+    public static final String ACTION_REMOVE_SUPPLIER = "REMOVE_SUPPLIER";
+    /** 上传分阶段资料 */
+    public static final String ACTION_UPLOAD_DOC = "UPLOAD_DOC";
+    /** 登记专家合同 */
+    public static final String ACTION_CREATE_CONTRACT = "CREATE_CONTRACT";
+    /** 更新合同（含上传合同文件/修改金额等） */
+    public static final String ACTION_UPDATE_CONTRACT = "UPDATE_CONTRACT";
+    /** 合同敏感字段同步回写专家库（身份证/银行卡） */
+    public static final String ACTION_SYNC_EXPERT_SENSITIVE = "SYNC_EXPERT_SENSITIVE";
+    /** 新建模板类型 */
+    public static final String ACTION_CREATE_TEMPLATE = "CREATE_TEMPLATE";
+    /** 登记项目预算 */
+    public static final String ACTION_REGISTER_BUDGET = "REGISTER_BUDGET";
+    /** 合同发起审批（复用 approval 通道） */
+    public static final String ACTION_SUBMIT_CONTRACT_APPROVAL = "SUBMIT_CONTRACT_APPROVAL";
     /** 系统公告：增删改/上下架/置顶 */
     public static final String ACTION_CREATE_ANNOUNCEMENT = "CREATE_ANNOUNCEMENT";
     public static final String ACTION_UPDATE_ANNOUNCEMENT = "UPDATE_ANNOUNCEMENT";

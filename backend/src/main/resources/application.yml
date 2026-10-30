@@ -46,14 +46,33 @@ expert:
     # LibreOffice 可执行文件路径（doc/docx/xls/xlsx/ppt/pptx 在线预览转换）
     libreoffice-path: 'C:\Program Files\LibreOffice\program\soffice.com'
   # 供应商图片存储根目录（前端压缩后上传，多图画廊展示）
+  # 客户附件存储根目录（客户信息模块：客户档案附件，独立目录）
+  customer:
+    storage-dir: 'D:\jshz-PMO\客户附件库'
   supplier:
     storage-dir: 'D:\jshz-PMO\供应商图库'
+  # 项目资料存储根目录（项目管理模块：分阶段资料 + 富文本内容 + 合同文件）
+  project:
+    storage-dir: 'D:\jshz-PMO\项目资料库'
   # JWT 登录鉴权
   jwt:
     # 签名密钥必须由环境变量 JWT_SECRET 注入（≥32 字节随机串），禁止写入仓库；
     # 未注入时后端启动失败（HS256 密钥强度校验不通过），属预期 fail-fast 行为
     secret: ${JWT_SECRET:}
     expire-hours: 8
+  # 企业微信通讯录同步（2026-10-27 评审通过，账号体系改造）
+  wecom:
+    # 企业 CorpID（企业微信管理后台-我的企业），必须由环境变量 WECOM_CORP_ID 注入，禁止写入仓库
+    corp-id: ${WECOM_CORP_ID:}
+    # 通讯录同步助手·只读 secret（管理工具-通讯录同步助手），必须由环境变量 WECOM_CONTACT_SECRET 注入
+    contact-secret: ${WECOM_CONTACT_SECRET:}
+    # 每日定时同步 cron（默认 02:30）
+    sync-cron: "0 30 2 * * ?"
+    # 定时同步开关：false=关闭（默认，上线稳定后由运维打开）；true 且 corp-id/secret 为空时启动失败（fail-fast）
+    sync-cron-enabled: false
+    # 登录标识模式：NAME（默认/回滚档）/ COMPAT（过渡）/ MOBILE（终态，本期目标）
+    # 必须由环境变量 AUTH_LOGIN_MODE 注入（示例 CHANGE_ME）；非法值启动失败（fail-fast）
+    login-mode: ${AUTH_LOGIN_MODE:NAME}
 
 logging:
   level:

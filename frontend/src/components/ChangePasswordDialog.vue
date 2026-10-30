@@ -1,18 +1,19 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="修改初始密码"
+    :title="title"
     width="440px"
-    :close-on-click-modal="false"
-    :close-on-press-escape="false"
-    :show-close="false"
+    :close-on-click-modal="forceMode"
+    :close-on-press-escape="forceMode"
+    :show-close="!forceMode"
     align-center
   >
     <el-alert
+      v-if="forceMode"
       type="warning"
       :closable="false"
       show-icon
-      title="首次登录须修改初始密码后才能继续使用系统"
+      :title="hint"
       style="margin-bottom: 16px"
     />
     <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
@@ -38,7 +39,10 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 
 const props = defineProps({
-  modelValue: { type: Boolean, default: false }
+  modelValue: { type: Boolean, default: false },
+  title: { type: String, default: '修改初始密码' },
+  forceMode: { type: Boolean, default: true },
+  hint: { type: String, default: '首次登录须修改初始密码后才能继续使用系统' }
 })
 const emit = defineEmits(['update:modelValue'])
 

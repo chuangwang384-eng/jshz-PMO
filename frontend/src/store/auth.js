@@ -22,7 +22,10 @@ function normalizeUser(data) {
     isAdmin: !!data.isAdmin,
     mustChangePassword: !!data.mustChangePassword,
     roles: Array.isArray(data.roles) ? data.roles : [],
-    permissions: Array.isArray(data.permissions) ? data.permissions : []
+    permissions: Array.isArray(data.permissions) ? data.permissions : [],
+    id: data.id ?? null,
+    createTime: data.createTime || null,
+    roleNames: Array.isArray(data.roleNames) ? data.roleNames : []
   }
 }
 
@@ -37,6 +40,9 @@ export const useAuthStore = defineStore('auth', {
     mustChangePassword: (state) => !!state.user?.mustChangePassword,
     roles: (state) => state.user?.roles || [],
     permissions: (state) => state.user?.permissions || [],
+    id: (state) => state.user?.id ?? null,
+    createTime: (state) => state.user?.createTime || null,
+    roleNames: (state) => state.user?.roleNames || [],
     hasRole: (state) => (code) => (state.user?.roles || []).includes(code),
     hasPermission: (state) => (code) => {
       if (!code) return true

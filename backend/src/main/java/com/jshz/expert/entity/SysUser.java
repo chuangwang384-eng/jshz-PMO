@@ -35,10 +35,20 @@ public class SysUser {
     @JsonProperty("isAdmin")
     private Boolean isAdmin;
 
-    /** 二期企微 userid（预留） */
+    /** 企微 userid（企微同步填充；登录标识，唯一索引 uk_wecom_userid） */
     @JsonProperty("wecomUserId")
     @com.baomidou.mybatisplus.annotation.TableField("wecom_userid")
     private String wecomUserId;
+
+    /** 手机号（企微同步填充；MOBILE/COMPAT 登录标识，唯一索引 uk_mobile） */
+    @JsonProperty("mobile")
+    @com.baomidou.mybatisplus.annotation.TableField("mobile")
+    private String mobile;
+
+    /** 职务（企微同步填充，最小必要本期不取） */
+    @JsonProperty("position")
+    @com.baomidou.mybatisplus.annotation.TableField("position")
+    private String position;
 
     /** 是否需强制改密：1是 0否（首次登录引导改密） */
     @JsonProperty("mustChangePassword")
@@ -65,4 +75,9 @@ public class SysUser {
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     @JsonProperty("roleIds")
     private List<Long> roleIds;
+
+    /** 主部门名称（非表字段，查询时填充，来自 wecom_user_department + wecom_department） */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @JsonProperty("departmentName")
+    private String departmentName;
 }

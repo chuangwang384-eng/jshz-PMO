@@ -40,6 +40,24 @@
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="手机号" width="150" align="center">
+        <template #default="{ row }">
+          <span v-if="row.mobile">{{ maskMobile(row.mobile) }}</span>
+          <span v-else class="muted">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="部门" min-width="150">
+        <template #default="{ row }">
+          <span v-if="row.departmentName">{{ row.departmentName }}</span>
+          <span v-else class="muted">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="企微绑定" width="140" align="center">
+        <template #default="{ row }">
+          <el-tag v-if="row.wecomUserId" type="success" size="small">{{ row.wecomUserId }}</el-tag>
+          <el-tag v-else type="info" size="small">未绑定</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" min-width="260" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openAssignRole(row)">分配角色</el-button>
@@ -147,6 +165,12 @@ async function fetchList() {
 function handleSearch() {
   page.value = 1
   fetchList()
+}
+
+function maskMobile(m) {
+  if (!m) return '-'
+  const s = String(m)
+  return `${s.slice(0, 3)}****${s.slice(-4)}`
 }
 
 function openCreate() {

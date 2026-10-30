@@ -1,9 +1,11 @@
 package com.jshz.expert.controller;
 
 import com.jshz.expert.common.ApiResponse;
+import com.jshz.expert.config.WecomProperties;
 import com.jshz.expert.dto.ChangePasswordRequest;
 import com.jshz.expert.dto.LoginRequest;
 import com.jshz.expert.dto.LoginResponse;
+import com.jshz.expert.dto.WecomConfigVo;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.security.JwtTokenProvider;
 import com.jshz.expert.service.AuthService;
@@ -24,8 +26,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 认证接口（正式版 V1.001）。
- * /api/auth/login 账号=员工姓名登录、/api/auth/me、强制改密；企微登录为占位（二期）。
+ * 认证接口（正式版 V1.001；2026-10-27 企微账号体系改造）。
+ * /api/auth/login 登录标识三模式（NAME/COMPAT/MOBILE）、/api/auth/me、强制改密；
+ * /api/auth/wecom/config 返回登录模式供前端自适应；企微 OAuth 登录仍为占位（等备案）。
  * 登录 / 登出 / 修改密码埋点写入 operation_log（用户操作日志改版）。
  */
 @RestController
@@ -36,6 +39,7 @@ public class AuthController {
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
     private final OperationLogService operationLogService;
+    private final WecomProperties wecomProperties;
 
     /**
      * 账号密码登录：账号 = 员工姓名，BCrypt 校验，签发 JWT。
@@ -109,14 +113,26 @@ public class AuthController {
     }
 
     /**
-     * 企业微信登录配置（占位，二期实现）。
+     * 登录页自适应配置：返回登录标识模式（NAME/COMPAT/MOBILE，与 AuthService 归一化逻辑一致）
+     * 供前端切换输入框文案；企微 OAuth 登录仍为占位（等备案），enabled 恒为 false。
      */
     @GetMapping("/wecom/config")
-    public ApiResponse<Map<String, Object>> wecomConfig() {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("enabled", false);
-        data.put("message", "企业微信登录为二期功能，当前请使用账号密码登录");
-        return ApiResponse.ok(data);
+    public ApiResponse<WecomConfigVo> wecomConfig() {
+        String mode = wecomProperties.getLoginMode();
+        mode = mode == null ? "NAME" : mode.trim().toUpperCase();
+        String message;
+        switch (mode) {
+            case "COMPAT":
+                message = "已绑定企微用户请使用手机号登录；未绑定用户可输入姓名 + 初始密码 111111 自动注册";
+                break;
+            case "MOBILE":
+                message = "请使用企微通讯录同步的手机号 + 密码登录；未绑定请联系管理员";
+                break;
+            default:
+                message = "当前为姓名登录模式：输入姓名 + 初始密码 111111 即可自动注册并登录";
+                break;
+        }
+        return ApiResponse.ok(new WecomConfigVo(false, mode, message));
     }
 
     /**
