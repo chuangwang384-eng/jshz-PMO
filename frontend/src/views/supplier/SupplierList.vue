@@ -17,29 +17,29 @@
       <el-select v-model="filters.typeId" placeholder="全部类型" clearable style="width: 170px; margin-left: 8px" @change="handleSearch">
         <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
       </el-select>
+      <el-select v-model="filters.province" placeholder="全部省份" clearable style="width: 150px; margin-left: 8px" @change="onFilterProvinceChange">
+        <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
+      </el-select>
       <el-select
         v-model="filters.cityId"
         placeholder="全部城市"
         clearable
-        filterable
-        style="width: 180px; margin-left: 8px"
+        style="width: 160px; margin-left: 8px"
+        :disabled="!filters.province"
         @change="handleSearch"
       >
-        <el-option-group v-for="g in cityGroups" :key="g.province" :label="g.province">
-          <el-option v-for="c in g.cities" :key="c.id" :label="c.name" :value="c.id" />
-        </el-option-group>
+        <el-option v-for="c in filteredCities" :key="c.id" :label="c.name" :value="c.id" />
       </el-select>
       <el-button type="primary" style="margin-left: 8px" @click="handleSearch">搜索</el-button>
       <el-button @click="resetSearch">重置</el-button>
       <el-button type="success" plain @click="openCreate">新增供应商</el-button>
       <el-button v-permission="'supplier:dict'" plain @click="typeDlgVisible = true">类型管理</el-button>
-      <el-button v-permission="'supplier:dict'" plain @click="openCityManager">城市管理</el-button>
     </div>
 
     <div v-loading="loading" class="card-grid">
       <el-card v-for="s in records" :key="s.id" shadow="hover" class="sup-card" @click="goDetail(s.id)">
         <div class="card-cover">
-          <el-image v-if="s.imageList && s.imageList.length" :src="imageUrl(s.imageList[0])" fit="cover" class="cover-img" />
+          <el-image v-if="coverOf(s)" :src="imageUrl(coverOf(s))" fit="cover" class="cover-img" />
           <div v-else class="cover-empty">暂无图片</div>
         </div>
         <div class="card-body">
@@ -80,18 +80,19 @@
             <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="省份" required>
+          <el-select v-model="form.province" placeholder="选择省份" style="width: 100%" @change="onFormProvinceChange">
+            <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="城市" required>
           <el-select
-            v-model="form.cityName"
-            filterable
-            allow-create
-            default-first-option
-            placeholder="选择或输入城市（未收录将自动加入字典）"
+            v-model="form.cityId"
+            placeholder="选择城市（城市字典固定只读）"
             style="width: 100%"
+            :disabled="!form.province"
           >
-            <el-option-group v-for="g in cityGroups" :key="g.province" :label="g.province">
-              <el-option v-for="c in g.cities" :key="c.id" :label="c.name" :value="c.name" />
-            </el-option-group>
+            <el-option v-for="c in formCities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="地址">
@@ -116,16 +117,7 @@
           <el-input v-model="form.description" type="textarea" :rows="3" maxlength="1000" />
         </el-form-item>
         <el-form-item label="图片">
-          <div class="upload-area">
-            <div v-for="(img, i) in formImages" :key="img" class="upload-thumb">
-              <el-image :src="imageUrl(img)" fit="cover" class="thumb-img" />
-              <el-button class="thumb-del" circle size="small" type="danger" @click.stop="removeFormImage(i)">×</el-button>
-            </div>
-            <div v-if="uploading" class="upload-thumb uploading"><el-icon class="is-loading"><Loading /></el-icon></div>
-            <div v-else class="upload-add" @click="pickFiles">＋</div>
-            <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFilesPicked" />
-          </div>
-          <div class="upload-tip">可多选；上传前自动压缩（长边≤1280）</div>
+          <div class="upload-tip">创建后可在详情页「图片」区块上传（≤20 张，单张 ≤8MB）</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -157,31 +149,6 @@
       </el-table>
     </el-dialog>
 
-    <!-- 城市管理（supplier:dict） -->
-    <el-dialog v-model="cityDlgVisible" title="城市管理（按省份分组）" width="680px" destroy-on-close>
-      <div class="dict-add-row">
-        <el-select v-model="newCityProvince" filterable allow-create placeholder="省份" style="width: 180px">
-          <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
-        </el-select>
-        <el-input v-model="newCityName" placeholder="城市名" maxlength="50" style="width: 180px; margin-left: 8px" />
-        <el-button type="primary" plain style="margin-left: 8px" @click="addCity">新增</el-button>
-      </div>
-      <div class="city-groups">
-        <div v-for="g in cityGroups" :key="g.province" class="city-group">
-          <div class="city-province">{{ g.province }}（{{ g.cities.length }}）</div>
-          <div class="city-tags">
-            <el-tag
-              v-for="c in g.cities"
-              :key="c.id"
-              closable
-              size="small"
-              class="city-tag"
-              @close="removeCity(c)"
-            >{{ c.name }}</el-tag>
-          </div>
-        </div>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
@@ -189,19 +156,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
 import {
   listSuppliers, listSupplierTypes, listSupplierCities,
   createSupplier, createSupplierType, updateSupplierType, deleteSupplierType,
-  createSupplierCity, deleteSupplierCity,
-  uploadSupplierImage, supplierImageUrl
+  supplierImageUrl
 } from '../../api/supplier'
-import { compressImage } from '../../utils/imageCompress'
-import { supplierTypeTagColor, groupCitiesByProvince } from '../../utils/supplier'
+import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
 
 const router = useRouter()
 
-const filters = ref({ keyword: '', typeId: null, cityId: null })
+const filters = ref({ keyword: '', typeId: null, province: null, cityId: null })
 const records = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -210,11 +174,17 @@ const loading = ref(false)
 
 const types = ref([])
 const cities = ref([])
-const cityGroups = computed(() => groupCitiesByProvince(cities.value))
-const provinceNames = computed(() => cityGroups.value.map((g) => g.province))
+const provinceNames = computed(() => provinceList(cities.value))
+const filteredCities = computed(() => citiesOfProvince(cities.value, filters.value.province))
+const formCities = computed(() => citiesOfProvince(cities.value, form.value.province))
 
 function imageUrl(fileName) {
   return supplierImageUrl(fileName)
+}
+
+// 封面取主图，无主图时回退第一张
+function coverOf(s) {
+  return s.mainImage || (s.imageList && s.imageList.length ? s.imageList[0] : '')
 }
 
 async function fetchDicts() {
@@ -262,60 +232,33 @@ function goDetail(id) {
 // ==================== 新增 ====================
 const createVisible = ref(false)
 const form = ref({})
-const formImages = ref([])
-const uploading = ref(false)
 const saving = ref(false)
-const fileInput = ref(null)
 
 function openCreate() {
-  form.value = { typeId: types.value.length ? types.value[0].id : null }
-  formImages.value = []
+  form.value = { typeId: types.value.length ? types.value[0].id : null, province: null, cityId: null }
   createVisible.value = true
 }
 
-function pickFiles() {
-  fileInput.value && fileInput.value.click()
-}
-
-async function onFilesPicked(e) {
-  const files = Array.from(e.target.files || [])
-  e.target.value = ''
-  if (!files.length) return
-  uploading.value = true
-  try {
-    for (const f of files) {
-      const compressed = await compressImage(f)
-      const res = await uploadSupplierImage(compressed)
-      if (res?.fileName) formImages.value.push(res.fileName)
-    }
-    ElMessage.success('图片已上传（压缩后）')
-  } catch (err) {
-    // 拦截器已提示
-  } finally {
-    uploading.value = false
-  }
-}
-
-function removeFormImage(i) {
-  formImages.value.splice(i, 1)
+function onFormProvinceChange() {
+  form.value.cityId = null
 }
 
 async function confirmCreate() {
   if (!form.value.name || !form.value.name.trim()) return ElMessage.warning('请填写名称')
   if (!form.value.typeId) return ElMessage.warning('请选择类型')
-  if (!form.value.cityName) return ElMessage.warning('请选择或输入城市')
+  if (!form.value.province) return ElMessage.warning('请选择省份')
+  if (!form.value.cityId) return ElMessage.warning('请选择城市')
   saving.value = true
   try {
     await createSupplier({
       name: form.value.name.trim(),
       typeId: form.value.typeId,
-      cityName: form.value.cityName,
+      cityId: form.value.cityId,
       address: form.value.address || undefined,
       contact: form.value.contact || undefined,
       phone: form.value.phone || undefined,
       wechat: form.value.wechat || undefined,
-      description: form.value.description || undefined,
-      images: formImages.value
+      description: form.value.description || undefined
     })
     ElMessage.success('供应商已创建')
     createVisible.value = false
@@ -374,44 +317,6 @@ async function removeType(row) {
   }
 }
 
-// ==================== 城市管理 ====================
-const cityDlgVisible = ref(false)
-const newCityProvince = ref('')
-const newCityName = ref('')
-
-function openCityManager() {
-  newCityProvince.value = ''
-  newCityName.value = ''
-  cityDlgVisible.value = true
-}
-
-async function addCity() {
-  if (!newCityProvince.value || !newCityName.value.trim()) return ElMessage.warning('请填写省份与城市名')
-  try {
-    await createSupplierCity({ province: newCityProvince.value, name: newCityName.value.trim() })
-    newCityName.value = ''
-    ElMessage.success('已新增')
-    fetchDicts()
-  } catch (e) {
-    // 拦截器已提示
-  }
-}
-
-async function removeCity(c) {
-  try {
-    await ElMessageBox.confirm(`确定删除城市「${c.province} · ${c.name}」吗？有供应商引用时将无法删除。`, '删除城市', { type: 'warning' })
-  } catch (e) {
-    return
-  }
-  try {
-    await deleteSupplierCity(c.id)
-    ElMessage.success('已删除')
-    fetchDicts()
-  } catch (e) {
-    // 拦截器已提示（含引用禁删报错）
-  }
-}
-
 onMounted(() => {
   fetchDicts()
   fetchList()
@@ -445,22 +350,5 @@ onMounted(() => {
 .card-rate { margin-top: 6px; display: flex; align-items: center; gap: 6px; }
 .rate-text { font-size: 12px; color: #606266; }
 .pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
-.upload-area { display: flex; flex-wrap: wrap; gap: 8px; }
-.upload-thumb { position: relative; width: 76px; height: 76px; border-radius: 4px; overflow: hidden; border: 1px solid #ebeef5; }
-.thumb-img { width: 100%; height: 100%; }
-.thumb-del { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; }
-.uploading { display: flex; align-items: center; justify-content: center; color: #909399; }
-.upload-add {
-  width: 76px; height: 76px; border: 1px dashed #c0c4cc; border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; color: #909399; cursor: pointer; user-select: none;
-}
-.upload-add:hover { border-color: #409eff; color: #409eff; }
-.upload-tip { font-size: 12px; color: #a8abb2; line-height: 1.6; }
 .dict-add-row { display: flex; align-items: center; }
-.city-groups { max-height: 420px; overflow-y: auto; margin-top: 10px; }
-.city-group { margin-bottom: 10px; }
-.city-province { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 4px; }
-.city-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.city-tag { margin: 0; }
 </style>

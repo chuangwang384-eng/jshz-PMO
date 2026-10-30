@@ -11,15 +11,31 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * 供应商图片存储服务：文件落盘 供应商图库（expert.supplier.storage-dir）。
  * 上传文件重命名为随机名（supplier_<uuid>.<ext>）防穿越；读取按安全名校验。
+ * v2.0「三、图片与主图」：扩展名白名单 + MIME 白名单 + 单张 ≤8MB 校验；
+ * 提供目录扫描能力供未关联图片定时清理任务使用。
  */
 @Service
 public class SupplierStorageService {
+
+    /** 扩展名白名单 */
+    private static final Set<String> ALLOWED_EXT = Set.of("jpg", "jpeg", "png", "gif", "webp", "bmp");
+    /** MIME 白名单 */
+    private static final Set<String> ALLOWED_MIME = Set.of(
+            "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp");
+
+    /** 单张大小上限 8MB */
+    public static final long MAX_SINGLE_SIZE = 8L * 1024 * 1024;
 
     private final Path storageDir;
 
@@ -37,24 +53,24 @@ public class SupplierStorageService {
     }
 
     /**
-     * 保存上传图片（仅 image/*，<=8MB），返回随机文件名。
+     * 保存上传图片：扩展名白名单 + MIME 白名单 + 单张 ≤8MB；返回随机文件名。
      */
     public String saveImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("图片文件不能为空");
         }
         String contentType = file.getContentType();
-        if (contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
-            throw new BusinessException("仅支持图片文件");
+        if (contentType == null || !ALLOWED_MIME.contains(contentType.toLowerCase(Locale.ROOT))) {
+            throw new BusinessException("仅支持 jpg/png/gif/webp/bmp 图片文件");
         }
-        if (file.getSize() > 8L * 1024 * 1024) {
+        if (file.getSize() > MAX_SINGLE_SIZE) {
             throw new BusinessException("图片过大（压缩后应不超过 8MB）");
         }
         String original = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
         int dot = original.lastIndexOf('.');
-        String ext = dot < 0 ? "jpg" : original.substring(dot + 1).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-        if (ext.isEmpty()) {
-            ext = "jpg";
+        String ext = dot < 0 ? "" : original.substring(dot + 1).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        if (!ALLOWED_EXT.contains(ext)) {
+            throw new BusinessException("仅支持 jpg/png/gif/webp/bmp 扩展名的图片文件");
         }
         String fileName = "supplier_" + UUID.randomUUID().toString().replace("-", "") + "." + ext;
         try {
@@ -112,5 +128,38 @@ public class SupplierStorageService {
             return "image/bmp";
         }
         return "image/jpeg";
+    }
+
+    /**
+     * 扫描图库目录，返回全部文件名（仅常规文件）。
+     */
+    public List<String> listAllFileNames() {
+        List<String> names = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(storageDir)) {
+            stream.filter(Files::isRegularFile).forEach(p -> names.add(p.getFileName().toString()));
+        } catch (IOException ignored) {
+            // 目录不可读时返回空
+        }
+        return names;
+    }
+
+    /**
+     * 获取文件创建时间（毫秒时间戳）；无法获取时返回文件修改时间。
+     */
+    public long creationTimeOf(String fileName) {
+        Path p = resolveImage(fileName);
+        if (p == null) {
+            return 0;
+        }
+        try {
+            BasicFileAttributes attrs = Files.readAttributes(p, BasicFileAttributes.class);
+            return attrs.creationTime().toMillis();
+        } catch (Exception e) {
+            try {
+                return Files.getLastModifiedTime(p).toMillis();
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
     }
 }

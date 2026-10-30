@@ -33,20 +33,30 @@
         </div>
       </el-card>
 
-      <!-- 图库（多图，压缩上传，可删） -->
+      <!-- 图库（v2.0：主图标识/设为主图/命名/删除，上传登记 supplier_image） -->
       <el-card shadow="never" class="sec-card">
         <template #header>
-          <div class="sec-head"><span>图片（{{ imageList.length }}）</span></div>
+          <div class="sec-head"><span>图片（{{ images.length }}）</span></div>
         </template>
         <div class="gallery">
-          <div v-for="(img, i) in imageList" :key="img" class="g-item">
-            <el-image :src="imageUrl(img)" fit="cover" class="g-img" :preview-src-list="imageList.map(imageUrl)" :initial-index="i" />
-            <el-button class="g-del" circle size="small" type="danger" @click="removeImage(i)">×</el-button>
+          <div v-for="(img, i) in images" :key="img.id" class="g-item">
+            <el-image :src="imageUrl(img.fileName)" fit="cover" class="g-img" :preview-src-list="images.map(x => imageUrl(x.fileName))" :initial-index="i" />
+            <el-tag v-if="img.isMain === 1" class="g-main" size="small" type="danger" effect="dark">主图</el-tag>
+            <el-button class="g-del" circle size="small" type="danger" @click="removeImage(img)">×</el-button>
+            <div class="g-actions">
+              <el-button v-if="img.isMain !== 1" link type="primary" size="small" @click="setMain(img)">设为主图</el-button>
+              <span v-else class="g-main-text">默认封面</span>
+            </div>
+            <div class="g-name">{{ img.name || img.fileName }}</div>
           </div>
           <div v-if="uploading" class="g-item g-add loading-add"><el-icon class="is-loading"><Loading /></el-icon></div>
-          <div v-else class="g-item g-add" @click="pickFiles">＋<div class="g-add-tip">压缩上传</div></div>
+        </div>
+        <div class="upload-row">
+          <el-input v-model="uploadName" maxlength="50" placeholder="图片命名（≤50字，留空显示原文件名）" style="width: 280px" @keyup.enter="pickFiles" />
+          <el-button type="primary" plain :loading="uploading" @click="pickFiles">选择并上传</el-button>
           <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFilesPicked" />
         </div>
+        <div class="upload-tip">限制：单供应商 ≤20 张、单张 ≤8MB、累计 ≤100MB；上传前自动压缩（长边≤1280）；首图自动设为默认主图</div>
       </el-card>
 
       <!-- 行价 -->
@@ -125,11 +135,19 @@
             <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="省份" required>
+          <el-select v-model="editForm.province" style="width: 100%" placeholder="选择省份" @change="onEditProvinceChange">
+            <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="城市" required>
-          <el-select v-model="editForm.cityName" filterable allow-create default-first-option style="width: 100%" placeholder="选择或输入城市">
-            <el-option-group v-for="g in cityGroups" :key="g.province" :label="g.province">
-              <el-option v-for="c in g.cities" :key="c.id" :label="c.name" :value="c.name" />
-            </el-option-group>
+          <el-select
+            v-model="editForm.cityId"
+            style="width: 100%"
+            placeholder="选择城市（城市字典固定只读）"
+            :disabled="!editForm.province"
+          >
+            <el-option v-for="c in editCities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="地址"><el-input v-model="editForm.address" maxlength="200" /></el-form-item>
@@ -207,10 +225,10 @@ import {
   listSupplierTypes, listSupplierCities, listSuppliers,
   saveSupplierPrices, addSupplierReview,
   bindSupplier, unbindSupplier,
-  uploadSupplierImage, supplierImageUrl
+  uploadSupplierImage, listSupplierImages, setSupplierMainImage, deleteSupplierImage, supplierImageUrl
 } from '../../api/supplier'
 import { compressImage } from '../../utils/imageCompress'
-import { supplierTypeTagColor, groupCitiesByProvince } from '../../utils/supplier'
+import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
 
 const route = useRoute()
 const router = useRouter()
@@ -223,10 +241,11 @@ const bindings = ref([])
 const types = ref([])
 const cities = ref([])
 
-const cityGroups = computed(() => groupCitiesByProvince(cities.value))
+const provinceNames = computed(() => provinceList(cities.value))
+const editCities = computed(() => citiesOfProvince(cities.value, editForm.value.province))
 const isHotel = computed(() => s.value?.typeBizKey === 'HOTEL')
 const isPrint = computed(() => s.value?.typeBizKey === 'PRINT')
-const imageList = computed(() => s.value?.imageList || [])
+const images = ref([])
 
 function imageUrl(fileName) {
   return supplierImageUrl(fileName)
@@ -240,6 +259,11 @@ async function fetchDetail() {
     priceItems.value = data?.priceItems || []
     reviews.value = data?.reviews || []
     bindings.value = data?.bindings || []
+    if (s.value) {
+      images.value = await listSupplierImages(s.value.id) || []
+    } else {
+      images.value = []
+    }
   } finally {
     loading.value = false
   }
@@ -264,8 +288,9 @@ function goPeer(id) {
   router.push(`/supplier/${id}`)
 }
 
-// ==================== 图片 ====================
+// ==================== 图片（v2.0） ====================
 const uploading = ref(false)
+const uploadName = ref('')
 const fileInput = ref(null)
 
 function pickFiles() {
@@ -279,32 +304,46 @@ async function onFilesPicked(e) {
   uploading.value = true
   try {
     const uploaded = []
-    for (const f of files) {
-      const compressed = await compressImage(f)
-      const res = await uploadSupplierImage(compressed)
-      if (res?.fileName) uploaded.push(res.fileName)
+    for (let idx = 0; idx < files.length; idx++) {
+      const compressed = await compressImage(files[idx])
+      // 命名仅作用于本次选择的第一个文件，其余留空显示原文件名
+      const res = await uploadSupplierImage(s.value.id, compressed, idx === 0 ? uploadName.value : '')
+      if (res?.id) uploaded.push(res.id)
     }
-    const next = [...imageList.value, ...uploaded]
-    await updateSupplier(s.value.id, { images: next })
+    uploadName.value = ''
     ElMessage.success(`已上传 ${uploaded.length} 张（压缩后）`)
+    images.value = await listSupplierImages(s.value.id) || []
     fetchDetail()
   } catch (err) {
-    // 拦截器已提示
+    // 拦截器已提示（含数量/大小/命名超长报错）
   } finally {
     uploading.value = false
   }
 }
 
-async function removeImage(i) {
+async function setMain(img) {
   try {
-    await ElMessageBox.confirm('确定删除这张图片吗？', '删除图片', { type: 'warning' })
+    await setSupplierMainImage(s.value.id, img.id)
+    ElMessage.success('已设为主图')
+    images.value = await listSupplierImages(s.value.id) || []
+  } catch (e) {
+    // 拦截器已提示
+  }
+}
+
+async function removeImage(img) {
+  try {
+    await ElMessageBox.confirm('确定删除这张图片吗？物理文件将同步删除。', '删除图片', { type: 'warning' })
   } catch (e) {
     return
   }
-  const next = imageList.value.filter((_, idx) => idx !== i)
-  await updateSupplier(s.value.id, { images: next })
-  ElMessage.success('已删除')
-  fetchDetail()
+  try {
+    await deleteSupplierImage(s.value.id, img.id)
+    ElMessage.success('已删除')
+    images.value = await listSupplierImages(s.value.id) || []
+  } catch (e) {
+    // 拦截器已提示
+  }
 }
 
 // ==================== 编辑/删除 ====================
@@ -316,7 +355,8 @@ function openEdit() {
   editForm.value = {
     name: s.value.name,
     typeId: s.value.typeId,
-    cityName: s.value.cityName,
+    province: s.value.province,
+    cityId: s.value.cityId,
     address: s.value.address || '',
     contact: s.value.contact || '',
     phone: s.value.phone || '',
@@ -326,11 +366,18 @@ function openEdit() {
   editVisible.value = true
 }
 
+function onEditProvinceChange() {
+  editForm.value.cityId = null
+}
+
 async function confirmEdit() {
   if (!editForm.value.name?.trim()) return ElMessage.warning('名称不能为空')
+  if (!editForm.value.province) return ElMessage.warning('请选择省份')
+  if (!editForm.value.cityId) return ElMessage.warning('请选择城市')
   saving.value = true
   try {
-    await updateSupplier(s.value.id, { ...editForm.value, name: editForm.value.name.trim() })
+    const { province, ...payload } = editForm.value
+    await updateSupplier(s.value.id, { ...payload, name: editForm.value.name.trim() })
     ElMessage.success('已保存')
     editVisible.value = false
     fetchDicts()
@@ -483,6 +530,13 @@ watch(
 .g-item { position: relative; width: 150px; height: 110px; border-radius: 6px; overflow: hidden; border: 1px solid #ebeef5; }
 .g-img { width: 100%; height: 100%; cursor: zoom-in; }
 .g-del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; }
+.g-main { position: absolute; top: 4px; left: 4px; }
+.g-actions { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 2px; background: rgba(0, 0, 0, 0.45); padding: 2px 0; }
+.g-actions .el-button { padding: 0 6px; }
+.g-main-text { font-size: 12px; color: #f56c6c; }
+.g-name { position: absolute; left: 0; right: 0; bottom: 26px; font-size: 11px; color: #fff; background: rgba(0, 0, 0, 0.45); padding: 1px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-row { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+.upload-tip { margin-top: 6px; font-size: 12px; color: #a8abb2; line-height: 1.6; }
 .g-add {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   border: 1px dashed #c0c4cc; color: #909399; font-size: 24px; cursor: pointer; user-select: none;

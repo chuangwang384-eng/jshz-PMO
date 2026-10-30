@@ -6,15 +6,18 @@ import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.PageResult;
 import com.jshz.expert.entity.Supplier;
 import com.jshz.expert.entity.SupplierCity;
+import com.jshz.expert.entity.SupplierImage;
 import com.jshz.expert.entity.SupplierPriceItem;
 import com.jshz.expert.entity.SupplierReview;
 import com.jshz.expert.entity.SupplierType;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.SupplierService;
+import com.jshz.expert.service.SupplierImageService;
 import com.jshz.expert.service.SupplierStorageService;
 import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -36,15 +39,19 @@ import java.util.Map;
 
 /**
  * 供应商管理接口（替换前端占位页，全员使用）。
- * 权限：档案/行价/评价/绑定/图片 登录即可；类型/城市字典管理需 supplier:dict（permission 表路径规则）。
+ * 权限：档案/行价/评价/绑定/图片 登录即可；类型字典管理需 supplier:dict；城市字典固定只读（增删接口已下线返回 410）。
  */
 @RestController
 @RequestMapping("/api/supplier")
 @RequiredArgsConstructor
 public class SupplierController {
 
+    /** 城市字典固定只读业务码 */
+    private static final String CITY_READ_ONLY = "CITY_READ_ONLY";
+
     private final SupplierService supplierService;
     private final SupplierStorageService storageService;
+    private final SupplierImageService imageService;
 
     // ==================== 类型字典 ====================
 
@@ -76,27 +83,33 @@ public class SupplierController {
         return ApiResponse.ok();
     }
 
-    // ==================== 城市字典 ====================
+    // ==================== 城市字典（固定只读） ====================
 
-    /** 全部城市（登录即可；前端按 province 分组，城市管理页同一数据源） */
+    /**
+     * 城市列表（登录即可；前端按 province 分组展示）。
+     * province 可选：按省份过滤，支持省→市两级联动。
+     */
     @GetMapping("/cities")
-    public ApiResponse<List<SupplierCity>> listCities() {
-        return ApiResponse.ok(supplierService.listCities());
+    public ApiResponse<List<SupplierCity>> listCities(@RequestParam(required = false) String province) {
+        return ApiResponse.ok(supplierService.listCities(province));
     }
 
-    /** 管理端：新增城市（supplier:dict）。body {province, name} */
+    /**
+     * 城市字典固定只读：新增接口已下线，统一返回 HTTP 410 + 业务码 CITY_READ_ONLY。
+     */
     @PostMapping("/cities")
-    public ApiResponse<SupplierCity> createCity(@RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.ok(supplierService.createCity(
-                ParamUtils.str(body == null ? null : body.get("province")),
-                ParamUtils.str(body == null ? null : body.get("name"))));
+    public ResponseEntity<ApiResponse<Void>> createCity() {
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiResponse.error(410, CITY_READ_ONLY + "：城市字典固定只读，禁止新增"));
     }
 
-    /** 管理端：删除城市（有供应商引用时拒绝；supplier:dict） */
+    /**
+     * 城市字典固定只读：删除接口已下线，统一返回 HTTP 410 + 业务码 CITY_READ_ONLY。
+     */
     @DeleteMapping("/cities/{id}")
-    public ApiResponse<Void> deleteCity(@PathVariable Long id) {
-        supplierService.deleteCity(id);
-        return ApiResponse.ok();
+    public ResponseEntity<ApiResponse<Void>> deleteCity(@PathVariable Long id) {
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiResponse.error(410, CITY_READ_ONLY + "：城市字典固定只读，禁止删除"));
     }
 
     // ==================== 供应商档案 ====================
@@ -124,7 +137,7 @@ public class SupplierController {
 
     /**
      * 新增供应商（全员）：body {name, typeId, cityId 或 cityName, address, contact, phone, wechat, description, images:[文件名]}。
-     * 传 cityName 且字典未收录时自动沉淀为新城市。
+     * 传 cityName 时仅精确匹配字典，未收录返回明确错误（城市字典固定只读，不自动沉淀）。
      */
     @PostMapping
     public ApiResponse<Supplier> create(@RequestBody(required = false) Map<String, Object> body,
@@ -150,18 +163,44 @@ public class SupplierController {
         return ApiResponse.ok();
     }
 
-    // ==================== 图片 ====================
+    // ==================== 图片与主图 ====================
 
     /**
-     * 上传单张图片（前端 canvas 压缩后 multipart 上传，可多次调用）：POST /api/supplier/image。
-     * 返回 {fileName}，保存供应商时以 images 数组引用。
+     * 上传图片（v2.0）：POST /api/supplier/{id}/images（multipart file + 可选 name）。
+     * 校验：供应商存在、数量 ≤20、单张 ≤8MB、累计 ≤100MB、扩展名/MIME 白名单；
+     * 文件重命名为 UUID；首图自动设为默认主图；name 自定义命名 ≤50 字符（留空显示原文件名）。
      */
-    @PostMapping("/image")
-    public ApiResponse<Map<String, Object>> uploadImage(@RequestParam("file") MultipartFile file) {
-        String fileName = storageService.saveImage(file);
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("fileName", fileName);
-        return ApiResponse.ok(data);
+    @PostMapping("/{id}/images")
+    public ApiResponse<SupplierImage> uploadImage(@PathVariable Long id,
+                                                  @RequestParam("file") MultipartFile file,
+                                                  @RequestParam(value = "name", required = false) String name) {
+        return ApiResponse.ok(imageService.upload(id, file, name));
+    }
+
+    /**
+     * 图片列表（返回主图标记 isMain，按 sort_order 升序）：GET /api/supplier/{id}/images。
+     */
+    @GetMapping("/{id}/images")
+    public ApiResponse<List<SupplierImage>> listImages(@PathVariable Long id) {
+        return ApiResponse.ok(imageService.list(id));
+    }
+
+    /**
+     * 设为主图：PUT /api/supplier/{id}/images/{imageId}/main。
+     * 同一事务先清旧主图再设新主图，配合部分唯一索引防并发多主图。
+     */
+    @PutMapping("/{id}/images/{imageId}/main")
+    public ApiResponse<SupplierImage> setMainImage(@PathVariable Long id, @PathVariable Long imageId) {
+        return ApiResponse.ok(imageService.setMain(id, imageId));
+    }
+
+    /**
+     * 删除图片：DELETE /api/supplier/{id}/images/{imageId}。
+     * 同步删除物理文件与数据库行；删除主图时自动提升排序最小的一张为新主图。
+     */
+    @DeleteMapping("/{id}/images/{imageId}")
+    public ApiResponse<List<SupplierImage>> deleteImage(@PathVariable Long id, @PathVariable Long imageId) {
+        return ApiResponse.ok(imageService.delete(id, imageId));
     }
 
     /**

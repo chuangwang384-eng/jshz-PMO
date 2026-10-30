@@ -92,10 +92,15 @@ public class Supplier {
     @JsonProperty("province")
     private String province;
 
-    /** 图片文件名列表（images 解析） */
+    /** 图片文件名列表（supplier_image 表 sort_order 升序） */
     @TableField(exist = false)
     @JsonProperty("imageList")
     private List<String> imageList;
+
+    /** 主图文件名（supplier_image.is_main=1，无图时为 null） */
+    @TableField(exist = false)
+    @JsonProperty("mainImage")
+    private String mainImage;
 
     /** 平均评分（1-5，一位小数；无评价为 null） */
     @TableField(exist = false)
