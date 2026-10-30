@@ -76,6 +76,12 @@ const routes = [
     meta: { title: '个人中心', requiresAuth: true },
     children: [
       {
+        path: 'overview',
+        name: 'profile-overview',
+        component: () => import('../views/profile/ProfileCard.vue'),
+        meta: { title: '我的主页' }
+      },
+      {
         path: 'my-approvals',
         name: 'my-approvals',
         component: () => import('../views/MyApproval.vue'),
