@@ -19,34 +19,17 @@ const routes = [
     meta: { title: '专家库', requiresAuth: true }
   },
   {
-    path: '/announcements',
-    name: 'announcements',
-    component: () => import('../views/announcement/AnnouncementList.vue'),
-    meta: { title: '公告', requiresAuth: true }
-  },
-  {
-    path: '/announcements/manage',
-    name: 'announcements-manage',
-    component: () => import('../views/announcement/AnnouncementManage.vue'),
-    meta: { title: '公告管理', requiresAuth: true, permissions: ['announcement:manage'] }
-  },
-  {
-    path: '/announcements/:id',
-    name: 'announcement-detail',
-    component: () => import('../views/announcement/AnnouncementDetail.vue'),
-    meta: { title: '公告详情', requiresAuth: true, menu: false }
-  },
-  {
     path: '/knowledge-planet',
     name: 'knowledge-planet',
-    component: () => import('../views/KnowledgePlanetHome.vue'),
+    // 需求 2：一级菜单仅作展开容器（无页面组件），访问父路径重定向到第一个二级菜单
+    redirect: '/knowledge-planet/meeting-execution',
     meta: { title: '知识星球', requiresAuth: true },
     children: [
       {
         path: 'meeting-execution',
         name: 'meeting-execution',
         component: () => import('../views/MeetingExecution.vue'),
-        meta: { title: '会议执行' }
+        meta: { title: '会议执行标准' }
       },
       {
         path: 'association-compliance',
@@ -61,17 +44,35 @@ const routes = [
         meta: { title: '企业合规要求' }
       },
       {
-        path: 'customer-preferences',
-        name: 'customer-preferences',
-        component: () => import('../views/CustomerPreferences.vue'),
-        meta: { title: '客户喜好' }
+        path: 'customer-info',
+        name: 'customer-info',
+        component: () => import('../views/CustomerInfo.vue'),
+        meta: { title: '客户信息' }
+      },
+      {
+        path: 'customer-detail/:id',
+        name: 'customer-detail',
+        component: () => import('../views/CustomerDetail.vue'),
+        meta: { title: '客户详情', menu: false, activeMenu: '/knowledge-planet/customer-info' }
+      },
+      {
+        path: 'customer-relation-graph',
+        name: 'customer-relation-graph',
+        component: () => import('../views/CustomerRelationGraph.vue'),
+        meta: { title: '客户关系网络', menu: false, activeMenu: '/knowledge-planet/customer-info' }
+      },
+      {
+        path: 'customer-relation-type-manage',
+        name: 'customer-relation-type-manage',
+        component: () => import('../views/CustomerRelationTypeManage.vue'),
+        meta: { title: '关系类型管理', menu: false, activeMenu: '/knowledge-planet/customer-info' }
       }
     ]
   },
   {
     path: '/profile',
     name: 'profile',
-    redirect: '/profile/my-approvals',
+    component: () => import('../views/profile/ProfileHome.vue'),
     meta: { title: '个人中心', requiresAuth: true },
     children: [
       {
@@ -93,10 +94,28 @@ const routes = [
         meta: { title: '审批管理', permissions: ['approval:audit'] }
       },
       {
-        path: 'change-password',
-        name: 'change-password',
-        component: () => import('../views/profile/ChangePassword.vue'),
-        meta: { title: '修改密码' }
+        path: 'directory',
+        name: 'directory',
+        component: () => import('../views/profile/Directory.vue'),
+        meta: { title: '通讯录' }
+      },
+      {
+        path: 'announcements',
+        name: 'announcements',
+        component: () => import('../views/announcement/AnnouncementList.vue'),
+        meta: { title: '公告', requiresAuth: true }
+      },
+      {
+        path: 'announcements/manage',
+        name: 'announcements-manage',
+        component: () => import('../views/announcement/AnnouncementManage.vue'),
+        meta: { title: '公告管理', requiresAuth: true, permissions: ['announcement:manage'] }
+      },
+      {
+        path: 'announcements/:id',
+        name: 'announcement-detail',
+        component: () => import('../views/announcement/AnnouncementDetail.vue'),
+        meta: { title: '公告详情', requiresAuth: true, menu: false, activeMenu: '/profile/announcements' }
       }
     ]
   },
@@ -115,16 +134,37 @@ const routes = [
   {
     path: '/project',
     name: 'project',
-    component: () => import('../views/ProjectPlaceholder.vue'),
-    meta: { title: '项目管理' }
+    component: () => import('../views/project/ProjectList.vue'),
+    meta: { title: '项目管理', requiresAuth: true }
+  },
+  {
+    path: '/project/:id',
+    name: 'project-detail',
+    component: () => import('../views/project/ProjectDetail.vue'),
+    meta: { title: '项目详情', requiresAuth: true, menu: false }
   },
   {
     path: '/admin',
     name: 'admin-settings',
-    redirect: '/admin/experts/manage',
+    redirect: () => {
+      let user = null
+      try {
+        user = JSON.parse(localStorage.getItem('expert_user') || 'null')
+      } catch (e) {
+        user = null
+      }
+      const perms = user?.permissions || []
+      if (perms.includes('expert:manage')) return '/admin/experts/manage'
+      if (perms.includes('project:manage')) return '/admin/project/config'
+      if (perms.includes('user:manage')) return '/admin/users'
+      if (perms.includes('role:manage')) return '/admin/roles/manage'
+      if (perms.includes('audit:view')) return '/admin/audit/downloads'
+      if (perms.includes('approval:config')) return '/admin/approval/config'
+      return '/experts'
+    },
     meta: {
       title: '管理员设置',
-      permissions: ['expert:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
+      permissions: ['expert:manage', 'project:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
     },
     children: [
       {
@@ -132,6 +172,12 @@ const routes = [
         name: 'experts-manage',
         component: () => import('../views/ExpertManage.vue'),
         meta: { title: '专家管理', permissions: ['expert:manage'] }
+      },
+      {
+        path: 'project/config',
+        name: 'project-config',
+        component: () => import('../views/project/ProjectConfig.vue'),
+        meta: { title: '项目配置', permissions: ['project:manage'] }
       },
       {
         path: 'audit/downloads',
@@ -162,6 +208,12 @@ const routes = [
         name: 'role-manage',
         component: () => import('../views/RoleManage.vue'),
         meta: { title: '角色管理', permissions: ['role:manage'] }
+      },
+      {
+        path: 'wecom',
+        name: 'wecom-sync',
+        component: () => import('../views/WecomSyncManage.vue'),
+        meta: { title: '企微通讯录同步', permissions: ['wecom:sync'] }
       }
     ]
   },

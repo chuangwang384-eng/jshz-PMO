@@ -111,6 +111,25 @@ public class ApplicationController {
     }
 
     /**
+     * 提交专家合同审批：POST /api/approval/contract-request（项目管理模块结算合同）。
+     * body {contractId, projectId, changes: {身份证号, 银行卡号}, reason}；
+     * 复用现有审批流（FLOW_KEY=EXPERT_MODIFY 配置），通过后合同生效。
+     */
+    @PostMapping("/contract-request")
+    public ApiResponse<Application> contractRequest(@RequestBody(required = false) Map<String, Object> body,
+                                                    @AuthenticationPrincipal AuthUser authUser) {
+        if (body == null) {
+            throw new com.jshz.expert.common.BusinessException("请求体不能为空");
+        }
+        Long contractId = ParamUtils.toLong(body.get("contractId"));
+        Long projectId = ParamUtils.toLong(body.get("projectId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> changes = (Map<String, Object>) body.get("changes");
+        String reason = (String) body.get("reason");
+        return ApiResponse.ok(applicationService.submitContractApproval(contractId, projectId, changes, reason, authUser));
+    }
+
+    /**
      * 临时照片上传：POST /api/approval/photo-upload（登录即可，multipart 字段 file）。
      * 返回 {fileName}，提交申请时以 TMP:fileName 作为照片字段值。
      */
