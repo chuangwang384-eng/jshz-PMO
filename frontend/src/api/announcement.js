@@ -48,6 +48,16 @@ export function markAnnouncementRead(id) {
   return request.post(`/announcement/${id}/read`)
 }
 
+// 当前用户生效中公告未读数（与公告抽屉角标同口径）
+export function getAnnouncementUnreadCount() {
+  return request.get('/announcement/unread-count')
+}
+
+// 当前用户把全部生效中公告标记已读（幂等：差集插入 announcement_read）
+export function markAllAnnouncementsRead() {
+  return request.post('/announcement/read-all')
+}
+
 // 已读进度与已读/未读名单（announcement:manage）
 export function getAnnouncementReadStats(id) {
   return request.get(`/announcement/${id}/read-stats`)

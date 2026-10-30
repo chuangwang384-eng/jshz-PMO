@@ -41,14 +41,33 @@ public class AnnouncementController {
         return ApiResponse.ok(announcementService.effectiveList(user, limit));
     }
 
-    /** 分页列表：管理视角含已读进度；员工视角仅 ONLINE */
+    /** 分页列表：管理视角含已读进度；员工视角仅 ONLINE；scope=effective 追加生效中过滤 */
     @GetMapping
     public ApiResponse<PageResult<Announcement>> pageQuery(@AuthenticationPrincipal AuthUser user,
                                                            @RequestParam(required = false) String keyword,
                                                            @RequestParam(required = false) String status,
                                                            @RequestParam(defaultValue = "1") int page,
-                                                           @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.ok(announcementService.pageQuery(user, keyword, status, page, size));
+                                                           @RequestParam(defaultValue = "10") int size,
+                                                           @RequestParam(required = false) String scope) {
+        return ApiResponse.ok(announcementService.pageQuery(user, keyword, status, page, size, scope));
+    }
+
+    /** 当前用户生效中公告未读数（登录即可，与 effectiveList 同一生效口径） */
+    @GetMapping("/unread-count")
+    public ApiResponse<Long> unreadCount(@AuthenticationPrincipal AuthUser user) {
+        if (user == null || user.getUserId() == null) {
+            return ApiResponse.ok(0L);
+        }
+        return ApiResponse.ok(announcementService.unreadCount(user.getUserId()));
+    }
+
+    /** 当前用户把全部生效中公告标记已读（幂等：差集插入 announcement_read） */
+    @PostMapping("/read-all")
+    public ApiResponse<Void> readAll(@AuthenticationPrincipal AuthUser user) {
+        if (user != null && user.getUserId() != null) {
+            announcementService.markAllEffectiveRead(user.getUserId());
+        }
+        return ApiResponse.ok();
     }
 
     /** 详情 */

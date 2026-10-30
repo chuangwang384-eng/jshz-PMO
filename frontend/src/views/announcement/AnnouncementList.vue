@@ -79,7 +79,7 @@ async function loadList() {
       page: filters.page,
       size: filters.size
     })
-    records.value = data.records || []
+    records.value = data.items || []
     total.value = data.total || 0
   } finally {
     loading.value = false
@@ -92,13 +92,19 @@ function handleSearch() {
 }
 
 function goDetail(id) {
-  router.push(`/announcements/${id}`)
+  router.push(`/profile/announcements/${id}`)
 }
 
 onMounted(loadList)
 </script>
 
 <style scoped>
+.toolbar {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .announcement-list {
   min-height: 120px;
 }

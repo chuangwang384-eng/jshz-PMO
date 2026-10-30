@@ -247,7 +247,7 @@ async function loadList() {
       page: filters.page,
       size: filters.size
     })
-    records.value = data.records || []
+    records.value = data.items || []
     total.value = data.total || 0
   } finally {
     loading.value = false
@@ -352,7 +352,7 @@ async function openStats(row) {
 }
 
 function goDetail(id) {
-  router.push(`/announcements/${id}`)
+  router.push(`/profile/announcements/${id}`)
 }
 
 onMounted(loadList)
@@ -365,6 +365,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.toolbar {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .editor-wrap {
   width: 100%;
   border: 1px solid #dcdfe6;

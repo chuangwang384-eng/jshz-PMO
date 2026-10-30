@@ -18,6 +18,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 系统公告服务。
@@ -58,7 +60,7 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
     /**
      * 分页查询：管理视角返回全部状态并附已读进度；员工视角仅 ONLINE。
      */
-    public PageResult<Announcement> pageQuery(AuthUser user, String keyword, String status, int page, int size) {
+    public PageResult<Announcement> pageQuery(AuthUser user, String keyword, String status, int page, int size, String scope) {
         boolean manage = user != null && user.hasPermission(PERMISSION_MANAGE);
         LambdaQueryWrapper<Announcement> wrapper = new LambdaQueryWrapper<>();
         if (!manage) {
@@ -69,6 +71,14 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
         if (StringUtils.hasText(keyword)) {
             wrapper.and(w -> w.like(Announcement::getTitle, keyword.trim())
                     .or().like(Announcement::getContent, keyword.trim()));
+        }
+        // scope=effective：员工视角追加"生效中"过滤（effective_time<=now 且未过期），
+        // 仅前端公告抽屉使用；scope 缺省/非 effective 时行为与现状完全一致（零回归）。
+        if (!manage && "effective".equalsIgnoreCase(scope)) {
+            LocalDateTime now = LocalDateTime.now();
+            wrapper.le(Announcement::getEffectiveTime, now)
+                    .and(w -> w.isNull(Announcement::getExpireTime)
+                            .or().gt(Announcement::getExpireTime, now));
         }
         wrapper.orderByDesc(Announcement::getIsTop).orderByDesc(Announcement::getCreateTime);
         Page<Announcement> result = this.page(new Page<>(Math.max(page, 1), Math.max(size, 1)), wrapper);
@@ -240,6 +250,73 @@ public class AnnouncementService extends ServiceImpl<AnnouncementMapper, Announc
         ar.setUserId(user.getUserId());
         ar.setReadTime(LocalDateTime.now());
         announcementReadMapper.insert(ar);
+    }
+
+    /**
+     * 当前用户生效中公告未读数（与 effectiveList 同一生效口径）。
+     * 仅统计 status=ONLINE 且生效期内（effective_time<=now 且未过期）的公告差集。
+     */
+    public long unreadCount(Long userId) {
+        if (userId == null) {
+            return 0;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<Announcement> effective = this.list(new LambdaQueryWrapper<Announcement>()
+                .eq(Announcement::getStatus, STATUS_ONLINE)
+                .le(Announcement::getEffectiveTime, now)
+                .and(w -> w.isNull(Announcement::getExpireTime)
+                        .or().gt(Announcement::getExpireTime, now))
+                .select(Announcement::getId));
+        if (effective.isEmpty()) {
+            return 0;
+        }
+        List<Long> ids = effective.stream().map(Announcement::getId).toList();
+        Long read = announcementReadMapper.selectCount(new LambdaQueryWrapper<AnnouncementRead>()
+                .eq(AnnouncementRead::getUserId, userId)
+                .in(AnnouncementRead::getAnnouncementId, ids));
+        return ids.size() - (read == null ? 0 : read);
+    }
+
+    /**
+     * 当前用户把全部生效中公告标记已读（幂等：差集插入 announcement_read，不重复插入）。
+     * 返回本次实际插入条数；已下架/已过期公告不在范围。
+     */
+    @Transactional
+    public int markAllEffectiveRead(Long userId) {
+        if (userId == null) {
+            return 0;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<Announcement> effective = this.list(new LambdaQueryWrapper<Announcement>()
+                .eq(Announcement::getStatus, STATUS_ONLINE)
+                .le(Announcement::getEffectiveTime, now)
+                .and(w -> w.isNull(Announcement::getExpireTime)
+                        .or().gt(Announcement::getExpireTime, now))
+                .select(Announcement::getId));
+        if (effective.isEmpty()) {
+            return 0;
+        }
+        List<Long> ids = effective.stream().map(Announcement::getId).toList();
+        List<AnnouncementRead> already = announcementReadMapper.selectList(
+                new LambdaQueryWrapper<AnnouncementRead>()
+                        .eq(AnnouncementRead::getUserId, userId)
+                        .in(AnnouncementRead::getAnnouncementId, ids));
+        Set<Long> readIds = already.stream()
+                .map(AnnouncementRead::getAnnouncementId).collect(Collectors.toSet());
+        int count = 0;
+        LocalDateTime t = LocalDateTime.now();
+        for (Long id : ids) {
+            if (readIds.contains(id)) {
+                continue;
+            }
+            AnnouncementRead ar = new AnnouncementRead();
+            ar.setAnnouncementId(id);
+            ar.setUserId(userId);
+            ar.setReadTime(t);
+            announcementReadMapper.insert(ar);
+            count++;
+        }
+        return count;
     }
 
     /**

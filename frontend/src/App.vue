@@ -27,8 +27,7 @@
       <el-header class="header">
         <div class="header-title">{{ pageTitle }}</div>
         <div class="user-area">
-          <NotificationBell />
-          <AnnouncementBell />
+          <MessageDrawerBell />
           <span class="username">{{ auth.username }}</span>
           <el-button link type="primary" @click="handleLogout">退出登录</el-button>
         </div>
@@ -50,8 +49,7 @@ import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from './store/auth'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
 import SideMenuItem from './components/SideMenuItem.vue'
-import NotificationBell from './components/NotificationBell.vue'
-import AnnouncementBell from './components/AnnouncementBell.vue'
+import MessageDrawerBell from './components/MessageDrawerBell.vue'
 import { listAnnouncements, markAnnouncementRead } from './api/announcement'
 import { buildMenuTree } from './utils/menu'
 
@@ -67,7 +65,7 @@ const isLoginPage = computed(() => route.path === '/login')
 const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => route.meta?.title || '景帅会展内部管理系统')
 
-// 需求 2：一级菜单仅作展开容器，当前路由所属的一级菜单默认展开子菜单
+// 一级菜单仅作展开容器：当前路由所属的一级菜单默认展开子菜单（避免切页后菜单全部收起）
 const defaultOpeneds = computed(() => {
   const p = route.path
   if (!p || p === '/login') return []
@@ -90,18 +88,18 @@ onMounted(() => {
   if (!auth.isLoggedIn) {
     return
   }
-  // 刷新用户信息（保证强制改密标记最新），401 时 request 拦截器会自动跳登录
+  // 全局未读公告提示（挂载点击跳转入口，供 ElMessageBox 弹窗条目 onclick 调用）
+  window.__jshzOpenAnnouncement = openAnnouncement
+  // 先刷新用户信息（权限与强制改密标记最新）再检查未读，避免缓存陈旧导致漏弹/错弹；401 时 request 拦截器会自动跳登录
   auth
     .fetchMe()
     .then(() => {
       if (auth.mustChangePassword) {
         showChangePwd.value = true
       }
+      checkUnreadAnnouncements()
     })
     .catch(() => {})
-  // 全局未读公告提示（挂载点击跳转入口，供 ElMessageBox 弹窗条目 onclick 调用）
-  window.__jshzOpenAnnouncement = openAnnouncement
-  checkUnreadAnnouncements()
 })
 
 async function handleLogout() {
@@ -129,6 +127,14 @@ function annBriefText(a) {
 
 async function checkUnreadAnnouncements() {
   if (!auth.isLoggedIn || auth.isAdmin || auth.hasPermission('announcement:manage')) return
+  // 当天弹一次节流：localStorage 按"用户+日期"记录，避免刷新/多标签重复弹窗
+  const dateKey = `jshz_announce_popup_date_${auth.id ?? 'anon'}`
+  const today = new Date().toLocaleDateString('sv-SE')
+  try {
+    if (localStorage.getItem(dateKey) === today) return
+  } catch (e) {
+    // localStorage 不可用时退化为不节流
+  }
   try {
     const data = await listAnnouncements({ page: 1, size: 50 })
     const items = (data && data.items) || []
@@ -155,6 +161,12 @@ async function checkUnreadAnnouncements() {
           </div>`
       )
       .join('')
+    // 弹窗前记录当天已弹日期（展示即视为当天已提示，不重复打扰）
+    try {
+      localStorage.setItem(dateKey, today)
+    } catch (e) {
+      // 写入失败不阻断弹窗
+    }
     await ElMessageBox.confirm(html, `未读公告（${unread.length} 条）`, {
       dangerouslyUseHTMLString: true,
       confirmButtonText: '查看全部',
@@ -169,9 +181,13 @@ async function checkUnreadAnnouncements() {
 
 // 点击未读公告弹窗条目：标记已读并跳详情（由 ElMessageBox HTML 的 onclick 调用）
 function openAnnouncement(id) {
+  const n = Number(id)
+  if (!Number.isFinite(n)) {
+    return
+  }
   ElMessageBox.close()
-  markAnnouncementRead(id).catch(() => {})
-  router.push(`/profile/announcements/${id}`)
+  markAnnouncementRead(n).catch(() => {})
+  router.push(`/profile/announcements/${n}`)
 }
 </script>
 
