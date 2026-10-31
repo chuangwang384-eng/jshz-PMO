@@ -91,17 +91,62 @@
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" show-word-limit />
         </el-form-item>
+        <template v-if="!form.id">
+          <el-divider content-position="left">关联已有客户（选填，最多 {{ MAX_RELATIONS }} 行）</el-divider>
+          <div v-if="relationRows.length === 0" class="relation-empty">
+            <el-button type="primary" plain size="small" @click="addRelationRow">+ 关联客户</el-button>
+          </div>
+          <div v-for="(row, index) in relationRows" :key="index" class="relation-row">
+            <div class="relation-row-head">
+              <span class="relation-index">关联 {{ index + 1 }}</span>
+              <el-button link type="danger" size="small" @click="removeRelationRow(index)">删除此行</el-button>
+            </div>
+            <el-form-item label="目标客户" class="relation-form-item">
+              <div class="target-pick">
+                <el-input :model-value="row.targetName || ''" placeholder="未选择" readonly />
+                <el-button type="primary" plain size="small" @click="openTargetSelect(index)">选择客户</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item label="关系类型" class="relation-form-item">
+              <el-select v-model="row.relationTypeId" placeholder="请选择关系类型" style="width: 100%">
+                <el-option v-for="t in enabledRelationTypes" :key="t.id" :label="typeLabel(t)" :value="t.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="isDirectedType(row.relationTypeId)" label="方向" class="relation-form-item">
+              <el-select v-model="row.direction" style="width: 100%">
+                <el-option label="新客户 → 已有客户" value="NEW_TO_TARGET" />
+                <el-option label="已有客户 → 新客户" value="TARGET_TO_NEW" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-else-if="relationTypeDirection(row.relationTypeId)" label="方向" class="relation-form-item">
+              <el-tag type="info" size="small">{{ relationTypeDirection(row.relationTypeId) === 'BIDIRECTED' ? '双向（双方互见）' : '无向（不分方向）' }}</el-tag>
+            </el-form-item>
+            <el-form-item label="关系说明" class="relation-form-item">
+              <el-input v-model="row.description" maxlength="200" placeholder="选填" />
+            </el-form-item>
+          </div>
+          <div v-if="relationRows.length > 0 && relationRows.length < MAX_RELATIONS" class="relation-add">
+            <el-button type="primary" plain size="small" @click="addRelationRow">+ 再关联一位</el-button>
+          </div>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <CustomerSelectDialog
+      v-model="targetSelectVisible"
+      :customer-id="null"
+      :exclude-ids="pickedTargetIds"
+      @select="onTargetSelect"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, getCurrentInstance } from 'vue'
+import { ref, reactive, computed, onMounted, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -109,8 +154,10 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  restoreCustomer
+  restoreCustomer,
+  listRelationTypes
 } from '../api/customer'
+import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -128,6 +175,52 @@ const emptyForm = { id: null, name: '', workUnit: '', workPosition: '', workLeve
 const form = reactive({ ...emptyForm })
 const rules = {
   name: [{ required: true, message: '请输入客户姓名', trigger: 'blur' }]
+}
+
+// 关联已有客户（仅新建）
+const MAX_RELATIONS = 10
+const relationRows = ref([])
+const relationTypes = ref([])
+const targetSelectVisible = ref(false)
+const activeRelationIndex = ref(-1)
+const enabledRelationTypes = computed(() => relationTypes.value.filter((t) => t.status === 1))
+const pickedTargetIds = computed(() => relationRows.value.map((r) => r.targetCustomerId).filter(Boolean))
+
+function typeLabel(t) {
+  const map = { DIRECTED: '单向', BIDIRECTED: '双向', UNDIRECTED: '无向' }
+  return `${t.name}（${map[t.direction] || '单向'}）`
+}
+
+function relationTypeDirection(typeId) {
+  return relationTypes.value.find((x) => x.id === typeId)?.direction || ''
+}
+
+function isDirectedType(typeId) {
+  return relationTypeDirection(typeId) === 'DIRECTED'
+}
+
+function addRelationRow() {
+  if (relationRows.value.length >= MAX_RELATIONS) {
+    ElMessage.warning(`最多关联 ${MAX_RELATIONS} 位客户`)
+    return
+  }
+  relationRows.value.push({ targetCustomerId: null, targetName: '', relationTypeId: null, direction: 'NEW_TO_TARGET', description: '' })
+}
+
+function removeRelationRow(index) {
+  relationRows.value.splice(index, 1)
+}
+
+function openTargetSelect(index) {
+  activeRelationIndex.value = index
+  targetSelectVisible.value = true
+}
+
+function onTargetSelect(customer) {
+  if (activeRelationIndex.value < 0) return
+  const row = relationRows.value[activeRelationIndex.value]
+  row.targetCustomerId = customer.id
+  row.targetName = customer.name
 }
 
 async function loadList() {
@@ -166,6 +259,7 @@ function handleSwitchDeleted() {
 
 function openCreate() {
   Object.assign(form, emptyForm)
+  relationRows.value = []
   formVisible.value = true
 }
 
@@ -189,6 +283,13 @@ async function handleSave() {
   } catch {
     return
   }
+  const pendingRelations = relationRows.value.filter((r) => r.targetCustomerId)
+  for (const r of pendingRelations) {
+    if (!r.relationTypeId) {
+      ElMessage.warning(`请为「${r.targetName}」选择关系类型`)
+      return
+    }
+  }
   saving.value = true
   try {
     const payload = {
@@ -203,6 +304,14 @@ async function handleSave() {
     if (form.id) {
       await updateCustomer(form.id, payload)
     } else {
+      if (pendingRelations.length) {
+        payload.relations = pendingRelations.map((r) => ({
+          targetCustomerId: r.targetCustomerId,
+          relationTypeId: r.relationTypeId,
+          direction: isDirectedType(r.relationTypeId) ? r.direction : undefined,
+          description: r.description?.trim() || ''
+        }))
+      }
       await createCustomer(payload)
     }
     ElMessage.success(form.id ? '保存成功' : '新增成功')
@@ -247,7 +356,14 @@ function goRelationTypeManage() {
   router.push('/knowledge-planet/customer-relation-type-manage')
 }
 
-onMounted(loadList)
+onMounted(() => {
+  loadList()
+  listRelationTypes()
+    .then((res) => {
+      relationTypes.value = res || []
+    })
+    .catch(() => {})
+})
 </script>
 
 <style scoped>
@@ -269,5 +385,38 @@ onMounted(loadList)
 .pager {
   margin-top: 14px;
   justify-content: flex-end;
+}
+.relation-empty {
+  margin-bottom: 10px;
+}
+.relation-row {
+  border: 1px dashed #dcdfe6;
+  border-radius: 6px;
+  padding: 8px 12px 2px;
+  margin-bottom: 12px;
+}
+.relation-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.relation-index {
+  font-size: 13px;
+  color: #909399;
+}
+.relation-form-item {
+  margin-bottom: 12px;
+}
+.target-pick {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.target-pick .el-input {
+  flex: 1;
+}
+.relation-add {
+  margin-top: 4px;
 }
 </style>

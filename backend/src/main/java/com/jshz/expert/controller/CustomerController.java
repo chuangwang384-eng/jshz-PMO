@@ -267,7 +267,23 @@ public class CustomerController {
     }
 
     /**
-     * 建立关系：POST /api/customer/relations（body CustomerRelationForm，有向 from->to）。需 customer:manage。
+     * 搜索可选目标客户：GET /api/customer/relations/search-targets?customerId=&keyword=&page=&pageSize=。
+     * 排除自身与已建立关系的客户（含双向/无向互见），供连线模式与新建档案关联搜索使用。
+     * customerId 可为空（新建档案关联场景）：返回全部未软删客户。登录即可。
+     */
+    @GetMapping("/relations/search-targets")
+    public ApiResponse<PageResult<Customer>> searchTargets(@RequestParam(required = false) Long customerId,
+                                                           @RequestParam(required = false) String keyword,
+                                                           @RequestParam(defaultValue = "1") long page,
+                                                           @RequestParam(defaultValue = "20") long pageSize,
+                                                           @AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        Page<Customer> p = relationService.searchTargets(customerId, keyword, page, pageSize);
+        return ApiResponse.ok(PageResult.of(p));
+    }
+
+    /**
+     * 建立关系：POST /api/customer/relations（body CustomerRelationForm，方向由关系类型 direction 决定）。需 customer:manage。
      */
     @PostMapping("/relations")
     public ApiResponse<CustomerRelation> createRelation(@RequestBody CustomerRelationForm form,

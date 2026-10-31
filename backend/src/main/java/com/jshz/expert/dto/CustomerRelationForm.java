@@ -19,4 +19,7 @@ public class CustomerRelationForm {
 
     /** 关系说明 */
     private String description;
+
+    /** 关系方向（可选，兼容字段）：DIRECTED/BIDIRECTED/UNDIRECTED；实际方向以关系类型 direction 为准，本字段仅用于显式声明 */
+    private String direction;
 }

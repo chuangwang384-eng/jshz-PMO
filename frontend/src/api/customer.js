@@ -78,7 +78,12 @@ export function getNetworkGraph() {
   return request.get('/customer/relations/network')
 }
 
-// 建立客户间有向关系（customer:manage，幂等：同向同类型不重复建）
+// 搜索可选目标客户（customerId 必传时排除自身与已关联客户；为空返回全部未软删客户）
+export function searchTargets(params) {
+  return request.get('/customer/relations/search-targets', { params })
+}
+
+// 建立客户间关系（customer:manage，幂等：单向按 from:to:type、双向/无向按双方任意顺序判重）
 export function createRelation(data) {
   return request.post('/customer/relations', data)
 }

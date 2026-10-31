@@ -12,11 +12,16 @@
       </template>
 
       <el-alert type="info" :closable="false" show-icon class="tip">
-        关系类型采用「预置枚举 + 维护人可扩展」：预置类型（介绍关系、上下级、同事、业务伙伴、亲友等）不可删除；自定义类型可停用，停用后不可用于新建关系，历史关系仍保留展示。
+        关系类型采用「预置枚举 + 维护人可扩展」：预置类型（介绍关系、上下级、同事、业务伙伴、亲友等）不可删除、方向不可修改；自定义类型可停用，停用后不可用于新建关系，历史关系仍保留展示。方向说明：单向=仅从起点指向终点；双向=双方互见、建单条关系；无向=不分方向。
       </el-alert>
 
       <el-table v-loading="loading" :data="rows" border stripe>
         <el-table-column prop="name" label="类型名称" min-width="150" />
+        <el-table-column label="方向" width="110">
+          <template #default="{ row }">
+            <el-tag :type="directionTagType(row.direction)" size="small">{{ directionLabel(row.direction) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="code" label="编码" min-width="160" show-overflow-tooltip />
         <el-table-column label="来源" width="100">
           <template #default="{ row }">
@@ -50,6 +55,17 @@
         <el-form-item label="类型名称" prop="name">
           <el-input v-model="form.name" maxlength="50" placeholder="如：供应商关系、战略合作" />
         </el-form-item>
+        <el-form-item v-if="form.builtin === 1" label="关系方向">
+          <el-tag :type="directionTagType(form.direction)" size="small">{{ directionLabel(form.direction) }}</el-tag>
+          <span class="builtin-tip">预置类型方向固定，不可修改</span>
+        </el-form-item>
+        <el-form-item v-else label="关系方向" prop="direction">
+          <el-select v-model="form.direction" style="width: 100%">
+            <el-option label="单向（有向，起点 → 终点）" value="DIRECTED" />
+            <el-option label="双向（双方互见，建单条关系）" value="BIDIRECTED" />
+            <el-option label="无向（不分方向）" value="UNDIRECTED" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -77,10 +93,21 @@ const rows = ref([])
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
-const emptyForm = { id: null, name: '' }
+const emptyForm = { id: null, name: '', direction: 'DIRECTED', builtin: 0 }
 const form = reactive({ ...emptyForm })
 const rules = {
   name: [{ required: true, message: '请输入类型名称', trigger: 'blur' }]
+}
+
+function directionLabel(d) {
+  const map = { DIRECTED: '单向', BIDIRECTED: '双向', UNDIRECTED: '无向' }
+  return map[d] || '单向'
+}
+
+function directionTagType(d) {
+  if (d === 'BIDIRECTED') return 'warning'
+  if (d === 'UNDIRECTED') return 'info'
+  return 'primary'
 }
 
 async function loadTypes() {
@@ -101,7 +128,7 @@ function openCreate() {
 }
 
 function openEdit(row) {
-  Object.assign(form, { id: row.id, name: row.name })
+  Object.assign(form, { id: row.id, name: row.name, direction: row.direction || 'DIRECTED', builtin: row.builtin || 0 })
   formVisible.value = true
 }
 
@@ -114,9 +141,13 @@ async function handleSave() {
   saving.value = true
   try {
     if (form.id) {
-      await updateRelationType(form.id, { name: form.name.trim() })
+      const payload = { name: form.name.trim() }
+      if (form.builtin !== 1) {
+        payload.direction = form.direction
+      }
+      await updateRelationType(form.id, payload)
     } else {
-      await createRelationType({ name: form.name.trim() })
+      await createRelationType({ name: form.name.trim(), direction: form.direction })
     }
     ElMessage.success(form.id ? '保存成功' : '新增成功')
     formVisible.value = false
@@ -167,5 +198,10 @@ onMounted(loadTypes)
 }
 .tip {
   margin-bottom: 14px;
+}
+.builtin-tip {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #909399;
 }
 </style>

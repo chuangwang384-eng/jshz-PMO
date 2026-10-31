@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.dto.CustomerForm;
+import com.jshz.expert.dto.CustomerRelationForm;
 import com.jshz.expert.entity.Customer;
 import com.jshz.expert.entity.CustomerAttachment;
 import com.jshz.expert.mapper.CustomerAttachmentMapper;
@@ -30,6 +31,7 @@ public class CustomerService {
     private final CustomerMapper customerMapper;
     private final CustomerAttachmentMapper attachmentMapper;
     private final CustomerAttachmentStorageService storageService;
+    private final CustomerRelationService relationService;
 
     /**
      * 分页检索客户档案。
@@ -67,8 +69,9 @@ public class CustomerService {
     }
 
     /**
-     * 新增客户档案。
+     * 新增客户档案。如表单携带 relations，则在同事务内批量建立关联关系，任一失败整体回滚。
      */
+    @Transactional
     public Customer create(CustomerForm form, AuthUser authUser) {
         validateName(form.getName());
         Customer customer = new Customer();
@@ -77,7 +80,39 @@ public class CustomerService {
         customer.setCreateBy(operator(authUser));
         customer.setUpdateBy(operator(authUser));
         customerMapper.insert(customer);
+        applyRelations(customer.getId(), form.getRelations(), authUser);
         return customer;
+    }
+
+    /**
+     * 批量建立"新客户 -> 已有客户"关联关系（复用 CustomerRelationService 幂等与方向逻辑）。
+     * direction：NEW_TO_TARGET=新客户→已有客户（默认）；TARGET_TO_NEW=已有客户→新客户。
+     */
+    private void applyRelations(Long newCustomerId, List<CustomerForm.RelationItem> relations, AuthUser authUser) {
+        if (relations == null || relations.isEmpty()) {
+            return;
+        }
+        for (CustomerForm.RelationItem item : relations) {
+            if (item == null) {
+                continue;
+            }
+            if (item.getTargetCustomerId() == null) {
+                throw new BusinessException("关联客户不能为空");
+            }
+            if (item.getTargetCustomerId().equals(newCustomerId)) {
+                throw new BusinessException("不能与自己建立关系");
+            }
+            if (item.getRelationTypeId() == null) {
+                throw new BusinessException("请选择关系类型");
+            }
+            boolean newToTarget = !"TARGET_TO_NEW".equals(item.getDirection());
+            CustomerRelationForm rf = new CustomerRelationForm();
+            rf.setFromCustomerId(newToTarget ? newCustomerId : item.getTargetCustomerId());
+            rf.setToCustomerId(newToTarget ? item.getTargetCustomerId() : newCustomerId);
+            rf.setRelationTypeId(item.getRelationTypeId());
+            rf.setDescription(item.getDescription());
+            relationService.createRelation(rf, authUser);
+        }
     }
 
     /**

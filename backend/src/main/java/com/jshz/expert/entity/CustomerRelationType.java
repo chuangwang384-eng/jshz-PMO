@@ -30,6 +30,9 @@ public class CustomerRelationType {
     /** 1启用 0停用 */
     private Integer status;
 
+    /** 关系方向：DIRECTED单向 / BIDIRECTED双向 / UNDIRECTED无向（预置类型方向固定） */
+    private String direction;
+
     /** 创建人 */
     private String createBy;
 
