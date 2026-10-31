@@ -12,8 +12,8 @@
             <el-tag :type="supplierTypeTagColor(s.value.typeBizKey)" style="margin-left: 10px">{{ s.typeName }}</el-tag>
           </div>
           <div>
-            <el-button plain @click="openEdit">编辑</el-button>
-            <el-button type="danger" plain @click="handleDelete">删除</el-button>
+            <el-button v-permission="'supplier:manage'" plain @click="openEdit">编辑</el-button>
+            <el-button v-permission="'supplier:manage'" type="danger" plain @click="handleDelete">删除</el-button>
           </div>
         </div>
         <div class="head-meta">
@@ -42,9 +42,9 @@
           <div v-for="(img, i) in images" :key="img.id" class="g-item">
             <el-image :src="imageUrl(img.fileName)" fit="cover" class="g-img" :preview-src-list="images.map(x => imageUrl(x.fileName))" :initial-index="i" />
             <el-tag v-if="img.isMain === 1" class="g-main" size="small" type="danger" effect="dark">主图</el-tag>
-            <el-button class="g-del" circle size="small" type="danger" @click="removeImage(img)">×</el-button>
+            <el-button v-permission="'supplier:manage'" class="g-del" circle size="small" type="danger" @click="removeImage(img)">×</el-button>
             <div class="g-actions">
-              <el-button v-if="img.isMain !== 1" link type="primary" size="small" @click="setMain(img)">设为主图</el-button>
+              <el-button v-if="img.isMain !== 1" v-permission="'supplier:manage'" link type="primary" size="small" @click="setMain(img)">设为主图</el-button>
               <span v-else class="g-main-text">默认封面</span>
             </div>
             <div class="g-name">{{ img.name || img.fileName }}</div>
@@ -53,7 +53,7 @@
         </div>
         <div class="upload-row">
           <el-input v-model="uploadName" maxlength="50" placeholder="图片命名（≤50字，留空显示原文件名）" style="width: 280px" @keyup.enter="pickFiles" />
-          <el-button type="primary" plain :loading="uploading" @click="pickFiles">选择并上传</el-button>
+          <el-button v-permission="'supplier:manage'" type="primary" plain :loading="uploading" @click="pickFiles">选择并上传</el-button>
           <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFilesPicked" />
         </div>
         <div class="upload-tip">限制：单供应商 ≤20 张、单张 ≤8MB、累计 ≤100MB；上传前自动压缩（长边≤1280）；首图自动设为默认主图</div>
@@ -62,7 +62,7 @@
       <!-- 行价 -->
       <el-card shadow="never" class="sec-card">
         <template #header>
-          <div class="sec-head"><span>行价（{{ priceItems.length }}）</span><el-button link type="primary" @click="openPriceEdit">编辑行价</el-button></div>
+          <div class="sec-head"><span>行价（{{ priceItems.length }}）</span><el-button v-permission="'supplier:manage'" link type="primary" @click="openPriceEdit">编辑行价</el-button></div>
         </template>
         <el-table v-if="priceItems.length" :data="priceItems" border stripe size="small">
           <el-table-column prop="itemName" label="服务项" min-width="160" />
@@ -90,7 +90,7 @@
             style="margin-top: 6px"
           />
           <div class="review-submit">
-            <el-button type="primary" size="small" :loading="reviewing" :disabled="!reviewStars || !reviewContent.trim()" @click="submitReview">提交评价</el-button>
+            <el-button v-permission="'supplier:manage'" type="primary" size="small" :loading="reviewing" :disabled="!reviewStars || !reviewContent.trim()" @click="submitReview">提交评价</el-button>
           </div>
         </div>
         <div v-if="reviews.length" class="review-list">
@@ -110,14 +110,14 @@
         <template #header>
           <div class="sec-head">
             <span>{{ isHotel ? '绑定打印店' : '服务的酒店' }}（{{ bindings.length }}）</span>
-            <el-button link type="primary" @click="openBindDlg">添加绑定</el-button>
+            <el-button v-permission="'supplier:manage'" link type="primary" @click="openBindDlg">添加绑定</el-button>
           </div>
         </template>
         <div v-if="bindings.length" class="bind-list">
           <div v-for="b in bindings" :key="b.id" class="bind-item">
             <span class="bind-name" @click="goPeer(b.id)">{{ b.name }} ↗</span>
             <span class="bind-meta">{{ b.cityName || '-' }}｜{{ b.typeName }}</span>
-            <el-button link type="danger" size="small" @click="unbind(b.id)">解绑</el-button>
+            <el-button v-permission="'supplier:manage'" link type="danger" size="small" @click="unbind(b.id)">解绑</el-button>
           </div>
         </div>
         <el-empty v-else :description="isHotel ? '尚未绑定打印店' : '尚未关联酒店'" :image-size="60" />

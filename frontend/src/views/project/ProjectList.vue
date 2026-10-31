@@ -48,7 +48,7 @@
         <el-button @click="resetSearch">重置</el-button>
       </div>
       <div class="toolbar-actions">
-        <el-button type="success" plain @click="handleExport">导出 xlsx</el-button>
+        <el-button v-permission="'project:manage'" type="success" plain @click="handleExport">导出 xlsx</el-button>
         <el-button v-permission="'project:create'" type="primary" plain @click="openEdit(null)">新建项目</el-button>
         <el-button v-permission="'project:manage'" plain @click="goProjectConfig">项目配置</el-button>
       </div>

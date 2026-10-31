@@ -732,6 +732,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (user == null) {
             throw new BusinessException("未登录");
         }
+        if (!user.hasPermission(PERM_APPROVAL_AUDIT)) {
+            throw new BusinessException("无审批权限，不能执行转办");
+        }
         if (!StringUtils.hasText(targetUser)) {
             throw new BusinessException("目标用户不能为空");
         }
@@ -759,6 +762,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     public Application addApprover(Long id, String targetUser, String comment, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
+        }
+        if (!user.hasPermission(PERM_APPROVAL_AUDIT)) {
+            throw new BusinessException("无审批权限，不能执行加签");
         }
         if (!StringUtils.hasText(targetUser)) {
             throw new BusinessException("目标用户不能为空");
