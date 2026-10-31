@@ -270,3 +270,12 @@ server {
   4. 验证登录：`POST /api/auth/login` 返回 200 + `Set-Cookie: expert_token=...`；带 cookie 的 `GET /api/auth/me`、`GET /api/project` 均 200。
 - **预防**：① 不要在服务运行期间在 `backend/` 直接执行 `mvn package/clean`——先停服务，或用 `scripts/deploy-backend.ps1`（其阶段 9 会先停服务再替换 jar）；② 任何后端构建后先核对 `unzip -l target/expert-system.jar | grep -c BOOT-INF/lib`，为 0 说明是瘦 jar，禁止直接用于发布；③ `logs/expert-backend.err.log` 出现 `NoClassDefFoundError` 即高度怀疑运行中 jar 被替换。
 - **影响面**：仅后端，前端 dist 与数据库无变更；JWT_SECRET 未变，用户无需重新登录（本次因接口恢复，重新登录后恢复正常）。
+
+## R-1 发布记录
+- 2026-10-31 18:33:30 R-1 发布 1.0.13 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-10-31 21:21:58 R-1 发布 1.0.14 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-10-31 23:07:32 R-1 发布 1.0.15 成功（jar: expert-system.jar）
