@@ -55,9 +55,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
     public static final String PERM_APPROVAL_AUDIT = "approval:audit";
 
-    /** 字段白名单（排除照片类、id、时间类、下载次数） */
+    /** 字段白名单（排除照片类、id、时间类、下载次数；2026-10-30 对齐新增/编辑表单，移除研究方向、擅长领域） */
     public static final List<String> WHITELIST_FIELDS = List.of(
-            "姓名", "单位", "科室", "职称", "研究方向", "擅长领域",
+            "姓名", "单位", "科室", "职称",
             "联系方式", "简介", "身份证号", "银行卡号", "银行卡开户行");
 
     /** 照片字段白名单（照片变更随审批流一并生效） */
@@ -77,7 +77,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     /** 新增专家必填文本字段（审批通过后写入 expert_info；模板管理接口对外暴露该清单） */
     public static final List<String> CREATE_REQUIRED_FIELDS = List.of(
-            "姓名", "单位", "科室", "职称", "研究方向", "擅长领域", "联系方式");
+            "姓名", "单位", "科室", "职称", "联系方式");
 
     /** 姓名正则：2-20 个汉字，可含间隔号 */
     private static final Pattern NAME_PATTERN = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,20}$");
@@ -281,7 +281,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 新增专家必填校验：姓名、单位、科室、职称、研究方向、擅长领域、联系方式必填，
+     * 新增专家必填校验：姓名、单位、科室、职称、联系方式必填（2026-10-30 对齐卡片展示字段，移除研究方向、擅长领域），
      * 姓名须满足 2-20 个汉字（可含间隔号）。
      */
     private void validateCreateChanges(Map<String, Object> changes) {
