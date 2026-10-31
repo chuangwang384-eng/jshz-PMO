@@ -77,7 +77,7 @@ public class ApplicationController {
 
     /**
      * 提交修改申请：POST /api/approval/requests（登录即可，管理员拒绝）。
-     * body {expertId, changes: {中文键: 新值}, reason, templateId 可选}。
+     * body {expertId, changes: {中文键: 新值}, reason}。
      */
     @PostMapping("/requests")
     public ApiResponse<Application> submit(@RequestBody(required = false) Map<String, Object> body,
@@ -89,13 +89,12 @@ public class ApplicationController {
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        Long templateId = ParamUtils.toLong(body.get("templateId"));
-        return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, templateId, authUser));
+        return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, authUser));
     }
 
     /**
      * 提交新增专家申请：POST /api/approval/create-request（登录即可，管理员拒绝）。
-     * body {changes: {中文键: 新值}, reason, templateId 可选}，expertId 无需传。
+     * body {changes: {中文键: 新值}, reason}，expertId 无需传。
      */
     @PostMapping("/create-request")
     public ApiResponse<Application> createRequest(@RequestBody(required = false) Map<String, Object> body,
@@ -106,8 +105,7 @@ public class ApplicationController {
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        Long templateId = ParamUtils.toLong(body.get("templateId"));
-        return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, templateId, authUser));
+        return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, authUser));
     }
 
     /**

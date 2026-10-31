@@ -95,11 +95,6 @@ public class Application {
     @JsonProperty("reason")
     private String reason;
 
-    /** 来源模板ID（biz_data.templateId，可空） */
-    @TableField(exist = false)
-    @JsonProperty("templateId")
-    private Long templateId;
-
     /** 变更内容解析对象（biz_data.changes，照片值已友好化为「已更换新照片」；非数据库列） */
     @TableField(exist = false)
     @JsonProperty("changes")

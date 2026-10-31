@@ -135,24 +135,8 @@
       :before-close="handleDetailClose"
     >
       <el-form v-if="detail" :model="editForm" label-width="150px" class="edit-form">
-        <el-form-item label="申请模板">
-          <el-select
-            v-model="editTemplateId"
-            clearable
-            placeholder="不使用模板（展示全部字段）"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="t in templates"
-              :key="t.id"
-              :label="`${t.templateName}（${(t.fields || []).length} 个字段）`"
-              :value="t.id"
-            />
-          </el-select>
-          <div class="form-tip">选择常用申请模板后，下方仅展示模板内字段，提交内容也仅限模板字段</div>
-        </el-form-item>
         <div class="edit-photos">
-          <div v-if="editFieldVisible('照片')" class="edit-photo-item">
+          <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
             <div class="edit-photo-box round">
               <img v-if="photoPreview.photo" :src="photoPreview.photo" class="edit-photo-img" alt="证件照预览" />
@@ -167,7 +151,7 @@
               <el-button size="small" type="primary" plain>更换照片</el-button>
             </el-upload>
           </div>
-          <div v-if="editFieldVisible('身份证正面')" class="edit-photo-item">
+          <div class="edit-photo-item">
             <div class="edit-photo-label">身份证正面</div>
             <div class="edit-photo-box">
               <img v-if="activePhotoPreview.front" :src="activePhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
@@ -186,7 +170,7 @@
               <el-button size="small" type="primary" plain>更换照片</el-button>
             </el-upload>
           </div>
-          <div v-if="editFieldVisible('身份证反面')" class="edit-photo-item">
+          <div class="edit-photo-item">
             <div class="edit-photo-label">身份证反面</div>
             <div class="edit-photo-box">
               <img v-if="activePhotoPreview.back" :src="activePhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
@@ -206,7 +190,7 @@
             </el-upload>
           </div>
         </div>
-        <el-form-item v-if="editFieldVisible('姓名')" label="姓名">
+        <el-form-item label="姓名">
           <el-input v-model="editForm.姓名" placeholder="请输入姓名">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -215,7 +199,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('单位')" label="单位">
+        <el-form-item label="单位">
           <el-input v-model="editForm.单位" placeholder="请输入单位">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -224,7 +208,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('科室')" label="科室">
+        <el-form-item label="科室">
           <el-input v-model="editForm.科室" placeholder="请输入科室">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -233,7 +217,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('职称')" label="职称">
+        <el-form-item label="职称">
           <el-input v-model="editForm.职称" placeholder="请输入职称">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -242,7 +226,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('联系方式')" label="联系方式">
+        <el-form-item label="联系方式">
           <el-input v-model="editForm.联系方式" placeholder="请输入联系方式">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -251,7 +235,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('简介')" label="简介">
+        <el-form-item label="简介">
           <div class="textarea-copy-wrap">
             <el-input v-model="editForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
             <el-tooltip content="复制" placement="top">
@@ -259,7 +243,7 @@
             </el-tooltip>
           </div>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('身份证号')" label="身份证号">
+        <el-form-item label="身份证号">
           <el-input v-model="editForm.身份证号" placeholder="请输入身份证号（18 位）">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -268,7 +252,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('银行卡号')" label="银行卡号">
+        <el-form-item label="银行卡号">
           <el-input v-model="editForm.银行卡号" placeholder="请输入银行卡号">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -277,7 +261,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-if="editFieldVisible('银行卡开户行')" label="银行卡开户行">
+        <el-form-item label="银行卡开户行">
           <el-input v-model="editForm.银行卡开户行" placeholder="请输入开户行">
             <template #suffix>
               <el-tooltip content="复制" placement="top">
@@ -304,24 +288,8 @@
     <!-- 新增专家申请弹窗（员工：复用可编辑表单字段结构与照片选择，提交审批流） -->
     <el-dialog v-model="createVisible" title="新增专家（需审批）" width="760px" destroy-on-close>
       <el-form :model="createForm" label-width="110px" class="edit-form">
-        <el-form-item label="申请模板">
-          <el-select
-            v-model="createTemplateId"
-            clearable
-            placeholder="不使用模板（展示全部字段）"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="t in createTemplateOptions"
-              :key="t.id"
-              :label="`${t.templateName}（${(t.fields || []).length} 个字段）`"
-              :value="t.id"
-            />
-          </el-select>
-          <div class="form-tip">新增申请的模板需覆盖全部必填项（姓名、单位、科室、职称、联系方式），未覆盖的模板不在下拉中</div>
-        </el-form-item>
         <div class="edit-photos">
-          <div v-if="createFieldVisible('照片')" class="edit-photo-item">
+          <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
             <div class="edit-photo-box round">
               <img v-if="createPhotoPreview.photo" :src="createPhotoPreview.photo" class="edit-photo-img" alt="证件照预览" />
@@ -336,7 +304,7 @@
               <el-button size="small" type="primary" plain>上传照片</el-button>
             </el-upload>
           </div>
-          <div v-if="createFieldVisible('身份证正面')" class="edit-photo-item">
+          <div class="edit-photo-item">
             <div class="edit-photo-label">身份证正面</div>
             <div class="edit-photo-box">
               <img v-if="createPhotoPreview.front" :src="createPhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
@@ -351,7 +319,7 @@
               <el-button size="small" type="primary" plain>上传照片</el-button>
             </el-upload>
           </div>
-          <div v-if="createFieldVisible('身份证反面')" class="edit-photo-item">
+          <div class="edit-photo-item">
             <div class="edit-photo-label">身份证反面</div>
             <div class="edit-photo-box">
               <img v-if="createPhotoPreview.back" :src="createPhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
@@ -367,31 +335,31 @@
             </el-upload>
           </div>
         </div>
-        <el-form-item v-if="createFieldVisible('姓名')" label="姓名">
+        <el-form-item label="姓名">
           <el-input v-model="createForm.姓名" placeholder="请输入姓名（2-20 个汉字）" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('单位')" label="单位">
+        <el-form-item label="单位">
           <el-input v-model="createForm.单位" placeholder="请输入单位" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('科室')" label="科室">
+        <el-form-item label="科室">
           <el-input v-model="createForm.科室" placeholder="请输入科室" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('职称')" label="职称">
+        <el-form-item label="职称">
           <el-input v-model="createForm.职称" placeholder="请输入职称" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('联系方式')" label="联系方式">
+        <el-form-item label="联系方式">
           <el-input v-model="createForm.联系方式" placeholder="请输入联系方式" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('简介')" label="简介">
+        <el-form-item label="简介">
           <el-input v-model="createForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('身份证号')" label="身份证号">
+        <el-form-item label="身份证号">
           <el-input v-model="createForm.身份证号" placeholder="请输入身份证号（18 位）" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('银行卡号')" label="银行卡号">
+        <el-form-item label="银行卡号">
           <el-input v-model="createForm.银行卡号" placeholder="请输入银行卡号" />
         </el-form-item>
-        <el-form-item v-if="createFieldVisible('银行卡开户行')" label="银行卡开户行">
+        <el-form-item label="银行卡开户行">
           <el-input v-model="createForm.银行卡开户行" placeholder="请输入开户行" />
         </el-form-item>
         <el-alert
@@ -504,7 +472,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
-import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest, getApprovalTemplates, getApprovalFieldCatalog } from '../api/approval'
+import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
 import { CopyDocument } from '@element-plus/icons-vue'
@@ -553,67 +521,15 @@ const photoChanged = reactive({ photo: false, front: false, back: false })
 const photoPreview = reactive({ photo: '', front: '', back: '' })
 const pickedFiles = reactive({ photo: null, front: null, back: null })
 
-// ==================== 申请模板（R-B4：选择模板后表单仅展示模板字段） ====================
-const templates = ref([])            // 启用模板列表
-const createRequiredFields = ref([]) // 新增专家必填字段（后端下发，用于过滤新增弹窗可选模板）
-const editTemplateId = ref(null)     // 修改申请弹窗所选模板（null=不使用模板，展示全部字段）
-const createTemplateId = ref(null)   // 新增专家申请弹窗所选模板
-const PHOTO_KEY_MAP = { photo: '照片', front: '身份证正面', back: '身份证反面' }
-
-function templateOf(id) {
-  return templates.value.find((t) => t.id === id) || null
-}
-
-// 修改弹窗字段可见性：选了模板 = 仅模板字段；未选 = 全部
-function editFieldVisible(key) {
-  const t = templateOf(editTemplateId.value)
-  return t ? (t.fields || []).includes(key) : true
-}
-
-// 新增弹窗仅提供覆盖必填项的模板，避免表单缺必填字段被后端拦截
-const createTemplateOptions = computed(() =>
-  templates.value.filter((t) =>
-    createRequiredFields.value.every((f) => (t.fields || []).includes(f))
-  )
-)
-
-function createFieldVisible(key) {
-  const t = templateOf(createTemplateId.value)
-  return t ? (t.fields || []).includes(key) : true
-}
-
-// 员工登录后加载启用模板与字段清单（管理员走免审批通道，无需模板）
-async function fetchTemplates() {
-  if (authStore.hasPermission('expert:edit')) {
-    return
-  }
-  try {
-    const [list, catalog] = await Promise.all([getApprovalTemplates(), getApprovalFieldCatalog()])
-    templates.value = Array.isArray(list) ? list : []
-    createRequiredFields.value = catalog?.createRequiredFields || []
-  } catch (e) {
-    templates.value = []
-    // 模板加载失败不阻断原提交流程（等同未配置模板）
-  }
-}
-
-// 是否有未提交的修改：任一【当前模板可见】文本字段变化或任一可见照片被更换
-// （选模板后隐藏的字段不参与 dirty 判定，避免切换模板后被隐藏的编辑导致误判）
+// 是否有未提交的修改：任一文本字段变化或任一照片被更换
 const dirty = computed(() => {
   if (!editSnapshot.value) return false
   for (const k of TEXT_FIELDS) {
-    if (!editFieldVisible(k)) {
-      continue
-    }
     if (String(editForm[k] ?? '').trim() !== String(editSnapshot.value[k] ?? '').trim()) {
       return true
     }
   }
-  return (
-    (editFieldVisible('照片') && photoChanged.photo) ||
-    (editFieldVisible('身份证正面') && photoChanged.front) ||
-    (editFieldVisible('身份证反面') && photoChanged.back)
-  )
+  return photoChanged.photo || photoChanged.front || photoChanged.back
 })
 
 async function fetchList() {
@@ -691,7 +607,6 @@ async function openDetail(row) {
     adminPickedFiles.front = null
     adminPickedFiles.back = null
   }
-  editTemplateId.value = null
   for (const k of TEXT_FIELDS) {
     editForm[k] = data?.[k] ?? ''
   }
@@ -843,7 +758,6 @@ const createPickedFiles = reactive({ photo: null, front: null, back: null })
 
 // 打开新增专家弹窗：表单与照片均初始为空
 function openCreateDialog() {
-  createTemplateId.value = null
   for (const k of TEXT_FIELDS) {
     createForm[k] = ''
   }
@@ -908,9 +822,6 @@ async function submitCreateExpert() {
   }
   const changes = {}
   for (const k of TEXT_FIELDS) {
-    if (!createFieldVisible(k)) {
-      continue
-    }
     const v = String(createForm[k] ?? '').trim()
     if (v) {
       changes[k] = v
@@ -922,7 +833,7 @@ async function submitCreateExpert() {
     { changed: createPhotoChanged.back, key: '身份证反面', file: createPickedFiles.back }
   ]
   for (const item of photoItems) {
-    if (item.changed && item.file && createFieldVisible(item.key)) {
+    if (item.changed && item.file) {
       try {
         const res = await uploadApprovalPhoto(item.file)
         changes[item.key] = 'TMP:' + res.fileName
@@ -936,8 +847,7 @@ async function submitCreateExpert() {
   try {
     await createExpertApprovalRequest({
       changes,
-      reason: '员工新增专家',
-      templateId: createTemplateId.value || undefined
+      reason: '员工新增专家'
     })
     ElMessage.success('已提交新增专家申请，可在「我的申请」查看进度')
     createVisible.value = false
@@ -952,9 +862,6 @@ async function submitCreateExpert() {
 async function submitEditChange() {
   const changes = {}
   for (const k of TEXT_FIELDS) {
-    if (!editFieldVisible(k)) {
-      continue
-    }
     const newVal = String(editForm[k] ?? '').trim()
     const oldVal = String(editSnapshot.value?.[k] ?? '').trim()
     if (newVal !== oldVal) {
@@ -967,7 +874,7 @@ async function submitEditChange() {
     { changed: photoChanged.back, key: '身份证反面', file: pickedFiles.back }
   ]
   for (const item of photoItems) {
-    if (item.changed && item.file && editFieldVisible(item.key)) {
+    if (item.changed && item.file) {
       try {
         const res = await uploadApprovalPhoto(item.file)
         changes[item.key] = 'TMP:' + res.fileName
@@ -984,8 +891,7 @@ async function submitEditChange() {
     await submitApprovalRequest({
       expertId: detail.value.id,
       changes,
-      reason: '卡片内直接编辑提交',
-      templateId: editTemplateId.value || undefined
+      reason: '卡片内直接编辑提交'
     })
     ElMessage.success('已提交修改申请，可在「我的申请」查看进度')
     return true
@@ -1205,7 +1111,6 @@ async function submitAdminCreate() {
 
 onMounted(() => {
   fetchList()
-  fetchTemplates()
 })
 </script>
 

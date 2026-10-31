@@ -99,7 +99,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     private final ApprovalConfigMapper approvalConfigMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
-    private final ApprovalTemplateService approvalTemplateService;
     private final ExpertService expertService;
     private final PhotoStorageService photoStorageService;
     private final RoleMapper roleMapper;
@@ -173,7 +172,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - 生成申请单(status=0)并写一条 SUBMIT 记录。
      */
     public Application submitRequest(Long expertId, Map<String, Object> changes, String reason,
-                                     Long templateId, AuthUser user) {
+                                     AuthUser user) {
         checkSubmitEligible(user, "编辑");
         if (expertId == null) {
             throw new BusinessException("专家ID不能为空");
@@ -184,18 +183,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         checkChanges(changes);
         validateSensitiveFields(changes);
-        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
-        if (templateId != null) {
-            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
-        }
-
         Application app = new Application();
         app.setApplicantId(user.getUserId());
         app.setApplicant(user.getUsername());
         app.setApplicationType(ApplicationType.EXPERT_MODIFY.name());
         app.setStatus(STATUS_PENDING);
         // 提交时落专家全量旧值快照：审批通过更新 expert_info 后仍可还原「变更前」
-        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason, templateId,
+        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason,
                 buildOldSnapshot(expert)));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
@@ -212,7 +206,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - expertId 为空，审批通过后创建专家并回填 biz_data.expertId。
      */
     public Application submitCreateRequest(Map<String, Object> changes, String reason,
-                                           Long templateId, AuthUser user) {
+                                           AuthUser user) {
         checkSubmitEligible(user, "新增");
         checkChanges(changes);
         validateCreateChanges(changes);
@@ -223,12 +217,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setApplicationType(ApplicationType.EXPERT_CREATE.name());
         app.setStatus(STATUS_PENDING);
         String expertName = String.valueOf(changes.get("姓名")).trim();
-        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
-        if (templateId != null) {
-            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
-        }
         // 新增申请无「变更前」，oldData 置空
-        app.setBizData(writeBizData(null, expertName, changes, reason, templateId, null));
+        app.setBizData(writeBizData(null, expertName, changes, reason, null));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -1054,7 +1044,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setExpertId(ParamUtils.toLong(biz.get("expertId")));
         Object expertName = biz.get("expertName");
         app.setExpertName(expertName == null ? null : String.valueOf(expertName));
-        app.setTemplateId(ParamUtils.toLong(biz.get("templateId")));
         Object reason = biz.get("reason");
         app.setReason(reason == null ? null : String.valueOf(reason));
     }
@@ -1202,13 +1191,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== biz_data 读写 ====================
 
     private String writeBizData(Long expertId, String expertName, Map<String, Object> changes,
-                                String reason, Long templateId, Map<String, Object> oldData) {
+                                String reason, Map<String, Object> oldData) {
         Map<String, Object> biz = new LinkedHashMap<>();
         biz.put("expertId", expertId);
         biz.put("expertName", expertName);
         biz.put("changes", changes);
         biz.put("reason", reason);
-        biz.put("templateId", templateId);
         if (oldData != null) {
             biz.put("oldData", oldData);
         }
