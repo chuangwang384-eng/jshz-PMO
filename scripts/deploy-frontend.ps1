@@ -7,7 +7,7 @@
   按 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.2.1 原子化改造：
     1) build 输出到临时目录 frontend\dist-new.<时间戳>（vite --outDir），不直接覆盖 dist
     2) 校验临时目录内 index.html 与 assets/ 存在
-    3) 备份旧 dist 到 frontend\releases\<版本号>-<时间戳>\（版本号取 package.json version + 构建时间戳）
+    3) 备份旧 dist 到 frontend\releases\<版本号>-<时间戳>\（版本号取项目根 version.txt revision + 构建时间戳）
     4) 原子替换: dist -> dist_old.<时间戳>, dist-new.<时间戳> -> dist（任一步失败恢复旧目录）
     5) 不再执行 nginx -s reload（NSSM 约束），dist 即取即用，不重启 Nginx
     6) 发布后自检 GET http://127.0.0.1/ 返回新 index.html（对比 SHA256）
@@ -35,12 +35,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $FrontendDir = Split-Path $DistRoot -Parent
-$PackageJson = Join-Path $FrontendDir 'package.json'
 
-# ---------- 版本号（package.json version） ----------
+# ---------- 版本号（唯一真源 D:\jshz-PMO\version.txt revision） ----------
+$VersionFile = Join-Path (Split-Path $FrontendDir -Parent) 'version.txt'
 $Version = 'unknown'
-if (Test-Path $PackageJson) {
-    try { $Version = (Get-Content $PackageJson -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { $Version = 'unknown' }
+if (Test-Path $VersionFile) {
+    try {
+        $m = [regex]::Match((Get-Content $VersionFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
+        if ($m.Success) { $Version = $m.Groups[1].Value.Trim() }
+    } catch { $Version = 'unknown' }
 }
 
 # ---------- 工具函数 ----------

@@ -129,4 +129,22 @@ jshz-PMO/
 | 文档同步 | 按 [AGENTS.md](AGENTS.md) 第 0 节同步 `docs/` 对应文档与交接文档 | — |
 
 R-3 数据库向后兼容迁移规范、R-4 一键发布脚本化、R-5 版本保留与回滚预案详见设计文档 §4.3~§4.5。
+
+---
+
+## 版本升级三步走（版本号自动同步）
+
+> 自 v1.0.10 起，项目版本号改为**单一真源**：项目根目录 `version.txt`（properties 格式，如 `revision=1.0.10`）。
+> 前端界面、后端 `/health` 接口、发布归档命名全部由它驱动，不再手工改代码中的硬编码版本号。
+
+升级版本只需三步：
+
+1. **改版本**：编辑 `<LOCAL_PATH>`，把 `revision=` 改为新版本号（如 `revision=1.0.11`），提交。
+2. **构建**：执行 `.\scripts\build-all.ps1`（一键构建前端+后端）。
+   - 前端：`vite.config.js` 构建期读取 `version.txt` 注入 `VITE_APP_VERSION`，登录页/侧边栏统一显示"正式版 v1.0.10"（前缀见 `frontend/.env` 的 `VITE_APP_VERSION_PREFIX`）。
+   - 后端：`pom.xml` 的 `properties-maven-plugin` 读取 `version.txt` 生成 `version.properties`，`/health` 返回 `version` 字段；产物固定为 `backend\target\expert-system.jar`。
+3. **发布**：`.\scripts\deploy-frontend.ps1`（前端原子发布）+ `.\scripts\deploy-backend.ps1`（后端蓝绿发布），两者均自动从 `version.txt` 读取版本号用于归档命名。
+
+注意：`frontend\package.json` 的 `version` 与 `backend\pom.xml` 的 `<version>` 仅作为工程元数据，构建产物与界面/接口展示的版本号一律以 `version.txt` 为准。
+
 *（内容由AI生成，仅供参考）*

@@ -20,7 +20,7 @@
       >
         <SideMenuItem v-for="(m, i) in menuTree" :key="i" :item="m" />
       </el-menu>
-      <div class="sidebar-version">V1.001</div>
+      <div class="sidebar-version">{{ versionPrefix }}{{ versionLabel }}</div>
     </el-aside>
 
     <el-container>
@@ -47,6 +47,7 @@ import { computed, onMounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from './store/auth'
+import { versionPrefix, versionLabel } from './config/version'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
 import SideMenuItem from './components/SideMenuItem.vue'
 import MessageDrawerBell from './components/MessageDrawerBell.vue'

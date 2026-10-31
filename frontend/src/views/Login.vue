@@ -2,7 +2,7 @@
   <div class="login-page">
     <el-card class="login-card">
       <div class="login-title">景帅会展内部管理系统</div>
-      <div class="login-subtitle">正式版 V1.001</div>
+      <div class="login-subtitle">{{ versionPrefix }}{{ versionLabel }}</div>
       <el-form
         ref="formRef"
         :model="form"
@@ -47,6 +47,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
+import { versionPrefix, versionLabel } from '../config/version'
 import { getWecomConfig } from '../api/wecom'
 
 const router = useRouter()

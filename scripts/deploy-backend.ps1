@@ -16,7 +16,7 @@
   新版本 jar 绝对路径；缺省自动取 backend\target 下最新 *.jar。
 
 .PARAMETER Version
-  发布版本号（用于归档目录命名）；缺省从 jar 文件名推导（expert-system-1.002.jar -> 1.002）。
+  发布版本号（用于归档目录命名）；缺省从项目根 version.txt 读取（revision 键）。
 
 .PARAMETER DryRun
   仅打印各阶段将执行的动作与检查点，不实际修改配置、不动服务、不启动进程。
@@ -25,7 +25,7 @@
   版本保留数量，默认 5；超出按时间清理最旧归档目录（backend/releases/ 下）。
 
 .EXAMPLE
-  .\scripts\deploy-backend.ps1 -JarPath D:\jshz-PMO\backend\target\expert-system-1.002.jar
+  .\scripts\deploy-backend.ps1 -JarPath D:\jshz-PMO\backend\target\expert-system.jar
   .\scripts\deploy-backend.ps1 -DryRun
 #>
 [CmdletBinding()]
@@ -38,7 +38,7 @@ param(
 
 # ==================== 常量区（按环境调整） ====================
 $BackendDir      = 'D:\jshz-PMO\backend'
-$TargetJarName   = 'expert-system-1.001.jar'   # NSSM AppParameters 固定的正式 jar 名（替换方式保持此名）
+$TargetJarName   = 'expert-system.jar'   # NSSM AppParameters 固定的正式 jar 名（替换方式保持此名）
 $ReleasesDir     = 'D:\jshz-PMO\backend\releases'
 $DeployDoc       = 'D:\jshz-PMO\docs\deployment.md'
 $NginxConfFile   = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
@@ -165,9 +165,15 @@ function Step1-Preflight {
 
     if ($Version) { $script:NewVersion = $Version }
     else {
-        $base = [IO.Path]::GetFileNameWithoutExtension($script:NewJar)   # expert-system-1.002
-        $script:NewVersion = ($base -replace '^.*-(\d+[.\d]*)', '$1')    # -> 1.002
-        if ($script:NewVersion -eq $base) { $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm') }
+        # jar 已固定名为 expert-system.jar（无版本号），版本号从唯一真源 version.txt 读取
+        $verFile = 'D:\jshz-PMO\version.txt'
+        if (Test-Path $verFile) {
+            $m = [regex]::Match((Get-Content $verFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
+            if ($m.Success) { $script:NewVersion = $m.Groups[1].Value.Trim() }
+            else { $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm') }
+        } else {
+            $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm')
+        }
     }
     Write-Info "发布版本: $script:NewVersion"
 
