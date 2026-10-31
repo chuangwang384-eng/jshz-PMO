@@ -55,9 +55,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
     public static final String PERM_APPROVAL_AUDIT = "approval:audit";
 
-    /** 字段白名单（排除照片类、id、时间类、下载次数；2026-10-30 对齐新增/编辑表单，移除研究方向、擅长领域） */
+    /** 字段白名单（排除照片类、id、时间类、下载次数；前端新增/编辑表单已移除研究方向、擅长领域，后端白名单保留两字段以兼容历史数据，符合设计文档 3.3） */
     public static final List<String> WHITELIST_FIELDS = List.of(
-            "姓名", "单位", "科室", "职称",
+            "姓名", "单位", "科室", "职称", "研究方向", "擅长领域",
             "联系方式", "简介", "身份证号", "银行卡号", "银行卡开户行");
 
     /** 照片字段白名单（照片变更随审批流一并生效） */

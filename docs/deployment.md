@@ -184,8 +184,6 @@ server {
 
 ## R-1 发布记录
 - 2026-10-26 11:26:53 R-1 发布 1.003 成功（jar: expert-system-1.003.jar）
-
-## R-1 发布记录
 - 2026-10-26 16:21:51 R-1 发布 1.004 成功（jar: expert-system-1.004.jar）
 
 ## 1.004 发布后修复记录（2026-10-26）
@@ -206,8 +204,6 @@ server {
 
 ## R-1 发布记录
 - 2026-10-27 08:32:33 R-1 发布 1.005 成功（jar: expert-system-1.005.jar）
-
-## R-1 发布记录
 - 2026-10-27 08:59:29 R-1 发布 1.005 成功（jar: expert-system-1.005.jar）
 
 ## 1.005 发布记录（2026-10-27 上午，四功能列车）
@@ -250,39 +246,27 @@ server {
 
 ## R-1 发布记录
 - 2026-10-27 20:40:35 R-1 发布 1.007 成功（jar: expert-system-1.007.jar）
-
-## R-1 发布记录
 - 2026-10-29 08:33:53 R-1 发布 1.009 成功（jar: expert-system-1.009.jar）
-
-## R-1 发布记录
 - 2026-10-29 17:15:33 R-1 发布 1.009 成功（jar: expert-system-1.009-fix.jar）
-
-## R-1 发布记录
 - 2026-10-29 19:21:57 R-1 发布 1.009 成功（jar: expert-system-1.009.jar）
-
-## R-1 发布记录
 - 2026-10-30 09:08:48 R-1 发布 1.010 成功（jar: expert-system-1.010.jar）
-
-## R-1 发布记录
 - 2026-10-30 12:31:26 R-1 发布 1.010 成功（jar: expert-system-1.010.jar）
-
-## R-1 发布记录
 - 2026-10-30 14:23:57 R-1 发布 1.011 成功（jar: expert-system-1.011.jar）
-
-## R-1 发布记录
 - 2026-10-30 20:34:24 R-1 发布 1.0.10 成功（jar: expert-system.jar）
-
-## R-1 发布记录
 - 2026-10-30 21:35:34 R-1 发布 1.0.10 成功（jar: expert-system.jar）
-
-## R-1 发布记录
 - 2026-10-30 23:01:20 R-1 发布 1.0.10 成功（jar: expert-system.jar）
-
-## R-1 发布记录
 - 2026-10-31 08:34:48 R-1 发布 1.0.10 成功（jar: expert-system.jar）
-
-## R-1 发布记录
 - 2026-10-31 09:09:15 R-1 发布 1.011 成功（jar: expert-system.jar）
-
-## R-1 发布记录
 - 2026-10-31 09:49:53 R-1 发布 1.012 成功（jar: expert-system.jar）
+
+## 故障处置：全员登录提示"登录已过期"（2026-10-31 12:35 已修复）
+
+- **现象**：所有账号登录后立即提示"登录已过期，请重新登录"；`POST /api/auth/login` 返回 HTTP 401 且响应体为空（而非正常 `{code:401,...}` JSON）。
+- **根因**：NSSM 服务运行中的 `backend/target/expert-system.jar` 被一次**在服务运行期间执行的后端构建**替换成了"瘦 jar"（仅 477KB、无 `BOOT-INF/lib`，即 repackage 未成功、被 jar 插件产物覆盖；原因是 Windows 下运行中的 jar 无法重命名 `.original`）。运行中的 JVM 之后按需加载类全部失败（`logs/expert-backend.err.log` 出现 `NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy`），登录链路抛错并走到 `/error` 分发（该路径需登录）→ Spring Security 返回空体 401 → 前端 401 分支统一提示"登录已过期"。
+- **修复步骤**（实测有效）：
+  1. 停止服务 `Stop-Service ExpertSystemBackend`（需管理员）；
+  2. `cd backend && mvn clean package -DskipTests`，确认产物为 fat jar：`unzip -l target/expert-system.jar | grep -c BOOT-INF/lib` 应 > 0（本次 72 项，约 57.9MB）；
+  3. `Start-Service ExpertSystemBackend`，`GET /health` 返回 `{"status":"UP","version":"1.0.10"}`；
+  4. 验证登录：`POST /api/auth/login` 返回 200 + `Set-Cookie: expert_token=...`；带 cookie 的 `GET /api/auth/me`、`GET /api/project` 均 200。
+- **预防**：① 不要在服务运行期间在 `backend/` 直接执行 `mvn package/clean`——先停服务，或用 `scripts/deploy-backend.ps1`（其阶段 9 会先停服务再替换 jar）；② 任何后端构建后先核对 `unzip -l target/expert-system.jar | grep -c BOOT-INF/lib`，为 0 说明是瘦 jar，禁止直接用于发布；③ `logs/expert-backend.err.log` 出现 `NoClassDefFoundError` 即高度怀疑运行中 jar 被替换。
+- **影响面**：仅后端，前端 dist 与数据库无变更；JWT_SECRET 未变，用户无需重新登录（本次因接口恢复，重新登录后恢复正常）。
