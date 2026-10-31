@@ -33,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -195,6 +196,18 @@ public class SupplierController {
     }
 
     /**
+     * 图片改名（v2.1）：PUT /api/supplier/{id}/images/{imageId}/name。body {name}。
+     * name ≤50 字符，允许为空与重名；仅修改展示名，物理文件不变。
+     * 错误码：IMAGE_NOT_FOUND（404）/ NAME_TOO_LONG（400）。
+     */
+    @PutMapping("/{id}/images/{imageId}/name")
+    public ApiResponse<SupplierImage> renameImage(@PathVariable Long id, @PathVariable Long imageId,
+                                                  @RequestBody(required = false) Map<String, Object> body) {
+        String name = ParamUtils.str(body == null ? null : body.get("name"));
+        return ApiResponse.ok(imageService.updateName(id, imageId, name));
+    }
+
+    /**
      * 删除图片：DELETE /api/supplier/{id}/images/{imageId}。
      * 同步删除物理文件与数据库行；删除主图时自动提升排序最小的一张为新主图。
      */
@@ -270,6 +283,42 @@ public class SupplierController {
     public ApiResponse<Void> unbind(@PathVariable Long id, @PathVariable Long targetId) {
         supplierService.unbind(id, targetId);
         return ApiResponse.ok();
+    }
+
+    /**
+     * 跨城绑定清单（v2.1）：GET /api/supplier/bindings/cross-city?keyword=&page=&size=。
+     * 返回存量绑定中酒店与打印店城市不一致的关系（分页 {total, items}）。
+     */
+    @GetMapping("/bindings/cross-city")
+    public ApiResponse<PageResult<Map<String, Object>>> crossCityBindings(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "12") long size) {
+        Page<Map<String, Object>> p = supplierService.pageCrossCityBindings(keyword, page, size);
+        return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
+    }
+
+    /**
+     * 批量解绑（v2.1）：POST /api/supplier/bindings/unbind-batch。body {relIds:[]}。
+     * 事务内统一校验并删除；relIds 为空返回 PARAM_INVALID（400），
+     * 存在不存在的关系整体失败返回 BINDING_NOT_FOUND（404）；成功返回 {unboundCount}。
+     */
+    @PostMapping("/bindings/unbind-batch")
+    public ApiResponse<Map<String, Object>> unbindBatch(@RequestBody(required = false) Map<String, Object> body) {
+        List<Long> relIds = new ArrayList<>();
+        Object raw = body == null ? null : body.get("relIds");
+        if (raw instanceof List) {
+            for (Object o : (List<?>) raw) {
+                Long v = ParamUtils.toLong(o == null ? null : o.toString());
+                if (v != null) {
+                    relIds.add(v);
+                }
+            }
+        }
+        int count = supplierService.unbindBatch(relIds);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("unboundCount", count);
+        return ApiResponse.ok(result);
     }
 
     // ==================== 私有 ====================

@@ -46,6 +46,7 @@
             <div class="g-actions">
               <el-button v-if="img.isMain !== 1" v-permission="'supplier:manage'" link type="primary" size="small" @click="setMain(img)">设为主图</el-button>
               <span v-else class="g-main-text">默认封面</span>
+              <el-button v-permission="'supplier:manage'" link type="primary" size="small" @click="openRename(img)">改名</el-button>
             </div>
             <div class="g-name">{{ img.name || img.fileName }}</div>
           </div>
@@ -110,12 +111,16 @@
         <template #header>
           <div class="sec-head">
             <span>{{ isHotel ? '绑定打印店' : '服务的酒店' }}（{{ bindings.length }}）</span>
-            <el-button v-permission="'supplier:manage'" link type="primary" @click="openBindDlg">添加绑定</el-button>
+            <span>
+              <el-button v-permission="'supplier:manage'" link type="warning" @click="openCrossCityDlg">跨城清单</el-button>
+              <el-button v-permission="'supplier:manage'" link type="primary" @click="openBindDlg">添加绑定</el-button>
+            </span>
           </div>
         </template>
         <div v-if="bindings.length" class="bind-list">
           <div v-for="b in bindings" :key="b.id" class="bind-item">
             <span class="bind-name" @click="goPeer(b.id)">{{ b.name }} ↗</span>
+            <el-tag v-if="b.peerCityId && s.cityId && b.peerCityId !== s.cityId" size="small" type="warning">跨城</el-tag>
             <span class="bind-meta">{{ b.cityName || '-' }}｜{{ b.typeName }}</span>
             <el-button v-permission="'supplier:manage'" link type="danger" size="small" @click="unbind(b.id)">解绑</el-button>
           </div>
@@ -123,6 +128,19 @@
         <el-empty v-else :description="isHotel ? '尚未绑定打印店' : '尚未关联酒店'" :image-size="60" />
       </el-card>
     </template>
+
+    <!-- 图片改名（v2.1）：仅修改展示名，允许为空与重名 -->
+    <el-dialog v-model="renameDlgVisible" title="图片改名" width="440px" destroy-on-close>
+      <el-form label-width="80px">
+        <el-form-item label="名称">
+          <el-input v-model="renameName" maxlength="50" placeholder="≤50 字符，留空显示原文件名" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="renameDlgVisible = false">取消</el-button>
+        <el-button type="primary" :loading="renaming" @click="confirmRename">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 编辑基本信息 -->
     <el-dialog v-model="editVisible" title="编辑供应商" width="600px" destroy-on-close>
@@ -135,8 +153,8 @@
             <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="省份" required>
-          <el-select v-model="editForm.province" style="width: 100%" placeholder="选择省份" @change="onEditProvinceChange">
+        <el-form-item label="省份">
+          <el-select v-model="editForm.province" style="width: 100%" placeholder="选择省份（选填）" @change="onEditProvinceChange">
             <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
@@ -145,7 +163,7 @@
             v-model="editForm.cityId"
             style="width: 100%"
             placeholder="选择城市（城市字典固定只读）"
-            :disabled="!editForm.province"
+            filterable
           >
             <el-option v-for="c in editCities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
@@ -212,6 +230,39 @@
         <el-button type="primary" :disabled="!bindTargetId" @click="confirmBind">绑定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 跨城绑定清单（v2.1）：存量跨城关系批量解绑 -->
+    <el-dialog v-model="crossCityDlgVisible" title="跨城绑定清单" width="880px" destroy-on-close>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px">
+        <el-input v-model="crossKeyword" placeholder="按酒店/打印店名称搜索" clearable style="width: 240px" @keyup.enter="onCrossSearch" @clear="onCrossSearch" />
+        <el-button type="primary" plain :loading="crossLoading" @click="onCrossSearch">查询</el-button>
+        <div style="flex: 1"></div>
+        <el-button type="danger" plain :disabled="!crossSelected.length" @click="confirmBatchUnbind">批量解绑（{{ crossSelected.length }}）</el-button>
+      </div>
+      <el-table :data="crossRows" border stripe size="small" max-height="420" @selection-change="onCrossSelect">
+        <el-table-column type="selection" width="46" />
+        <el-table-column prop="hotelName" label="酒店" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="hotelCity" label="酒店城市" width="110" />
+        <el-table-column prop="printShopName" label="打印店" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="printShopCity" label="打印店城市" width="110" />
+        <el-table-column label="城市差异" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.hotelCity !== row.printShopCity" size="small" type="danger">跨城</el-tag>
+            <el-tag v-else size="small" type="success">同城</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createBy" label="创建人" width="100" />
+        <el-table-column prop="createTime" label="创建时间" width="170" />
+      </el-table>
+      <el-pagination
+        style="margin-top: 10px; justify-content: flex-end"
+        layout="total, prev, pager, next"
+        :total="crossTotal"
+        :page-size="crossSize"
+        :current-page="crossPage"
+        @current-change="onCrossPage"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -225,7 +276,8 @@ import {
   listSupplierTypes, listSupplierCities, listSuppliers,
   saveSupplierPrices, addSupplierReview,
   bindSupplier, unbindSupplier,
-  uploadSupplierImage, listSupplierImages, setSupplierMainImage, deleteSupplierImage, supplierImageUrl
+  uploadSupplierImage, listSupplierImages, setSupplierMainImage, renameSupplierImage, deleteSupplierImage, supplierImageUrl,
+  crossCityBindings, unbindSupplierBatch
 } from '../../api/supplier'
 import { compressImage } from '../../utils/imageCompress'
 import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
@@ -331,6 +383,33 @@ async function setMain(img) {
   }
 }
 
+// 图片改名（v2.1）
+const renameDlgVisible = ref(false)
+const renameTarget = ref(null)
+const renameName = ref('')
+const renaming = ref(false)
+
+function openRename(img) {
+  renameTarget.value = img
+  renameName.value = img.name || ''
+  renameDlgVisible.value = true
+}
+
+async function confirmRename() {
+  if (!renameTarget.value) return
+  renaming.value = true
+  try {
+    await renameSupplierImage(s.value.id, renameTarget.value.id, renameName.value.trim())
+    ElMessage.success('已改名')
+    renameDlgVisible.value = false
+    images.value = await listSupplierImages(s.value.id) || []
+  } catch (e) {
+    // 拦截器已提示（IMAGE_NOT_FOUND / NAME_TOO_LONG）
+  } finally {
+    renaming.value = false
+  }
+}
+
 async function removeImage(img) {
   try {
     await ElMessageBox.confirm('确定删除这张图片吗？物理文件将同步删除。', '删除图片', { type: 'warning' })
@@ -372,7 +451,6 @@ function onEditProvinceChange() {
 
 async function confirmEdit() {
   if (!editForm.value.name?.trim()) return ElMessage.warning('名称不能为空')
-  if (!editForm.value.province) return ElMessage.warning('请选择省份')
   if (!editForm.value.cityId) return ElMessage.warning('请选择城市')
   saving.value = true
   try {
@@ -459,7 +537,8 @@ async function loadBindCandidates() {
   const targetType = types.value.find((t) => t.bizKey === targetBiz)
   if (!targetType) return
   try {
-    const data = await listSuppliers({ typeId: targetType.id, page: 1, size: 200 })
+    // v2.1「三、酒店-打印店同城绑定」：候选仅列出同城市对端（跨城绑定后端拒绝）
+    const data = await listSuppliers({ typeId: targetType.id, cityId: s.value?.cityId, page: 1, size: 200 })
     bindCandidates.value = (data?.items || []).filter((o) => o.id !== s.value.id)
   } catch (e) {
     // 拦截器已提示
@@ -496,6 +575,69 @@ async function unbind(peerId) {
     fetchDetail()
   } catch (e) {
     // 拦截器已提示
+  }
+}
+
+// ==================== 跨城绑定清单（v2.1） ====================
+const crossCityDlgVisible = ref(false)
+const crossKeyword = ref('')
+const crossRows = ref([])
+const crossTotal = ref(0)
+const crossPage = ref(1)
+const crossSize = ref(12)
+const crossLoading = ref(false)
+const crossSelected = ref([])
+
+async function loadCrossCity(page = 1) {
+  crossLoading.value = true
+  try {
+    const data = await crossCityBindings({ keyword: crossKeyword.value || undefined, page, size: crossSize.value })
+    crossRows.value = data?.items || []
+    crossTotal.value = data?.total || 0
+    crossPage.value = page
+  } catch (e) {
+    // 拦截器已提示
+  } finally {
+    crossLoading.value = false
+  }
+}
+
+function openCrossCityDlg() {
+  crossSelected.value = []
+  loadCrossCity(1)
+  crossCityDlgVisible.value = true
+}
+
+function onCrossSearch() {
+  crossSelected.value = []
+  loadCrossCity(1)
+}
+
+function onCrossPage(p) {
+  crossSelected.value = []
+  loadCrossCity(p)
+}
+
+function onCrossSelect(rows) {
+  crossSelected.value = rows
+}
+
+async function confirmBatchUnbind() {
+  const ids = crossSelected.value.map((r) => r.relId)
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(`确定批量解绑选中的 ${ids.length} 条跨城绑定关系吗？解绑后如需恢复需重新同城绑定。`, '批量解绑', { type: 'warning' })
+  } catch (e) {
+    return
+  }
+  try {
+    const res = await unbindSupplierBatch(ids)
+    ElMessage.success(`已解绑 ${res?.unboundCount ?? ids.length} 条`)
+    crossSelected.value = []
+    loadCrossCity(crossPage.value)
+    fetchDetail()
+  } catch (e) {
+    // 拦截器已提示（PARAM_INVALID / BINDING_NOT_FOUND）
   }
 }
 

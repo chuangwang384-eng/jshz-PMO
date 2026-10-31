@@ -124,6 +124,28 @@ public class SupplierImageService {
     }
 
     /**
+     * 图片改名（v2.1）：仅修改显示名 name（≤50 字符，允许为空与重名）。
+     * 空名称置 NULL，展示时回退显示原文件名（与上传逻辑一致）；
+     * 物理文件名 supplier_<uuid>.<ext> 保持不变，不影响图片流地址。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public SupplierImage updateName(Long supplierId, Long imageId, String name) {
+        SupplierImage row = imageMapper.selectOne(new LambdaQueryWrapper<SupplierImage>()
+                .eq(SupplierImage::getId, imageId).eq(SupplierImage::getSupplierId, supplierId));
+        if (row == null) {
+            throw new BusinessException(404, "IMAGE_NOT_FOUND：图片不存在");
+        }
+        if (StringUtils.hasText(name) && name.trim().length() > MAX_NAME_LEN) {
+            throw new BusinessException(400, "NAME_TOO_LONG：图片名称不能超过 " + MAX_NAME_LEN + " 个字符");
+        }
+        imageMapper.update(null, new LambdaUpdateWrapper<SupplierImage>()
+                .eq(SupplierImage::getId, imageId)
+                .eq(SupplierImage::getSupplierId, supplierId)
+                .set(SupplierImage::getName, StringUtils.hasText(name) ? name.trim() : null));
+        return imageMapper.selectById(imageId);
+    }
+
+    /**
      * 删除图片：删除 DB 行并同步删除物理文件；若删除的是主图，自动提升排序最小的一张为新主图。
      */
     @Transactional(rollbackFor = Exception.class)
@@ -169,12 +191,23 @@ public class SupplierImageService {
     }
 
     /**
-     * 图片列表（按 sort_order 升序），供接口与详情展示。
+     * 图片列表（v2.1：主图置顶，其余按 sort_order 升序），供接口与详情展示。
+     * 展示层排序，不动历史数据：数据库已按 sort_order ASC, id ASC 稳定返回，
+     * 这里仅把主图（is_main=1）提到最前，其余保持上传顺序。
      */
     public List<SupplierImage> list(Long supplierId) {
-        return imageMapper.selectList(new LambdaQueryWrapper<SupplierImage>()
+        List<SupplierImage> rows = imageMapper.selectList(new LambdaQueryWrapper<SupplierImage>()
                 .eq(SupplierImage::getSupplierId, supplierId)
                 .orderByAsc(SupplierImage::getSortOrder).orderByAsc(SupplierImage::getId));
+        rows.sort((x, y) -> {
+            boolean mx = x.getIsMain() != null && x.getIsMain() == 1;
+            boolean my = y.getIsMain() != null && y.getIsMain() == 1;
+            if (mx == my) {
+                return 0;
+            }
+            return mx ? -1 : 1;
+        });
+        return rows;
     }
 
     /**

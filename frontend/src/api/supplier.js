@@ -70,6 +70,11 @@ export function setSupplierMainImage(id, imageId) {
   return request.put(`/supplier/${id}/images/${imageId}/main`)
 }
 
+// 图片改名（v2.1）：body {name}，≤50字符允许空与重名；仅改展示名
+export function renameSupplierImage(id, imageId, name) {
+  return request.put(`/supplier/${id}/images/${imageId}/name`, { name })
+}
+
 // 删除图片（同步删除物理文件与 DB 行）
 export function deleteSupplierImage(id, imageId) {
   return request.delete(`/supplier/${id}/images/${imageId}`)
@@ -98,4 +103,14 @@ export function bindSupplier(id, targetId) {
 // 解绑
 export function unbindSupplier(id, targetId) {
   return request.delete(`/supplier/${id}/bindings/${targetId}`)
+}
+
+// 跨城绑定清单（v2.1）：GET /bindings/cross-city?keyword=&page=&size=
+export function crossCityBindings(params) {
+  return request.get('/supplier/bindings/cross-city', { params })
+}
+
+// 批量解绑（v2.1）：body {relIds}，返回 {unboundCount}
+export function unbindSupplierBatch(relIds) {
+  return request.post('/supplier/bindings/unbind-batch', { relIds })
 }

@@ -409,6 +409,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
             m.put("id", t.getId());
             m.put("name", t.getName());
             m.put("cityName", t.getCityName());
+            m.put("peerCityId", t.getCityId());
             m.put("typeName", t.getTypeName());
             result.add(m);
         }
@@ -446,6 +447,12 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (dup != null && dup > 0) {
             throw new BusinessException("两家供应商已绑定，不能重复绑定");
         }
+        // v2.1「三、酒店-打印店同城绑定」：两端城市必须一致，拒绝跨城绑定（存量跨城关系不受影响）
+        Supplier hotel = this.getById(hotelId);
+        Supplier printShop = this.getById(printId);
+        if (!java.util.Objects.equals(hotel.getCityId(), printShop.getCityId())) {
+            throw new BusinessException(400, "BIND_CITY_MISMATCH：仅支持绑定同城市的打印店/酒店");
+        }
         SupplierHotelPrintRel rel = new SupplierHotelPrintRel();
         rel.setHotelId(hotelId);
         rel.setPrintShopId(printId);
@@ -464,6 +471,87 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         relMapper.delete(new LambdaQueryWrapper<SupplierHotelPrintRel>()
                 .and(w -> w.eq(SupplierHotelPrintRel::getHotelId, aId).eq(SupplierHotelPrintRel::getPrintShopId, bId)
                         .or(o -> o.eq(SupplierHotelPrintRel::getHotelId, bId).eq(SupplierHotelPrintRel::getPrintShopId, aId))));
+    }
+
+    /**
+     * 跨城绑定清单（v2.1）：全部存量绑定中 hotel.city_id != print_shop.city_id 的关系。
+     * 支持按酒店/打印店名称关键字模糊过滤；返回分页 {total, items}（数据量小，全量拉取后内存过滤分页）。
+     * 每项含 relId/hotelId/hotelName/hotelCity/printShopId/printShopName/printShopCity/createBy/createTime。
+     */
+    public Page<Map<String, Object>> pageCrossCityBindings(String keyword, long page, long size) {
+        List<SupplierHotelPrintRel> rels = relMapper.selectList(new LambdaQueryWrapper<SupplierHotelPrintRel>()
+                .orderByDesc(SupplierHotelPrintRel::getCreateTime).orderByDesc(SupplierHotelPrintRel::getId));
+        List<Map<String, Object>> all = new ArrayList<>();
+        if (!rels.isEmpty()) {
+            List<Long> supplierIds = new ArrayList<>();
+            for (SupplierHotelPrintRel r : rels) {
+                supplierIds.add(r.getHotelId());
+                supplierIds.add(r.getPrintShopId());
+            }
+            Map<Long, Supplier> supplierMap = this.listByIds(supplierIds).stream()
+                    .collect(Collectors.toMap(Supplier::getId, s -> s));
+            List<Long> cityIds = supplierMap.values().stream()
+                    .map(Supplier::getCityId).filter(java.util.Objects::nonNull).distinct().collect(Collectors.toList());
+            Map<Long, SupplierCity> cityMap = cityIds.isEmpty() ? Map.of()
+                    : cityMapper.selectBatchIds(cityIds).stream().collect(Collectors.toMap(SupplierCity::getId, c -> c));
+            String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
+            for (SupplierHotelPrintRel r : rels) {
+                Supplier hotel = supplierMap.get(r.getHotelId());
+                Supplier print = supplierMap.get(r.getPrintShopId());
+                if (hotel == null || print == null) {
+                    continue;
+                }
+                if (java.util.Objects.equals(hotel.getCityId(), print.getCityId())) {
+                    continue;
+                }
+                if (kw != null
+                        && !(hotel.getName() != null && hotel.getName().contains(kw))
+                        && !(print.getName() != null && print.getName().contains(kw))) {
+                    continue;
+                }
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("relId", r.getId());
+                m.put("hotelId", hotel.getId());
+                m.put("hotelName", hotel.getName());
+                m.put("hotelCity", cityNameOf(cityMap, hotel.getCityId()));
+                m.put("printShopId", print.getId());
+                m.put("printShopName", print.getName());
+                m.put("printShopCity", cityNameOf(cityMap, print.getCityId()));
+                m.put("createBy", r.getCreateBy());
+                m.put("createTime", r.getCreateTime());
+                all.add(m);
+            }
+        }
+        long total = all.size();
+        int from = (int) Math.min((page - 1) * size, total);
+        int to = (int) Math.min(page * size, total);
+        Page<Map<String, Object>> result = new Page<>(page, size);
+        result.setTotal(total);
+        result.setRecords(from >= to ? List.of() : all.subList(from, to));
+        return result;
+    }
+
+    /**
+     * 批量解绑（v2.1）：body {relIds}，事务内统一校验后逐条删除。
+     * relIds 为空返回 PARAM_INVALID；含不存在的关系整体失败回滚并返回 BINDING_NOT_FOUND。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int unbindBatch(List<Long> relIds) {
+        if (relIds == null || relIds.isEmpty()) {
+            throw new BusinessException(400, "PARAM_INVALID：参数不合法");
+        }
+        List<Long> distinctIds = relIds.stream().distinct().collect(Collectors.toList());
+        List<SupplierHotelPrintRel> rels = relMapper.selectBatchIds(distinctIds);
+        if (rels.size() != distinctIds.size()) {
+            throw new BusinessException(404, "BINDING_NOT_FOUND：绑定关系不存在");
+        }
+        relMapper.deleteBatchIds(distinctIds);
+        return distinctIds.size();
+    }
+
+    private String cityNameOf(Map<Long, SupplierCity> cityMap, Long cityId) {
+        SupplierCity c = cityId == null ? null : cityMap.get(cityId);
+        return c == null ? null : c.getName();
     }
 
     // ==================== 私有方法 ====================

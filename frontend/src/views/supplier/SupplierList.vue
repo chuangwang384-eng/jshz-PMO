@@ -80,8 +80,8 @@
             <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="省份" required>
-          <el-select v-model="form.province" placeholder="选择省份" style="width: 100%" @change="onFormProvinceChange">
+        <el-form-item label="省份">
+          <el-select v-model="form.province" placeholder="选择省份（选填）" style="width: 100%" @change="onFormProvinceChange">
             <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
@@ -90,7 +90,7 @@
             v-model="form.cityId"
             placeholder="选择城市（城市字典固定只读）"
             style="width: 100%"
-            :disabled="!form.province"
+            filterable
           >
             <el-option v-for="c in formCities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
@@ -246,7 +246,6 @@ function onFormProvinceChange() {
 async function confirmCreate() {
   if (!form.value.name || !form.value.name.trim()) return ElMessage.warning('请填写名称')
   if (!form.value.typeId) return ElMessage.warning('请选择类型')
-  if (!form.value.province) return ElMessage.warning('请选择省份')
   if (!form.value.cityId) return ElMessage.warning('请选择城市')
   saving.value = true
   try {

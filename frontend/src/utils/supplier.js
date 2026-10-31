@@ -34,7 +34,8 @@ export function provinceList(cities) {
 
 // 指定省份下的城市列表（两级联动第二级）
 export function citiesOfProvince(cities, province) {
-  if (!province) return []
+  // v2.1：省份选填，未选省份时城市下拉直选全部城市（可搜索）
+  if (!province) return cities || []
   const g = groupCitiesByProvince(cities).find((x) => x.province === province)
   return g ? g.cities : []
 }
