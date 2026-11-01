@@ -4,15 +4,9 @@
 
     <!-- 操作区 -->
     <div v-if="detail.id" class="action-bar">
-      <el-select
-        v-if="detail.canAdvance"
-        v-model="targetPhaseId"
-        placeholder="推进/回退阶段（可跳步）"
-        style="width: 180px"
-      >
-        <el-option v-for="p in detail.phases" :key="p.id" :label="p.name" :value="p.id" />
-      </el-select>
-      <el-button v-if="detail.canAdvance" type="primary" :disabled="!targetPhaseId || targetPhaseId === detail.phaseId" @click="doChangePhase">切换阶段</el-button>
+      <el-button v-if="detail.canAdvance && hasNextPhase" type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
+      <span v-if="detail.canAdvance && hasNextPhase && !requiredSubmitted" class="advance-tip">{{ missingRequiredTip }}</span>
+      <el-button v-if="detail.canAdvance && hasPrevPhase" @click="confirmRollback">回退阶段</el-button>
       <el-button v-if="detail.canManage" @click="openEdit">编辑项目</el-button>
       <el-button v-if="detail.canAdvance" type="warning" @click="openCancel">取消项目</el-button>
       <el-tag v-if="detail.status === 'CANCELED'" type="danger" style="margin-left: 8px">已取消：{{ detail.cancelReason }}</el-tag>
@@ -385,7 +379,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectEdit from './ProjectEdit.vue'
 import request from '../../api/request'
 import {
@@ -411,7 +405,6 @@ const ownerOptions = ref([])
 const typeOptions = ref([])
 const userOptions = ref([])
 
-const targetPhaseId = ref(null)
 const cancelVisible = ref(false)
 const cancelReason = ref('')
 const budgetVisible = ref(false)
@@ -492,16 +485,56 @@ function statusType(s) {
   return { DRAFT: 'info', PENDING: 'warning', APPROVED: 'success', REJECTED: 'danger' }[s] || 'info'
 }
 
-// ---- 阶段操作 ----
-async function doChangePhase() {
+// ---- 阶段操作：推进下一阶段 / 回退阶段（严格逐级，二次确认） ----
+const currentPhase = computed(() => (detail.value.phases || []).find((p) => Number(p.id) === Number(detail.value.phaseId)) || null)
+const nextPhase = computed(() => {
+  const c = currentPhase.value
+  if (!c) return null
+  return (detail.value.phases || []).find((p) => Number(p.sort ?? 0) === Number(c.sort ?? 0) + 1) || null
+})
+const prevPhase = computed(() => {
+  const c = currentPhase.value
+  if (!c) return null
+  return (detail.value.phases || []).find((p) => Number(p.sort ?? 0) === Number(c.sort ?? 0) - 1) || null
+})
+const hasNextPhase = computed(() => !!nextPhase.value)
+const hasPrevPhase = computed(() => !!prevPhase.value)
+const missingRequiredTemplates = computed(() => detail.value.missingRequiredTemplates || [])
+const requiredSubmitted = computed(() => missingRequiredTemplates.value.length === 0)
+const missingRequiredTip = computed(() => `当前阶段必填材料未提交：${missingRequiredTemplates.value.join('、')}`)
+
+async function confirmAdvance() {
+  const next = nextPhase.value
+  if (!next) return
   try {
-    await changePhase(projectId, targetPhaseId.value)
-    ElMessage.success('阶段已切换')
-    targetPhaseId.value = null
-    fetchDetail()
+    await ElMessageBox.confirm(`确认将项目推进到「${next.name}」阶段？`, '推进下一阶段', {
+      type: 'warning',
+      confirmButtonText: '确认推进',
+      cancelButtonText: '再想想'
+    })
   } catch (e) {
-    // 后端提示必填模板未配齐
+    return
   }
+  await changePhase(projectId, next.id)
+  ElMessage.success(`已推进到「${next.name}」阶段`)
+  fetchDetail()
+}
+
+async function confirmRollback() {
+  const prev = prevPhase.value
+  if (!prev) return
+  try {
+    await ElMessageBox.confirm(`确认将项目回退到「${prev.name}」阶段？已提交的资料会保留，可再次推进。`, '回退阶段', {
+      type: 'warning',
+      confirmButtonText: '确认回退',
+      cancelButtonText: '再想想'
+    })
+  } catch (e) {
+    return
+  }
+  await changePhase(projectId, prev.id)
+  ElMessage.success(`已回退到「${prev.name}」阶段`)
+  fetchDetail()
 }
 
 function openCancel() {
@@ -694,6 +727,7 @@ onMounted(async () => {
 
 <style scoped>
 .action-bar { margin: 12px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.advance-tip { color: #f56c6c; font-size: 12px; }
 .card-block { margin-bottom: 12px; }
 .stat-box { text-align: center; padding: 8px 0; }
 .stat-label { color: #909399; font-size: 13px; }

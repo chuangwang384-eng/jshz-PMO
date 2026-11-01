@@ -7,7 +7,7 @@
 
     <div class="toolbar">
       <div class="toolbar-filters">
-        <el-select v-model="filters.status" placeholder="当前阶段" clearable style="width: 140px" @change="handleSearch">
+        <el-select v-model="filters.status" placeholder="当前阶段" clearable style="width: 120px" @change="handleSearch">
           <el-option v-for="p in phases" :key="p.id" :label="p.name" :value="String(p.id)" />
           <el-option label="已取消" value="CANCELED" />
         </el-select>
@@ -18,7 +18,7 @@
           start-placeholder="开始时间起"
           end-placeholder="开始时间止"
           value-format="YYYY-MM-DD"
-          style="width: 230px; margin-left: 8px"
+          style="width: 200px; margin-left: 8px"
           @change="handleSearch"
         />
         <el-date-picker
@@ -28,24 +28,26 @@
           start-placeholder="结束时间起"
           end-placeholder="结束时间止"
           value-format="YYYY-MM-DD"
-          style="width: 230px; margin-left: 8px"
+          style="width: 200px; margin-left: 8px"
           @change="handleSearch"
         />
-        <el-select v-model="filters.ownerId" placeholder="负责人" clearable filterable style="width: 140px; margin-left: 8px" @change="handleSearch">
+        <el-select v-model="filters.ownerId" placeholder="负责人" clearable filterable style="width: 110px; margin-left: 8px" @change="handleSearch">
           <el-option v-for="o in owners" :key="o.id" :label="o.username" :value="o.id" />
         </el-select>
-        <el-select v-model="filters.category" placeholder="大类" clearable style="width: 110px; margin-left: 8px" @change="handleSearch">
+        <el-select v-model="filters.category" placeholder="大类" clearable style="width: 90px; margin-left: 8px" @change="handleSearch">
           <el-option label="线上" value="ONLINE" />
           <el-option label="线下" value="OFFLINE" />
         </el-select>
-        <el-select v-model="filters.typeId" placeholder="类型" clearable style="width: 130px; margin-left: 8px" @change="handleSearch">
+        <el-select v-model="filters.typeId" placeholder="类型" clearable style="width: 110px; margin-left: 8px" @change="handleSearch">
           <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
-        <el-select v-model="filters.executorId" placeholder="执行人" clearable filterable style="width: 140px; margin-left: 8px" @change="handleSearch">
+        <el-select v-model="filters.executorId" placeholder="执行人" clearable filterable style="width: 110px; margin-left: 8px" @change="handleSearch">
           <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
         </el-select>
-        <el-button type="primary" style="margin-left: 8px" @click="handleSearch">搜索</el-button>
-        <el-button @click="resetSearch">重置</el-button>
+        <div class="toolbar-actions toolbar-search-actions">
+          <el-button type="primary" @click="handleSearch">搜索</el-button>
+          <el-button @click="resetSearch">重置</el-button>
+        </div>
       </div>
       <div class="toolbar-actions">
         <el-button v-permission="'project:manage'" type="success" plain @click="handleExport">导出 xlsx</el-button>
@@ -263,5 +265,6 @@ onMounted(async () => {
 .toolbar { margin-bottom: 12px; display: flex; flex-direction: column; gap: 12px; }
 .toolbar-filters { display: flex; flex-wrap: wrap; align-items: center; }
 .toolbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.toolbar-search-actions { margin-left: auto; }
 .pagination-wrap { margin-top: 12px; display: flex; justify-content: flex-end; }
 </style>

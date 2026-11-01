@@ -124,8 +124,7 @@ async function save() {
       executorIds: form.executorIds
     }
     if (form.id) {
-      // 编辑时不传执行人列表，保留原有执行人（后端仅在传值且非空时替换）
-      delete data.executorIds
+      // 编辑时提交执行人列表，下拉可回显并随保存提交（后端仅在传值且非空时替换）
       await updateProject(form.id, data)
     } else {
       await createProject(data)

@@ -181,6 +181,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("ownerName", usernameOf(project.getOwnerId()));
         m.put("creatorName", usernameOf(project.getCreatorId()));
         m.put("executorNames", executorNamesOf(project.getId()));
+        m.put("executorIds", executorIdsOf(project.getId()));
         return m;
     }
 
@@ -201,6 +202,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("timeline", timeline(id));
         m.put("canManage", user != null && (user.isAdmin() || user.hasPermission("project:manage")));
         m.put("canAdvance", fullSensitive);
+        m.put("missingRequiredTemplates", missingRequiredTemplates(project, project.getPhaseId()));
         return m;
     }
 
@@ -333,7 +335,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     // ==================== 阶段推进 / 回退 / 取消 ====================
 
     /**
-     * 推进/回退阶段（可跳步）：校验目标阶段必填模板已配置；仅项目负责人/执行人可操作。
+     * 推进/回退阶段（严格逐级）：推进 target.sort==current.sort+1、回退 target.sort==current.sort-1；
+     * 推进方向校验当前阶段必填模板已提交（回退不做材料校验）；仅项目负责人/执行人可操作。
+     * 同阶段切换（如取消项目恢复 ACTIVE 的复用场景）跳过顺序与材料校验。
      */
     @Transactional(rollbackFor = Exception.class)
     public void changePhase(Long id, Long phaseId, AuthUser user) {
@@ -348,9 +352,22 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (target.getIsActive() != null && target.getIsActive() == 0) {
             throw new BusinessException("目标阶段已停用");
         }
-        List<String> missing = missingRequiredTemplates(project, target.getId());
-        if (!missing.isEmpty()) {
-            throw new BusinessException("阶段「" + target.getName() + "」必填模板未配齐，无法推进：缺少 " + String.join("、", missing));
+        ProjectPhase current = phaseMapper.selectById(project.getPhaseId());
+        if (current == null) {
+            throw new BusinessException("当前阶段不存在");
+        }
+        boolean samePhase = target.getId().equals(current.getId());
+        if (!samePhase && current.getSort() != null && target.getSort() != null) {
+            boolean adjacent = target.getSort() == current.getSort() + 1 || target.getSort() == current.getSort() - 1;
+            if (!adjacent) {
+                throw new BusinessException("仅支持相邻阶段推进或回退（" + current.getName() + " → " + target.getName() + "）");
+            }
+            if (target.getSort() > current.getSort()) {
+                List<String> missing = missingRequiredTemplates(project, current.getId());
+                if (!missing.isEmpty()) {
+                    throw new BusinessException("当前阶段「" + current.getName() + "」必填材料未提交，无法推进：缺少 " + String.join("、", missing));
+                }
+            }
         }
         String before = nameOfPhase(project.getPhaseId());
         project.setPhaseId(target.getId());
@@ -1467,6 +1484,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         List<ProjectExecutor> rels = executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
                 .eq(ProjectExecutor::getProjectId, projectId));
         return rels.stream().map(ProjectExecutor::getUserId).map(this::usernameOf).collect(Collectors.toList());
+    }
+
+    /** 项目执行人 userIds（编辑回显/提交用）。 */
+    private List<Long> executorIdsOf(Long projectId) {
+        return executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
+                .eq(ProjectExecutor::getProjectId, projectId))
+                .stream().map(ProjectExecutor::getUserId).collect(Collectors.toList());
     }
 
     private String nameOfType(Long typeId) {
