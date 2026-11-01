@@ -113,7 +113,7 @@
             <span>{{ isHotel ? '绑定打印店' : '服务的酒店' }}（{{ bindings.length }}）</span>
             <span>
               <el-button v-permission="'supplier:manage'" link type="warning" @click="openCrossCityDlg">跨城清单</el-button>
-              <el-button v-permission="'supplier:manage'" link type="primary" @click="openBindDlg">添加绑定</el-button>
+              <el-button v-permission="'supplier:binding'" link type="primary" @click="openBindDlg">添加绑定</el-button>
             </span>
           </div>
         </template>
@@ -122,7 +122,7 @@
             <span class="bind-name" @click="goPeer(b.id)">{{ b.name }} ↗</span>
             <el-tag v-if="b.peerCityId && s.cityId && b.peerCityId !== s.cityId" size="small" type="warning">跨城</el-tag>
             <span class="bind-meta">{{ b.cityName || '-' }}｜{{ b.typeName }}</span>
-            <el-button v-permission="'supplier:manage'" link type="danger" size="small" @click="unbind(b.id)">解绑</el-button>
+            <el-button v-permission="'supplier:binding'" link type="danger" size="small" @click="unbind(b.id)">解绑</el-button>
           </div>
         </div>
         <el-empty v-else :description="isHotel ? '尚未绑定打印店' : '尚未关联酒店'" :image-size="60" />
@@ -237,7 +237,7 @@
         <el-input v-model="crossKeyword" placeholder="按酒店/打印店名称搜索" clearable style="width: 240px" @keyup.enter="onCrossSearch" @clear="onCrossSearch" />
         <el-button type="primary" plain :loading="crossLoading" @click="onCrossSearch">查询</el-button>
         <div style="flex: 1"></div>
-        <el-button type="danger" plain :disabled="!crossSelected.length" @click="confirmBatchUnbind">批量解绑（{{ crossSelected.length }}）</el-button>
+        <el-button v-permission="'supplier:manage'" type="danger" plain :disabled="!crossSelected.length" @click="confirmBatchUnbind">批量解绑（{{ crossSelected.length }}）</el-button>
       </div>
       <el-table :data="crossRows" border stripe size="small" max-height="420" @selection-change="onCrossSelect">
         <el-table-column type="selection" width="46" />

@@ -279,3 +279,19 @@ server {
 
 ## R-1 发布记录
 - 2026-10-31 23:07:32 R-1 发布 1.0.15 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-01 08:24:53 R-1 发布 1.0.16 成功（jar: expert-system.jar）
+
+## 1.0.16 发布记录（2026-11-01，供应商权限放开改造）
+
+- **版本**：1.0.16（供应商管理操作权限放开改造）
+- **改造内容**：
+  - `supplier:create` / `supplier:binding` 放全员：所有角色（ADMIN / APPROVER / EMPLOYEE / KNOWLEDGE_MAINTAINER / PROJECT_OWNER，SUPER_ADMIN 代码全权）可新增供应商、维护酒店-打印店关系（绑定/解绑）；
+  - 删除/编辑/图片改名/行价/评价/跨城批量解绑维持仅管理员（`supplier:manage` 规则缩减为仅 ADMIN）；
+  - `supplier:dict` 补绑 ADMIN；
+  - 迁移 SQL：`database/migration/20261101_open_supplier_permission.sql`（规则改造式，幂等）。
+- **蓝绿发布**：2026-11-01，绿（正式）8080 上线承载生产流量（`/health` 返回 `version=1.0.16`），蓝 8081 验证后清理。
+- **归档路径**：旧 jar `backend/releases/1.0.16-20261101_082433/previous-expert-system.jar`；旧前端 `frontend/releases/1.0.16-20261101_082534`。
+- **验收结论**：权限矩阵 7 接口×6 角色全部符合预期，需求代码审查四层通过（详见 output/1.0.16供应商权限放开改造审查报告.md）；冒烟验证通过（无 token 请求 `/api/supplier` 返回 401，非 404）。
+*（内容由AI生成，仅供参考）*

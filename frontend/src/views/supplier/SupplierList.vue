@@ -32,7 +32,7 @@
       </el-select>
       <el-button type="primary" style="margin-left: 8px" @click="handleSearch">搜索</el-button>
       <el-button @click="resetSearch">重置</el-button>
-      <el-button v-permission="'supplier:manage'" type="success" plain @click="openCreate">新增供应商</el-button>
+      <el-button v-permission="'supplier:create'" type="success" plain @click="openCreate">新增供应商</el-button>
       <el-button v-permission="'supplier:dict'" plain @click="typeDlgVisible = true">类型管理</el-button>
     </div>
 
