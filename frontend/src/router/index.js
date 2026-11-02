@@ -65,7 +65,7 @@ const routes = [
         path: 'customer-relation-type-manage',
         name: 'customer-relation-type-manage',
         component: () => import('../views/CustomerRelationTypeManage.vue'),
-        meta: { title: '关系类型管理', menu: false, activeMenu: '/knowledge-planet/customer-info' }
+        meta: { title: '关系类型管理', menu: false, activeMenu: '/knowledge-planet/customer-info', permissions: ['customer:manage'] }
       }
     ]
   },

@@ -10,7 +10,7 @@
         </div>
         <div class="head-actions">
           <el-button v-permission="'customer:manage'" type="primary" @click="openEdit">编辑档案</el-button>
-          <el-button type="warning" @click="goRelationTypeManage">关系类型管理</el-button>
+          <el-button v-permission="'customer:manage'" type="warning" @click="goRelationTypeManage">关系类型管理</el-button>
         </div>
       </div>
       <el-descriptions :column="2" border class="detail-desc">

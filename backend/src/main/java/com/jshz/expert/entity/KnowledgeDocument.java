@@ -21,7 +21,7 @@ public class KnowledgeDocument {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 分类：meeting-execution/association-compliance/enterprise-compliance/customer-preferences */
+    /** 分类：meeting-execution/association-compliance/enterprise-compliance */
     private String category;
 
     /** 文档标题 */

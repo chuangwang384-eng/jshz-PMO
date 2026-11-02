@@ -33,7 +33,7 @@ import java.util.Set;
 public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMapper, KnowledgeDocument> {
 
     private static final Set<String> CATEGORIES = Set.of(
-            "meeting-execution", "association-compliance", "enterprise-compliance", "customer-preferences");
+            "meeting-execution", "association-compliance", "enterprise-compliance");
 
     private final KnowledgeDocStorageService storageService;
     private final KnowledgeDocTextExtractor textExtractor;

@@ -192,7 +192,8 @@ public class CustomerController {
      */
     @GetMapping("/files/{fileName}")
     public ResponseEntity<FileSystemResource> file(@PathVariable String fileName,
-                                                   @AuthenticationPrincipal AuthUser authUser) throws IOException {
+                                                   @AuthenticationPrincipal AuthUser authUser,
+                                                   HttpServletRequest request) throws IOException {
         requireUser(authUser);
         Path path = attachmentStorageService.resolveAttachment(fileName);
         if (!Files.exists(path) || !Files.isRegularFile(path)) {
@@ -201,6 +202,8 @@ public class CustomerController {
         String safeName = path.getFileName().toString();
         String encoded = URLEncoder.encode(safeName, StandardCharsets.UTF_8).replace("+", "%20");
         String disposition = "attachment; filename=\"" + safeName.replace("\"", "") + "\"; filename*=UTF-8''" + encoded;
+        operationLogService.record(userId(authUser), username(authUser), "DOWNLOAD_CUSTOMER_ATTACH",
+                "下载客户附件（fileName=" + fileName + "）", "CUSTOMER", fileName, request);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
@@ -210,11 +213,11 @@ public class CustomerController {
     // ==================== 客户关系 ====================
 
     /**
-     * 关系类型列表：GET /api/customer/relations/types（含停用类型）。登录即可。
+     * 关系类型列表：GET /api/customer/relations/types（含停用类型）。需 customer:manage。
      */
     @GetMapping("/relations/types")
     public ApiResponse<List<CustomerRelationType>> relationTypes(@AuthenticationPrincipal AuthUser authUser) {
-        requireUser(authUser);
+        requireManage(authUser);
         return ApiResponse.ok(relationService.listTypes());
     }
 

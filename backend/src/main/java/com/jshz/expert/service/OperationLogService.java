@@ -128,6 +128,10 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     /** 解绑酒店-打印店绑定 */
     public static final String ACTION_UNBIND_SUPPLIER = "UNBIND_SUPPLIER";
 
+    // ---------------- 客户模块（target_type=CUSTOMER） ----------------
+    /** 下载客户附件 */
+    public static final String ACTION_DOWNLOAD_CUSTOMER_ATTACH = "DOWNLOAD_CUSTOMER_ATTACH";
+
     /**
      * 统一写入一条操作日志；任何异常仅记 warn，不向上抛（日志失败不影响主业务）。
      *
