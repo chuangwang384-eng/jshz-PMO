@@ -17,18 +17,15 @@
       <el-select v-model="filters.typeId" placeholder="全部类型" clearable style="width: 170px; margin-left: 8px" @change="handleSearch">
         <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
       </el-select>
-      <el-select v-model="filters.province" placeholder="全部省份" clearable style="width: 150px; margin-left: 8px" @change="onFilterProvinceChange">
-        <el-option v-for="p in provinceNames" :key="p" :label="p" :value="p" />
-      </el-select>
       <el-select
         v-model="filters.cityId"
         placeholder="全部城市"
         clearable
+        filterable
         style="width: 160px; margin-left: 8px"
-        :disabled="!filters.province"
         @change="handleSearch"
       >
-        <el-option v-for="c in filteredCities" :key="c.id" :label="c.name" :value="c.id" />
+        <el-option v-for="c in cities" :key="c.id" :label="c.name" :value="c.id" />
       </el-select>
       <el-button type="primary" style="margin-left: 8px" @click="handleSearch">搜索</el-button>
       <el-button @click="resetSearch">重置</el-button>
@@ -175,7 +172,6 @@ const loading = ref(false)
 const types = ref([])
 const cities = ref([])
 const provinceNames = computed(() => provinceList(cities.value))
-const filteredCities = computed(() => citiesOfProvince(cities.value, filters.value.province))
 const formCities = computed(() => citiesOfProvince(cities.value, form.value.province))
 
 function imageUrl(fileName) {
