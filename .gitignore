@@ -74,3 +74,8 @@ frontend/releases/
 !frontend/releases/.gitkeep
 .zcode/
 供应商图库/
+
+# --- 发布脚本快照/蓝绿构建产物（不入库，需审批后手动清理） ---
+.build-*/
+frontend/dist-*/
+*.err
