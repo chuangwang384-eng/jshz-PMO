@@ -7,3 +7,4 @@
 - 2026-11-02 项目板块四项需求（进度置顶/文本保存加固/阶段回退增强+历史表）已上线 v1.0.21（后端1.012），验收通过待需求人复核。详见 [tasks/20261102_project_board_four.md](tasks/20261102_project_board_four.md)。
 - 2026-11-02 项目板块追加修正（未推进阶段不可点/推进必填校验回归/专家下拉字段修复）已上线（版本不变 1.0.21）。
 - 2026-11-02 项目详情页 UI 整体重构 + 全局标题去重（12 页）已上线（版本不变 1.0.21，纯前端）。详见 [tasks/20261102_project_detail_ui_refactor.md](tasks/20261102_project_detail_ui_refactor.md)。
+- 2026-11-02 项目详情页追加修复（相关附件富文本混入/调派专家小窗口/新建专家卡视觉/文本必填拦截根因修复）已上线（版本不变 1.0.21，含后端蓝绿）。详见 [tasks/20261102_project_detail_ui_refactor.md](tasks/20261102_project_detail_ui_refactor.md)。
