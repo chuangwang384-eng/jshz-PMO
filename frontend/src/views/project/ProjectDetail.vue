@@ -497,12 +497,28 @@
       </template>
     </el-dialog>
 
-    <!-- 调派专家 -->
-    <el-dialog v-model="assignExpertVisible" title="调派专家（全局名单）" width="560px" destroy-on-close>
-      <el-input v-model="expertKeyword" placeholder="搜索专家库（姓名/单位）" clearable style="margin-bottom: 10px" @keyup.enter="searchExperts" />
-      <el-select v-model="assignExpertId" placeholder="选择专家" filterable style="width: 100%">
-        <el-option v-for="e in expertCandidates" :key="e.id" :label="`${e['姓名'] || e.name || '未知'}（${e['单位'] || e.unit || '无单位'}）`" :value="e.id" />
-      </el-select>
+    <!-- 调派专家（参照专家库视觉：搜索 + 卡片行点选） -->
+    <el-dialog v-model="assignExpertVisible" title="从专家库调派专家" width="640px" destroy-on-close>
+      <el-input v-model="expertKeyword" placeholder="搜索专家库（姓名/单位）" clearable style="margin-bottom: 10px" @keyup.enter="searchExperts">
+        <template #append><el-button @click="searchExperts">搜索</el-button></template>
+      </el-input>
+      <div class="expert-pick-list">
+        <div
+          v-for="e in expertCandidates"
+          :key="e.id"
+          class="expert-pick-row"
+          :class="{ picked: assignExpertId === e.id }"
+          @click="assignExpertId = e.id"
+        >
+          <span class="avatar" :style="avatarStyle(e['姓名'] || e.name)">{{ (e['姓名'] || e.name || '?').charAt(0) }}</span>
+          <div class="expert-pick-info">
+            <div class="expert-pick-name">{{ e['姓名'] || e.name || '未知' }}</div>
+            <div class="expert-pick-meta">{{ e['单位'] || e.unit || '无单位' }}<template v-if="e['职称']"> · {{ e['职称'] }}</template></div>
+          </div>
+          <span v-if="assignExpertId === e.id" class="expert-pick-check">✓</span>
+        </div>
+        <div v-if="!expertCandidates.length" class="hint-text" style="padding: 12px 4px">未找到专家，可尝试其他关键词或新建专家卡</div>
+      </div>
       <el-input v-model="assignExpertRole" placeholder="角色/分工（主持人、演讲嘉宾、评审专家等）" style="margin-top: 10px" />
       <div class="hint-text">未找到目标专家？可在下方新建专家卡。</div>
       <template #footer>
@@ -511,13 +527,19 @@
       </template>
     </el-dialog>
 
-    <!-- 新建专家卡 -->
-    <el-dialog v-model="newExpertVisible" title="新建专家卡（保存后自动关联本项目）" width="520px" destroy-on-close>
-      <el-form label-width="60px">
-        <el-form-item label="姓名" required><el-input v-model="newExpert.name" placeholder="必填" /></el-form-item>
-        <el-form-item label="单位" required><el-input v-model="newExpert.unit" placeholder="必填" /></el-form-item>
-        <el-form-item label="职称" required><el-input v-model="newExpert.title" placeholder="必填" /></el-form-item>
-        <el-form-item label="简介" required><el-input v-model="newExpert.profile" type="textarea" :rows="3" placeholder="必填" /></el-form-item>
+    <!-- 新建专家卡（视觉对齐专家库「新增专家」表单：760px/label-width 110px/分组标题） -->
+    <el-dialog v-model="newExpertVisible" title="新建专家卡（保存后自动关联本项目）" width="760px" destroy-on-close>
+      <el-form :model="newExpert" label-width="110px" class="edit-form">
+        <div class="ne-form-section">基本信息</div>
+        <el-row :gutter="12">
+          <el-col :span="12"><el-form-item label="姓名" required><el-input v-model="newExpert.name" placeholder="请输入姓名" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="职称" required><el-input v-model="newExpert.title" placeholder="如：主任医师 / 高级工程师" /></el-form-item></el-col>
+        </el-row>
+        <el-form-item label="单位" required><el-input v-model="newExpert.unit" placeholder="请输入工作单位" /></el-form-item>
+        <div class="ne-form-section">简介</div>
+        <el-form-item label="个人简介" required>
+          <el-input v-model="newExpert.profile" type="textarea" :rows="5" placeholder="研究方向、擅长领域、代表经历等" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="newExpertVisible = false">取消</el-button>
@@ -683,6 +705,14 @@ async function fetchDetail() {
     if (!viewPhaseId.value && detail.value.phases?.length) {
       viewPhaseId.value = String(detail.value.phaseId || detail.value.phases[0].id)
     }
+    // 填充各阶段富文本内容（listDocs 对 isRichText 行返回 content）
+    const rich = {}
+    for (const d of detail.value.docs || []) {
+      if (d.isRichText && Number(d.phaseId) > 0) {
+        rich[d.phaseId] = d.content || ''
+      }
+    }
+    richOfPhase.value = rich
   } finally {
     loading.value = false
   }
@@ -736,7 +766,8 @@ function docsOfPhase(phaseId, type) {
     (d) => Number(d.phaseId) === Number(phaseId) && (type === 'FILE' ? !d.isRichText : d.isRichText)
   )
 }
-const allDocs = computed(() => detail.value.docs || [])
+// 相关附件仅真实文件附件（排除富文本存档，富文本在阶段资料区展示）
+const allDocs = computed(() => (detail.value.docs || []).filter((d) => !d.isRichText))
 
 function richTextOf(phaseId) {
   return richOfPhase.value[phaseId] ?? ''
@@ -1152,6 +1183,15 @@ onMounted(async () => {
 .hint-text { color: var(--ui-text-muted); font-size: 13px; }
 .mask-tip { color: var(--ui-text-muted); font-size: 12px; margin-left: 6px; }
 .sensitive { font-family: monospace; font-size: 12px; }
+.expert-pick-list { max-height: 360px; overflow-y: auto; border: 1px solid var(--ui-border-weak); border-radius: var(--ui-radius-md); }
+.expert-pick-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--ui-fill); }
+.expert-pick-row:hover { background: var(--ui-fill); }
+.expert-pick-row.picked { background: #ECF5FF; }
+.expert-pick-info { flex: 1; min-width: 0; }
+.expert-pick-name { font-weight: 600; color: var(--ui-text-main); font-size: 14px; }
+.expert-pick-meta { font-size: 12px; color: var(--ui-text-muted); margin-top: 2px; }
+.expert-pick-check { color: var(--ui-primary); font-weight: 700; }
+.ne-form-section { font-size: 13px; font-weight: 600; color: var(--ui-text-sub); background: var(--ui-fill); border-radius: var(--ui-radius-sm); padding: 6px 10px; margin-bottom: 12px; }
 
 /* ⑥ 基本信息分组 */
 .pd-info-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
