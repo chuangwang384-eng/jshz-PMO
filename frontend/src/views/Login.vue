@@ -103,6 +103,8 @@ async function handleLogin() {
   try {
     await formRef.value.validate()
   } catch (e) {
+    console.error('登录表单校验失败', e)
+    ElMessage.error('请输入正确的用户名和密码')
     return
   }
   loading.value = true
@@ -112,7 +114,8 @@ async function handleLogin() {
     const redirect = route.query.redirect
     router.push(typeof redirect === 'string' && redirect ? redirect : '/experts')
   } catch (e) {
-    // 错误提示已由 request 拦截器统一处理
+    console.error('登录请求失败', e)
+    ElMessage.error(e?.message || '登录失败，请稍后重试')
   } finally {
     loading.value = false
   }

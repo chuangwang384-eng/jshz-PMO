@@ -49,6 +49,12 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
+        <!-- AOP（@OperationLog 用户操作日志注解切面） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- JWT（正式版 V1.001 登录鉴权） -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

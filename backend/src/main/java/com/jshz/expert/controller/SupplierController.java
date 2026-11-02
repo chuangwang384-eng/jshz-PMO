@@ -1,6 +1,7 @@
 package com.jshz.expert.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.jshz.expert.annotation.OperationLog;
 import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.PageResult;
@@ -140,6 +141,8 @@ public class SupplierController {
      * 新增供应商（全员）：body {name, typeId, cityId 或 cityName, address, contact, phone, wechat, description, images:[文件名]}。
      * 传 cityName 时仅精确匹配字典，未收录返回明确错误（城市字典固定只读，不自动沉淀）。
      */
+    @OperationLog(actionType = "SUPPLIER_CREATE", actionDesc = "新增供应商：#{#body.name}",
+            targetType = "SUPPLIER", targetId = "")
     @PostMapping
     public ApiResponse<Supplier> create(@RequestBody(required = false) Map<String, Object> body,
                                         @AuthenticationPrincipal AuthUser authUser) {
@@ -149,17 +152,23 @@ public class SupplierController {
     /**
      * 修改供应商（全员）。
      */
+    @OperationLog(actionType = "SUPPLIER_UPDATE", actionDesc = "修改供应商：#{#body.name}",
+            targetType = "SUPPLIER", targetId = "#id")
     @PutMapping("/{id}")
     public ApiResponse<Supplier> update(@PathVariable Long id,
-                                        @RequestBody(required = false) Map<String, Object> body) {
+                                        @RequestBody(required = false) Map<String, Object> body,
+                                        @AuthenticationPrincipal AuthUser authUser) {
         return ApiResponse.ok(supplierService.updateSupplier(id, body));
     }
 
     /**
      * 删除供应商（全员）：级联删除行价/评价/绑定与图片文件。
      */
+    @OperationLog(actionType = "SUPPLIER_DELETE", actionDesc = "删除供应商：ID=#{#id}",
+            targetType = "SUPPLIER", targetId = "#id")
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
+    public ApiResponse<Void> delete(@PathVariable Long id,
+                                    @AuthenticationPrincipal AuthUser authUser) {
         supplierService.deleteSupplier(id);
         return ApiResponse.ok();
     }
@@ -236,9 +245,12 @@ public class SupplierController {
      * 保存行价（全量替换，全员）：PUT /api/supplier/{id}/prices。
      * body {items: [{itemName, price, unit, remark, sort?}]}。
      */
+    @OperationLog(actionType = "SAVE_SUPPLIER_PRICE", actionDesc = "保存行价：供应商ID=#{#id}",
+            targetType = "SUPPLIER", targetId = "#id")
     @PutMapping("/{id}/prices")
     public ApiResponse<List<SupplierPriceItem>> savePrices(@PathVariable Long id,
-                                                           @RequestBody(required = false) Map<String, Object> body) {
+                                                           @RequestBody(required = false) Map<String, Object> body,
+                                                           @AuthenticationPrincipal AuthUser authUser) {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> items = body == null ? null : (List<Map<String, Object>>) body.get("items");
         return ApiResponse.ok(supplierService.savePrices(id, items));
@@ -264,6 +276,8 @@ public class SupplierController {
      * 建立绑定（多对多，酒店或打印店任意一端发起）：POST /api/supplier/{id}/bindings。
      * body {targetId}；后端按类型自动定向并校验（仅酒店↔打印店）。
      */
+    @OperationLog(actionType = "BIND_SUPPLIER", actionDesc = "绑定供应商：ID=#{#id} 绑定至 #{#body.targetId}",
+            targetType = "SUPPLIER", targetId = "#id")
     @PostMapping("/{id}/bindings")
     public ApiResponse<Void> bind(@PathVariable Long id,
                                   @RequestBody(required = false) Map<String, Object> body,
@@ -279,8 +293,11 @@ public class SupplierController {
     /**
      * 解绑（双向可操作）：DELETE /api/supplier/{id}/bindings/{targetId}。
      */
+    @OperationLog(actionType = "UNBIND_SUPPLIER", actionDesc = "解绑供应商：ID=#{#id} 解绑 #{#targetId}",
+            targetType = "SUPPLIER", targetId = "#id")
     @DeleteMapping("/{id}/bindings/{targetId}")
-    public ApiResponse<Void> unbind(@PathVariable Long id, @PathVariable Long targetId) {
+    public ApiResponse<Void> unbind(@PathVariable Long id, @PathVariable Long targetId,
+                                    @AuthenticationPrincipal AuthUser authUser) {
         supplierService.unbind(id, targetId);
         return ApiResponse.ok();
     }

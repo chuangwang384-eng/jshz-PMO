@@ -77,10 +77,10 @@ const defaultOpeneds = computed(() => {
   return top ? [top.path] : []
 })
 
-// 从路由表生成菜单树：只取业务路由（排除登录页），管理菜单由 meta.permissions 权限码自动过滤
+// 从路由表生成菜单树：只取业务路由（排除登录页），管理菜单由 meta.permissions 权限码 + meta.roles 角色编码自动过滤
 const menuTree = computed(() => {
   const businessRoutes = router.options.routes.filter((r) => r.path !== '/login')
-  return buildMenuTree(businessRoutes, auth.hasPermission)
+  return buildMenuTree(businessRoutes, auth.hasPermission, auth.hasRole)
 })
 
 const showChangePwd = ref(false)

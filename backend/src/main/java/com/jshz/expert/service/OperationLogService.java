@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 用户敏感操作日志服务（用户操作日志改版）。
@@ -109,6 +110,20 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_OFFLINE_ANNOUNCEMENT = "OFFLINE_ANNOUNCEMENT";
     public static final String ACTION_TOP_ANNOUNCEMENT = "TOP_ANNOUNCEMENT";
 
+    // ---------------- 供应商模块（target_type=SUPPLIER，AOP 注解埋点） ----------------
+    /** 新增供应商 */
+    public static final String ACTION_SUPPLIER_CREATE = "SUPPLIER_CREATE";
+    /** 修改供应商 */
+    public static final String ACTION_SUPPLIER_UPDATE = "SUPPLIER_UPDATE";
+    /** 删除供应商 */
+    public static final String ACTION_SUPPLIER_DELETE = "SUPPLIER_DELETE";
+    /** 保存行价（全量替换） */
+    public static final String ACTION_SAVE_SUPPLIER_PRICE = "SAVE_SUPPLIER_PRICE";
+    /** 建立酒店-打印店绑定 */
+    public static final String ACTION_BIND_SUPPLIER = "BIND_SUPPLIER";
+    /** 解绑酒店-打印店绑定 */
+    public static final String ACTION_UNBIND_SUPPLIER = "UNBIND_SUPPLIER";
+
     /**
      * 统一写入一条操作日志；任何异常仅记 warn，不向上抛（日志失败不影响主业务）。
      *
@@ -140,10 +155,13 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     }
 
     /**
-     * 操作日志分页查询：用户名模糊 / 操作类型精确 / 时间范围（闭区间）过滤，按时间倒序。
+     * 操作日志分页查询：用户名模糊 / 操作类型精确 / 排除操作类型 / 时间范围（闭区间）过滤，按时间倒序。
+     *
+     * @param excludeActionTypes 需排除的操作类型（如 LOGIN/LOGOUT），为空不排除
      */
     public Page<OperationLog> pageQuery(String username, String actionType,
                                         LocalDateTime startTime, LocalDateTime endTime,
+                                        List<String> excludeActionTypes,
                                         int page, int size) {
         LambdaQueryWrapper<OperationLog> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(username)) {
@@ -151,6 +169,9 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
         }
         if (StringUtils.hasText(actionType)) {
             wrapper.eq(OperationLog::getActionType, actionType.trim());
+        }
+        if (excludeActionTypes != null && !excludeActionTypes.isEmpty()) {
+            wrapper.notIn(OperationLog::getActionType, excludeActionTypes);
         }
         if (startTime != null) {
             wrapper.ge(OperationLog::getCreateTime, startTime);

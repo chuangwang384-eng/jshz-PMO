@@ -111,11 +111,10 @@ const routes = [
         component: () => import('../views/announcement/AnnouncementList.vue'),
         meta: { title: '公告', requiresAuth: true }
       },
+      // 合并改造后旧管理路由已删除；显式占位避免被 announcements/:id 捕获（id="manage"）
       {
         path: 'announcements/manage',
-        name: 'announcements-manage',
-        component: () => import('../views/announcement/AnnouncementManage.vue'),
-        meta: { title: '公告管理', requiresAuth: true, permissions: ['announcement:manage'] }
+        redirect: '/profile/announcements'
       },
       {
         path: 'announcements/:id',
@@ -189,7 +188,7 @@ const routes = [
         path: 'audit/downloads',
         name: 'audit-downloads',
         component: () => import('../views/DownloadAudit.vue'),
-        meta: { title: '用户操作日志', permissions: ['audit:view'] }
+        meta: { title: '用户操作日志', permissions: ['audit:view'], roles: ['SUPER_ADMIN'] }
       },
       {
         path: 'approval/config',
@@ -234,6 +233,7 @@ const router = createRouter({
 // - 已登录访问登录页跳转专家库
 // - meta.permissions 权限码数组控制静态路由访问：未命中任一权限码则拦截并提示，
 //   cookie 失效时由 request 拦截器 401 兜底跳登录
+// - meta.roles 角色编码数组（如 ['SUPER_ADMIN']）控制超管专属板块：未命中任一角色则拦截并提示
 router.beforeEach((to) => {
   let user = null
   try {
@@ -254,9 +254,24 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
+  // 公告详情 :id 兜底：非数字 id 直接回公告列表，避免请求后端触发类型转换错误
+  if (to.name === 'announcement-detail') {
+    const id = to.params.id
+    if (id == null || !/^\d+$/.test(String(id))) {
+      return '/profile/announcements'
+    }
+  }
+
   const permissions = user?.permissions || []
   const required = to.meta?.permissions
   if (Array.isArray(required) && required.length && !required.some((p) => permissions.includes(p))) {
+    ElMessage.error('无权限访问该页面')
+    return '/experts'
+  }
+
+  const roles = user?.roles || []
+  const requiredRoles = to.meta?.roles
+  if (Array.isArray(requiredRoles) && requiredRoles.length && !requiredRoles.some((r) => roles.includes(r))) {
     ElMessage.error('无权限访问该页面')
     return '/experts'
   }

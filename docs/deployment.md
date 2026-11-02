@@ -295,3 +295,6 @@ server {
 - **归档路径**：旧 jar `backend/releases/1.0.16-20261101_082433/previous-expert-system.jar`；旧前端 `frontend/releases/1.0.16-20261101_082534`。
 - **验收结论**：权限矩阵 7 接口×6 角色全部符合预期，需求代码审查四层通过（详见 output/1.0.16供应商权限放开改造审查报告.md）；冒烟验证通过（无 token 请求 `/api/supplier` 返回 401，非 404）。
 *（内容由AI生成，仅供参考）*
+
+## R-1 发布记录
+- 2026-11-01 16:01:48 R-1 发布 1.0.17 成功（jar: expert-system.jar）
