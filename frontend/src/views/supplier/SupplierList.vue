@@ -92,6 +92,23 @@
             <el-option v-for="c in formCities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="isHotelOrPrint" label="初始绑定">
+          <el-select
+            v-model="form.bindTargetId"
+            placeholder="绑定同城市对端（酒店↔打印店，选填）"
+            clearable
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="o in bindCandidates"
+              :key="o.id"
+              :label="`${o.name}（${o.cityName || '-'}）`"
+              :value="o.id"
+            />
+          </el-select>
+          <div class="upload-tip">仅列出同城市对端类型；绑定限制与详情页「添加绑定」一致（后端同城校验）</div>
+        </el-form-item>
         <el-form-item label="地址">
           <el-input v-model="form.address" maxlength="200" />
         </el-form-item>
@@ -150,12 +167,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listSuppliers, listSupplierTypes, listSupplierCities,
-  createSupplier, createSupplierType, updateSupplierType, deleteSupplierType,
+  createSupplier, createSupplierType, updateSupplierType, deleteSupplierType, bindSupplier,
   supplierImageUrl
 } from '../../api/supplier'
 import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
@@ -230,14 +247,50 @@ const createVisible = ref(false)
 const form = ref({})
 const saving = ref(false)
 
+// 默认类型=酒店（bizKey=HOTEL）；酒店/打印店显示「初始绑定」选择
+const HOTEL_BIZ = 'HOTEL'
+const PRINT_BIZ = 'PRINT'
+const isHotelOrPrint = computed(() => {
+  const t = types.value.find((x) => x.id === form.value.typeId)
+  return !!t && (t.bizKey === HOTEL_BIZ || t.bizKey === PRINT_BIZ)
+})
+const bindCandidates = ref([])
+
+async function loadBindCandidates() {
+  bindCandidates.value = []
+  if (!isHotelOrPrint.value || !form.value.cityId) return
+  const targetBiz = form.value.typeId && types.value.find((x) => x.id === form.value.typeId)?.bizKey === HOTEL_BIZ
+    ? PRINT_BIZ
+    : HOTEL_BIZ
+  const targetType = types.value.find((x) => x.bizKey === targetBiz)
+  if (!targetType) return
+  try {
+    const data = await listSuppliers({ typeId: targetType.id, cityId: form.value.cityId, page: 1, size: 200 })
+    bindCandidates.value = data?.items || []
+  } catch (e) {
+    // 拦截器已提示
+  }
+}
+
+function defaultTypeId() {
+  const hotel = types.value.find((x) => x.bizKey === HOTEL_BIZ)
+  return hotel ? hotel.id : (types.value.length ? types.value[0].id : null)
+}
+
 function openCreate() {
-  form.value = { typeId: types.value.length ? types.value[0].id : null, province: null, cityId: null }
+  form.value = { typeId: defaultTypeId(), province: null, cityId: null, bindTargetId: null }
+  bindCandidates.value = []
   createVisible.value = true
 }
 
 function onFormProvinceChange() {
   form.value.cityId = null
+  loadBindCandidates()
 }
+
+watch(() => [form.value.typeId, form.value.cityId], () => {
+  if (createVisible.value) loadBindCandidates()
+})
 
 async function confirmCreate() {
   if (!form.value.name || !form.value.name.trim()) return ElMessage.warning('请填写名称')
@@ -245,7 +298,7 @@ async function confirmCreate() {
   if (!form.value.cityId) return ElMessage.warning('请选择城市')
   saving.value = true
   try {
-    await createSupplier({
+    const created = await createSupplier({
       name: form.value.name.trim(),
       typeId: form.value.typeId,
       cityId: form.value.cityId,
@@ -255,7 +308,18 @@ async function confirmCreate() {
       wechat: form.value.wechat || undefined,
       description: form.value.description || undefined
     })
-    ElMessage.success('供应商已创建')
+    // 初始绑定：沿用现有绑定接口（后端校验同城市与酒店↔打印店类型）
+    if (form.value.bindTargetId && created?.id) {
+      try {
+        await bindSupplier(created.id, form.value.bindTargetId)
+        ElMessage.success('供应商已创建并完成绑定')
+      } catch (e) {
+        // 绑定失败不回滚创建；提示后可在详情页重新绑定
+        ElMessage.warning('供应商已创建，但初始绑定失败，可在详情页重新绑定')
+      }
+    } else {
+      ElMessage.success('供应商已创建')
+    }
     createVisible.value = false
     fetchDicts()
     fetchList()
