@@ -1638,10 +1638,18 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         Long expertCnt = expertRelMapper.selectCount(new LambdaQueryWrapper<ProjectExpert>().eq(ProjectExpert::getProjectId, project.getId()));
         Long supplierCnt = supplierRelMapper.selectCount(new LambdaQueryWrapper<ProjectSupplier>().eq(ProjectSupplier::getProjectId, project.getId()));
+        // 20261102 修复：FILE 与 RICH_TEXT 必填判定分流——富文本落盘路径以 _richtext/ 开头，
+        // 否则上传过附件会误判自定义文本已交、文本必填不拦截推进
         Long docCnt = docMapper.selectCount(new LambdaQueryWrapper<ProjectDoc>()
                 .eq(ProjectDoc::getProjectId, project.getId())
                 .eq(ProjectDoc::getPhaseId, phaseId)
-                .eq(ProjectDoc::getIsDeleted, 0));
+                .eq(ProjectDoc::getIsDeleted, 0)
+                .notLike(ProjectDoc::getFilePath, "_richtext/%"));
+        Long richDocCnt = docMapper.selectCount(new LambdaQueryWrapper<ProjectDoc>()
+                .eq(ProjectDoc::getProjectId, project.getId())
+                .eq(ProjectDoc::getPhaseId, phaseId)
+                .eq(ProjectDoc::getIsDeleted, 0)
+                .likeRight(ProjectDoc::getFilePath, "_richtext/"));
         boolean hasBudget = project.getBudgetAmount() != null;
         for (ProjectPhaseTemplateRel rel : rels) {
             ProjectTemplate t = templateMapper.selectById(rel.getTemplateId());
@@ -1657,7 +1665,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 missing.add("供应商（" + t.getName() + "）");
             } else if ("BUDGET".equals(type) && !hasBudget) {
                 missing.add("预算（" + t.getName() + "）");
-            } else if ("RICH_TEXT".equals(type) && (docCnt == null || docCnt == 0)) {
+            } else if ("RICH_TEXT".equals(type) && (richDocCnt == null || richDocCnt == 0)) {
                 missing.add("自定义文本（" + t.getName() + "）");
             }
         }
