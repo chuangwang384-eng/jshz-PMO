@@ -54,8 +54,8 @@
               <div class="blk-head">
                 <span>图片管理（{{ images.length }}）</span>
                 <span>
-                  <el-input v-model="uploadName" maxlength="50" size="small" placeholder="图片命名（≤50字，留空显示原文件名）" style="width: 220px; margin-right: 8px" @keyup.enter="pickFiles" />
-                  <el-button v-permission="'supplier:manage'" type="primary" size="small" plain :loading="uploading" @click="pickFiles">上传图片</el-button>
+                  <el-input v-model="uploadName" maxlength="50" size="small" placeholder="图片命名（≤50字，留空显示原文件名）" style="width: 170px; margin-right: 8px" @keyup.enter="pickFiles" />
+                  <el-button v-permission="'supplier:image'" type="primary" size="small" plain :loading="uploading" @click="pickFiles">上传图片</el-button>
                   <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFilesPicked" />
                 </span>
               </div>
@@ -64,10 +64,10 @@
               <div v-for="(img, i) in images" :key="img.id" class="g-item">
                 <el-image :src="imageUrl(img.fileName)" fit="cover" class="g-img" :preview-src-list="images.map(x => imageUrl(x.fileName))" :initial-index="i" />
                 <el-tag v-if="img.isMain === 1" class="g-main" size="small" type="danger" effect="dark">主图</el-tag>
-                <div v-permission="'supplier:manage'" class="g-hover">
-                  <el-button v-if="img.isMain !== 1" link type="primary" size="small" @click.stop="setMain(img)">设为主图</el-button>
-                  <el-button link type="primary" size="small" @click.stop="openRename(img)">改名</el-button>
-                  <el-button link type="danger" size="small" @click.stop="removeImage(img)">删除</el-button>
+                <div class="g-hover">
+                  <el-button v-if="img.isMain !== 1" v-permission="'supplier:manage'" link type="primary" size="small" @click.stop="setMain(img)">设为主图</el-button>
+                  <el-button v-permission="'supplier:image'" link type="primary" size="small" @click.stop="openRename(img)">改名</el-button>
+                  <el-button v-permission="'supplier:manage'" link type="danger" size="small" @click.stop="removeImage(img)">删除</el-button>
                 </div>
                 <div class="g-name" :title="img.name || img.fileName">{{ img.name || img.fileName }}</div>
               </div>
@@ -82,7 +82,7 @@
             <template #header>
               <div class="blk-head">
                 <span>历史价格（{{ priceItems.length }}）</span>
-                <el-button v-permission="'supplier:manage'" v-if="priceItems.length" link type="primary" @click="openPriceEdit">新增价格</el-button>
+                <el-button v-permission="'supplier:price'" v-if="priceItems.length" link type="primary" @click="openPriceEdit">新增价格</el-button>
               </div>
             </template>
             <el-table v-if="priceItems.length" :data="priceItems" border stripe size="small">
@@ -96,13 +96,13 @@
               </el-table-column>
               <el-table-column label="操作" width="80" align="center">
                 <template #default>
-                  <el-button v-permission="'supplier:manage'" link type="primary" size="small" @click="openPriceEdit">编辑</el-button>
+                  <el-button v-permission="'supplier:price'" link type="primary" size="small" @click="openPriceEdit">编辑</el-button>
                 </template>
               </el-table-column>
             </el-table>
             <div v-else class="empty-line">
               暂无价格数据
-              <el-button v-permission="'supplier:manage'" link type="primary" size="small" @click="openPriceEdit">新增价格</el-button>
+              <el-button v-permission="'supplier:price'" link type="primary" size="small" @click="openPriceEdit">新增价格</el-button>
             </div>
           </el-card>
 
@@ -818,14 +818,14 @@ watch(
 .muted { color: #909399; }
 .city-nav-btn { display: none; }
 .three-col { display: flex; gap: 16px; align-items: flex-start; }
-.col-left { width: 340px; flex-shrink: 0; }
+.col-left { width: fit-content; max-width: 400px; flex-shrink: 0; }
 .col-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .col-right { width: 280px; flex-shrink: 0; }
 .blk { border-radius: 8px; border-color: #ebeef5; }
-.blk-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #303133; }
+.blk-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #303133; white-space: nowrap; }
 
 /* 左栏信息紧凑两列 */
-.info-grid { display: grid; grid-template-columns: 64px 1fr; gap: 8px 10px; font-size: 13px; }
+.info-grid { display: grid; grid-template-columns: 64px minmax(0, 230px); gap: 8px 10px; font-size: 13px; }
 .info-label { color: #909399; }
 .info-value { color: #303133; word-break: break-all; }
 .info-value.desc { white-space: pre-wrap; line-height: 1.6; }
