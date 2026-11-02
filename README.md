@@ -125,4 +125,3 @@ R-3 数据库向后兼容迁移规范、R-4 一键发布脚本化、R-5 版本�
 
 注意：`frontend\package.json` 的 `version` 与 `backend\pom.xml` 的 `<version>` 仅作为工程元数据，构建产物与界面/接口展示的版本号一律以 `version.txt` 为准。
 
-*（内容由AI生成，仅供参考）*
