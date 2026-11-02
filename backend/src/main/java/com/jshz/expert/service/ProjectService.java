@@ -20,6 +20,7 @@ import com.jshz.expert.entity.ProjectSupplier;
 import com.jshz.expert.entity.ProjectTemplate;
 import com.jshz.expert.entity.ProjectType;
 import com.jshz.expert.entity.ProjectTypePhaseRel;
+import com.jshz.expert.entity.ProjectPhaseHistory;
 import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.Supplier;
 import com.jshz.expert.entity.SupplierType;
@@ -37,6 +38,7 @@ import com.jshz.expert.mapper.ProjectSupplierMapper;
 import com.jshz.expert.mapper.ProjectTemplateMapper;
 import com.jshz.expert.mapper.ProjectTypeMapper;
 import com.jshz.expert.mapper.ProjectTypePhaseRelMapper;
+import com.jshz.expert.mapper.ProjectPhaseHistoryMapper;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SupplierMapper;
 import com.jshz.expert.mapper.SupplierTypeMapper;
@@ -86,6 +88,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     private final ProjectTypeMapper typeMapper;
     private final ProjectTypePhaseRelMapper typePhaseRelMapper;
+    private final ProjectPhaseHistoryMapper phaseHistoryMapper;
     private final ProjectPhaseMapper phaseMapper;
     private final ProjectTemplateMapper templateMapper;
     private final ProjectPhaseTemplateRelMapper relMapper;
@@ -205,6 +208,14 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("timeline", timeline(id));
         m.put("canManage", user != null && (user.isAdmin() || user.hasPermission("project:manage")));
         m.put("canAdvance", fullSensitive);
+        // REQ-20261102 需求三：回退权限独立字段（负责人/执行人/admin），与推进语义解耦
+        m.put("canRollback", fullSensitive);
+        // 阶段变更历史（最近 20 条，倒序）
+        List<ProjectPhaseHistory> hists = phaseHistoryMapper.selectList(new LambdaQueryWrapper<ProjectPhaseHistory>()
+                .eq(ProjectPhaseHistory::getProjectId, id)
+                .orderByDesc(ProjectPhaseHistory::getCreateTime)
+                .last("LIMIT 20"));
+        m.put("phaseHistory", hists);
         m.put("missingRequiredTemplates", missingRequiredTemplates(project, project.getPhaseId()));
         return m;
     }
@@ -352,12 +363,14 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     // ==================== 阶段推进 / 回退 / 取消 ====================
 
     /**
-     * 推进/回退阶段（严格逐级）：推进 target.sort==current.sort+1、回退 target.sort==current.sort-1；
-     * 推进方向校验当前阶段必填模板已提交（回退不做材料校验）；仅项目负责人/执行人可操作。
-     * 同阶段切换（如取消项目恢复 ACTIVE 的复用场景）跳过顺序与材料校验。
+     * 推进/回退阶段（REQ-20261102 需求三增强）：
+     * - 推进：仅相邻（target.sort==current.sort+1）且必填材料校验，行为不变；
+     * - 回退：相邻与跨级均允许（target.sort<current.sort），reason 必填；
+     * - 权限不变（负责人/执行人/admin）；同阶段切换（取消恢复复用）跳过校验；
+     * - 每次变更写 project_phase_history（ADVANCE/ROLLBACK），事务保证与项目更新原子性。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void changePhase(Long id, Long phaseId, AuthUser user) {
+    public void changePhase(Long id, Long phaseId, String reason, AuthUser user) {
         Project project = requireProject(id);
         if (!isOwnerOrExecutor(project, user)) {
             throw new BusinessException("仅项目负责人或执行人可推进/回退阶段");
@@ -374,16 +387,24 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             throw new BusinessException("当前阶段不存在");
         }
         boolean samePhase = target.getId().equals(current.getId());
+        String actionType = null;
         if (!samePhase && current.getSort() != null && target.getSort() != null) {
-            boolean adjacent = target.getSort() == current.getSort() + 1 || target.getSort() == current.getSort() - 1;
-            if (!adjacent) {
-                throw new BusinessException("仅支持相邻阶段推进或回退（" + current.getName() + " → " + target.getName() + "）");
-            }
             if (target.getSort() > current.getSort()) {
+                // 推进：仅相邻 + 必填材料校验（行为不变）
+                if (target.getSort() != current.getSort() + 1) {
+                    throw new BusinessException("仅支持相邻阶段推进（" + current.getName() + " → " + target.getName() + "）");
+                }
                 List<String> missing = missingRequiredTemplates(project, current.getId());
                 if (!missing.isEmpty()) {
                     throw new BusinessException("当前阶段「" + current.getName() + "」必填材料未提交，无法推进：缺少 " + String.join("、", missing));
                 }
+                actionType = ProjectPhaseHistory.ACTION_ADVANCE;
+            } else {
+                // 回退：相邻与跨级均允许，原因必填
+                if (!StringUtils.hasText(reason)) {
+                    throw new BusinessException("回退原因不能为空");
+                }
+                actionType = ProjectPhaseHistory.ACTION_ROLLBACK;
             }
         }
         String before = nameOfPhase(project.getPhaseId());
@@ -392,9 +413,22 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             project.setStatus(STATUS_ACTIVE);
         }
         this.updateById(project);
+        // 阶段历史（推进/回退均记录；同阶段切换不记录）
+        if (actionType != null) {
+            ProjectPhaseHistory hist = new ProjectPhaseHistory();
+            hist.setProjectId(id);
+            hist.setFromPhaseId(current.getId());
+            hist.setToPhaseId(target.getId());
+            hist.setActionType(actionType);
+            hist.setReason(StringUtils.hasText(reason) ? reason.trim() : null);
+            hist.setOperatorId(ParamUtils.userIdOf(user));
+            hist.setOperatorName(ParamUtils.usernameOf(user));
+            phaseHistoryMapper.insert(hist);
+        }
+        String reasonSuffix = StringUtils.hasText(reason) ? "（原因：" + reason.trim() + "）" : "";
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_CHANGE_PHASE,
-                "项目「" + project.getName() + "」阶段变更：" + before + " → " + target.getName(),
+                "项目「" + project.getName() + "」阶段变更：" + before + " → " + target.getName() + reasonSuffix,
                 "PROJECT", id, null);
     }
 

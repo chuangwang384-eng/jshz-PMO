@@ -29,9 +29,9 @@ export function deleteProject(id) {
   return request.delete(`/project/${id}`)
 }
 
-// 推进/回退阶段（校验必填模板，可跳步）
-export function changePhase(id, phaseId) {
-  return request.put(`/project/${id}/phase`, { phaseId })
+// 推进/回退阶段（推进仅相邻+材料校验；回退含跨级，reason 回退必填）
+export function changePhase(id, phaseId, reason) {
+  return request.put(`/project/${id}/phase`, { phaseId, reason })
 }
 
 // 取消（必填原因）

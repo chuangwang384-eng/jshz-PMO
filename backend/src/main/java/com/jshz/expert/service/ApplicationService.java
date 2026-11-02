@@ -688,7 +688,10 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             if (contractIdObj == null) {
                 return;
             }
-            Long contractId = Long.valueOf(String.valueOf(contractIdObj));
+            Long contractId = ParamUtils.parseLong(contractIdObj, null);
+            if (contractId == null) {
+                return;
+            }
             ProjectContract contract = projectContractMapper.selectById(contractId);
             if (contract == null) {
                 return;

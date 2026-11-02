@@ -2,6 +2,8 @@ package com.jshz.expert.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jshz.expert.common.ApiResponse;
+import com.jshz.expert.common.BusinessException;
+import com.jshz.expert.common.ParamUtils;
 import com.jshz.expert.entity.Application;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.entity.Project;
@@ -91,8 +93,13 @@ public class ProjectController {
     /** 推进/回退阶段（校验必填模板；可跳步）。 */
     @PutMapping("/{id}/phase")
     public ApiResponse<Void> changePhase(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object phaseId = body == null ? null : body.get("phaseId");
-        projectService.changePhase(id, phaseId == null ? null : Long.valueOf(String.valueOf(phaseId)), user);
+        Long phaseId = ParamUtils.parseLong(body == null ? null : body.get("phaseId"), null);
+        if (phaseId == null) {
+            throw new BusinessException("目标阶段不能为空或非法");
+        }
+        Object reasonObj = body == null ? null : body.get("reason");
+        String reason = reasonObj == null ? null : String.valueOf(reasonObj);
+        projectService.changePhase(id, phaseId, reason, user);
         return ApiResponse.ok(null);
     }
 
@@ -119,7 +126,10 @@ public class ProjectController {
     /** 调派专家。 */
     @PostMapping("/{id}/experts")
     public ApiResponse<Void> addExpert(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Long expertId = body == null ? null : Long.valueOf(String.valueOf(body.get("expertId")));
+        Long expertId = ParamUtils.parseLong(body == null ? null : body.get("expertId"), null);
+        if (expertId == null) {
+            throw new BusinessException("专家ID不能为空或非法");
+        }
         Object role = body == null ? null : body.get("role");
         projectService.addExpert(id, expertId, role == null ? null : String.valueOf(role), user);
         return ApiResponse.ok(null);
@@ -147,7 +157,10 @@ public class ProjectController {
     /** 关联供应商（用途按类型自动带出）。 */
     @PostMapping("/{id}/suppliers")
     public ApiResponse<Void> addSupplier(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Long supplierId = body == null ? null : Long.valueOf(String.valueOf(body.get("supplierId")));
+        Long supplierId = ParamUtils.parseLong(body == null ? null : body.get("supplierId"), null);
+        if (supplierId == null) {
+            throw new BusinessException("供应商ID不能为空或非法");
+        }
         projectService.addSupplier(id, supplierId, user);
         return ApiResponse.ok(null);
     }
@@ -186,8 +199,11 @@ public class ProjectController {
     /** 保存富文本（自定义文本模板）。 */
     @PutMapping("/{id}/docs/richtext")
     public ApiResponse<Void> saveRichText(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Long phaseId = body == null ? null : Long.valueOf(String.valueOf(body.get("phaseId")));
-        Long templateId = body == null ? null : Long.valueOf(String.valueOf(body.get("templateId")));
+        Long phaseId = ParamUtils.parseLong(body == null ? null : body.get("phaseId"), null);
+        Long templateId = ParamUtils.parseLong(body == null ? null : body.get("templateId"), null);
+        if (phaseId == null || templateId == null) {
+            throw new BusinessException("阶段或模板参数缺失，无法保存文本");
+        }
         Object content = body == null ? null : body.get("content");
         projectService.saveRichText(id, phaseId, templateId, content == null ? null : String.valueOf(content), user);
         return ApiResponse.ok(null);
@@ -210,7 +226,10 @@ public class ProjectController {
     /** 登记合同（自动带出专家敏感字段）。 */
     @PostMapping("/{id}/contracts")
     public ApiResponse<ProjectContract> createContract(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Long expertId = body == null ? null : Long.valueOf(String.valueOf(body.get("expertId")));
+        Long expertId = ParamUtils.parseLong(body == null ? null : body.get("expertId"), null);
+        if (expertId == null) {
+            throw new BusinessException("专家ID不能为空或非法");
+        }
         Object fee = body == null ? null : body.get("fee");
         return ApiResponse.ok(projectService.createContract(id, expertId, fee == null ? null : new BigDecimal(String.valueOf(fee)), user));
     }

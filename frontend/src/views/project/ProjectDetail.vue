@@ -6,11 +6,104 @@
     <div v-if="detail.id" class="action-bar">
       <el-button v-if="detail.canAdvance && hasNextPhase" type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
       <span v-if="detail.canAdvance && hasNextPhase && !requiredSubmitted" class="advance-tip">{{ missingRequiredTip }}</span>
-      <el-button v-if="detail.canAdvance && hasPrevPhase" @click="confirmRollback">回退阶段</el-button>
+      <el-button v-if="detail.canRollback" @click="openRollback">回退阶段</el-button>
       <el-button v-if="detail.canManage" @click="openEdit">编辑项目</el-button>
       <el-button v-if="detail.canAdvance" type="warning" @click="openCancel">取消项目</el-button>
       <el-tag v-if="detail.status === 'CANCELED'" type="danger" style="margin-left: 8px">已取消：{{ detail.cancelReason }}</el-tag>
     </div>
+
+    <!-- 阶段页签（分阶段资料 + 模板） -->
+    <el-card shadow="never" class="card-block">
+      <template #header>项目进度（阶段页签）</template>
+      <el-tabs v-model="activePhaseId">
+        <el-tab-pane
+          v-for="p in detail.phases"
+          :key="p.id"
+          :name="String(p.id)"
+          :label="(p.id === detail.phaseId ? '● ' : '') + p.name"
+        >
+          <template v-if="p.templates && p.templates.length">
+            <div v-for="t in p.templates" :key="t.templateId" class="template-block">
+              <div class="template-title">
+                {{ t.templateName }}
+                <el-tag v-if="t.required === 1" size="small" type="danger">必填</el-tag>
+                <el-tag v-else size="small" type="info">选填</el-tag>
+                <span v-if="t.required === 1 && isTemplateFulfilled(t) === false" class="unfilled-tip">未配置内容，阶段推进将受限</span>
+              </div>
+
+              <!-- 资料附件模板 -->
+              <div v-if="t.templateType === 'FILE'">
+                <div v-for="d in docsOfPhase(p.id, 'FILE')" :key="d.id" class="doc-row">
+                  <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
+                  <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
+                  <el-button v-if="detail.canAdvance" link type="danger" @click="removeDoc(d)">删除</el-button>
+                </div>
+                <div v-if="detail.canAdvance" class="upload-area">
+                  <el-upload
+                    :show-file-list="false"
+                    :auto-upload="false"
+                    :on-change="(f) => uploadDoc(p.id, f)"
+                  >
+                    <el-button size="small" type="primary" plain>上传资料到本阶段</el-button>
+                  </el-upload>
+                </div>
+              </div>
+
+              <!-- 自定义文本模板 -->
+              <div v-else-if="t.templateType === 'RICH_TEXT'">
+                <div v-if="!editingRich[p.id]" class="rich-view">{{ richTextOf(p.id) || '（尚未填写内容）' }}</div>
+                <el-input v-if="detail.canAdvance && editingRich[p.id]" v-model="richDrafts[p.id]" type="textarea" :rows="4" />
+                <el-button v-if="detail.canAdvance" size="small" type="primary" plain style="margin-top: 6px" @click="editRich(p.id, t.templateId)">{{ editingRich[p.id] ? '保存文本' : '编辑文本' }}</el-button>
+              </div>
+
+              <!-- 预算模板 -->
+              <div v-else-if="t.templateType === 'BUDGET'">
+                <div class="hint-text">预算金额：¥ {{ fmt(budgetAmount) }}（点击上方“登记预算金额”维护）</div>
+              </div>
+
+              <!-- 专家/供应商模板 -->
+              <div v-else>
+                <div class="hint-text">{{ t.templateType === 'EXPERT' ? '项目专家名单（全局一份）见下方“专家名单”卡' : '项目供应商名单（全局一份）见下方“供应商名单”卡' }}</div>
+              </div>
+            </div>
+          </template>
+          <el-empty v-else :description="'本阶段未绑定模板'" :image-size="60" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+
+    <!-- 回退阶段弹窗（REQ-20261102：相邻/跨级回退，原因必填） -->
+    <el-dialog v-model="rollbackVisible" title="回退阶段" width="480px" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="回退到" required>
+          <el-select v-model="rollbackTargetId" placeholder="选择目标阶段（仅更早阶段）" style="width: 100%">
+            <el-option
+              v-for="p in rollbackCandidates"
+              :key="p.id"
+              :label="`${p.name}${p.skipped ? '（跳过 ' + p.skipped + ' 个阶段）' : ''}`"
+              :value="p.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回退原因" required>
+          <el-input
+            v-model="rollbackReason"
+            type="textarea"
+            :rows="3"
+            maxlength="500"
+            show-word-limit
+            placeholder="必填：请说明回退原因"
+          />
+        </el-form-item>
+      </el-form>
+      <div v-if="rollbackTarget" class="hint-text" style="margin-bottom: 8px">
+        {{ rollbackHint }}
+      </div>
+      <template #footer>
+        <el-button @click="rollbackVisible = false">取消</el-button>
+        <el-button type="warning" :loading="rollingBack" :disabled="!rollbackTargetId || !rollbackReason.trim()" @click="doRollback">确认回退</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 基本信息卡 -->
     <el-card shadow="never" class="card-block">
@@ -56,65 +149,6 @@
       </el-row>
     </el-card>
 
-    <!-- 阶段页签（分阶段资料 + 模板） -->
-    <el-card shadow="never" class="card-block">
-      <template #header>项目进度（阶段页签）</template>
-      <el-tabs v-model="activePhaseId">
-        <el-tab-pane
-          v-for="p in detail.phases"
-          :key="p.id"
-          :name="String(p.id)"
-          :label="(p.id === detail.phaseId ? '● ' : '') + p.name"
-        >
-          <template v-if="p.templates && p.templates.length">
-            <div v-for="t in p.templates" :key="t.templateId" class="template-block">
-              <div class="template-title">
-                {{ t.templateName }}
-                <el-tag v-if="t.required === 1" size="small" type="danger">必填</el-tag>
-                <el-tag v-else size="small" type="info">选填</el-tag>
-                <span v-if="t.required === 1 && isTemplateFulfilled(t) === false" class="unfilled-tip">未配置内容，阶段推进将受限</span>
-              </div>
-
-              <!-- 资料附件模板 -->
-              <div v-if="t.templateType === 'FILE'">
-                <div v-for="d in docsOfPhase(p.id, 'FILE')" :key="d.id" class="doc-row">
-                  <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
-                  <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
-                  <el-button v-if="detail.canAdvance" link type="danger" @click="removeDoc(d)">删除</el-button>
-                </div>
-                <div v-if="detail.canAdvance" class="upload-area">
-                  <el-upload
-                    :show-file-list="false"
-                    :auto-upload="false"
-                    :on-change="(f) => uploadDoc(p.id, f)"
-                  >
-                    <el-button size="small" type="primary" plain>上传资料到本阶段</el-button>
-                  </el-upload>
-                </div>
-              </div>
-
-              <!-- 自定义文本模板 -->
-              <div v-else-if="t.templateType === 'RICH_TEXT'">
-                <div v-if="!editingRich[p.id]" class="rich-view">{{ richTextOf(p.id) || '（尚未填写内容）' }}</div>
-                <el-input v-if="detail.canAdvance && editingRich[p.id]" v-model="richDrafts[p.id]" type="textarea" :rows="4" />
-                <el-button v-if="detail.canAdvance" size="small" type="primary" plain style="margin-top: 6px" @click="editRich(p.id)">{{ editingRich[p.id] ? '保存文本' : '编辑文本' }}</el-button>
-              </div>
-
-              <!-- 预算模板 -->
-              <div v-else-if="t.templateType === 'BUDGET'">
-                <div class="hint-text">预算金额：¥ {{ fmt(budgetAmount) }}（点击上方“登记预算金额”维护）</div>
-              </div>
-
-              <!-- 专家/供应商模板 -->
-              <div v-else>
-                <div class="hint-text">{{ t.templateType === 'EXPERT' ? '项目专家名单（全局一份）见下方“专家名单”卡' : '项目供应商名单（全局一份）见下方“供应商名单”卡' }}</div>
-              </div>
-            </div>
-          </template>
-          <el-empty v-else :description="'本阶段未绑定模板'" :image-size="60" />
-        </el-tab-pane>
-      </el-tabs>
-    </el-card>
 
     <!-- 专家名单 -->
     <el-card shadow="never" class="card-block">
@@ -520,21 +554,52 @@ async function confirmAdvance() {
   fetchDetail()
 }
 
-async function confirmRollback() {
-  const prev = prevPhase.value
-  if (!prev) return
-  try {
-    await ElMessageBox.confirm(`确认将项目回退到「${prev.name}」阶段？已提交的资料会保留，可再次推进。`, '回退阶段', {
-      type: 'warning',
-      confirmButtonText: '确认回退',
-      cancelButtonText: '再想想'
-    })
-  } catch (e) {
+// ---- 回退阶段（REQ-20261102 需求三：相邻/跨级均允许，原因必填，二次确认信息含跳过阶段数） ----
+const rollbackVisible = ref(false)
+const rollbackTargetId = ref(null)
+const rollbackReason = ref('')
+const rollingBack = ref(false)
+
+const rollbackCandidates = computed(() => {
+  const c = currentPhase.value
+  if (!c) return []
+  return (detail.value.phases || [])
+    .filter((p) => Number(p.sort ?? 0) < Number(c.sort ?? 0))
+    .sort((a, b) => Number(b.sort ?? 0) - Number(a.sort ?? 0))
+    .map((p) => ({ ...p, skipped: Number(c.sort ?? 0) - Number(p.sort ?? 0) - 1 }))
+})
+const rollbackTarget = computed(() => rollbackCandidates.value.find((p) => p.id === rollbackTargetId.value) || null)
+const rollbackHint = computed(() => {
+  const t = rollbackTarget.value
+  if (!t) return ''
+  const skipped = Number(currentPhase.value.sort ?? 0) - Number(t.sort ?? 0) - 1
+  return skipped > 0
+    ? `跨级回退：${currentPhase.value.name} → ${t.name}，将跳过 ${skipped} 个阶段；已提交资料保留。`
+    : `相邻回退：${currentPhase.value.name} → ${t.name}；已提交资料保留，可再次推进。`
+})
+
+function openRollback() {
+  rollbackTargetId.value = null
+  rollbackReason.value = ''
+  rollbackVisible.value = true
+}
+
+async function doRollback() {
+  const t = rollbackTarget.value
+  if (!t) return
+  if (!rollbackReason.value.trim()) {
+    ElMessage.warning('回退原因必填')
     return
   }
-  await changePhase(projectId, prev.id)
-  ElMessage.success(`已回退到「${prev.name}」阶段`)
-  fetchDetail()
+  rollingBack.value = true
+  try {
+    await changePhase(projectId, t.id, rollbackReason.value.trim())
+    ElMessage.success(`已回退到「${t.name}」阶段`)
+    rollbackVisible.value = false
+    fetchDetail()
+  } finally {
+    rollingBack.value = false
+  }
 }
 
 function openCancel() {
@@ -566,9 +631,10 @@ async function removeDoc(doc) {
   ElMessage.success('资料已删除（留痕）')
   fetchDetail()
 }
-function editRich(phaseId) {
+function editRich(phaseId, templateId) {
   if (editingRich.value[phaseId]) {
-    saveRichText(projectId, { phaseId, content: richDrafts.value[phaseId] || '' }).then(() => {
+    // REQ-20261102：补传 templateId（第一道防线；后端已加固不再抛 NumberFormatException）
+    saveRichText(projectId, { phaseId, templateId, content: richDrafts.value[phaseId] || '' }).then(() => {
       ElMessage.success('文本已保存')
       editingRich.value[phaseId] = false
       fetchDetail()
