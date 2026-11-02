@@ -818,14 +818,14 @@ watch(
 .muted { color: #909399; }
 .city-nav-btn { display: none; }
 .three-col { display: flex; gap: 16px; align-items: flex-start; }
-.col-left { width: fit-content; max-width: 400px; flex-shrink: 0; }
+.col-left { width: 272px; flex-shrink: 0; }
 .col-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .col-right { width: 280px; flex-shrink: 0; }
 .blk { border-radius: 8px; border-color: #ebeef5; }
 .blk-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #303133; white-space: nowrap; }
 
 /* 左栏信息紧凑两列 */
-.info-grid { display: grid; grid-template-columns: 64px minmax(0, 230px); gap: 8px 10px; font-size: 13px; }
+.info-grid { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; }
 .info-label { color: #909399; }
 .info-value { color: #303133; word-break: break-all; }
 .info-value.desc { white-space: pre-wrap; line-height: 1.6; }
