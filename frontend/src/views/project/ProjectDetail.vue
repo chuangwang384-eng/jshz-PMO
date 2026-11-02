@@ -21,6 +21,7 @@
           :key="p.id"
           :name="String(p.id)"
           :label="(p.id === detail.phaseId ? '● ' : '') + p.name"
+          :disabled="!phaseReached(p)"
         >
           <template v-if="p.templates && p.templates.length">
             <div v-for="t in p.templates" :key="t.templateId" class="template-block">
@@ -313,7 +314,7 @@
     <el-dialog v-model="assignExpertVisible" title="调派专家（全局名单）" width="560px" destroy-on-close>
       <el-input v-model="expertKeyword" placeholder="搜索专家库（姓名/单位）" clearable style="margin-bottom: 10px" @keyup.enter="searchExperts" />
       <el-select v-model="assignExpertId" placeholder="选择专家" filterable style="width: 100%">
-        <el-option v-for="e in expertCandidates" :key="e.id" :label="`${e.name}（${e.unit || '无单位'}）`" :value="e.id" />
+        <el-option v-for="e in expertCandidates" :key="e.id" :label="`${e['姓名'] || e.name || '未知'}（${e['单位'] || e.unit || '无单位'}）`" :value="e.id" />
       </el-select>
       <el-input v-model="assignExpertRole" placeholder="角色/分工（主持人、演讲嘉宾、评审专家等）" style="margin-top: 10px" />
       <div class="hint-text">未找到目标专家？可在下方新建专家卡。</div>
@@ -521,6 +522,12 @@ function statusType(s) {
 
 // ---- 阶段操作：推进下一阶段 / 回退阶段（严格逐级，二次确认） ----
 const currentPhase = computed(() => (detail.value.phases || []).find((p) => Number(p.id) === Number(detail.value.phaseId)) || null)
+// 需求：项目进度板块只可访问已推进（已到达）的阶段——当前及更早阶段可点，未推进阶段禁用
+function phaseReached(p) {
+  const c = currentPhase.value
+  if (!c) return true
+  return Number(p.sort ?? 0) <= Number(c.sort ?? 0)
+}
 const nextPhase = computed(() => {
   const c = currentPhase.value
   if (!c) return null

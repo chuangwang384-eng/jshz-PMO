@@ -79,3 +79,6 @@ frontend/releases/
 .build-*/
 frontend/dist-*/
 *.err
+
+# --- 业务数据目录（项目资料/附件上传，禁止入库） ---
+项目资料库/
