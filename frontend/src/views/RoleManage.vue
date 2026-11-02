@@ -1,7 +1,6 @@
 <template>
   <div v-permission="'role:manage'">
     <div class="toolbar">
-      <span class="page-title">角色管理</span>
       <div class="spacer" />
       <el-button type="primary" @click="openCreate">新增角色</el-button>
     </div>

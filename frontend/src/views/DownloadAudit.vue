@@ -1,7 +1,6 @@
 <template>
   <div v-permission="'audit:view'">
     <div class="page-head">
-      <span class="page-title">用户操作日志</span>
       <span class="page-sub">下载导出、专家/文档变更、登录与权限等敏感操作留痕（含历史下载记录）</span>
     </div>
 

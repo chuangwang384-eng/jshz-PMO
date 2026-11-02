@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">项目管理</span>
       <span class="page-sub">展会/会议/论坛项目台账·阶段推进·专家供应商关联·结算合同</span>
     </div>
 

@@ -3,7 +3,7 @@
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span>通讯录</span>
+          <span>组织架构与通讯录</span>
           <span class="muted">展示根到本部门的组织链路与同部门成员（手机号已脱敏）</span>
         </div>
       </template>

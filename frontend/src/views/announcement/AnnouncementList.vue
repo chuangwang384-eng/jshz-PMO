@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">公告</span>
       <span class="page-sub">系统通知与重要事项（点击查看详情，可标记已读）</span>
       <el-switch
         v-if="canManage"

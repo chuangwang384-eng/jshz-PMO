@@ -1,7 +1,6 @@
 <template>
   <div v-permission="'approval:audit'">
     <div class="page-head">
-      <span class="page-title">审批管理</span>
       <span class="page-sub">处理员工提交的专家信息修改申请</span>
     </div>
 

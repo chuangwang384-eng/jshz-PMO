@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">项目配置</span>
       <span class="page-sub">类型字典（含流程配置） · 流程阶段 · 模板管理 · 阶段-模板绑定（需 project:manage）</span>
     </div>
 

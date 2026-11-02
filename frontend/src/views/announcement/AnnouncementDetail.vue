@@ -1,7 +1,6 @@
 <template>
   <div v-loading="loading">
     <div class="page-head">
-      <span class="page-title">公告详情</span>
       <el-button style="margin-left: 12px" @click="router.back()">返回</el-button>
     </div>
 

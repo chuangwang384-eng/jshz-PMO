@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">供应商管理</span>
       <span class="page-sub">酒店/打印店/媒体/影像/车队/票务档案·行价·评价（全员可直接维护）</span>
     </div>
 
