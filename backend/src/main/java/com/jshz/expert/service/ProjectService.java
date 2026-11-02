@@ -19,6 +19,7 @@ import com.jshz.expert.entity.ProjectPhaseTemplateRel;
 import com.jshz.expert.entity.ProjectSupplier;
 import com.jshz.expert.entity.ProjectTemplate;
 import com.jshz.expert.entity.ProjectType;
+import com.jshz.expert.entity.ProjectTypePhaseRel;
 import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.Supplier;
 import com.jshz.expert.entity.SupplierType;
@@ -35,6 +36,7 @@ import com.jshz.expert.mapper.ProjectPhaseTemplateRelMapper;
 import com.jshz.expert.mapper.ProjectSupplierMapper;
 import com.jshz.expert.mapper.ProjectTemplateMapper;
 import com.jshz.expert.mapper.ProjectTypeMapper;
+import com.jshz.expert.mapper.ProjectTypePhaseRelMapper;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SupplierMapper;
 import com.jshz.expert.mapper.SupplierTypeMapper;
@@ -83,6 +85,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ProjectTypeMapper typeMapper;
+    private final ProjectTypePhaseRelMapper typePhaseRelMapper;
     private final ProjectPhaseMapper phaseMapper;
     private final ProjectTemplateMapper templateMapper;
     private final ProjectPhaseTemplateRelMapper relMapper;
@@ -227,10 +230,19 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (ownerId == null) {
             throw new BusinessException("负责人不能为空（立项必填）");
         }
-        ProjectPhase phase = phaseMapper.selectById(toLong(body.get("phaseId")) == null ? firstPhaseId() : toLong(body.get("phaseId")));
+        Long reqPhaseId = toLong(body.get("phaseId"));
+        if (reqPhaseId == null) {
+            reqPhaseId = firstTypePhaseId(typeId); // 类型已配流程：默认取流程第一个阶段
+        }
+        if (reqPhaseId == null) {
+            reqPhaseId = firstPhaseId();
+        }
+        ProjectPhase phase = phaseMapper.selectById(reqPhaseId);
         if (phase == null) {
             throw new BusinessException("当前阶段不存在");
         }
+        // 类型已配置流程时，初始阶段必须属于该类型流程（防绕过，前端已过滤）
+        validatePhaseForType(typeId, phase.getId());
 
         Project project = new Project();
         project.setName(name.trim());
@@ -300,7 +312,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             if (phase == null) {
                 throw new BusinessException("当前阶段不存在");
             }
+            // 切换类型/阶段时按（可能更新后的）类型流程二次校验
+            validatePhaseForType(project.getTypeId(), phase.getId());
             project.setPhaseId(phase.getId());
+        } else if (typeId != null) {
+            // 仅切类型未传阶段：校验现有阶段是否仍属于新类型流程
+            validatePhaseForType(typeId, project.getPhaseId());
         }
         this.updateById(project);
 
@@ -1098,6 +1115,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return t;
     }
 
+    /** 删除类型：有项目引用则拦截；无引用级联清理类型阶段序列与类型专属绑定（全局兜底不受影响）。 */
+    @Transactional(rollbackFor = Exception.class)
     public void deleteType(Long id) {
         if (id == null || typeMapper.selectById(id) == null) {
             throw new BusinessException("类型不存在");
@@ -1106,6 +1125,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (used != null && used > 0) {
             throw new BusinessException("该类型下仍有 " + used + " 个项目，不能删除");
         }
+        typePhaseRelMapper.delete(new LambdaQueryWrapper<ProjectTypePhaseRel>().eq(ProjectTypePhaseRel::getTypeId, id));
+        relMapper.delete(new LambdaQueryWrapper<ProjectPhaseTemplateRel>().eq(ProjectPhaseTemplateRel::getTypeId, id));
         typeMapper.deleteById(id);
     }
 
@@ -1154,6 +1175,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return p;
     }
 
+    /** 删除阶段：被类型流程引用或仍有项目处于该阶段则拦截；无引用级联删除全部（含全局与类型专属）模板绑定。 */
+    @Transactional(rollbackFor = Exception.class)
     public void deletePhase(Long id) {
         ProjectPhase p = phaseMapper.selectById(id);
         if (p == null) {
@@ -1162,6 +1185,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Long used = this.count(new LambdaQueryWrapper<Project>().eq(Project::getPhaseId, id).ne(Project::getStatus, STATUS_DELETED));
         if (used != null && used > 0) {
             throw new BusinessException("该阶段下仍有 " + used + " 个项目，不能删除");
+        }
+        Long flowUsed = typePhaseRelMapper.selectCount(new LambdaQueryWrapper<ProjectTypePhaseRel>().eq(ProjectTypePhaseRel::getPhaseId, id));
+        if (flowUsed != null && flowUsed > 0) {
+            throw new BusinessException("该阶段已被 " + flowUsed + " 个类型流程引用，请先在类型流程配置中移除后再删除");
         }
         relMapper.delete(new LambdaQueryWrapper<ProjectPhaseTemplateRel>().eq(ProjectPhaseTemplateRel::getPhaseId, id));
         phaseMapper.deleteById(id);
@@ -1212,36 +1239,15 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return t;
     }
 
-    /** 阶段-模板绑定（required 必填标记 + 排序），全量替换。 */
+    /** 阶段-模板绑定（required 必填标记 + 排序），全量替换；type_id=0 全局兜底（不触碰类型专属行）。 */
     public void savePhaseTemplates(Long phaseId, List<Map<String, Object>> binds, AuthUser user) {
-        if (phaseId == null || phaseMapper.selectById(phaseId) == null) {
-            throw new BusinessException("阶段不存在");
-        }
-        relMapper.delete(new LambdaQueryWrapper<ProjectPhaseTemplateRel>().eq(ProjectPhaseTemplateRel::getPhaseId, phaseId));
-        int sort = 0;
-        if (binds != null) {
-            for (Map<String, Object> b : binds) {
-                Long templateId = toLong(b.get("templateId"));
-                if (templateId == null || templateMapper.selectById(templateId) == null) {
-                    continue;
-                }
-                ProjectPhaseTemplateRel rel = new ProjectPhaseTemplateRel();
-                rel.setPhaseId(phaseId);
-                rel.setTemplateId(templateId);
-                rel.setRequired(toLong(b.get("required")) != null && toLong(b.get("required")) == 1 ? 1 : 0);
-                rel.setSort(sort++);
-                relMapper.insert(rel);
-            }
-        }
-        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
-                OperationLogService.ACTION_UPDATE_PROJECT,
-                "调整阶段「" + nameOfPhase(phaseId) + "」模板绑定（" + (binds == null ? 0 : binds.size()) + " 项）",
-                "PROJECT", null, null);
+        saveTypePhaseTemplates(0L, phaseId, binds, user);
     }
 
-    /** 阶段模板列表（含必填标记与类型）。 */
+    /** 阶段模板列表（全局兜底 type_id=0；含必填标记与类型）。 */
     public List<Map<String, Object>> listPhaseTemplates(Long phaseId) {
         List<ProjectPhaseTemplateRel> rels = relMapper.selectList(new LambdaQueryWrapper<ProjectPhaseTemplateRel>()
+                .eq(ProjectPhaseTemplateRel::getTypeId, 0L)
                 .eq(ProjectPhaseTemplateRel::getPhaseId, phaseId).orderByAsc(ProjectPhaseTemplateRel::getSort));
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectPhaseTemplateRel rel : rels) {
@@ -1257,6 +1263,208 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             m.put("templateType", t.getTemplateType());
             m.put("required", rel.getRequired());
             m.put("sort", rel.getSort());
+            result.add(m);
+        }
+        return result;
+    }
+
+    // ==================== 配置 v2（20261102）：类型流程 + 类型专属绑定 + 模板编辑删除 ====================
+
+    /** 某类型的阶段序列（按 sort 升序，join 阶段完整信息）。 */
+    public List<Map<String, Object>> listTypePhases(Long typeId) {
+        if (typeId == null || typeMapper.selectById(typeId) == null) {
+            throw new BusinessException("类型不存在");
+        }
+        List<ProjectTypePhaseRel> rels = typePhaseRelMapper.selectList(new LambdaQueryWrapper<ProjectTypePhaseRel>()
+                .eq(ProjectTypePhaseRel::getTypeId, typeId).orderByAsc(ProjectTypePhaseRel::getSort));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ProjectTypePhaseRel rel : rels) {
+            ProjectPhase p = phaseMapper.selectById(rel.getPhaseId());
+            if (p == null) {
+                continue;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", rel.getId());
+            m.put("typeId", rel.getTypeId());
+            m.put("phaseId", p.getId());
+            m.put("phaseName", p.getName());
+            m.put("phaseSort", p.getSort());
+            m.put("isActive", p.getIsActive());
+            m.put("sort", rel.getSort());
+            result.add(m);
+        }
+        return result;
+    }
+
+    /** 全量保存类型阶段序列（先删后插，按入参顺序赋 sort；阶段须存在且启用）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveTypePhases(Long typeId, List<Long> phaseIds, AuthUser user) {
+        if (typeId == null || typeMapper.selectById(typeId) == null) {
+            throw new BusinessException("类型不存在");
+        }
+        if (phaseIds == null) {
+            phaseIds = new ArrayList<>();
+        }
+        List<Long> distinct = phaseIds.stream().distinct().collect(Collectors.toList());
+        if (distinct.size() != phaseIds.size()) {
+            throw new BusinessException("同一类型内阶段不可重复");
+        }
+        for (Long pid : distinct) {
+            ProjectPhase p = pid == null ? null : phaseMapper.selectById(pid);
+            if (p == null) {
+                throw new BusinessException("阶段不存在：" + pid);
+            }
+            if (p.getIsActive() != null && p.getIsActive() == 0) {
+                throw new BusinessException("阶段「" + p.getName() + "」已停用，不可加入流程");
+            }
+        }
+        typePhaseRelMapper.delete(new LambdaQueryWrapper<ProjectTypePhaseRel>().eq(ProjectTypePhaseRel::getTypeId, typeId));
+        int sort = 0;
+        for (Long pid : distinct) {
+            ProjectTypePhaseRel rel = new ProjectTypePhaseRel();
+            rel.setTypeId(typeId);
+            rel.setPhaseId(pid);
+            rel.setSort(sort++);
+            typePhaseRelMapper.insert(rel);
+        }
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPDATE_PROJECT,
+                "保存类型「" + typeMapper.selectById(typeId).getName() + "」流程阶段序列（" + distinct.size() + " 个阶段）",
+                "PROJECT", null, null);
+    }
+
+    /** 某类型某阶段模板绑定：优先类型专属，无专属回退全局兜底（meta.fallback=true 标识来源）。 */
+    public List<Map<String, Object>> listTypePhaseTemplates(Long typeId, Long phaseId) {
+        if (typeId == null || typeMapper.selectById(typeId) == null) {
+            throw new BusinessException("类型不存在");
+        }
+        List<Map<String, Object>> result = relsToMaps(relMapper.selectList(new LambdaQueryWrapper<ProjectPhaseTemplateRel>()
+                .eq(ProjectPhaseTemplateRel::getTypeId, typeId)
+                .eq(ProjectPhaseTemplateRel::getPhaseId, phaseId).orderByAsc(ProjectPhaseTemplateRel::getSort)), false);
+        if (result.isEmpty()) {
+            result = relsToMaps(relMapper.selectList(new LambdaQueryWrapper<ProjectPhaseTemplateRel>()
+                    .eq(ProjectPhaseTemplateRel::getTypeId, 0L)
+                    .eq(ProjectPhaseTemplateRel::getPhaseId, phaseId).orderByAsc(ProjectPhaseTemplateRel::getSort)), true);
+        }
+        return result;
+    }
+
+    /** 全量保存某类型某阶段模板绑定（typeId=0 走全局兜底；typeId>0 写类型专属行）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveTypePhaseTemplates(Long typeId, Long phaseId, List<Map<String, Object>> binds, AuthUser user) {
+        if (typeId == null || (typeId != 0L && typeMapper.selectById(typeId) == null)) {
+            throw new BusinessException("类型不存在");
+        }
+        if (phaseId == null || phaseMapper.selectById(phaseId) == null) {
+            throw new BusinessException("阶段不存在");
+        }
+        relMapper.delete(new LambdaQueryWrapper<ProjectPhaseTemplateRel>()
+                .eq(ProjectPhaseTemplateRel::getTypeId, typeId)
+                .eq(ProjectPhaseTemplateRel::getPhaseId, phaseId));
+        int sort = 0;
+        if (binds != null) {
+            for (Map<String, Object> b : binds) {
+                Long templateId = toLong(b.get("templateId"));
+                if (templateId == null || templateMapper.selectById(templateId) == null) {
+                    continue;
+                }
+                ProjectPhaseTemplateRel rel = new ProjectPhaseTemplateRel();
+                rel.setTypeId(typeId);
+                rel.setPhaseId(phaseId);
+                rel.setTemplateId(templateId);
+                rel.setRequired(toLong(b.get("required")) != null && toLong(b.get("required")) == 1 ? 1 : 0);
+                rel.setSort(sort++);
+                relMapper.insert(rel);
+            }
+        }
+        String scope = typeId == 0L ? "全局兜底" : "类型「" + typeMapper.selectById(typeId).getName() + "」专属";
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPDATE_PROJECT,
+                "调整" + scope + "阶段「" + nameOfPhase(phaseId) + "」模板绑定（" + (binds == null ? 0 : binds.size()) + " 项）",
+                "PROJECT", null, null);
+    }
+
+    /** 修改模板（名称唯一校验 + 类型枚举校验）。 */
+    public ProjectTemplate updateTemplate(Long id, String name, String templateType, AuthUser user) {
+        ProjectTemplate t = templateMapper.selectById(id);
+        if (t == null) {
+            throw new BusinessException("模板不存在");
+        }
+        if (StringUtils.hasText(name)) {
+            String trimmed = name.trim();
+            Long dup = templateMapper.selectCount(new LambdaQueryWrapper<ProjectTemplate>()
+                    .eq(ProjectTemplate::getName, trimmed).ne(ProjectTemplate::getId, id));
+            if (dup != null && dup > 0) {
+                throw new BusinessException("模板名称已存在");
+            }
+            t.setName(trimmed);
+        }
+        if (StringUtils.hasText(templateType)) {
+            String type = templateType.trim().toUpperCase();
+            if (!List.of("FILE", "EXPERT", "SUPPLIER", "BUDGET", "RICH_TEXT").contains(type)) {
+                throw new BusinessException("不支持的模板类型：" + templateType);
+            }
+            t.setTemplateType(type);
+        }
+        templateMapper.updateById(t);
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPDATE_TEMPLATE,
+                "修改项目配置模板「" + t.getName() + "」（类型：" + t.getTemplateType() + "）",
+                "PROJECT", null, null);
+        return t;
+    }
+
+    /** 删除模板：被任意绑定（全局或类型专属）引用则拦截。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteTemplate(Long id, AuthUser user) {
+        ProjectTemplate t = templateMapper.selectById(id);
+        if (t == null) {
+            throw new BusinessException("模板不存在");
+        }
+        Long used = relMapper.selectCount(new LambdaQueryWrapper<ProjectPhaseTemplateRel>().eq(ProjectPhaseTemplateRel::getTemplateId, id));
+        if (used != null && used > 0) {
+            throw new BusinessException("该模板已被 " + used + " 处绑定引用，请先解除绑定");
+        }
+        templateMapper.deleteById(id);
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_DELETE_TEMPLATE,
+                "删除项目配置模板「" + t.getName() + "」",
+                "PROJECT", null, null);
+    }
+
+    /** 校验阶段是否属于类型流程（类型未配置流程时不限制）；非法抛业务异常。 */
+    private void validatePhaseForType(Long typeId, Long phaseId) {
+        if (typeId == null || phaseId == null) {
+            return;
+        }
+        Long flowCnt = typePhaseRelMapper.selectCount(new LambdaQueryWrapper<ProjectTypePhaseRel>().eq(ProjectTypePhaseRel::getTypeId, typeId));
+        if (flowCnt == null || flowCnt == 0) {
+            return;
+        }
+        Long match = typePhaseRelMapper.selectCount(new LambdaQueryWrapper<ProjectTypePhaseRel>()
+                .eq(ProjectTypePhaseRel::getTypeId, typeId).eq(ProjectTypePhaseRel::getPhaseId, phaseId));
+        if (match == null || match == 0) {
+            throw new BusinessException("阶段「" + nameOfPhase(phaseId) + "」不属于类型「" + typeMapper.selectById(typeId).getName() + "」的流程，请改选");
+        }
+    }
+
+    private List<Map<String, Object>> relsToMaps(List<ProjectPhaseTemplateRel> rels, boolean fallback) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ProjectPhaseTemplateRel rel : rels) {
+            ProjectTemplate t = templateMapper.selectById(rel.getTemplateId());
+            if (t == null) {
+                continue;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", rel.getId());
+            m.put("typeId", rel.getTypeId());
+            m.put("phaseId", rel.getPhaseId());
+            m.put("templateId", t.getId());
+            m.put("templateName", t.getName());
+            m.put("templateType", t.getTemplateType());
+            m.put("required", rel.getRequired());
+            m.put("sort", rel.getSort());
+            m.put("fallback", fallback);
             result.add(m);
         }
         return result;
@@ -1382,8 +1590,15 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 校验目标阶段必填模板是否配齐；返回缺失模板类型中文列表。 */
     private List<String> missingRequiredTemplates(Project project, Long phaseId) {
         List<String> missing = new ArrayList<>();
+        // 类型专属绑定优先，无专属回退全局兜底（type_id=0）
         List<ProjectPhaseTemplateRel> rels = relMapper.selectList(new LambdaQueryWrapper<ProjectPhaseTemplateRel>()
+                .eq(ProjectPhaseTemplateRel::getTypeId, project.getTypeId() == null ? 0L : project.getTypeId())
                 .eq(ProjectPhaseTemplateRel::getPhaseId, phaseId).eq(ProjectPhaseTemplateRel::getRequired, 1));
+        if (rels.isEmpty()) {
+            rels = relMapper.selectList(new LambdaQueryWrapper<ProjectPhaseTemplateRel>()
+                    .eq(ProjectPhaseTemplateRel::getTypeId, 0L)
+                    .eq(ProjectPhaseTemplateRel::getPhaseId, phaseId).eq(ProjectPhaseTemplateRel::getRequired, 1));
+        }
         if (rels.isEmpty()) {
             return missing;
         }
@@ -1546,6 +1761,16 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         ProjectPhase p = phaseMapper.selectOne(new LambdaQueryWrapper<ProjectPhase>()
                 .orderByAsc(ProjectPhase::getSort).last("LIMIT 1"));
         return p == null ? null : p.getId();
+    }
+
+    /** 类型流程内第一个阶段；类型未配置流程返回 null。 */
+    private Long firstTypePhaseId(Long typeId) {
+        if (typeId == null) {
+            return null;
+        }
+        ProjectTypePhaseRel rel = typePhaseRelMapper.selectOne(new LambdaQueryWrapper<ProjectTypePhaseRel>()
+                .eq(ProjectTypePhaseRel::getTypeId, typeId).orderByAsc(ProjectTypePhaseRel::getSort).last("LIMIT 1"));
+        return rel == null ? null : rel.getPhaseId();
     }
 
     private Long parseLong(String s) {

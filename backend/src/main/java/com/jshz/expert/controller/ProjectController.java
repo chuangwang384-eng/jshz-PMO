@@ -354,6 +354,51 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    // ==================== 配置 v2（20261102）：类型流程 + 类型专属绑定 + 模板编辑删除 ====================
+
+    /** 类型阶段序列（按 sort 升序）。 */
+    @GetMapping("/config/types/{typeId}/phases")
+    public ApiResponse<List<Map<String, Object>>> listTypePhases(@PathVariable Long typeId) {
+        return ApiResponse.ok(projectService.listTypePhases(typeId));
+    }
+
+    /** 全量保存类型阶段序列（入参为排序后的 phaseId 数组）。 */
+    @PutMapping("/config/types/{typeId}/phases")
+    public ApiResponse<Void> saveTypePhases(@PathVariable Long typeId, @RequestBody List<Long> phaseIds, @AuthenticationPrincipal AuthUser user) {
+        projectService.saveTypePhases(typeId, phaseIds, user);
+        return ApiResponse.ok(null);
+    }
+
+    /** 类型专属阶段模板绑定（无专属时回退全局兜底，fallback=true 标识）。 */
+    @GetMapping("/config/types/{typeId}/phases/{phaseId}/templates")
+    public ApiResponse<List<Map<String, Object>>> listTypePhaseTemplates(@PathVariable Long typeId, @PathVariable Long phaseId) {
+        return ApiResponse.ok(projectService.listTypePhaseTemplates(typeId, phaseId));
+    }
+
+    /** 全量保存类型专属阶段模板绑定（type_id=类型ID）。 */
+    @PutMapping("/config/types/{typeId}/phases/{phaseId}/templates")
+    public ApiResponse<Void> saveTypePhaseTemplates(@PathVariable Long typeId, @PathVariable Long phaseId,
+                                                    @RequestBody List<Map<String, Object>> binds, @AuthenticationPrincipal AuthUser user) {
+        projectService.saveTypePhaseTemplates(typeId, phaseId, binds, user);
+        return ApiResponse.ok(null);
+    }
+
+    /** 修改模板（名称/模板类型）。 */
+    @PutMapping("/config/templates/{id}")
+    public ApiResponse<ProjectTemplate> updateTemplate(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
+        Object name = body == null ? null : body.get("name");
+        Object type = body == null ? null : body.get("templateType");
+        return ApiResponse.ok(projectService.updateTemplate(id, name == null ? null : String.valueOf(name),
+                type == null ? null : String.valueOf(type), user));
+    }
+
+    /** 删除模板（被绑定引用时拦截）。 */
+    @DeleteMapping("/config/templates/{id}")
+    public ApiResponse<Void> deleteTemplate(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        projectService.deleteTemplate(id, user);
+        return ApiResponse.ok(null);
+    }
+
     @PutMapping("/{id}/experts/{expertId}/fee")
     public ApiResponse<Void> saveExpertFee(@PathVariable Long id, @PathVariable Long expertId,
                                            @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {

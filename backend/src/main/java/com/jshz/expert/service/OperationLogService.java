@@ -98,6 +98,10 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_SYNC_EXPERT_SENSITIVE = "SYNC_EXPERT_SENSITIVE";
     /** 新建模板类型 */
     public static final String ACTION_CREATE_TEMPLATE = "CREATE_TEMPLATE";
+    /** 修改模板类型 */
+    public static final String ACTION_UPDATE_TEMPLATE = "UPDATE_TEMPLATE";
+    /** 删除模板类型 */
+    public static final String ACTION_DELETE_TEMPLATE = "DELETE_TEMPLATE";
     /** 登记项目预算 */
     public static final String ACTION_REGISTER_BUDGET = "REGISTER_BUDGET";
     /** 合同发起审批（复用 approval 通道） */

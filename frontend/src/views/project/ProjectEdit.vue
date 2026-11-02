@@ -43,7 +43,7 @@
         <el-col :span="12">
           <el-form-item label="当前阶段">
             <el-select v-model="form.phaseId" placeholder="默认立项" style="width: 100%">
-              <el-option v-for="p in phases" :key="p.id" :label="p.name" :value="p.id" />
+              <el-option v-for="p in phaseOptions" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
           </el-form-item>
         </el-col>
@@ -64,7 +64,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createProject, updateProject } from '../../api/project'
+import { createProject, updateProject, listTypePhases } from '../../api/project'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -85,6 +85,41 @@ const saving = ref(false)
 const dateRange = ref([])
 const form = reactive({ id: null, name: '', category: 'OFFLINE', typeId: null, ownerId: null, phaseId: null, executorIds: [] })
 
+// 类型流程联动（配置 v2 20261102）：类型已配流程时阶段下拉仅显示流程内阶段
+const typeFlowPhases = ref([]) // [{phaseId, phaseName}]；空=该类型未配置流程
+const phaseOptions = computed(() => {
+  if (form.typeId && typeFlowPhases.value.length) {
+    const ids = new Set(typeFlowPhases.value.map((f) => f.phaseId))
+    return props.phases.filter((p) => ids.has(p.id))
+  }
+  return props.phases.filter((p) => p.isActive === undefined || p.isActive === 1)
+})
+async function loadTypeFlow(typeId) {
+  typeFlowPhases.value = []
+  if (!typeId) return
+  try {
+    typeFlowPhases.value = await listTypePhases(typeId)
+  } catch (e) {
+    typeFlowPhases.value = [] // 加载失败回退全部启用阶段，不阻塞弹窗
+  }
+}
+watch(() => form.typeId, async (nv, ov) => {
+  if (!visible.value) return
+  await loadTypeFlow(nv)
+  if (ov !== null && ov !== undefined && nv !== ov && form.id !== null) {
+    // 编辑时切换类型：当前阶段不属于新类型流程则提示并改选
+    if (form.phaseId && typeFlowPhases.value.length && !typeFlowPhases.value.some((f) => f.phaseId === form.phaseId)) {
+      ElMessage.warning('当前阶段不属于新类型的流程，请改选阶段')
+    }
+  }
+  // 未配置流程的类型：不强制改选；已配置：默认选第一个
+  if (typeFlowPhases.value.length && !typeFlowPhases.value.some((f) => f.phaseId === form.phaseId)) {
+    form.phaseId = typeFlowPhases.value[0].phaseId
+  } else if (!typeFlowPhases.value.length && !form.id && !form.phaseId && phaseOptions.value.length) {
+    form.phaseId = phaseOptions.value[0].id
+  }
+})
+
 watch(
   () => props.modelValue,
   (v) => {
@@ -99,6 +134,11 @@ watch(
     form.executorIds = []
     if (p?.executorIds && Array.isArray(p.executorIds)) form.executorIds = [...p.executorIds]
     dateRange.value = p?.startDate && p?.endDate ? [p.startDate, p.endDate] : []
+    loadTypeFlow(form.typeId).then(() => {
+      if (typeFlowPhases.value.length && !typeFlowPhases.value.some((f) => f.phaseId === form.phaseId)) {
+        form.phaseId = typeFlowPhases.value[0].phaseId
+      }
+    })
   }
 )
 

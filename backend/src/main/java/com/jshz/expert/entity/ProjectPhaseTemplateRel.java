@@ -25,6 +25,9 @@ public class ProjectPhaseTemplateRel {
     /** 模板 project_template.id */
     private Long templateId;
 
+    /** 项目类型ID，0=全局兜底绑定（20261102 配置板块 v2） */
+    private Long typeId;
+
     /** 是否必填：1必填 0选填 */
     private Integer required;
 

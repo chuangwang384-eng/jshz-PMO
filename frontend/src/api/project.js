@@ -208,3 +208,35 @@ export function listPhaseTemplates(phaseId) {
 export function savePhaseTemplates(phaseId, binds) {
   return request.put(`/project/config/phases/${phaseId}/templates`, binds)
 }
+
+// ==================== 配置 v2（20261102）：类型流程 + 类型专属绑定 + 模板编辑删除 ====================
+
+// 类型阶段序列（按 sort 升序）
+export function listTypePhases(typeId) {
+  return request.get(`/project/config/types/${typeId}/phases`)
+}
+
+// 全量保存类型阶段序列（入参为排序后的 phaseId 数组）
+export function saveTypePhases(typeId, phaseIds) {
+  return request.put(`/project/config/types/${typeId}/phases`, phaseIds)
+}
+
+// 类型专属阶段模板绑定（无专属时回退全局兜底，行内 fallback=true 标识）
+export function listTypePhaseTemplates(typeId, phaseId) {
+  return request.get(`/project/config/types/${typeId}/phases/${phaseId}/templates`)
+}
+
+// 全量保存类型专属阶段模板绑定
+export function saveTypePhaseTemplates(typeId, phaseId, binds) {
+  return request.put(`/project/config/types/${typeId}/phases/${phaseId}/templates`, binds)
+}
+
+// 修改模板（名称/模板类型）
+export function updateProjectTemplate(id, data) {
+  return request.put(`/project/config/templates/${id}`, data)
+}
+
+// 删除模板（被绑定引用时后端拦截）
+export function deleteProjectTemplate(id) {
+  return request.delete(`/project/config/templates/${id}`)
+}
