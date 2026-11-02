@@ -131,7 +131,17 @@
           <el-input v-model="form.description" type="textarea" :rows="3" maxlength="1000" />
         </el-form-item>
         <el-form-item label="图片">
-          <div class="upload-tip">创建后可在详情页「图片」区块上传（≤20 张，单张 ≤8MB）</div>
+          <div style="width: 100%">
+            <el-button plain @click="pickCreateFiles">选择图片（可多选）</el-button>
+            <input ref="createFileInput" type="file" accept="image/*" multiple hidden @change="onCreateFilesPicked" />
+            <div v-if="createFiles.length" class="create-file-list">
+              <div v-for="(f, i) in createFiles" :key="i" class="create-file-item">
+                <span class="create-file-name" :title="f.name">{{ f.name }}</span>
+                <el-button link type="danger" size="small" @click="createFiles.splice(i, 1)">移除</el-button>
+              </div>
+            </div>
+            <div class="upload-tip">保存时随创建一并上传（自动压缩，长边≤1280）；≤20 张、单张 ≤8MB、累计 ≤100MB；首图自动设为主图。留空则创建后可在详情页上传</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -172,9 +182,10 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listSuppliers, listSupplierTypes, listSupplierCities,
-  createSupplier, createSupplierType, updateSupplierType, deleteSupplierType, bindSupplier,
+  createSupplier, createSupplierType, updateSupplierType, deleteSupplierType, bindSupplier, uploadSupplierImage,
   supplierImageUrl
 } from '../../api/supplier'
+import { compressImage } from '../../utils/imageCompress'
 import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
 
 const router = useRouter()
@@ -280,7 +291,28 @@ function defaultTypeId() {
 function openCreate() {
   form.value = { typeId: defaultTypeId(), province: null, cityId: null, bindTargetId: null }
   bindCandidates.value = []
+  createFiles.value = []
   createVisible.value = true
+}
+
+// 直接上传图片：保存时随创建一并上传（压缩沿用 imageCompress，接口沿用 images 系列）
+const createFiles = ref([])
+const createFileInput = ref(null)
+
+function pickCreateFiles() {
+  createFileInput.value && createFileInput.value.click()
+}
+
+async function onCreateFilesPicked(e) {
+  const files = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (!files.length) return
+  const exist = createFiles.value.length
+  if (exist + files.length > 20) {
+    ElMessage.warning('最多 20 张，请减少选择')
+    return
+  }
+  createFiles.value.push(...files)
 }
 
 function onFormProvinceChange() {
@@ -309,17 +341,34 @@ async function confirmCreate() {
       description: form.value.description || undefined
     })
     // 初始绑定：沿用现有绑定接口（后端校验同城市与酒店↔打印店类型）
+    let bindOk = true
     if (form.value.bindTargetId && created?.id) {
       try {
         await bindSupplier(created.id, form.value.bindTargetId)
-        ElMessage.success('供应商已创建并完成绑定')
       } catch (e) {
         // 绑定失败不回滚创建；提示后可在详情页重新绑定
-        ElMessage.warning('供应商已创建，但初始绑定失败，可在详情页重新绑定')
+        bindOk = false
       }
-    } else {
-      ElMessage.success('供应商已创建')
     }
+    // 直接上传图片：逐张压缩上传（首图自动主图由后端保证）
+    let imgOk = 0
+    let imgFail = 0
+    if (created?.id && createFiles.value.length) {
+      for (const f of createFiles.value) {
+        try {
+          const compressed = await compressImage(f)
+          await uploadSupplierImage(created.id, compressed)
+          imgOk++
+        } catch (e) {
+          imgFail++
+        }
+      }
+    }
+    const parts = ['供应商已创建']
+    if (form.value.bindTargetId && created?.id) parts.push(bindOk ? '绑定成功' : '初始绑定失败（可在详情页重新绑定）')
+    if (createFiles.value.length) parts.push(`图片上传成功 ${imgOk} 张${imgFail ? `、失败 ${imgFail} 张（可在详情页补传）` : ''}`)
+    if (bindOk && !imgFail) ElMessage.success(parts.join('，'))
+    else ElMessage.warning(parts.join('，'))
     createVisible.value = false
     fetchDicts()
     fetchList()
@@ -410,4 +459,7 @@ onMounted(() => {
 .rate-text { font-size: 12px; color: #606266; }
 .pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
 .dict-add-row { display: flex; align-items: center; }
+.create-file-list { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.create-file-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.create-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
