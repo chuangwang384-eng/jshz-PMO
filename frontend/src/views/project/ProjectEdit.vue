@@ -112,10 +112,12 @@ watch(() => form.typeId, async (nv, ov) => {
       ElMessage.warning('当前阶段不属于新类型的流程，请改选阶段')
     }
   }
-  // 未配置流程的类型：不强制改选；已配置：默认选第一个
-  if (typeFlowPhases.value.length && !typeFlowPhases.value.some((f) => f.phaseId === form.phaseId)) {
-    form.phaseId = typeFlowPhases.value[0].phaseId
-  } else if (!typeFlowPhases.value.length && !form.id && !form.phaseId && phaseOptions.value.length) {
+  // 已配置流程：新建项目默认取流程第一个阶段；编辑项目当前阶段在流程内则保留
+  if (typeFlowPhases.value.length) {
+    if (!form.id || !typeFlowPhases.value.some((f) => f.phaseId === form.phaseId)) {
+      form.phaseId = typeFlowPhases.value[0].phaseId
+    }
+  } else if (!form.id && !form.phaseId && phaseOptions.value.length) {
     form.phaseId = phaseOptions.value[0].id
   }
 })
