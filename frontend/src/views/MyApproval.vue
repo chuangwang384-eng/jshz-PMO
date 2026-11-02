@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">我的申请</span>
       <span class="page-sub">查看我提交的全部申请及审批进度（专家修改 / 新增等）</span>
     </div>
 

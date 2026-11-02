@@ -23,7 +23,7 @@ import java.util.List;
 
 /**
  * 安全配置（正式版 V1.001，RBAC 阶段1）。
- * 白名单：健康检查 / 登录登出 / 企微占位；其余接口登录即可。
+ * 白名单：健康检查 / 登录登出 / 企微登录回调；其余接口登录即可。
  * 原 ADMIN 硬编码规则已迁移为 permission 数据，由 DbPermissionFilter 按 method+path 拦截。
  * 静态照片资源 /api/files/** 需登录后访问。
  */
@@ -50,7 +50,7 @@ public class SecurityConfig {
                         (request, response, authException) ->
                                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "未登录或登录已过期")))
                 .authorizeHttpRequests(auth -> auth
-                        // 白名单（无需登录）：健康检查 / 登录登出 / 企微占位
+                        // 白名单（无需登录）：健康检查 / 登录登出 / 企微登录回调
                         .requestMatchers("/health", "/ready").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/logout").permitAll()
                         .requestMatchers("/api/auth/wecom/**").permitAll()

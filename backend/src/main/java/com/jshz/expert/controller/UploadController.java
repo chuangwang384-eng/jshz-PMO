@@ -54,6 +54,16 @@ public class UploadController {
         return ok(fileName);
     }
 
+    /**
+     * 上传富文本插图（公告 wangEditor）：POST /api/upload/richtext，文件字段名 file。
+     * 返回 {fileName, url:/api/files/<fileName>}，图片持久保存在照片库目录。
+     */
+    @PostMapping("/richtext")
+    public ApiResponse<Map<String, Object>> uploadRichtext(@RequestParam("file") MultipartFile file) {
+        String fileName = photoStorageService.saveRichtextImage(file);
+        return ok(fileName);
+    }
+
     private ApiResponse<Map<String, Object>> ok(String fileName) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("fileName", fileName);

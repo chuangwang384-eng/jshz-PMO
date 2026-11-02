@@ -1,9 +1,9 @@
 <template>
-  <!-- 父菜单：点标题跳父路由，点箭头展开/收起子菜单 -->
+  <!-- 父菜单：点标题或箭头仅展开/收起子菜单（需求 2：一级菜单不再跳父路由） -->
   <el-sub-menu v-if="item.children?.length" :index="item.path" @open="expanded = true" @close="expanded = false">
     <template #title>
       <div class="side-submenu-title">
-        <span class="side-submenu-label" @click.stop="navigateTo(item.path)">{{ item.title }}</span>
+        <span class="side-submenu-label">{{ item.title }}</span>
         <el-icon class="side-submenu-arrow" :class="{ 'is-expanded': expanded }">
           <ArrowDown />
         </el-icon>

@@ -13,7 +13,7 @@ export function supplierTypeTagColor(bizKey) {
   return map[bizKey] || 'info'
 }
 
-// 城市平铺列表 -> 按省份分组（保持字典预置顺序），供 el-option-group / 城市管理页共用
+// 城市平铺列表 -> 按省份分组（保持字典预置顺序），供省→市两级联动/展示共用
 export function groupCitiesByProvince(cities) {
   const groups = []
   const map = {}
@@ -25,4 +25,17 @@ export function groupCitiesByProvince(cities) {
     map[c.province].cities.push(c)
   }
   return groups
+}
+
+// 省份列表（两级联动第一级；按字典预置顺序去重）
+export function provinceList(cities) {
+  return groupCitiesByProvince(cities).map((g) => g.province)
+}
+
+// 指定省份下的城市列表（两级联动第二级）
+export function citiesOfProvince(cities, province) {
+  // v2.1：省份选填，未选省份时城市下拉直选全部城市（可搜索）
+  if (!province) return cities || []
+  const g = groupCitiesByProvince(cities).find((x) => x.province === province)
+  return g ? g.cities : []
 }

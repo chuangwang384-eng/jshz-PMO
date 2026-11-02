@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.util.ExcelExportStyleUtil;
+import com.jshz.expert.util.ExcelExportStyleUtil.ColumnConfig;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.CellType;
@@ -55,7 +57,8 @@ public class ExportService {
 
     /**
      * 将专家列表转为 Excel（.xlsx）字节，全部单元格以字符串写入（数字/日期列保持字符串）。
-     * full=false 时敏感字段脱敏。
+     * 需求1：身份证号/银行卡号全员明文导出（不再区分明文/脱敏分支，full 参数保留兼容调用方）；
+     * 需求2：简介列同步按"原简介+研究方向+擅长领域"拼接，保证各端一致。
      */
     public byte[] expertsToXlsx(List<Expert> experts, boolean full) {
         try (XSSFWorkbook wb = new XSSFWorkbook();
@@ -76,9 +79,9 @@ public class ExportService {
                 row.createCell(5).setCellValue(nvl(e.getResearchDirection()));
                 row.createCell(6).setCellValue(nvl(e.getExpertiseArea()));
                 row.createCell(7).setCellValue(nvl(e.getContact()));
-                row.createCell(8).setCellValue(nvl(e.getProfile()));
-                row.createCell(9).setCellValue(full ? nvl(e.getIdCard()) : ExpertService.maskSensitive(e.getIdCard()));
-                row.createCell(10).setCellValue(full ? nvl(e.getBankCard()) : ExpertService.maskSensitive(e.getBankCard()));
+                row.createCell(8).setCellValue(nvl(ExpertService.mergeProfile(e.getProfile(), e.getResearchDirection(), e.getExpertiseArea())));
+                row.createCell(9).setCellValue(nvl(e.getIdCard()));
+                row.createCell(10).setCellValue(nvl(e.getBankCard()));
                 row.createCell(11).setCellValue(nvl(e.getBankBranch()));
                 row.createCell(12).setCellValue(nvl(e.getPhoto()));
                 row.createCell(13).setCellValue(nvl(e.getIdCardFront()));
@@ -87,6 +90,7 @@ public class ExportService {
                 row.createCell(16).setCellValue(e.getUpdateTime() == null ? "" : e.getUpdateTime().toString());
                 row.createCell(17).setCellValue(nvl(e.getUpdateBy()));
             }
+            ExcelExportStyleUtil.applyStyle(sheet, expertExportColumns(), 0);
             wb.write(bos);
             return bos.toByteArray();
         } catch (IOException e) {
@@ -111,6 +115,7 @@ public class ExportService {
             for (int c = 0; c < sample.length; c++) {
                 row.createCell(c).setCellValue(sample[c]);
             }
+            ExcelExportStyleUtil.applyStyle(sheet, templateColumns(), 0);
             wb.write(bos);
             return bos.toByteArray();
         } catch (IOException e) {
@@ -233,10 +238,10 @@ public class ExportService {
     // ==================== ZIP ====================
 
     /**
-     * 打包 ZIP：experts.xlsx（完整字段）+ photos/ 下三类照片（命名：姓名+单位+科室+类型）。
+     * 打包 ZIP：experts.xlsx（完整字段，需求1 全员明文）+ photos/ 下三类照片（命名：姓名+单位+科室+类型）。
      *
      * @param experts 专家列表
-     * @param full    是否完整（false 时 Excel 脱敏）
+     * @param full    兼容参数（需求1 后 Excel 已全员明文，不再区分明文/脱敏分支）
      * @param auditType 审计类型（selected_zip / full_zip）
      */
     public byte[] buildZip(List<Expert> experts, boolean full, String auditType, AuthUser user,
@@ -388,6 +393,47 @@ public class ExportService {
 
     private String nvl(String v) {
         return v == null ? "" : v;
+    }
+
+    // ==================== Excel 列样式配置 ====================
+
+    /** 专家数据导出（18 列）的列配置：列名、宽度上限、是否数字列（固定不换行）、是否长文本列（换行顶部对齐）。 */
+    private static List<ColumnConfig> expertExportColumns() {
+        return List.of(
+                new ColumnConfig("id", 12, true, false),
+                new ColumnConfig("姓名", 18, false, false),
+                new ColumnConfig("单位", 25, false, false),
+                new ColumnConfig("科室", 25, false, false),
+                new ColumnConfig("职称", 20, false, false),
+                new ColumnConfig("研究方向", 35, false, true),
+                new ColumnConfig("擅长领域", 35, false, true),
+                new ColumnConfig("联系方式", 20, false, false),
+                new ColumnConfig("简介", 45, false, true),
+                new ColumnConfig("身份证号", 20, true, false),
+                new ColumnConfig("银行卡号", 21, true, false),
+                new ColumnConfig("银行卡开户行", 25, false, false),
+                new ColumnConfig("照片", 25, false, false),
+                new ColumnConfig("身份证正面", 25, false, false),
+                new ColumnConfig("身份证反面", 25, false, false),
+                new ColumnConfig("创建时间", 25, false, false),
+                new ColumnConfig("修改时间", 25, false, false),
+                new ColumnConfig("修改人id", 12, true, false));
+    }
+
+    /** 导入模板（11 列）的列配置，与 TEMPLATE_COLUMNS 顺序一一对应。 */
+    private static List<ColumnConfig> templateColumns() {
+        return List.of(
+                new ColumnConfig("姓名", 18, false, false),
+                new ColumnConfig("单位", 25, false, false),
+                new ColumnConfig("科室", 25, false, false),
+                new ColumnConfig("职称", 20, false, false),
+                new ColumnConfig("研究方向", 35, false, true),
+                new ColumnConfig("擅长领域", 35, false, true),
+                new ColumnConfig("联系方式", 20, false, false),
+                new ColumnConfig("简介", 45, false, true),
+                new ColumnConfig("身份证号", 20, true, false),
+                new ColumnConfig("银行卡号", 21, true, false),
+                new ColumnConfig("银行卡开户行", 25, false, false));
     }
 
     /**

@@ -21,14 +21,15 @@ const routes = [
   {
     path: '/knowledge-planet',
     name: 'knowledge-planet',
-    component: () => import('../views/KnowledgePlanetHome.vue'),
+    // 需求 2：一级菜单仅作展开容器（无页面组件），访问父路径重定向到第一个二级菜单
+    redirect: '/knowledge-planet/meeting-execution',
     meta: { title: '知识星球', requiresAuth: true },
     children: [
       {
         path: 'meeting-execution',
         name: 'meeting-execution',
         component: () => import('../views/MeetingExecution.vue'),
-        meta: { title: '会议执行' }
+        meta: { title: '会议执行标准' }
       },
       {
         path: 'association-compliance',
@@ -43,19 +44,43 @@ const routes = [
         meta: { title: '企业合规要求' }
       },
       {
-        path: 'customer-preferences',
-        name: 'customer-preferences',
-        component: () => import('../views/CustomerPreferences.vue'),
-        meta: { title: '客户喜好' }
+        path: 'customer-info',
+        name: 'customer-info',
+        component: () => import('../views/CustomerInfo.vue'),
+        meta: { title: '客户信息' }
+      },
+      {
+        path: 'customer-detail/:id',
+        name: 'customer-detail',
+        component: () => import('../views/CustomerDetail.vue'),
+        meta: { title: '客户详情', menu: false, activeMenu: '/knowledge-planet/customer-info' }
+      },
+      {
+        path: 'customer-relation-graph',
+        name: 'customer-relation-graph',
+        component: () => import('../views/CustomerRelationGraph.vue'),
+        meta: { title: '客户关系网络', menu: false, activeMenu: '/knowledge-planet/customer-info' }
+      },
+      {
+        path: 'customer-relation-type-manage',
+        name: 'customer-relation-type-manage',
+        component: () => import('../views/CustomerRelationTypeManage.vue'),
+        meta: { title: '关系类型管理', menu: false, activeMenu: '/knowledge-planet/customer-info' }
       }
     ]
   },
   {
     path: '/profile',
     name: 'profile',
-    redirect: '/profile/my-approvals',
+    component: () => import('../views/profile/ProfileHome.vue'),
     meta: { title: '个人中心', requiresAuth: true },
     children: [
+      {
+        path: 'overview',
+        name: 'profile-overview',
+        component: () => import('../views/profile/ProfileCard.vue'),
+        meta: { title: '我的主页' }
+      },
       {
         path: 'my-approvals',
         name: 'my-approvals',
@@ -75,10 +100,27 @@ const routes = [
         meta: { title: '审批管理', permissions: ['approval:audit'] }
       },
       {
-        path: 'change-password',
-        name: 'change-password',
-        component: () => import('../views/profile/ChangePassword.vue'),
-        meta: { title: '修改密码' }
+        path: 'directory',
+        name: 'directory',
+        component: () => import('../views/profile/Directory.vue'),
+        meta: { title: '通讯录' }
+      },
+      {
+        path: 'announcements',
+        name: 'announcements',
+        component: () => import('../views/announcement/AnnouncementList.vue'),
+        meta: { title: '公告', requiresAuth: true }
+      },
+      // 合并改造后旧管理路由已删除；显式占位避免被 announcements/:id 捕获（id="manage"）
+      {
+        path: 'announcements/manage',
+        redirect: '/profile/announcements'
+      },
+      {
+        path: 'announcements/:id',
+        name: 'announcement-detail',
+        component: () => import('../views/announcement/AnnouncementDetail.vue'),
+        meta: { title: '公告详情', requiresAuth: true, menu: false, activeMenu: '/profile/announcements' }
       }
     ]
   },
@@ -97,16 +139,37 @@ const routes = [
   {
     path: '/project',
     name: 'project',
-    component: () => import('../views/ProjectPlaceholder.vue'),
-    meta: { title: '项目管理' }
+    component: () => import('../views/project/ProjectList.vue'),
+    meta: { title: '项目管理', requiresAuth: true }
+  },
+  {
+    path: '/project/:id',
+    name: 'project-detail',
+    component: () => import('../views/project/ProjectDetail.vue'),
+    meta: { title: '项目详情', requiresAuth: true, menu: false }
   },
   {
     path: '/admin',
     name: 'admin-settings',
-    redirect: '/admin/experts/manage',
+    redirect: () => {
+      let user = null
+      try {
+        user = JSON.parse(localStorage.getItem('expert_user') || 'null')
+      } catch (e) {
+        user = null
+      }
+      const perms = user?.permissions || []
+      if (perms.includes('expert:manage')) return '/admin/experts/manage'
+      if (perms.includes('project:manage')) return '/admin/project/config'
+      if (perms.includes('user:manage')) return '/admin/users'
+      if (perms.includes('role:manage')) return '/admin/roles/manage'
+      if (perms.includes('audit:view')) return '/admin/audit/downloads'
+      if (perms.includes('approval:config')) return '/admin/approval/config'
+      return '/experts'
+    },
     meta: {
       title: '管理员设置',
-      permissions: ['expert:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
+      permissions: ['expert:manage', 'project:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
     },
     children: [
       {
@@ -116,22 +179,22 @@ const routes = [
         meta: { title: '专家管理', permissions: ['expert:manage'] }
       },
       {
+        path: 'project/config',
+        name: 'project-config',
+        component: () => import('../views/project/ProjectConfig.vue'),
+        meta: { title: '项目配置', permissions: ['project:manage'] }
+      },
+      {
         path: 'audit/downloads',
         name: 'audit-downloads',
         component: () => import('../views/DownloadAudit.vue'),
-        meta: { title: '用户操作日志', permissions: ['audit:view'] }
+        meta: { title: '用户操作日志', permissions: ['audit:view'], roles: ['SUPER_ADMIN'] }
       },
       {
         path: 'approval/config',
         name: 'approval-config',
         component: () => import('../views/ApprovalConfig.vue'),
         meta: { title: '审批流配置', permissions: ['approval:config'] }
-      },
-      {
-        path: 'approval/templates',
-        name: 'approval-templates',
-        component: () => import('../views/ApprovalTemplateManage.vue'),
-        meta: { title: '审批模板管理', permissions: ['approval:config'] }
       },
       {
         path: 'users',
@@ -144,6 +207,12 @@ const routes = [
         name: 'role-manage',
         component: () => import('../views/RoleManage.vue'),
         meta: { title: '角色管理', permissions: ['role:manage'] }
+      },
+      {
+        path: 'wecom',
+        name: 'wecom-sync',
+        component: () => import('../views/WecomSyncManage.vue'),
+        meta: { title: '企微通讯录同步', permissions: ['wecom:sync'] }
       }
     ]
   },
@@ -164,6 +233,7 @@ const router = createRouter({
 // - 已登录访问登录页跳转专家库
 // - meta.permissions 权限码数组控制静态路由访问：未命中任一权限码则拦截并提示，
 //   cookie 失效时由 request 拦截器 401 兜底跳登录
+// - meta.roles 角色编码数组（如 ['SUPER_ADMIN']）控制超管专属板块：未命中任一角色则拦截并提示
 router.beforeEach((to) => {
   let user = null
   try {
@@ -184,9 +254,24 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
+  // 公告详情 :id 兜底：非数字 id 直接回公告列表，避免请求后端触发类型转换错误
+  if (to.name === 'announcement-detail') {
+    const id = to.params.id
+    if (id == null || !/^\d+$/.test(String(id))) {
+      return '/profile/announcements'
+    }
+  }
+
   const permissions = user?.permissions || []
   const required = to.meta?.permissions
   if (Array.isArray(required) && required.length && !required.some((p) => permissions.includes(p))) {
+    ElMessage.error('无权限访问该页面')
+    return '/experts'
+  }
+
+  const roles = user?.roles || []
+  const requiredRoles = to.meta?.roles
+  if (Array.isArray(requiredRoles) && requiredRoles.length && !requiredRoles.some((r) => roles.includes(r))) {
     ElMessage.error('无权限访问该页面')
     return '/experts'
   }

@@ -96,7 +96,8 @@ public class KnowledgeFavoriteService extends ServiceImpl<KnowledgeFavoriteMappe
 
     /**
      * 我的收藏列表（按收藏时间倒序，返回文档信息 + 收藏时间）。
-     * 文档可能已被删除（收藏残留）：过滤掉查不到的。
+     * 收藏记录保留，但仅展示 status=1 上架文档：文档被下架后收藏列表自动隐藏（新），
+     * 重新上架后自动恢复显示；文档被删除的（收藏残留）过滤掉。
      */
     public List<Map<String, Object>> myFavorites(Long userId) {
         if (userId == null) {
@@ -111,7 +112,9 @@ public class KnowledgeFavoriteService extends ServiceImpl<KnowledgeFavoriteMappe
         List<Long> docIds = favorites.stream().map(KnowledgeFavorite::getDocId).toList();
         Map<Long, KnowledgeDocument> docMap = new HashMap<>();
         for (KnowledgeDocument doc : documentMapper.selectBatchIds(docIds)) {
-            docMap.put(doc.getId(), doc);
+            if (doc != null && doc.getStatus() != null && doc.getStatus() == 1) {
+                docMap.put(doc.getId(), doc);
+            }
         }
         List<Map<String, Object>> result = new ArrayList<>();
         for (KnowledgeFavorite f : favorites) {

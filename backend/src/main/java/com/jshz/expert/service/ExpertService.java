@@ -8,7 +8,6 @@ import com.jshz.expert.entity.Expert;
 import com.jshz.expert.mapper.ExpertMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -54,7 +53,7 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
     }
 
     /**
-     * 详情（脱敏规则：full=true 全量，否则身份证/银行卡前3后4）。
+     * 详情（需求1：登录用户一律返回明文，full 参数保留兼容调用方；简介拼接展示见 toView）。
      */
     public Expert detail(Long id, boolean full) {
         Expert expert = getById(id);
@@ -191,20 +190,55 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
     }
 
     /**
-     * 视图转换：full=false 时复制实体并对身份证/银行卡脱敏。
+     * 视图转换：身份证号/银行卡号一律返回明文（需求1：去除脱敏，全员明文）；
+     * 简介按"原简介 + 研究方向 + 擅长领域"拼接展示（需求2），同时保留原始简介供编辑回填。
      */
     public Expert toView(Expert expert, boolean full) {
         if (expert == null) {
             return null;
         }
-        if (full) {
-            return expert;
+        // 保留原始简介（数据库原值），编辑弹窗回填用，避免把拼接值写回存储
+        expert.setRawProfile(expert.getProfile());
+        expert.setProfile(mergeProfile(expert.getProfile(), expert.getResearchDirection(), expert.getExpertiseArea()));
+        return expert;
+    }
+
+    /**
+     * 合并简介（需求2）：原简介 + 研究方向 + 擅长领域，字段有内容才拼接，避免多余分隔符。
+     * 幂等保护：若原简介已包含当前研究方向/擅长领域片段（如员工编辑回写拼接值），直接返回原值，
+     * 防止重复拼接。示例："从事会展经济研究。研究方向：会展产业政策。擅长领域：数据分析。"
+     */
+    public static String mergeProfile(String profile, String researchDirection, String expertiseArea) {
+        String p = StringUtils.hasText(profile) ? profile.trim() : "";
+        String rd = StringUtils.hasText(researchDirection) ? researchDirection.trim() : null;
+        String ea = StringUtils.hasText(expertiseArea) ? expertiseArea.trim() : null;
+        if (rd != null && p.contains("研究方向：" + rd)
+                && (ea == null || p.contains("擅长领域：" + ea))) {
+            return p;
         }
-        Expert view = new Expert();
-        BeanUtils.copyProperties(expert, view);
-        view.setIdCard(maskSensitive(expert.getIdCard()));
-        view.setBankCard(maskSensitive(expert.getBankCard()));
-        return view;
+        StringBuilder sb = new StringBuilder(p);
+        if (rd != null) {
+            appendProfilePart(sb, "研究方向：" + rd);
+        }
+        if (ea != null) {
+            appendProfilePart(sb, "擅长领域：" + ea);
+        }
+        return sb.toString();
+    }
+
+    /** 追加简介片段：清理前段结尾多余空白/句号后以"。"衔接，避免重复标点。 */
+    private static void appendProfilePart(StringBuilder sb, String part) {
+        if (sb.length() == 0) {
+            sb.append(part);
+            return;
+        }
+        int len = sb.length();
+        while (len > 0 && (sb.charAt(len - 1) == '。' || sb.charAt(len - 1) == ' '
+                || sb.charAt(len - 1) == '\n' || sb.charAt(len - 1) == '\r' || sb.charAt(len - 1) == '\t')) {
+            len--;
+        }
+        sb.setLength(len);
+        sb.append('。').append(part);
     }
 
     private void validateRequired(Expert expert) {

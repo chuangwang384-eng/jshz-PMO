@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-input
         v-model="keyword"
-        placeholder="按姓名 / 单位 / 科室 / 职称 / 研究方向 / 擅长领域检索"
+        placeholder="按姓名 / 单位 / 科室 / 职称 / 联系方式 / 简介检索"
         clearable
         style="width: 320px"
         @keyup.enter="handleSearch"
@@ -43,8 +43,6 @@
       <el-table-column prop="单位" label="单位" width="140" show-overflow-tooltip />
       <el-table-column prop="科室" label="科室" width="120" show-overflow-tooltip />
       <el-table-column prop="职称" label="职称" width="100" />
-      <el-table-column prop="研究方向" label="研究方向" width="130" show-overflow-tooltip />
-      <el-table-column prop="擅长领域" label="擅长领域" width="130" show-overflow-tooltip />
       <el-table-column prop="联系方式" label="联系方式" width="130" />
       <el-table-column prop="简介" label="简介" width="130" show-overflow-tooltip />
       <el-table-column prop="身份证号" label="身份证号" width="175" />
@@ -108,16 +106,6 @@
           <el-col :span="12">
             <el-form-item label="职称" prop="职称">
               <el-input v-model="form.职称" placeholder="请输入职称" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="研究方向" prop="研究方向">
-              <el-input v-model="form.研究方向" placeholder="请输入研究方向" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="擅长领域" prop="擅长领域">
-              <el-input v-model="form.擅长领域" placeholder="请输入擅长领域" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -248,7 +236,7 @@ const submitting = ref(false)
 const formRef = ref()
 const form = reactive({
   id: null,
-  姓名: '', 单位: '', 科室: '', 职称: '', 研究方向: '', 擅长领域: '',
+  姓名: '', 单位: '', 科室: '', 职称: '',
   联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
 })
 // 三类照片待上传文件
@@ -259,9 +247,12 @@ const importResult = reactive({ success: 0, total: 0, failed: [] })
 
 const formRules = {
   姓名: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  单位: [{ required: true, message: '请输入单位', trigger: 'blur' }],
+  科室: [{ required: true, message: '请输入科室', trigger: 'blur' }],
+  职称: [{ required: true, message: '请输入职称', trigger: 'blur' }],
+  联系方式: [{ required: true, message: '请输入联系方式', trigger: 'blur' }, { pattern: /^1\d{10}$|^[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}$/, message: '联系方式格式不正确', trigger: 'blur' }],
   身份证号: [{ pattern: /^\d{17}[\dXx]$/, message: '身份证号格式不正确', trigger: 'blur' }],
-  银行卡号: [{ pattern: /^\d{13,19}$/, message: '银行卡号格式不正确', trigger: 'blur' }],
-  联系方式: [{ pattern: /^1\d{10}$|^[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}$/, message: '联系方式格式不正确', trigger: 'blur' }]
+  银行卡号: [{ pattern: /^\d{13,19}$/, message: '银行卡号格式不正确', trigger: 'blur' }]
 }
 
 async function fetchList() {
@@ -291,7 +282,7 @@ function onSelectionChange(rows) {
 
 function openCreate() {
   Object.assign(form, {
-    id: null, 姓名: '', 单位: '', 科室: '', 职称: '', 研究方向: '', 擅长领域: '',
+    id: null, 姓名: '', 单位: '', 科室: '', 职称: '',
     联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
   })
   fileMap.photo = null
@@ -304,8 +295,7 @@ function openEdit(row) {
   Object.assign(form, {
     id: row.id,
     姓名: row.姓名, 单位: row.单位, 科室: row.科室, 职称: row.职称,
-    研究方向: row.研究方向, 擅长领域: row.擅长领域,
-    联系方式: row.联系方式, 简介: row.简介,
+    联系方式: row.联系方式, 简介: row['原始简介'] ?? row.简介 ?? '',
     身份证号: row.身份证号, 银行卡号: row.银行卡号, 银行卡开户行: row.银行卡开户行
   })
   fileMap.photo = null
@@ -328,8 +318,6 @@ function buildFormData() {
   fd.append('单位', form.单位 || '')
   fd.append('科室', form.科室 || '')
   fd.append('职称', form.职称 || '')
-  fd.append('研究方向', form.研究方向 || '')
-  fd.append('擅长领域', form.擅长领域 || '')
   fd.append('联系方式', form.联系方式 || '')
   fd.append('简介', form.简介 || '')
   fd.append('身份证号', form.身份证号 || '')

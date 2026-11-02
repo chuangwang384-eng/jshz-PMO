@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jshz.expert.common.ParamUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -130,11 +131,11 @@ public class NotificationController {
             if (o instanceof Number n) {
                 ids.add(n.longValue());
             } else if (o != null) {
-                try {
-                    ids.add(Long.valueOf(String.valueOf(o).trim()));
-                } catch (NumberFormatException ignored) {
-                    // 非法 id 忽略
+                Long v = ParamUtils.toLong(o);
+                if (v != null) {
+                    ids.add(v);
                 }
+                // 非法 id 忽略（REQ-20261102 加固：消除裸 Long.valueOf）
             }
         }
         return ids;

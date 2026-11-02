@@ -59,7 +59,7 @@ public class ExpertController {
     // ==================== 列表 / 详情 ====================
 
     /**
-     * 分页列表：?keyword=&page=&size=&sensitive=1（仅管理员 sensitive=1 返回全量）。
+     * 分页列表：?keyword=&page=&size=（需求1：登录用户一律返回明文，sensitive 不再作为权限门槛，保留登录鉴权）。
      */
     @GetMapping
     public ApiResponse<PageResult<Expert>> list(@RequestParam(required = false) String keyword,
@@ -67,7 +67,7 @@ public class ExpertController {
                                                 @RequestParam(defaultValue = "20") long size,
                                                 @RequestParam(required = false) String sensitive,
                                                 @AuthenticationPrincipal AuthUser authUser) {
-        boolean full = authUser != null && authUser.isAdmin() && "1".equals(sensitive);
+        boolean full = authUser != null;
         Page<Expert> p = expertService.pageList(keyword, page, size);
         List<Expert> items = new ArrayList<>();
         for (Expert e : p.getRecords()) {
@@ -77,13 +77,13 @@ public class ExpertController {
     }
 
     /**
-     * 详情：GET /api/experts/{id}?sensitive=1（仅管理员全量）。
+     * 详情：GET /api/experts/{id}（需求1：登录用户一律返回明文，sensitive 参数保留但不再作为权限门槛）。
      */
     @GetMapping("/{id}")
     public ApiResponse<Expert> detail(@PathVariable Long id,
                                       @RequestParam(required = false) String sensitive,
                                       @AuthenticationPrincipal AuthUser authUser) {
-        boolean full = authUser != null && authUser.isAdmin() && "1".equals(sensitive);
+        boolean full = authUser != null;
         return ApiResponse.ok(expertService.detail(id, full));
     }
 
@@ -156,7 +156,7 @@ public class ExpertController {
     // ==================== 导入导出（对齐 demo） ====================
 
     /**
-     * 勾选导出 Excel：GET /api/experts/selected/export?ids=1,2,3&sensitive=1
+     * 勾选导出 Excel：GET /api/experts/selected/export?ids=1,2,3（需求1：全员明文导出）。
      */
     @GetMapping("/selected/export")
     public void selectedExport(@RequestParam("ids") String ids,
@@ -165,14 +165,14 @@ public class ExpertController {
                                HttpServletRequest request,
                                HttpServletResponse response) throws IOException {
         List<Expert> experts = loadByIds(ids);
-        boolean full = "1".equals(sensitive);
+        boolean full = true;
         byte[] xlsx = exportService.expertsToXlsx(experts, full);
         exportService.audit(experts, "selected_xlsx", authUser, request);
         writeAttachment(response, xlsx, "selected_experts.xlsx", XLSX_MEDIA_TYPE);
     }
 
     /**
-     * 勾选导出 ZIP：GET /api/experts/selected/zip?ids=1,2,3&sensitive=1（Excel + 三类照片）
+     * 勾选导出 ZIP：GET /api/experts/selected/zip?ids=1,2,3（需求1：Excel + 三类照片，全员明文）。
      */
     @GetMapping("/selected/zip")
     public void selectedZip(@RequestParam("ids") String ids,
@@ -181,7 +181,7 @@ public class ExpertController {
                             HttpServletRequest request,
                             HttpServletResponse response) throws IOException {
         List<Expert> experts = loadByIds(ids);
-        boolean full = "1".equals(sensitive);
+        boolean full = true;
         byte[] zip = exportService.buildZip(experts, full, "selected_zip", authUser, request);
         writeAttachment(response, zip, "selected_experts.zip", MediaType.APPLICATION_OCTET_STREAM);
     }
@@ -200,7 +200,7 @@ public class ExpertController {
     }
 
     /**
-     * 全部专家 ZIP（管理员完整 ZIP：完整 Excel + 三类照片原图）。
+     * 全部专家 ZIP（完整 ZIP：完整 Excel + 三类照片原图）。
      */
     @GetMapping("/export/full")
     public void exportFull(@AuthenticationPrincipal AuthUser authUser,
@@ -212,15 +212,15 @@ public class ExpertController {
     }
 
     /**
-     * 员工脱敏 ZIP：脱敏 Excel + 照片原图（对齐 demo /api/export）。
+     * 全部专家 ZIP（需求1：Excel 全员明文 + 照片原图，不再区分明文/脱敏分支）。
      */
     @GetMapping("/export/employee")
     public void exportEmployee(@AuthenticationPrincipal AuthUser authUser,
                                HttpServletRequest request,
                                HttpServletResponse response) throws IOException {
         List<Expert> experts = expertService.list();
-        byte[] zip = exportService.buildZip(experts, false, "employee_zip", authUser, request);
-        writeAttachment(response, zip, "experts_masked_" + LocalDate.now() + ".zip", MediaType.APPLICATION_OCTET_STREAM);
+        byte[] zip = exportService.buildZip(experts, true, "employee_zip", authUser, request);
+        writeAttachment(response, zip, "experts_all_" + LocalDate.now() + ".zip", MediaType.APPLICATION_OCTET_STREAM);
     }
 
     /**

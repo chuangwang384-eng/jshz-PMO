@@ -11,12 +11,16 @@ import com.jshz.expert.entity.ApprovalConfig;
 import com.jshz.expert.entity.ApprovalRecord;
 import com.jshz.expert.entity.Application;
 import com.jshz.expert.entity.Expert;
+import com.jshz.expert.entity.ProjectContract;
+import com.jshz.expert.entity.ProjectExpert;
 import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.ApprovalConfigMapper;
 import com.jshz.expert.mapper.ApprovalRecordMapper;
 import com.jshz.expert.mapper.ApplicationMapper;
+import com.jshz.expert.mapper.ProjectContractMapper;
+import com.jshz.expert.mapper.ProjectExpertMapper;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
@@ -51,7 +55,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
     public static final String PERM_APPROVAL_AUDIT = "approval:audit";
 
-    /** 字段白名单（排除照片类、id、时间类、下载次数） */
+    /** 字段白名单（排除照片类、id、时间类、下载次数；前端新增/编辑表单已移除研究方向、擅长领域，后端白名单保留两字段以兼容历史数据，符合设计文档 3.3） */
     public static final List<String> WHITELIST_FIELDS = List.of(
             "姓名", "单位", "科室", "职称", "研究方向", "擅长领域",
             "联系方式", "简介", "身份证号", "银行卡号", "银行卡开户行");
@@ -73,7 +77,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     /** 新增专家必填文本字段（审批通过后写入 expert_info；模板管理接口对外暴露该清单） */
     public static final List<String> CREATE_REQUIRED_FIELDS = List.of(
-            "姓名", "单位", "科室", "职称", "研究方向", "擅长领域", "联系方式");
+            "姓名", "单位", "科室", "职称", "联系方式");
 
     /** 姓名正则：2-20 个汉字，可含间隔号 */
     private static final Pattern NAME_PATTERN = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,20}$");
@@ -95,7 +99,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     private final ApprovalConfigMapper approvalConfigMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
-    private final ApprovalTemplateService approvalTemplateService;
     private final ExpertService expertService;
     private final PhotoStorageService photoStorageService;
     private final RoleMapper roleMapper;
@@ -104,6 +107,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     private final SysUserMapper sysUserMapper;
     private final UserRoleMapper userRoleMapper;
     private final PermissionService permissionService;
+    private final ProjectContractMapper projectContractMapper;
+    private final ProjectExpertMapper projectExpertMapper;
+    private final OperationLogService operationLogService;
 
     // ==================== 审批流配置 ====================
 
@@ -166,7 +172,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - 生成申请单(status=0)并写一条 SUBMIT 记录。
      */
     public Application submitRequest(Long expertId, Map<String, Object> changes, String reason,
-                                     Long templateId, AuthUser user) {
+                                     AuthUser user) {
         checkSubmitEligible(user, "编辑");
         if (expertId == null) {
             throw new BusinessException("专家ID不能为空");
@@ -177,18 +183,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         checkChanges(changes);
         validateSensitiveFields(changes);
-        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
-        if (templateId != null) {
-            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
-        }
-
         Application app = new Application();
         app.setApplicantId(user.getUserId());
         app.setApplicant(user.getUsername());
         app.setApplicationType(ApplicationType.EXPERT_MODIFY.name());
         app.setStatus(STATUS_PENDING);
         // 提交时落专家全量旧值快照：审批通过更新 expert_info 后仍可还原「变更前」
-        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason, templateId,
+        app.setBizData(writeBizData(expertId, expert.getName(), changes, reason,
                 buildOldSnapshot(expert)));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
@@ -205,7 +206,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - expertId 为空，审批通过后创建专家并回填 biz_data.expertId。
      */
     public Application submitCreateRequest(Map<String, Object> changes, String reason,
-                                           Long templateId, AuthUser user) {
+                                           AuthUser user) {
         checkSubmitEligible(user, "新增");
         checkChanges(changes);
         validateCreateChanges(changes);
@@ -216,12 +217,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setApplicationType(ApplicationType.EXPERT_CREATE.name());
         app.setStatus(STATUS_PENDING);
         String expertName = String.valueOf(changes.get("姓名")).trim();
-        // 模板校验（R-B4）：传了 templateId 时字段集合必须 ⊆ 模板字段（且模板存在并启用）
-        if (templateId != null) {
-            approvalTemplateService.checkTemplateForSubmit(templateId, changes.keySet());
-        }
         // 新增申请无「变更前」，oldData 置空
-        app.setBizData(writeBizData(null, expertName, changes, reason, templateId, null));
+        app.setBizData(writeBizData(null, expertName, changes, reason, null));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -274,7 +271,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 新增专家必填校验：姓名、单位、科室、职称、研究方向、擅长领域、联系方式必填，
+     * 新增专家必填校验：姓名、单位、科室、职称、联系方式必填（2026-10-30 对齐卡片展示字段，移除研究方向、擅长领域），
      * 姓名须满足 2-20 个汉字（可含间隔号）。
      */
     private void validateCreateChanges(Map<String, Object> changes) {
@@ -351,8 +348,66 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== 审批（审批管理） ====================
 
     /**
+     * 提交专家合同审批（application_type=CONTRACT）：
+     * - 审批流未启用时拒绝；
+     * - 合同必须存在且当前为 DRAFT 或 REJECTED（可重新发起），PENDING 不可重复发起；
+     * - changes 仅含敏感字段（身份证号/银行卡号），发起时校验格式；
+     * - 生成申请单(status=0)并置合同 status=PENDING、approval_ref=申请单id，写 operation_log 留痕。
+     */
+    public Application submitContractApproval(Long contractId, Long projectId, Map<String, Object> changes,
+                                              String reason, AuthUser user) {
+        ApprovalConfig config = findConfig();
+        if (config == null || config.getEnabled() == null || config.getEnabled() != 1) {
+            throw new BusinessException("审批流未启用，无法发起合同审批");
+        }
+        if (contractId == null) {
+            throw new BusinessException("合同ID不能为空");
+        }
+        ProjectContract contract = projectContractMapper.selectById(contractId);
+        if (contract == null) {
+            throw new BusinessException("合同不存在");
+        }
+        if (!"DRAFT".equals(contract.getStatus()) && !"REJECTED".equals(contract.getStatus())) {
+            throw new BusinessException("仅草稿或被驳回的合同可发起审批");
+        }
+        if (changes == null || changes.isEmpty()) {
+            throw new BusinessException("请先填写身份证号/银行卡号再发起审批");
+        }
+        validateSensitiveFields(changes);
+
+        Application app = new Application();
+        app.setApplicantId(user.getUserId());
+        app.setApplicant(user.getUsername());
+        app.setApplicationType(ApplicationType.CONTRACT.name());
+        app.setStatus(STATUS_PENDING);
+        Map<String, Object> biz = new LinkedHashMap<>();
+        biz.put("contractId", contractId);
+        biz.put("projectId", projectId);
+        biz.put("expertId", contract.getExpertId());
+        biz.put("expertName", contract.getExpertName());
+        biz.put("changes", changes);
+        biz.put("reason", reason);
+        app.setBizData(writeBiz(biz));
+        app.setCreateTime(LocalDateTime.now());
+        this.save(app);
+
+        contract.setStatus("PENDING");
+        contract.setApprovalRef(app.getId());
+        projectContractMapper.updateById(contract);
+        syncProjectExpertSnapshot(projectId, contract.getExpertId(), "PENDING");
+        addRecord(app.getId(), "提交合同审批", "SUBMIT", user.getUsername(),
+                StringUtils.hasText(reason) ? reason : "发起专家合同审批");
+        operationLogService.record(user.getUserId(), user.getUsername(),
+                OperationLogService.ACTION_SUBMIT_CONTRACT_APPROVAL,
+                "发起合同审批：专家「" + contract.getExpertName() + "」合同（金额 " + contract.getFee() + "）",
+                "PROJECT", projectId, null);
+        return app;
+    }
+
+    /**
      * 审批通过：按申请类型分支处理。
      * - EXPERT_CREATE 新增专家申请：先创建 Expert 再归档照片回填，最后回填 biz_data.expertId；
+     * - CONTRACT 专家合同审批：合同生效（status=APPROVED）；
      * - EXPERT_MODIFY 修改申请：走原修改逻辑。
      */
     public Application approve(Long id, String comment, AuthUser user) {
@@ -361,11 +416,29 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         Application result;
         if (isCreateRequest(app)) {
             result = approveCreate(app, comment, user);
+        } else if (ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT) {
+            result = approveContract(app, comment, user);
         } else {
             result = approveModify(app, comment, user);
         }
         notifyApprovalResult(result, user);
         return result;
+    }
+
+    /**
+     * 审批通过（专家合同审批）：同步合同生效（status=APPROVED）。
+     */
+    private Application approveContract(Application app, String comment, AuthUser user) {
+        syncContractByApproval(app, "APPROVED", user);
+        app.setStatus(STATUS_APPROVED);
+        app.setApproveBy(user == null ? null : user.getUsername());
+        app.setApproveComment(comment);
+        app.setApproveTime(LocalDateTime.now());
+        this.updateById(app);
+
+        addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
+                StringUtils.hasText(comment) ? comment : "同意合同审批");
+        return fillView(app, isFullSensitive(user));
     }
 
     private boolean isCreateRequest(Application app) {
@@ -528,6 +601,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         this.updateById(app);
 
         addRecord(app.getId(), "管理员驳回", "REJECT", user == null ? null : user.getUsername(), comment.trim());
+        // CONTRACT 类型：同步合同驳回
+        syncContractByApproval(app, "REJECTED", user);
         notifyApprovalResult(app, user);
         return fillView(app, isFullSensitive(user));
     }
@@ -557,6 +632,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         fillBiz(app);
         cleanTempPhotos(app);
+        // CONTRACT 类型：同步合同恢复草稿
+        syncContractByApproval(app, "DRAFT", user);
         app.setStatus(STATUS_WITHDRAWN);
         this.updateById(app);
 
@@ -579,6 +656,61 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
     }
 
+    /**
+     * 审批联动：同步项目-专家关联的合同状态快照（project_expert.contract_status）。
+     */
+    private void syncProjectExpertSnapshot(Long projectId, Long expertId, String status) {
+        try {
+            if (projectId == null || expertId == null) {
+                return;
+            }
+            ProjectExpert rel = projectExpertMapper.selectOne(new LambdaQueryWrapper<ProjectExpert>()
+                    .eq(ProjectExpert::getProjectId, projectId)
+                    .eq(ProjectExpert::getExpertId, expertId)
+                    .last("LIMIT 1"));
+            if (rel == null) {
+                return;
+            }
+            rel.setContractStatus(status);
+            projectExpertMapper.updateById(rel);
+        } catch (Exception e) {
+            // 快照同步失败不影响审批主流程
+        }
+    }
+
+    /**
+     * 审批联动：同步合同状态（审批通过 APPROVED / 驳回 REJECTED / 撤回 DRAFT），并写 operation_log 留痕。
+     */
+    private void syncContractByApproval(Application app, String targetStatus, AuthUser user) {
+        try {
+            Map<String, Object> biz = readBiz(app);
+            Object contractIdObj = biz.get("contractId");
+            if (contractIdObj == null) {
+                return;
+            }
+            Long contractId = ParamUtils.parseLong(contractIdObj, null);
+            if (contractId == null) {
+                return;
+            }
+            ProjectContract contract = projectContractMapper.selectById(contractId);
+            if (contract == null) {
+                return;
+            }
+            contract.setStatus(targetStatus);
+            projectContractMapper.updateById(contract);
+            if (contract.getProjectId() != null && contract.getExpertId() != null) {
+                syncProjectExpertSnapshot(contract.getProjectId(), contract.getExpertId(), targetStatus);
+            }
+            operationLogService.record(user == null ? null : user.getUserId(),
+                    user == null ? "system" : user.getUsername(),
+                    OperationLogService.ACTION_UPDATE_CONTRACT,
+                    "审批联动：专家「" + contract.getExpertName() + "」合同状态更新为 " + targetStatus,
+                    "PROJECT", contract.getProjectId(), null);
+        } catch (Exception e) {
+            // 联动失败不影响审批主流程
+        }
+    }
+
     // ==================== 转办 / 加签（B2） ====================
 
     /**
@@ -592,6 +724,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     public Application transfer(Long id, String targetUser, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
+        }
+        if (!user.hasPermission(PERM_APPROVAL_AUDIT)) {
+            throw new BusinessException("无审批权限，不能执行转办");
         }
         if (!StringUtils.hasText(targetUser)) {
             throw new BusinessException("目标用户不能为空");
@@ -620,6 +755,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     public Application addApprover(Long id, String targetUser, String comment, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
+        }
+        if (!user.hasPermission(PERM_APPROVAL_AUDIT)) {
+            throw new BusinessException("无审批权限，不能执行加签");
         }
         if (!StringUtils.hasText(targetUser)) {
             throw new BusinessException("目标用户不能为空");
@@ -751,7 +889,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 return;
             }
             boolean approved = app.getStatus() != null && app.getStatus() == STATUS_APPROVED;
-            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+            String typeText = typeTextOf(app);
             String operator = user == null ? "管理员" : user.getUsername();
             String content = operator + (approved ? "已通过您的" : "已驳回您的") + typeText;
             if (StringUtils.hasText(app.getApproveComment())) {
@@ -770,7 +908,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     private void notifyTransferred(Application app, String targetUser, AuthUser operator) {
         try {
-            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+            String typeText = typeTextOf(app);
             Long targetId = notificationService.userIdOf(targetUser);
             if (targetId != null) {
                 notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
@@ -800,7 +938,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             if (targetId == null) {
                 return;
             }
-            String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+            String typeText = typeTextOf(app);
             notificationService.notify(targetId, NotificationService.TYPE_APPROVAL_ASSIGNED,
                     "加签待办：" + typeText,
                     "「" + app.getExpertName() + "」的" + typeText + "已加签您共同审批（任一人审批即生效），请及时处理",
@@ -808,6 +946,20 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         } catch (Exception e) {
             // 通知失败不影响主流程
         }
+    }
+
+    /**
+     * 审批类型文案（通知用）。
+     */
+    private String typeTextOf(Application app) {
+        ApplicationType type = ApplicationType.parse(app.getApplicationType());
+        if (type == ApplicationType.EXPERT_CREATE) {
+            return "新增专家申请";
+        }
+        if (type == ApplicationType.CONTRACT) {
+            return "专家合同审批申请";
+        }
+        return "专家信息修改申请";
     }
 
     // ==================== 私有方法 ====================
@@ -895,7 +1047,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setExpertId(ParamUtils.toLong(biz.get("expertId")));
         Object expertName = biz.get("expertName");
         app.setExpertName(expertName == null ? null : String.valueOf(expertName));
-        app.setTemplateId(ParamUtils.toLong(biz.get("templateId")));
         Object reason = biz.get("reason");
         app.setReason(reason == null ? null : String.valueOf(reason));
     }
@@ -1043,13 +1194,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== biz_data 读写 ====================
 
     private String writeBizData(Long expertId, String expertName, Map<String, Object> changes,
-                                String reason, Long templateId, Map<String, Object> oldData) {
+                                String reason, Map<String, Object> oldData) {
         Map<String, Object> biz = new LinkedHashMap<>();
         biz.put("expertId", expertId);
         biz.put("expertName", expertName);
         biz.put("changes", changes);
         biz.put("reason", reason);
-        biz.put("templateId", templateId);
         if (oldData != null) {
             biz.put("oldData", oldData);
         }

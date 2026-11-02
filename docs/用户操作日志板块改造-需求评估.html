@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户操作日志板块改造 — 需求评估与文档</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #fdf6ec;
+    color: #5a4632;
+    line-height: 1.8;
+    padding: 32px 16px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  .card {
+    background: #fffdf8;
+    border-radius: 20px;
+    padding: 28px 32px;
+    margin-bottom: 22px;
+    box-shadow: 0 6px 20px rgba(200, 160, 100, 0.12);
+    border: 1px solid #f0e2cc;
+  }
+  h1 {
+    font-size: 26px; color: #b07a3e; text-align: center;
+    margin-bottom: 6px; font-weight: 700;
+  }
+  .subtitle { text-align: center; color: #b99b78; font-size: 14px; margin-bottom: 8px; }
+  h2 {
+    font-size: 19px; color: #c07f2d; margin: 18px 0 10px;
+    padding-left: 12px; border-left: 4px solid #e8b56a; font-weight: 600;
+  }
+  h3 { font-size: 16px; color: #9a6b3a; margin: 14px 0 6px; }
+  p { margin: 8px 0; font-size: 15px; }
+  ul, ol { margin: 8px 0 8px 22px; font-size: 15px; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px;
+    background: #fffef9;
+  }
+  th {
+    background: #f5e6cd; color: #8a5f2b; font-weight: 600;
+    padding: 8px 10px; text-align: left;
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid #f2e6d2; }
+  .tag {
+    display: inline-block; background: #fdeeda; color: #b07a3e;
+    border-radius: 999px; padding: 2px 12px; font-size: 13px;
+    margin-right: 6px;
+  }
+  .badge-high {
+    background: #fce4d6; color: #c25e2b; border-radius: 999px;
+    padding: 2px 12px; font-size: 13px; font-weight: 600;
+  }
+  .badge-mid {
+    background: #fdf3d8; color: #a97a2b; border-radius: 999px;
+    padding: 2px 12px; font-size: 13px; font-weight: 600;
+  }
+  .conclusion {
+    background: #fbf1e0; border-radius: 14px; padding: 16px 20px;
+    font-size: 15px; color: #6d4a26;
+  }
+  .file-link {
+    display: block; background: #fff8ec; border: 1px dashed #e0c9a4;
+    border-radius: 12px; padding: 10px 16px; margin: 6px 0;
+    font-size: 14px; color: #a8712e; text-decoration: none;
+  }
+  .file-link:hover { background: #fdf0d9; }
+  .footer { text-align: center; color: #c9b294; font-size: 13px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <h1>用户操作日志板块改造</h1>
+    <div class="subtitle">jshz-PMO · 需求评估与文档沉淀 · 2026-10-30</div>
+    <div class="conclusion">
+      <strong>总体结论：</strong>需求成立，必要性排序为「<span class="badge-high">供应商留痕</span> &gt; <span class="badge-high">登录登出隐藏</span> &gt; <span class="badge-mid">前端标签补齐</span>」。本次改造不改变现有项目管理日志逻辑，零回归风险。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>一、需求必要性评估</h2>
+
+    <h3>1. 登录/登出不展示 — <span class="badge-high">必要性：高</span></h3>
+    <ul>
+      <li>登录/登出高频产生，严重稀释操作日志的审计价值；</li>
+      <li>现有记录缺失败尝试、设备来源等安全审计关键信息，会话审计应由安全日志独立承载；</li>
+      <li><strong>处置</strong>：后端查询排除，历史数据保留供追溯，不删数据、不加开关。</li>
+    </ul>
+
+    <h3>2. 供应商管理敏感操作留痕 — <span class="badge-high">必要性：高（强烈建议）</span></h3>
+    <ul>
+      <li>现状：供应商档案、行价、酒店-打印店绑定<strong>完全无操作审计</strong>，是会展业务核心敏感数据；</li>
+      <li>风险：档案被篡改、行价被调整、绑定变更均无法定位责任人，影响结算对账追溯；</li>
+      <li><strong>处置</strong>：记录档案增删改、行价保存、绑定/解绑共 6 类敏感操作。</li>
+    </ul>
+
+    <h3>3. 项目管理敏感操作 — <span class="badge-mid">必要性：中（后端已覆盖）</span></h3>
+    <ul>
+      <li>后端约 20 处埋点已覆盖敏感操作；主要缺口是前端类型标签未补齐，无法按类型筛选；</li>
+      <li><strong>处置</strong>：补齐前端 actionTypeMap，低成本高收益。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>二、已确认的核心决策</h2>
+    <table>
+      <tr><th>决策点</th><th>结论</th></tr>
+      <tr><td>登录/登出处理</td><td>后端查询排除，历史数据保留，不加查看开关</td></tr>
+      <tr><td>供应商记录范围</td><td>档案增删改 + 行价保存 + 绑定/解绑（6 类）</td></tr>
+      <tr><td>记录粒度</td><td>操作级留痕（谁/何时/做了什么），不做字段级 diff</td></tr>
+      <tr><td>技术路线</td><td>引入 @OperationLog 注解 + AOP 切面，本次仅供应商模块启用</td></tr>
+      <tr><td>与现有埋点关系</td><td>AOP 与手动埋点共存，现有约 20 处埋点不迁移</td></tr>
+      <tr><td>访问收紧</td><td>数据 + 接口 + 路由 + 菜单四层收紧为仅超级管理员（SUPER_ADMIN）</td></tr>
+      <tr><td>防重复</td><td>切点仅 @annotation，写失败 try-catch 降级，不影响主业务</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>三、验收标准速览</h2>
+    <table>
+      <tr><th>#</th><th>验收项</th><th>标准</th></tr>
+      <tr><td>A1</td><td>登录/登出隐藏</td><td>日志列表默认不出现 LOGIN/LOGOUT，数据库历史保留</td></tr>
+      <tr><td>A2</td><td>供应商留痕</td><td>6 类敏感操作入日志且可按类型筛选</td></tr>
+      <tr><td>A3</td><td>前端标签补齐</td><td>项目管理新类型 + 供应商 6 类均可筛选、正常渲染</td></tr>
+      <tr><td>A4</td><td>访问收紧</td><td>非超管看不到菜单、直调接口 403、ADMIN 的 audit:view 已移除</td></tr>
+      <tr><td>A5</td><td>回归保障</td><td>现有埋点正常、无重复记录</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>四、交付文档</h2>
+    <a class="file-link" href="<LOCAL_PATH>">📄 需求文档（背景 / 必要性评估 / 功能需求 / 验收标准 / 术语表）</a>
+    <a class="file-link" href="<LOCAL_PATH>">📄 设计文档（AOP 注解 / 切面逻辑 / 埋点清单 / SQL 迁移 / 权限收紧 / ADR / 开发任务清单）</a>
+  </div>
+
+  <div class="footer">景帅会展 · 用户操作日志板块改造 · 文档沉淀 v1.0</div>
+</div>
+</body>
+</html>

@@ -26,6 +26,15 @@ public final class ParamUtils {
         }
     }
 
+    /**
+     * 安全解析 Long（REQ-20261102 加固）：null / 空串 / "null" / 非数字 → 返回 fallback，不抛异常。
+     * 业务必需字段解析为 null 时应抛明确 BusinessException，禁止 NumberFormatException/500。
+     */
+    public static Long parseLong(Object value, Long fallback) {
+        Long v = toLong(value);
+        return v == null ? fallback : v;
+    }
+
     public static Integer toInteger(Object value) {
         if (value == null) {
             return null;

@@ -9,6 +9,7 @@ import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.Supplier;
 import com.jshz.expert.entity.SupplierCity;
 import com.jshz.expert.entity.SupplierHotelPrintRel;
+import com.jshz.expert.entity.SupplierImage;
 import com.jshz.expert.entity.SupplierPriceItem;
 import com.jshz.expert.entity.SupplierReview;
 import com.jshz.expert.entity.SupplierType;
@@ -36,8 +37,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 供应商管理服务：档案（全员维护）、类型/城市字典、行价、评价、酒店-打印店多对多绑定。
- * 权限：档案/行价/评价/绑定 登录即可；类型/城市管理由接口层 supplier:dict 权限码控制。
+ * 供应商管理服务：档案（全员维护）、类型/城市字典（只读）、行价、评价、酒店-打印店多对多绑定。
+ * 权限：档案/行价/评价/绑定 登录即可；类型管理由接口层 supplier:dict 权限码控制；城市字典固定只读（禁止增删）。
  */
 @Service
 @RequiredArgsConstructor
@@ -49,15 +50,13 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     /** 打印店类型业务键 */
     public static final String BIZ_PRINT = "PRINT";
 
-    /** 城市自动沉淀时的省份占位 */
-    private static final String PROVINCE_OTHER = "其他";
-
     private final SupplierTypeMapper typeMapper;
     private final SupplierCityMapper cityMapper;
     private final SupplierPriceItemMapper priceItemMapper;
     private final SupplierReviewMapper reviewMapper;
     private final SupplierHotelPrintRelMapper relMapper;
     private final SupplierStorageService storageService;
+    private final SupplierImageService imageService;
     private final ObjectMapper objectMapper;
 
     // ==================== 类型字典 ====================
@@ -118,49 +117,22 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         typeMapper.deleteById(id);
     }
 
-    // ==================== 城市字典 ====================
+    // ==================== 城市字典（固定只读） ====================
 
     /**
-     * 全部城市（按 id 升序保持预置省份分组顺序；前端按 province 分组展示）。
+     * 城市列表（按 id 升序保持预置省份分组顺序；前端按 province 分组展示）。
+     * province 非空时按省份过滤，支持省→市两级联动。
      */
-    public List<SupplierCity> listCities() {
-        return cityMapper.selectList(new LambdaQueryWrapper<SupplierCity>().orderByAsc(SupplierCity::getId));
-    }
-
-    public SupplierCity createCity(String province, String name) {
-        if (!StringUtils.hasText(province) || !StringUtils.hasText(name)) {
-            throw new BusinessException("省份与城市名不能为空");
+    public List<SupplierCity> listCities(String province) {
+        LambdaQueryWrapper<SupplierCity> wrapper = new LambdaQueryWrapper<>();
+        if (StringUtils.hasText(province)) {
+            wrapper.eq(SupplierCity::getProvince, province.trim());
         }
-        String p = province.trim();
-        String n = name.trim();
-        Long dup = cityMapper.selectCount(new LambdaQueryWrapper<SupplierCity>()
-                .eq(SupplierCity::getProvince, p).eq(SupplierCity::getName, n));
-        if (dup != null && dup > 0) {
-            throw new BusinessException("该省份下城市已存在");
-        }
-        SupplierCity c = new SupplierCity();
-        c.setProvince(p);
-        c.setName(n);
-        cityMapper.insert(c);
-        return c;
+        return cityMapper.selectList(wrapper.orderByAsc(SupplierCity::getId));
     }
 
     /**
-     * 删除城市：有供应商引用时禁止删除。
-     */
-    public void deleteCity(Long id) {
-        if (id == null || cityMapper.selectById(id) == null) {
-            throw new BusinessException("城市不存在");
-        }
-        Long used = this.count(new LambdaQueryWrapper<Supplier>().eq(Supplier::getCityId, id));
-        if (used != null && used > 0) {
-            throw new BusinessException("该城市下仍有 " + used + " 家供应商，不能删除");
-        }
-        cityMapper.deleteById(id);
-    }
-
-    /**
-     * 按城市名解析城市 id：字典未收录时自动沉淀（province=其他）后返回新 id。
+     * 按城市名解析城市 id：仅精确匹配字典（同名唯一）；未收录时明确报错，禁止自动沉淀。
      */
     public Long resolveCityIdByName(String cityName) {
         if (!StringUtils.hasText(cityName)) {
@@ -172,11 +144,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (exist != null) {
             return exist.getId();
         }
-        SupplierCity c = new SupplierCity();
-        c.setProvince(PROVINCE_OTHER);
-        c.setName(name);
-        cityMapper.insert(c);
-        return c.getId();
+        throw new BusinessException("城市「" + name + "」未收录，城市字典固定只读，请联系管理员在种子数据中补充");
     }
 
     // ==================== 供应商档案 ====================
@@ -238,22 +206,14 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (s == null) {
             throw new BusinessException("供应商不存在");
         }
-        List<String> oldImages = parseImages(s.getImages());
-        // 部分更新语义：仅校验/应用传入字段（画廊增删图只传 images，不能强制要求类型/城市）
+        // 部分更新语义：仅校验/应用传入字段（图片由 supplier_image 表独立管理，不再走 images JSON）
         applyBody(s, body, false);
         this.updateById(s);
-        // 清理被移除的图片文件（保留仍引用的）
-        List<String> newImages = parseImages(s.getImages());
-        for (String img : oldImages) {
-            if (!newImages.contains(img)) {
-                storageService.deleteImage(img);
-            }
-        }
         return this.getById(id);
     }
 
     /**
-     * 从请求体填充字段：name/typeId/cityId|cityName(自动沉淀)/address/contact/phone/wechat/description/images。
+     * 从请求体填充字段：name/typeId/cityId|cityName(仅字典精确匹配)/address/contact/phone/wechat/description/images。
      * creating=true（新增）时 name/typeId/城市 必填；false（更新）时仅校验传入的字段，未传入保持原值。
      */
     private void applyBody(Supplier s, Map<String, Object> body, boolean creating) {
@@ -291,7 +251,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
                 }
                 s.setCityId(cityId);
             } else {
-                // 城市名：字典命中或自动沉淀
+                // 城市名：仅精确匹配字典；未收录明确报错（不再自动沉淀）
                 s.setCityId(resolveCityIdByName(String.valueOf(body.get("cityName"))));
             }
         } else if (creating) {
@@ -312,18 +272,8 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (body.containsKey("description")) {
             s.setDescription(ParamUtils.str(body.get("description")));
         }
-        if (body.containsKey("images")) {
-            Object imgs = body.get("images");
-            List<String> list = new ArrayList<>();
-            if (imgs instanceof List<?> raw) {
-                for (Object o : raw) {
-                    if (o != null && StringUtils.hasText(String.valueOf(o))) {
-                        list.add(String.valueOf(o));
-                    }
-                }
-            }
-            s.setImages(writeJson(list));
-        }
+        // v2.0「三、图片与主图」：图片不再通过 supplier.images JSON 数组管理，
+        // 统一走 supplier_image 表（上传/设主图/删除接口）。兼容历史请求体，忽略 images 字段。
     }
 
     /**
@@ -340,9 +290,8 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         relMapper.delete(new LambdaQueryWrapper<SupplierHotelPrintRel>()
                 .eq(SupplierHotelPrintRel::getHotelId, id).or().eq(SupplierHotelPrintRel::getPrintShopId, id));
         this.removeById(id);
-        for (String img : parseImages(s.getImages())) {
-            storageService.deleteImage(img);
-        }
+        // v2.0「三、图片与主图」：图片登记于 supplier_image 表，级联删除 DB 行并同步删除物理文件
+        imageService.deleteAll(id);
     }
 
     // ==================== 行价 ====================
@@ -460,6 +409,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
             m.put("id", t.getId());
             m.put("name", t.getName());
             m.put("cityName", t.getCityName());
+            m.put("peerCityId", t.getCityId());
             m.put("typeName", t.getTypeName());
             result.add(m);
         }
@@ -497,6 +447,12 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (dup != null && dup > 0) {
             throw new BusinessException("两家供应商已绑定，不能重复绑定");
         }
+        // v2.1「三、酒店-打印店同城绑定」：两端城市必须一致，拒绝跨城绑定（存量跨城关系不受影响）
+        Supplier hotel = this.getById(hotelId);
+        Supplier printShop = this.getById(printId);
+        if (!java.util.Objects.equals(hotel.getCityId(), printShop.getCityId())) {
+            throw new BusinessException(400, "BIND_CITY_MISMATCH：仅支持绑定同城市的打印店/酒店");
+        }
         SupplierHotelPrintRel rel = new SupplierHotelPrintRel();
         rel.setHotelId(hotelId);
         rel.setPrintShopId(printId);
@@ -515,6 +471,87 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         relMapper.delete(new LambdaQueryWrapper<SupplierHotelPrintRel>()
                 .and(w -> w.eq(SupplierHotelPrintRel::getHotelId, aId).eq(SupplierHotelPrintRel::getPrintShopId, bId)
                         .or(o -> o.eq(SupplierHotelPrintRel::getHotelId, bId).eq(SupplierHotelPrintRel::getPrintShopId, aId))));
+    }
+
+    /**
+     * 跨城绑定清单（v2.1）：全部存量绑定中 hotel.city_id != print_shop.city_id 的关系。
+     * 支持按酒店/打印店名称关键字模糊过滤；返回分页 {total, items}（数据量小，全量拉取后内存过滤分页）。
+     * 每项含 relId/hotelId/hotelName/hotelCity/printShopId/printShopName/printShopCity/createBy/createTime。
+     */
+    public Page<Map<String, Object>> pageCrossCityBindings(String keyword, long page, long size) {
+        List<SupplierHotelPrintRel> rels = relMapper.selectList(new LambdaQueryWrapper<SupplierHotelPrintRel>()
+                .orderByDesc(SupplierHotelPrintRel::getCreateTime).orderByDesc(SupplierHotelPrintRel::getId));
+        List<Map<String, Object>> all = new ArrayList<>();
+        if (!rels.isEmpty()) {
+            List<Long> supplierIds = new ArrayList<>();
+            for (SupplierHotelPrintRel r : rels) {
+                supplierIds.add(r.getHotelId());
+                supplierIds.add(r.getPrintShopId());
+            }
+            Map<Long, Supplier> supplierMap = this.listByIds(supplierIds).stream()
+                    .collect(Collectors.toMap(Supplier::getId, s -> s));
+            List<Long> cityIds = supplierMap.values().stream()
+                    .map(Supplier::getCityId).filter(java.util.Objects::nonNull).distinct().collect(Collectors.toList());
+            Map<Long, SupplierCity> cityMap = cityIds.isEmpty() ? Map.of()
+                    : cityMapper.selectBatchIds(cityIds).stream().collect(Collectors.toMap(SupplierCity::getId, c -> c));
+            String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
+            for (SupplierHotelPrintRel r : rels) {
+                Supplier hotel = supplierMap.get(r.getHotelId());
+                Supplier print = supplierMap.get(r.getPrintShopId());
+                if (hotel == null || print == null) {
+                    continue;
+                }
+                if (java.util.Objects.equals(hotel.getCityId(), print.getCityId())) {
+                    continue;
+                }
+                if (kw != null
+                        && !(hotel.getName() != null && hotel.getName().contains(kw))
+                        && !(print.getName() != null && print.getName().contains(kw))) {
+                    continue;
+                }
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("relId", r.getId());
+                m.put("hotelId", hotel.getId());
+                m.put("hotelName", hotel.getName());
+                m.put("hotelCity", cityNameOf(cityMap, hotel.getCityId()));
+                m.put("printShopId", print.getId());
+                m.put("printShopName", print.getName());
+                m.put("printShopCity", cityNameOf(cityMap, print.getCityId()));
+                m.put("createBy", r.getCreateBy());
+                m.put("createTime", r.getCreateTime());
+                all.add(m);
+            }
+        }
+        long total = all.size();
+        int from = (int) Math.min((page - 1) * size, total);
+        int to = (int) Math.min(page * size, total);
+        Page<Map<String, Object>> result = new Page<>(page, size);
+        result.setTotal(total);
+        result.setRecords(from >= to ? List.of() : all.subList(from, to));
+        return result;
+    }
+
+    /**
+     * 批量解绑（v2.1）：body {relIds}，事务内统一校验后逐条删除。
+     * relIds 为空返回 PARAM_INVALID；含不存在的关系整体失败回滚并返回 BINDING_NOT_FOUND。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int unbindBatch(List<Long> relIds) {
+        if (relIds == null || relIds.isEmpty()) {
+            throw new BusinessException(400, "PARAM_INVALID：参数不合法");
+        }
+        List<Long> distinctIds = relIds.stream().distinct().collect(Collectors.toList());
+        List<SupplierHotelPrintRel> rels = relMapper.selectBatchIds(distinctIds);
+        if (rels.size() != distinctIds.size()) {
+            throw new BusinessException(404, "BINDING_NOT_FOUND：绑定关系不存在");
+        }
+        relMapper.deleteBatchIds(distinctIds);
+        return distinctIds.size();
+    }
+
+    private String cityNameOf(Map<Long, SupplierCity> cityMap, Long cityId) {
+        SupplierCity c = cityId == null ? null : cityMap.get(cityId);
+        return c == null ? null : c.getName();
     }
 
     // ==================== 私有方法 ====================
@@ -543,6 +580,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
 
         List<Long> ids = suppliers.stream().map(Supplier::getId).collect(Collectors.toList());
         Map<Long, double[]> stats = reviewStats(ids);
+        Map<Long, List<SupplierImage>> imageMap = imageService.imageMap(ids);
 
         for (Supplier s : suppliers) {
             SupplierType t = typeMap.get(s.getTypeId());
@@ -555,7 +593,16 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
                 s.setCityName(c.getName());
                 s.setProvince(c.getProvince());
             }
-            s.setImageList(parseImages(s.getImages()));
+            List<SupplierImage> imgs = imageMap.get(s.getId());
+            if (imgs == null || imgs.isEmpty()) {
+                s.setImageList(List.of());
+                s.setMainImage(null);
+            } else {
+                s.setImageList(imgs.stream().map(SupplierImage::getFileName).collect(Collectors.toList()));
+                s.setMainImage(imgs.stream()
+                        .filter(i -> i.getIsMain() != null && i.getIsMain() == 1)
+                        .map(SupplierImage::getFileName).findFirst().orElse(imgs.get(0).getFileName()));
+            }
             double[] st = stats.get(s.getId());
             if (st != null && st[1] > 0) {
                 s.setAvgStars(Math.round(st[0] / st[1] * 10) / 10.0);

@@ -41,8 +41,9 @@ import java.util.Map;
 
 /**
  * 知识星球内容管理接口（知识文档库）。
- * 上传 / 分页列表 / 更新（版本+1保留历史）/ 下架（knowledge:manage）/ 版本历史 / 文件下载预览。
- * 下架需权限码 knowledge:manage（过滤器 + 业务层双重校验）；其余接口登录即可。
+ * 上传 / 分页列表 / 更新（版本+1保留历史）/ 下架 / 上架 / 永久删除 / 版本历史 / 文件下载预览。
+ * 管理类接口由「知识星球维护人」权限码 knowledge:maintain 控制（过滤器 + 业务层双重校验）；
+ * 上传 / 更新 / 下架 / 永久删除 / 上架 / 版本历史；收藏 / 预览 / 下载 / 列表浏览保留登录即可。
  */
 @RestController
 @RequestMapping("/api/knowledge")
@@ -59,7 +60,7 @@ public class KnowledgeController {
     // ==================== 上传 ====================
 
     /**
-     * 上传文档：POST /api/knowledge/docs?category=&title= + multipart file。登录即可。
+     * 上传文档：POST /api/knowledge/docs?category=&title= + multipart file。仅维护人（knowledge:maintain）。
      */
     @PostMapping("/docs")
     public ApiResponse<KnowledgeDocument> upload(@RequestParam String category,
@@ -67,6 +68,7 @@ public class KnowledgeController {
                                                  @RequestParam("file") MultipartFile file,
                                                  @AuthenticationPrincipal AuthUser authUser,
                                                  HttpServletRequest request) {
+        requireMaintain(authUser);
         KnowledgeDocument doc = documentService.upload(category, title, file, authUser);
         operationLogService.record(authUser == null ? null : authUser.getUserId(),
                 authUser == null ? null : authUser.getUsername(),
@@ -117,7 +119,7 @@ public class KnowledgeController {
     // ==================== 下架 ====================
 
     /**
-     * 下架：DELETE /api/knowledge/docs/{id}（status=0）。需权限码 knowledge:manage。
+     * 下架：DELETE /api/knowledge/docs/{id}（status=0）。需权限码 knowledge:maintain（业务层校验）。
      */
     @DeleteMapping("/docs/{id}")
     public ApiResponse<Void> offShelf(@PathVariable Long id,
@@ -135,7 +137,7 @@ public class KnowledgeController {
 
     /**
      * 永久删除：DELETE /api/knowledge/docs/{id}/permanent。
-     * 删除主记录 + 全部版本历史 + 磁盘文件（不可恢复）。需权限码 knowledge:manage。
+     * 删除主记录 + 全部版本历史 + 磁盘文件（不可恢复）。需权限码 knowledge:maintain（业务层校验）。
      */
     @DeleteMapping("/docs/{id}/permanent")
     public ApiResponse<Void> permanentDelete(@PathVariable Long id,
@@ -154,33 +156,61 @@ public class KnowledgeController {
     // ==================== 版本历史 ====================
 
     /**
-     * 版本历史：GET /api/knowledge/docs/{id}/versions。登录即可。
+     * 版本历史：GET /api/knowledge/docs/{id}/versions。仅维护人（knowledge:maintain）可见。
      */
     @GetMapping("/docs/{id}/versions")
-    public ApiResponse<List<KnowledgeDocVersion>> versions(@PathVariable Long id) {
+    public ApiResponse<List<KnowledgeDocVersion>> versions(@PathVariable Long id,
+                                                           @AuthenticationPrincipal AuthUser authUser) {
+        requireMaintain(authUser);
         return ApiResponse.ok(documentService.versions(id));
+    }
+
+    // ==================== 上架 ====================
+
+    /**
+     * 上架：POST /api/knowledge/docs/{id}/relist（status=1）。
+     * 仅维护人（knowledge:maintain）。普通用户立即可见，收藏列表自动恢复；通知全部收藏者。
+     */
+    @PostMapping("/docs/{id}/relist")
+    public ApiResponse<Void> relist(@PathVariable Long id,
+                                    @AuthenticationPrincipal AuthUser authUser,
+                                    HttpServletRequest request) {
+        requireMaintain(authUser);
+        KnowledgeDocument before = documentService.getById(id);
+        documentService.relist(id, authUser);
+        operationLogService.record(authUser == null ? null : authUser.getUserId(),
+                authUser == null ? null : authUser.getUsername(),
+                OperationLogService.ACTION_RELIST_DOC,
+                "上架知识文档《" + (before == null ? id : before.getTitle()) + "》",
+                "DOC", id, request);
+        return ApiResponse.ok();
     }
 
     // ==================== 文件下载/预览 ====================
 
     /**
-     * 文件流：GET /api/knowledge/docs/files/{fileName}?download=1（默认 inline 预览）。登录即可。
+     * 文件流：GET /api/knowledge/docs/files/{fileName}?download=1&preview=true。登录即可。
      * Content-Disposition 使用 RFC 5987 filename* 支持中文文件名。
      * C4：download=1（附件下载）时写入 download_log 计数（doc_id + type=knowledge_doc）；
      * inline 预览不计入下载次数。
-     * 格式展示：inline 预览模式下，Office 文档（doc/docx/xls/xlsx/ppt/pptx）先经 DocPreviewService
-     * 转换为 PDF 缓存后返回 PDF 流；PDF / 图片直接返回原文件流。
+     * preview=true：预览模式。Office 文档（doc/docx/xls/xlsx/ppt/pptx）先经 DocPreviewService
+     * 转换为 PDF 缓存后返回 PDF 流（成功即 SUCCESS 语义）；转换失败（含重试后仍失败）返回结构化
+     * JSON {code:CONVERT_FAILED, message}；PDF / 图片直接返回原文件流，其他异常返回
+     * {code:PREVIEW_FAILED, message}。
+     * 未传 preview 时兼容旧调用（维持原 inline 预览行为，Office 转换失败抛业务异常）。
      */
     @GetMapping("/docs/files/{fileName}")
-    public ResponseEntity<FileSystemResource> file(@PathVariable String fileName,
-                                                   @RequestParam(required = false) String download,
-                                                   @AuthenticationPrincipal AuthUser authUser,
-                                                   HttpServletRequest request) throws IOException {
+    public ResponseEntity<?> file(@PathVariable String fileName,
+                                  @RequestParam(required = false) String download,
+                                  @RequestParam(required = false) String preview,
+                                  @AuthenticationPrincipal AuthUser authUser,
+                                  HttpServletRequest request) throws IOException {
         Path path = storageService.resolveDocument(fileName);
         if (!Files.exists(path) || !Files.isRegularFile(path)) {
             return ResponseEntity.notFound().build();
         }
         boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
+        boolean previewMode = !forceDownload && ("true".equalsIgnoreCase(preview) || "1".equals(preview));
         if (forceDownload) {
             // 下载留痕（C4）：按存储文件名反查文档，失败不阻断下载
             try {
@@ -193,8 +223,24 @@ public class KnowledgeController {
             }
         }
         MediaType mediaType = mediaTypeOf(fileName);
-        if (!forceDownload) {
-            // 预览模式：Office 文档先经 DocPreviewService 转为 PDF 缓存，返回 PDF 流
+        if (previewMode) {
+            // 预览模式（?preview=true）：Office 转换失败返回结构化错误码 CONVERT_FAILED，
+            // 其他异常返回 PREVIEW_FAILED；成功返回 PDF / 原文件流（SUCCESS 语义）
+            try {
+                KnowledgeDocument doc = documentService.findByFilePath(fileName);
+                if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
+                    Path pdf = docPreviewService.getPreviewFile(
+                            doc.getFilePath(), doc.getId(), doc.getVersion(), doc.getFileType());
+                    path = pdf;
+                    mediaType = MediaType.APPLICATION_PDF;
+                }
+            } catch (com.jshz.expert.common.BusinessException e) {
+                return previewError("CONVERT_FAILED", "文档转换失败，可下载查看");
+            } catch (Exception e) {
+                return previewError("PREVIEW_FAILED", "预览失败，可下载查看");
+            }
+        } else if (!forceDownload) {
+            // 兼容旧调用（未传 preview 参数）：维持原 inline 预览行为
             try {
                 KnowledgeDocument doc = documentService.findByFilePath(fileName);
                 if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
@@ -217,6 +263,16 @@ public class KnowledgeController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
                 .contentType(mediaType)
                 .body(new FileSystemResource(path));
+    }
+
+    /** 预览失败结构化响应：{"code":"CONVERT_FAILED|PREVIEW_FAILED","message":"..."}；成功时以文件流返回（SUCCESS 语义）。 */
+    private ResponseEntity<?> previewError(String code, String message) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("code", code);
+        body.put("message", message);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
     }
 
     // ==================== 文档收藏（C3） ====================
@@ -273,6 +329,14 @@ public class KnowledgeController {
     private void requireUser(AuthUser authUser) {
         if (authUser == null) {
             throw new com.jshz.expert.common.BusinessException("未登录");
+        }
+    }
+
+    /** 知识星球维护人权限校验（knowledge:maintain；SuperAdmin 由 PermissionService 强制全权）。 */
+    private void requireMaintain(AuthUser authUser) {
+        requireUser(authUser);
+        if (!authUser.hasPermission("knowledge:maintain")) {
+            throw new com.jshz.expert.common.BusinessException("无权限执行该操作");
         }
     }
 

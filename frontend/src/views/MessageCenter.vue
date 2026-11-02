@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">消息中心</span>
       <span class="page-sub">集中查看本人全部通知：审批 / 文档 / 账号安全等提醒，支持筛选、批量已读与删除</span>
     </div>
 

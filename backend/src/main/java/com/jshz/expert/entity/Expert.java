@@ -55,6 +55,11 @@ public class Expert {
     @JsonProperty("简介")
     private String profile;
 
+    /** 原始简介（非数据库列，简介按"原简介+研究方向+擅长领域"拼接返回后，保留原始值供编辑弹窗回填，避免污染存储） */
+    @TableField(exist = false)
+    @JsonProperty("原始简介")
+    private String rawProfile;
+
     /** 身份证号（查看默认脱敏，管理员全量） */
     @JsonProperty("身份证号")
     private String idCard;

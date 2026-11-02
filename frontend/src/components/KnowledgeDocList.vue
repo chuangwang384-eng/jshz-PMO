@@ -23,7 +23,8 @@
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
-      <el-button v-if="props.allowUpload && !isFavoritesMode" type="primary" @click="openUpload">上传文档</el-button>
+      <!-- 需求 2：仅知识星球维护人（knowledge:maintain）显示上传入口 -->
+      <el-button v-if="props.allowUpload && canManage && !isFavoritesMode" type="primary" @click="openUpload">上传文档</el-button>
     </div>
 
     <!-- 文档列表 -->
@@ -72,8 +73,9 @@
             </el-button>
             <el-button link type="primary" size="small" @click="handlePreview(row)">预览</el-button>
             <el-button link type="primary" size="small" @click="handleDownload(row)">下载</el-button>
-            <el-button v-if="!isFavoritesMode" link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
-            <el-button link type="info" size="small" @click="openVersions(row)">历史</el-button>
+            <el-button v-if="canManage && !isFavoritesMode" link type="primary" size="small" @click="openUpdate(row)">更新</el-button>
+            <el-button link type="info" size="small" v-if="canManage" @click="openVersions(row)">历史</el-button>
+            <el-button link type="success" size="small" v-if="canManage && !isFavoritesMode && row.status === 0" @click="handleRelist(row)">上架</el-button>
             <el-button link type="danger" size="small" v-if="canManage && !isFavoritesMode" @click="handleOffShelf(row)">下架</el-button>
             <el-button link type="danger" size="small" v-if="canManage && !isFavoritesMode" @click="handlePermanentDelete(row)">永久删除</el-button>
           </template>
@@ -98,11 +100,7 @@
     <!-- 上传 / 更新弹窗 -->
     <el-dialog :title="uploadMode === 'create' ? '上传文档' : '更新文档'" v-model="dialogVisible" width="520px">
       <el-form label-width="80px">
-        <el-form-item label="分类" v-if="uploadMode === 'create'">
-          <el-select v-model="uploadForm.category" style="width: 100%">
-            <el-option v-for="c in categoryOptions" :key="c.value" :label="c.label" :value="c.value" />
-          </el-select>
-        </el-form-item>
+        <!-- 需求 2：进入哪个二级菜单即自动归入哪个分类，不再提供分类下拉 -->
         <el-form-item label="标题">
           <el-input v-model="uploadForm.title" placeholder="请输入文档标题" maxlength="200" />
         </el-form-item>
@@ -159,7 +157,13 @@
       <div class="preview-body" v-loading="previewLoading">
         <img v-if="previewMode === 'image'" :src="previewImageUrl" class="preview-image" alt="文档预览" />
         <canvas v-else-if="previewMode === 'pdf'" ref="previewCanvasRef" class="preview-canvas"></canvas>
-        <el-empty v-else description="该格式暂不支持在线预览，请下载查看" />
+        <div v-else-if="previewMode === 'text'" class="preview-text-wrap">
+          <pre class="preview-text">{{ previewText }}</pre>
+        </div>
+        <el-empty v-else-if="previewMode === 'failed'" description="预览失败，可下载查看">
+          <el-button type="primary" size="small" @click="downloadPreviewRow">下载</el-button>
+        </el-empty>
+        <el-empty v-else description="正在加载预览..." />
       </div>
     </el-drawer>
   </div>
@@ -177,6 +181,7 @@ import {
   updateKnowledgeDoc,
   offShelfKnowledgeDoc,
   permanentDeleteKnowledgeDoc,
+  relistKnowledgeDoc,
   getKnowledgeVersions,
   fetchKnowledgeFile,
   listMyFavoriteDocs,
@@ -195,22 +200,14 @@ const props = defineProps({
   mode: { type: String, default: 'category' }
 })
 
-const categoryOptions = [
-  { label: '会议执行', value: 'meeting-execution' },
-  { label: '协会合规要求', value: 'association-compliance' },
-  { label: '企业合规要求', value: 'enterprise-compliance' },
-  { label: '客户喜好', value: 'customer-preferences' }
-]
-
 const categoryLabels = {
-  'meeting-execution': '会议执行',
+  'meeting-execution': '会议执行标准',
   'association-compliance': '协会合规要求',
   'enterprise-compliance': '企业合规要求',
-  'customer-preferences': '客户喜好'
 }
 
 const authStore = useAuthStore()
-const canManage = computed(() => authStore.hasPermission('knowledge:manage'))
+const canManage = computed(() => authStore.hasPermission('knowledge:maintain'))
 const isFavoritesMode = computed(() => props.mode === 'favorites')
 
 const keyword = ref('')
@@ -275,9 +272,9 @@ function rowCategoryLabel(row) {
   return props.categoryName
 }
 
-// C4：下载次数对 上传人本人 / 管理员（knowledge:manage）可见，其他用户显示 —
+// C4：下载次数仅知识星球维护人（knowledge:maintain）可见，普通用户显示 —
 function canViewCount(row) {
-  return canManage.value || row.uploadBy === authStore.username
+  return canManage.value
 }
 
 // C3：收藏 / 取消收藏（本地状态即时切换；收藏视图取消后从列表移除）
@@ -412,19 +409,39 @@ async function submitUpload() {
   }
 }
 
-// ==================== 内嵌预览抽屉（pdf.js / img / Office 后端 PDF 流） ====================
+// ==================== 内嵌预览抽屉（pdf.js / img / Office 后端 PDF 流 / 文本兜底） ====================
 const previewVisible = ref(false)
 const previewLoading = ref(false)
-const previewMode = ref('') // image | pdf | unsupported
+const previewMode = ref('') // image | pdf | text | failed
 const previewTitle = ref('')
 const previewRow = ref(null)
 const previewImageUrl = ref('')
 const previewBlobUrl = ref('')
+const previewText = ref('')
 const pdfDoc = ref(null)
 const previewPage = ref(1)
 const previewNumPages = ref(0)
 const previewScale = ref(1)
 const previewCanvasRef = ref(null)
+
+// 预览接口返回的 Blob 是否为结构化错误 JSON（失败时后端返回 {code,message} 而非文件流）
+function previewBlobIsError(blob) {
+  return blob && blob.type === 'application/json'
+}
+
+// 读取结构化错误 Blob：成功返回 {code,message}，读取失败返回 null
+async function readPreviewError(blob) {
+  try {
+    const text = await blob.text()
+    const obj = JSON.parse(text)
+    if (obj && typeof obj.code === 'string') {
+      return obj
+    }
+  } catch (e) {
+    // 非 JSON 或解析失败
+  }
+  return null
+}
 
 async function handlePreview(row) {
   previewRow.value = row
@@ -432,6 +449,7 @@ async function handlePreview(row) {
   previewMode.value = ''
   previewImageUrl.value = ''
   previewBlobUrl.value = ''
+  previewText.value = ''
   pdfDoc.value = null
   previewPage.value = 1
   previewNumPages.value = 0
@@ -439,8 +457,34 @@ async function handlePreview(row) {
   previewVisible.value = true
   previewLoading.value = true
   try {
-    const response = await fetchKnowledgeFile(row.filePath, false)
+    // 需求 3：预览走 ?preview=true 模式，失败时后端返回结构化错误码（PREVIEW_FAILED / CONVERT_FAILED）
+    const response = await fetchKnowledgeFile(row.filePath, false, true)
     const blob = response.data
+    if (previewBlobIsError(blob)) {
+      const err = await readPreviewError(blob)
+      if (!err) {
+        throw new Error('preview-error-unreadable')
+      }
+      const ext = (row.fileType || '').toLowerCase()
+      const isWord = ext === 'doc' || ext === 'docx'
+      if (err.code === 'CONVERT_FAILED' && isWord) {
+        // doc/docx 转 PDF 失败：复用已抽取的 content 文本字段做纯文本预览（内容可见）
+        const text = (row.content || '').trim()
+        if (text) {
+          previewMode.value = 'text'
+          previewText.value = text
+          ElMessage.warning('文档转换失败，已为您展示文本内容预览')
+        } else {
+          previewMode.value = 'failed'
+          ElMessage.warning('文档转换失败，暂无文本可预览，请下载查看')
+        }
+      } else {
+        // PDF 渲染失败（PREVIEW_FAILED）与 xls/xlsx/ppt/pptx 转换失败：提示下载
+        previewMode.value = 'failed'
+        ElMessage.warning(err.code === 'CONVERT_FAILED' ? '文档转换失败，可下载查看' : '预览失败，可下载查看')
+      }
+      return
+    }
     if (isImageType(row.fileType)) {
       // 图片：直接 img 展示
       previewMode.value = 'image'
@@ -455,8 +499,9 @@ async function handlePreview(row) {
       await renderPdfPage()
     }
   } catch (e) {
-    previewMode.value = 'unsupported'
-    ElMessage.error('暂无法在线预览，请下载查看')
+    // 请求异常 / PDF 渲染解析失败 / 错误体不可读：统一按预览失败处理（下载兜底）
+    previewMode.value = 'failed'
+    ElMessage.error('预览失败，可下载查看')
   } finally {
     previewLoading.value = false
   }
@@ -501,6 +546,7 @@ watch(previewVisible, (visible) => {
       URL.revokeObjectURL(previewBlobUrl.value)
       previewBlobUrl.value = ''
     }
+    previewText.value = ''
     previewRow.value = null
     previewMode.value = ''
   }
@@ -538,6 +584,21 @@ function handleOffShelf(row) {
     .then(async () => {
       await offShelfKnowledgeDoc(row.id)
       ElMessage.success('已下架')
+      fetchList()
+    })
+    .catch(() => {})
+}
+
+// 上架：普通用户立即可见，收藏列表自动恢复，并通知全部收藏者
+function handleRelist(row) {
+  ElMessageBox.confirm(`确认上架文档「${row.title}」？上架后文档将对全员可见，收藏者将收到通知。`, '上架确认', {
+    confirmButtonText: '确认上架',
+    cancelButtonText: '取消',
+    type: 'info'
+  })
+    .then(async () => {
+      await relistKnowledgeDoc(row.id)
+      ElMessage.success('已上架')
       fetchList()
     })
     .catch(() => {})
@@ -666,5 +727,24 @@ onMounted(fetchList)
 .preview-canvas {
   display: inline-block;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* 文本预览兜底（doc/docx 转换失败时复用 content 字段） */
+.preview-text-wrap {
+  text-align: left;
+  max-width: 100%;
+  padding: 4px 8px;
+}
+
+.preview-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #303133;
+  background: #f8f9fb;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  padding: 16px;
 }
 </style>

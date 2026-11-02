@@ -7,9 +7,13 @@ import com.jshz.expert.dto.UserRequest;
 import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
+import com.jshz.expert.entity.WecomDepartment;
+import com.jshz.expert.entity.WecomUserDepartment;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
+import com.jshz.expert.mapper.WecomDepartmentMapper;
+import com.jshz.expert.mapper.WecomUserDepartmentMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -44,6 +48,8 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
     private final RoleMapper roleMapper;
     private final PermissionService permissionService;
     private final NotificationService notificationService;
+    private final WecomUserDepartmentMapper wecomUserDepartmentMapper;
+    private final WecomDepartmentMapper wecomDepartmentMapper;
 
     /**
      * 用户列表（不含密码）。
@@ -56,6 +62,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         wrapper.orderByAsc(SysUser::getId);
         List<SysUser> users = this.list(wrapper);
         fillRoles(users);
+        fillDepartments(users);
         return users;
     }
 
@@ -88,6 +95,33 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         // 默认角色：未分配角色用户一律绑定普通员工(EMPLOYEE)，与创建同一事务
         bindDefaultEmployeeRole(user.getId());
         return user;
+    }
+
+    /**
+     * 批量填充用户主部门名称（企微通讯录同步后，非表字段 departmentName）。
+     * 仅取 is_main=1 的主部门；无绑定部门或企微未同步时不填充。
+     */
+    private void fillDepartments(List<SysUser> users) {
+        if (users == null || users.isEmpty()) {
+            return;
+        }
+        List<Long> userIds = users.stream().map(SysUser::getId).collect(Collectors.toList());
+        List<WecomUserDepartment> bindings = wecomUserDepartmentMapper.selectList(
+                new LambdaQueryWrapper<WecomUserDepartment>()
+                        .in(WecomUserDepartment::getUserId, userIds)
+                        .eq(WecomUserDepartment::getIsMain, 1));
+        if (bindings.isEmpty()) {
+            return;
+        }
+        Set<Long> deptIds = bindings.stream().map(WecomUserDepartment::getDeptId).collect(Collectors.toSet());
+        Map<Long, String> deptNameMap = wecomDepartmentMapper.selectBatchIds(deptIds).stream()
+                .collect(Collectors.toMap(WecomDepartment::getDeptId, WecomDepartment::getName, (a, b) -> a));
+        Map<Long, String> byUser = bindings.stream()
+                .collect(Collectors.toMap(WecomUserDepartment::getUserId,
+                        w -> deptNameMap.getOrDefault(w.getDeptId(), null), (a, b) -> a));
+        for (SysUser u : users) {
+            u.setDepartmentName(byUser.get(u.getId()));
+        }
     }
 
     /**

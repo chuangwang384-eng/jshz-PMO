@@ -1,7 +1,6 @@
 <template>
   <div v-permission="'audit:view'">
     <div class="page-head">
-      <span class="page-title">用户操作日志</span>
       <span class="page-sub">下载导出、专家/文档变更、登录与权限等敏感操作留痕（含历史下载记录）</span>
     </div>
 
@@ -96,17 +95,60 @@ const actionTypeMap = {
   CREATE_DOC: '上传文档',
   UPDATE_DOC: '更新文档',
   OFF_SHELF_DOC: '下架文档',
-  DELETE_DOC: '永久删除文档'
+  DELETE_DOC: '永久删除文档',
+  RELIST_DOC: '文档重新上架',
+  WECOM_SYNC: '企微同步',
+  WECOM_BIND: '企微绑定',
+  // 项目管理
+  CREATE_PROJECT: '创建项目',
+  UPDATE_PROJECT: '修改项目',
+  DELETE_PROJECT: '删除项目',
+  CANCEL_PROJECT: '取消项目',
+  CHANGE_PHASE: '阶段变更',
+  ASSIGN_EXPERT: '调派专家',
+  REMOVE_EXPERT: '移出专家',
+  ASSIGN_SUPPLIER: '关联供应商',
+  REMOVE_SUPPLIER: '移出供应商',
+  UPLOAD_DOC: '上传资料',
+  CREATE_CONTRACT: '创建合同',
+  UPDATE_CONTRACT: '更新合同',
+  SYNC_EXPERT_SENSITIVE: '专家敏感信息同步',
+  CREATE_TEMPLATE: '创建模板',
+  REGISTER_BUDGET: '登记预算',
+  SUBMIT_CONTRACT_APPROVAL: '提交合同审批',
+  // 公告
+  CREATE_ANNOUNCEMENT: '发布公告',
+  UPDATE_ANNOUNCEMENT: '修改公告',
+  DELETE_ANNOUNCEMENT: '删除公告',
+  ONLINE_ANNOUNCEMENT: '公告上架',
+  OFFLINE_ANNOUNCEMENT: '公告下架',
+  TOP_ANNOUNCEMENT: '公告置顶',
+  // 供应商（AOP 注解埋点）
+  SUPPLIER_CREATE: '新增供应商',
+  SUPPLIER_UPDATE: '修改供应商',
+  SUPPLIER_DELETE: '删除供应商',
+  SAVE_SUPPLIER_PRICE: '保存行价',
+  BIND_SUPPLIER: '绑定供应商',
+  UNBIND_SUPPLIER: '解绑供应商'
 }
 
 function actionTagType(actionType) {
-  if (actionType === 'LOGIN' || actionType === 'CREATE_USER' || actionType === 'CREATE_EXPERT' || actionType === 'CREATE_DOC') {
+  if (actionType === 'LOGIN' || actionType === 'CREATE_USER' || actionType === 'CREATE_EXPERT' || actionType === 'CREATE_DOC'
+    || actionType === 'RELIST_DOC' || actionType === 'CREATE_PROJECT' || actionType === 'CREATE_CONTRACT'
+    || actionType === 'CREATE_TEMPLATE' || actionType === 'CREATE_ANNOUNCEMENT' || actionType === 'ONLINE_ANNOUNCEMENT'
+    || actionType === 'SUPPLIER_CREATE' || actionType === 'BIND_SUPPLIER' || actionType === 'ASSIGN_EXPERT'
+    || actionType === 'ASSIGN_SUPPLIER') {
     return 'success'
   }
-  if (actionType === 'DELETE_USER' || actionType === 'DELETE_EXPERT' || actionType === 'DELETE_DOC' || actionType === 'ROLE_PERMISSION') {
+  if (actionType === 'DELETE_USER' || actionType === 'DELETE_EXPERT' || actionType === 'DELETE_DOC'
+    || actionType === 'ROLE_PERMISSION' || actionType === 'DELETE_PROJECT' || actionType === 'CANCEL_PROJECT'
+    || actionType === 'REMOVE_EXPERT' || actionType === 'REMOVE_SUPPLIER' || actionType === 'DELETE_ANNOUNCEMENT'
+    || actionType === 'SUPPLIER_DELETE' || actionType === 'UNBIND_SUPPLIER') {
     return 'danger'
   }
-  if (actionType === 'DOWNLOAD' || actionType === 'LOGOUT') {
+  if (actionType === 'DOWNLOAD' || actionType === 'LOGOUT' || actionType === 'WECOM_SYNC' || actionType === 'WECOM_BIND'
+    || actionType === 'CHANGE_PHASE' || actionType === 'SUBMIT_CONTRACT_APPROVAL' || actionType === 'SYNC_EXPERT_SENSITIVE'
+    || actionType === 'OFFLINE_ANNOUNCEMENT') {
     return 'info'
   }
   return 'warning'

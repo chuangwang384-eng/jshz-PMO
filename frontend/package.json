@@ -1,6 +1,6 @@
 {
   "name": "expert-system-frontend",
-  "version": "1.005",
+  "version": "1.0.21",
   "private": true,
   "description": "专家库系统前端应用（Vue 3）",
   "type": "module",
@@ -10,7 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "@wangeditor/editor": "^5.1.23",
+    "@wangeditor/editor-for-vue": "^5.1.12",
     "axios": "^1.7.2",
+    "echarts": "^6.1.0",
     "element-plus": "^2.7.5",
     "pdfjs-dist": "^6.4.299",
     "pinia": "^2.1.7",

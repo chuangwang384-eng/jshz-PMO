@@ -12,4 +12,4 @@ set MYSQL_DB=expert_system
 set MYSQL_USER=root
 set MYSQL_PASSWORD=<请填写数据库密码>
 set JWT_SECRET=<请填写32字节以上随机密钥>
-java -jar target\expert-system-1.001.jar
+java -jar target\expert-system.jar

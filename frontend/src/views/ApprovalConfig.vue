@@ -1,7 +1,6 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-title">审批流配置</span>
       <span class="page-sub">配置专家信息修改审批流的启用状态与审批人角色</span>
     </div>
 

@@ -77,7 +77,7 @@ public class ApplicationController {
 
     /**
      * 提交修改申请：POST /api/approval/requests（登录即可，管理员拒绝）。
-     * body {expertId, changes: {中文键: 新值}, reason, templateId 可选}。
+     * body {expertId, changes: {中文键: 新值}, reason}。
      */
     @PostMapping("/requests")
     public ApiResponse<Application> submit(@RequestBody(required = false) Map<String, Object> body,
@@ -89,13 +89,12 @@ public class ApplicationController {
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        Long templateId = ParamUtils.toLong(body.get("templateId"));
-        return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, templateId, authUser));
+        return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, authUser));
     }
 
     /**
      * 提交新增专家申请：POST /api/approval/create-request（登录即可，管理员拒绝）。
-     * body {changes: {中文键: 新值}, reason, templateId 可选}，expertId 无需传。
+     * body {changes: {中文键: 新值}, reason}，expertId 无需传。
      */
     @PostMapping("/create-request")
     public ApiResponse<Application> createRequest(@RequestBody(required = false) Map<String, Object> body,
@@ -106,8 +105,26 @@ public class ApplicationController {
         @SuppressWarnings("unchecked")
         Map<String, Object> changes = (Map<String, Object>) body.get("changes");
         String reason = (String) body.get("reason");
-        Long templateId = ParamUtils.toLong(body.get("templateId"));
-        return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, templateId, authUser));
+        return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, authUser));
+    }
+
+    /**
+     * 提交专家合同审批：POST /api/approval/contract-request（项目管理模块结算合同）。
+     * body {contractId, projectId, changes: {身份证号, 银行卡号}, reason}；
+     * 复用现有审批流（FLOW_KEY=EXPERT_MODIFY 配置），通过后合同生效。
+     */
+    @PostMapping("/contract-request")
+    public ApiResponse<Application> contractRequest(@RequestBody(required = false) Map<String, Object> body,
+                                                    @AuthenticationPrincipal AuthUser authUser) {
+        if (body == null) {
+            throw new com.jshz.expert.common.BusinessException("请求体不能为空");
+        }
+        Long contractId = ParamUtils.toLong(body.get("contractId"));
+        Long projectId = ParamUtils.toLong(body.get("projectId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> changes = (Map<String, Object>) body.get("changes");
+        String reason = (String) body.get("reason");
+        return ApiResponse.ok(applicationService.submitContractApproval(contractId, projectId, changes, reason, authUser));
     }
 
     /**
