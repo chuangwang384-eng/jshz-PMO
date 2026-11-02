@@ -301,3 +301,6 @@ server {
 
 ## R-1 发布记录
 - 2026-11-02 11:26:00 R-1 发布 1.011 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-02 14:21:10 R-1 发布 1.012 成功（jar: expert-system.jar）
