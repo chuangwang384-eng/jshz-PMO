@@ -50,3 +50,8 @@
 1. 检查：`git log --oneline -3`；`SELECT code FROM permission WHERE path='/api/supplier/*/prices'` 应为 supplier:price
 2. 需求人复核三项改动；测试数据（14-19）处置由需求人决定（保留演示/删除）
 3. 未经确认禁止：回滚迁移、删除测试供应商
+
+## R2.1 追加（2026-11-02 12:50，需求人截图反馈）
+- 左栏由 fit-content 改固定 **272px**（信息全部展示宽度），余量匀给中栏（flex:1 实测 405px+）
+- 验收：DOM 实测 leftW=272/midW=405、无横向溢出、员工视角截图确认；临时验证账号已清理
+- 提交 1d1759b；前端重新发布（版本不变 1.0.20）
