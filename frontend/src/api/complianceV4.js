@@ -1,4 +1,21 @@
 import request from './request'
+import { listKnowledgeDocs } from './knowledge'
+import { listProjects } from './project'
+async function allPages(fetch) {
+  const rows = []
+  for (let page = 1; ; page++) {
+    const d = await fetch(page)
+    const batch = d.records || d.items || []
+    rows.push(...batch)
+    if (!batch.length || rows.length >= (d.total || 0)) return rows
+  }
+}
+export const listAllComplianceDocuments = () => allPages(page => listKnowledgeDocs({ category: 'enterprise-compliance', page, pageSize: 100 }))
+export const listAllReadableProjects = () => allPages(page => listProjects({ page, size: 100 }))
+export const getComplianceMode = () => request.get('/compliance/v4/mode')
+export const enableComplianceV4 = () => request.post('/compliance/v4/mode/enable', { confirmed: true })
+export const listLegacyHistory = () => request.get('/compliance/v4/legacy-history')
+export const listTemplateDrafts = id => request.get(`/compliance/v4/documents/${id}/drafts`)
 
 // 企业合规 v4（可复用清单，/api/compliance/v4/*，REQ/DES-COMPLIANCE-V4）
 // 权限：执行对象 owner=当前登录用户；模板发布需 knowledge:maintain

@@ -49,6 +49,9 @@ expert:
     libreoffice-path: 'C:\Program Files\LibreOffice\program\soffice.com'
   # 企业合规：到期提醒定时任务（每日 08:30；个人提醒+全局责任人提醒，幂等去重）
   compliance:
+    # V4 is opt-in by environment AND explicit per-user cutover after migration.
+    v4-enabled: ${COMPLIANCE_V4_ENABLED:false}
+    v4-reminder-enabled: ${COMPLIANCE_V4_REMINDER_ENABLED:false}
     due-enabled: true
     due-cron: "0 30 8 * * ?"
     # 全局责任人提醒提前天数

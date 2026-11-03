@@ -27,7 +27,7 @@ class ComplianceReminderRegressionTest {
                 ComplianceReminderLog.class);
         org.springframework.transaction.PlatformTransactionManager transactions = mock(org.springframework.transaction.PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenReturn(new org.springframework.transaction.support.SimpleTransactionStatus());
-        scheduler = new ComplianceDueScheduler(items, assignees, progresses, logs, documents, favorites, notifications, transactions);
+        scheduler = new ComplianceDueScheduler(items, assignees, progresses, logs, documents, favorites, notifications, mock(com.jshz.expert.service.ComplianceRolloutService.class), transactions);
         ReflectionTestUtils.setField(scheduler, "assigneeDays", 3);
         item = new ComplianceItem(); item.setId(1L); item.setDocumentId(2L);
         item.setIsDraft(0); item.setStatus("PENDING"); item.setTitle("fixture"); item.setDueDate(due);

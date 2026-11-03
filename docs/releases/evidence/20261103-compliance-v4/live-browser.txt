@@ -1,0 +1,4 @@
+Live: real login, rollout, template editor
+Live: project-linked draft, private fields, explicit start
+Live: complete, independent reuse and preserved legacy history
+PASS: real Edge -> Vite -> Spring Boot -> isolated MySQL; login, draft/approval, project use, private note, cross-user denial, complete/reuse/history. No API interception.

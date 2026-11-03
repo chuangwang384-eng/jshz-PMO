@@ -56,18 +56,33 @@ public class ComplianceV4Service {
     private final ComplianceExecutionEventMapper eventMapper;
     private final ComplianceExecutionReminderMapper reminderMapper;
     private final KnowledgeDocumentMapper documentMapper;
+    private final com.jshz.expert.mapper.KnowledgeDocVersionMapper sourceVersions;
     private final ProjectMapper projectMapper;
     private final ProjectService projectService;
+    private final ComplianceV4AccessService access;
+    private final ComplianceRolloutService rollout;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public static final List<String> NODE_TYPES = List.of("CHECK", "SINGLE", "MULTI", "TEXT");
     public static final List<String> PRIORITIES = List.of("HIGH", "MEDIUM", "LOW");
     public static final List<String> PROGRESS_STATES = List.of("UNPROCESSED", "PROCESSING", "COMPLETED");
 
+    public List<Map<String,Object>> listDrafts(Long documentId, AuthUser user) {
+        access.requireDraftAuthor(documentId, user);
+        LambdaQueryWrapper<ComplianceTemplateVersion> q = new LambdaQueryWrapper<ComplianceTemplateVersion>()
+            .eq(ComplianceTemplateVersion::getDocumentId, documentId).eq(ComplianceTemplateVersion::getState, "DRAFT");
+        if (!user.hasPermission("knowledge:maintain")) q.eq(ComplianceTemplateVersion::getOwnerUserId, user.getUserId());
+        List<Map<String,Object>> out = new ArrayList<>();
+        for (ComplianceTemplateVersion t : templateVersionMapper.selectList(q.orderByDesc(ComplianceTemplateVersion::getId)))
+            out.add(Map.of("id", t.getId(), "title", t.getTitle(), "revision", t.getRevision()));
+        return out;
+    }
+
     // ==================== 模板 ====================
 
     /** 某文档已发布模板列表（登录即可读）。 */
-    public List<Map<String, Object>> listPublishedTemplates(Long documentId) {
+    public List<Map<String, Object>> listPublishedTemplates(Long documentId, AuthUser user) {
+        access.requireDocument(documentId, user, true);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceTemplateVersion t : templateVersionMapper.selectList(new LambdaQueryWrapper<ComplianceTemplateVersion>()
                 .eq(ComplianceTemplateVersion::getDocumentId, documentId)
@@ -88,20 +103,24 @@ public class ComplianceV4Service {
     }
 
     /** 上传者创建自己的模板草稿（从指定已发布版本复制或空白）。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> createDraft(Long documentId, Long copyFromVersionId, String title, AuthUser user) {
         requireUser(user);
-        KnowledgeDocument doc = documentMapper.selectById(documentId);
-        if (doc == null) throw new BusinessException("来源文档不存在");
+        rollout.lockUser(user.getUserId());
+        KnowledgeDocument doc = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocument>().eq(KnowledgeDocument::getId, documentId).last("FOR UPDATE"));
+        access.requireDraftAuthor(documentId, user);
         ComplianceTemplateVersion t = new ComplianceTemplateVersion();
         t.setDocumentId(documentId);
-        t.setSourceDocumentVersionId(copyFromVersionId);
+        var documentVersion = sourceVersions.selectOne(new LambdaQueryWrapper<com.jshz.expert.entity.KnowledgeDocVersion>()
+                .eq(com.jshz.expert.entity.KnowledgeDocVersion::getDocId, documentId)
+                .eq(com.jshz.expert.entity.KnowledgeDocVersion::getVersion, doc.getVersion()).last("LIMIT 1"));
+        t.setSourceDocumentVersionId(documentVersion == null ? null : documentVersion.getId());
         t.setOwnerUserId(user.getUserId());
         t.setTitle(title == null || title.isBlank() ? doc.getTitle() + " 执行规范" : title.trim());
         // revision = 同文档最大 revision + 1
         Integer maxRev = templateVersionMapper.selectList(new LambdaQueryWrapper<ComplianceTemplateVersion>()
                 .eq(ComplianceTemplateVersion::getDocumentId, documentId)
-                .orderByDesc(ComplianceTemplateVersion::getRevision).last("LIMIT 1"))
+                .orderByDesc(ComplianceTemplateVersion::getRevision).last("LIMIT 1 FOR UPDATE"))
                 .stream().findFirst().map(ComplianceTemplateVersion::getRevision).orElse(0);
         t.setRevision(maxRev + 1);
         t.setState("DRAFT");
@@ -149,8 +168,10 @@ public class ComplianceV4Service {
 
     /** 模板完整草稿树（nodes+options）。权限：owner 本人或维护人可读草稿；已发布版本登录可读结构。 */
     public Map<String, Object> templateDetail(Long templateVersionId, AuthUser user) {
+        requireUser(user);
         ComplianceTemplateVersion t = templateVersionMapper.selectById(templateVersionId);
         if (t == null) throw new BusinessException("模板版本不存在");
+        access.requireDocument(t.getDocumentId(), user, !user.hasPermission("knowledge:maintain"));
         boolean owner = t.getOwnerUserId().equals(ParamUtils.userIdOf(user));
         boolean maintainer = user != null && user.hasPermission("knowledge:maintain");
         if ("DRAFT".equals(t.getState()) && !owner && !maintainer) {
@@ -208,12 +229,15 @@ public class ComplianceV4Service {
      * 编辑草稿（owner 或维护人）：白名单元数据 + 整树替换（草稿可改，发布后不可原地改写）。
      * 树校验：node_code 同版本唯一、两级、condition 引用同版本前置单/多选选项、无自环。
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> patchTemplate(Long templateVersionId, Map<String, Object> body, AuthUser user) {
-        ComplianceTemplateVersion t = templateVersionMapper.selectById(templateVersionId);
+        requireUser(user);
+        ComplianceTemplateVersion t = lockedTemplate(templateVersionId, user);
         if (t == null) throw new BusinessException("模板版本不存在");
+        access.requireDocument(t.getDocumentId(), user, !user.hasPermission("knowledge:maintain"));
         boolean owner = t.getOwnerUserId().equals(ParamUtils.userIdOf(user));
         boolean maintainer = user != null && user.hasPermission("knowledge:maintain");
+        access.requireDraftAuthor(t.getDocumentId(), user);
         if (!owner && !maintainer) throw new BusinessException("无权编辑该模板");
         if (!"DRAFT".equals(t.getState())) throw new BusinessException("已发布版本不可原地修改，请复制新修订草稿");
         Integer clientRowVersion = ParamUtils.parseLong(body.get("rowVersion"), null) == null ? null : ParamUtils.parseLong(body.get("rowVersion"), null).intValue();
@@ -322,11 +346,12 @@ public class ComplianceV4Service {
     }
 
     /** 发布（维护权限；原子发布；树校验；必做任务不可为空集）。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> publish(Long templateVersionId, AuthUser user) {
         requireMaintainer(user);
-        ComplianceTemplateVersion t = templateVersionMapper.selectById(templateVersionId);
+        ComplianceTemplateVersion t = lockedTemplate(templateVersionId, user);
         if (t == null) throw new BusinessException("模板版本不存在");
+        access.requireDocument(t.getDocumentId(), user, true);
         if (!"DRAFT".equals(t.getState())) throw new BusinessException("仅草稿可发布");
         List<ComplianceTemplateNode> nodes = templateNodeMapper.selectList(new LambdaQueryWrapper<ComplianceTemplateNode>()
                 .eq(ComplianceTemplateNode::getVersionId, templateVersionId));
@@ -346,14 +371,17 @@ public class ComplianceV4Service {
     // ==================== 执行清单 ====================
 
     /** 创建执行清单（幂等键防重复；快照任务生成；DRAFT 未确认不入待办）。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> createExecution(Map<String, Object> body, AuthUser user) {
         requireUser(user);
+        rollout.requireV4(user.getUserId());
         Long templateVersionId = ParamUtils.parseLong(body.get("templateVersionId"), null);
         if (templateVersionId == null) throw new BusinessException("templateVersionId 不能为空");
         ComplianceTemplateVersion t = templateVersionMapper.selectById(templateVersionId);
         if (t == null || !"PUBLISHED".equals(t.getState())) throw new BusinessException("模板不存在或未发布");
+        access.requireDocument(t.getDocumentId(), user, true);
         Long projectId = ParamUtils.parseLong(body.get("projectId"), null);
+        access.requireProject(projectId, user);
         if (projectId != null) {
             Project project = projectMapper.selectById(projectId);
             if (project == null) throw new BusinessException("关联项目不存在");
@@ -445,10 +473,11 @@ public class ComplianceV4Service {
     }
 
     /** 草稿确认开始（DRAFT→ACTIVE；进入待办并按 due_date 建立提醒节点）。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> startExecution(Long executionId, Map<String, Object> body, AuthUser user) {
+        rollout.requireV4(user.getUserId());
         ComplianceExecution e = ownedExecution(executionId, user);
-        if (!"DRAFT".equals(e.getState())) throw new BusinessException("仅草稿可开始");
+        if (!List.of("DRAFT", "PAUSED").contains(e.getState())) throw new BusinessException("仅草稿或暂停清单可开始");
         e.setState("ACTIVE");
         e.setStartAt(java.time.LocalDateTime.now());
         executionMapper.updateById(e);
@@ -456,9 +485,7 @@ public class ComplianceV4Service {
         // 为已设置 due_date 的任务生成提醒节点
         int reminders = 0;
         for (ComplianceExecutionTask task : tasksOf(e.getId())) {
-            if (task.getDueDate() != null && task.getRemindEnabled() != null && task.getRemindEnabled() == 1) {
-                reminders += scheduleTaskReminders(task, e);
-            }
+            reminders += scheduleTaskReminders(task, e);
         }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("started", true);
@@ -467,11 +494,11 @@ public class ComplianceV4Service {
     }
 
     /** 本人清单分页（state/projectId/documentId/search 筛选）。 */
-    public Map<String, Object> listMyExecutions(Long userId, String state, Long projectId, Long documentId,
+    public Map<String, Object> listMyExecutions(AuthUser user, String state, Long projectId, Long documentId,
                                                 String search, long page, long size) {
         if (page < 1 || size < 1 || size > 200) throw new BusinessException("分页参数超出范围");
         LambdaQueryWrapper<ComplianceExecution> qw = new LambdaQueryWrapper<ComplianceExecution>()
-                .eq(ComplianceExecution::getOwnerUserId, userId);
+                .eq(ComplianceExecution::getOwnerUserId, user.getUserId());
         if (state != null && !state.isBlank()) qw.eq(ComplianceExecution::getState, state);
         if (projectId != null) qw.eq(ComplianceExecution::getProjectId, projectId);
         if (documentId != null) qw.eq(ComplianceExecution::getSourceDocumentId, documentId);
@@ -482,6 +509,7 @@ public class ComplianceV4Service {
         int to = (int) Math.min(all.size(), from + size);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceExecution e : all.subList(from, to)) {
+            if (!access.canRead(e, user)) { rows.add(Map.of("id", e.getId(), "state", "RESTRICTED", "name", "来源或项目访问受限")); continue; }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", e.getId());
             m.put("name", e.getName());
@@ -532,12 +560,15 @@ public class ComplianceV4Service {
     }
 
     /** 再次使用：新清单，不复制状态/日期/备注/提醒；copyAnswers 明确选择才复制答案。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> reuseExecution(Long executionId, Map<String, Object> body, AuthUser user) {
+        rollout.requireV4(user.getUserId());
         ComplianceExecution src = ownedExecution(executionId, user);
+        access.requireDocument(src.getSourceDocumentId(), user, true);
         String idem = str(body.get("idempotencyKey"));
         if (idem == null || idem.isBlank()) throw new BusinessException("idempotencyKey 不能为空");
         Long projectId = ParamUtils.parseLong(body.get("projectId"), null);
+        access.requireProject(projectId, user);
         if (projectId != null) {
             Project project = projectMapper.selectById(projectId);
             if (project == null) throw new BusinessException("关联项目不存在");
@@ -605,12 +636,14 @@ public class ComplianceV4Service {
      * 任务更新（仅本人）：rowVersion 乐观锁（冲突 409）；answer 白名单校验；
      * 完成校验必填答案；completed_at 同事务；due/等待变更联动提醒 revision。
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> patchTask(Long taskId, Map<String, Object> body, AuthUser user) {
         requireUser(user);
+        rollout.requireV4(user.getUserId());
         ComplianceExecutionTask task = taskMapper.selectById(taskId);
         if (task == null) throw new BusinessException("任务不存在");
         ComplianceExecution e = ownedExecution(task.getExecutionId(), user);
+        if (List.of("ARCHIVED", "COMPLETED").contains(e.getState())) throw new BusinessException("清单已关闭，不能编辑");
         Integer rv = ParamUtils.parseLong(body.get("rowVersion"), null) == null ? null : ParamUtils.parseLong(body.get("rowVersion"), null).intValue();
         if (rv != null && !rv.equals(task.getRowVersion())) {
             throw new BusinessException(409, "任务已被修改，请刷新比较后重试");
@@ -626,9 +659,6 @@ public class ComplianceV4Service {
             String oldAnswer = task.getAnswer();
             task.setAnswer(answer == null ? null : jsonStr(answer));
             changes.add("answer");
-            if (!"COMPLETED".equals(task.getProgress())) {
-                // 填写后视为处理中（可选）
-            }
             event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "ANSWER",
                     "{\"old\":" + (oldAnswer == null ? "null" : oldAnswer) + ",\"new\":" + (answer == null ? "null" : jsonStr(answer)) + "}");
         }
@@ -644,14 +674,9 @@ public class ComplianceV4Service {
             }
             if (!java.util.Objects.equals(oldDue, task.getDueDate())) {
                 changes.add("dueDate");
-                bumpRevision(task);
+                // Revision changes are consolidated after all fields.
                 event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "DUE",
                         "{\"old\":\"" + oldDue + "\",\"new\":\"" + task.getDueDate() + "\"}");
-                // 改期：按新日期重算提醒节点（旧节点已由 bumpRevision 置 CANCELLED，不重发旧节点）
-                if (task.getDueDate() != null && task.getRemindEnabled() != null && task.getRemindEnabled() == 1
-                        && !"COMPLETED".equals(task.getProgress()) && "ACTIVE".equals(e.getState())) {
-                    scheduleTaskReminders(task, e);
-                }
             }
         }
 
@@ -682,22 +707,14 @@ public class ComplianceV4Service {
                     task.setWaitingReason(null);
                     task.setNextAction(null);
                     task.setReviewDate(null);
-                    bumpRevision(task); // 完成/清除等待取消未发送节点
+                    // Revision changes are consolidated after all fields. // 完成/清除等待取消未发送节点
                 } else {
                     task.setCompletedAt(null);
-                    if ("COMPLETED".equals(oldProgress)) {
-                        bumpRevision(task); // 重开重建提醒
-                    }
                 }
                 changes.add("progress");
                 event(e.getId(), task.getId(), ParamUtils.userIdOf(user),
                         "COMPLETED".equals(progress) ? "COMPLETE" : "PROGRESS",
                         "{\"old\":\"" + oldProgress + "\",\"new\":\"" + progress + "\"}");
-                // 完成后重新生成提醒（重开场景）；完成则无新节点
-                if (!"COMPLETED".equals(progress) && task.getDueDate() != null
-                        && task.getRemindEnabled() != null && task.getRemindEnabled() == 1) {
-                    scheduleTaskReminders(task, e);
-                }
             }
         }
 
@@ -723,7 +740,7 @@ public class ComplianceV4Service {
                 task.setWaitingReason(null);
                 task.setNextAction(null);
                 task.setReviewDate(null);
-                bumpRevision(task);
+                // Revision changes are consolidated after all fields.
                 changes.add("waiting-clear");
                 event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "WAIT_CLEAR", null);
             } else if (w instanceof Map<?, ?> wm) {
@@ -745,13 +762,25 @@ public class ComplianceV4Service {
                 changes.add("waiting");
                 event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "WAITING",
                         jsonStr(Map.of("reason", nullToEmpty(reason), "next", nullToEmpty(next), "review", nullToEmpty(String.valueOf(review)))));
-                // review 节点由 Scheduler 扫描 review_date=今天 生成/发送
+                // 复查节点在最终字段确认后统一生成。
             }
         }
 
-        if (changes.isEmpty() && rv == null) {
-            // 无有效变更且未带版本：仅返回现状
+        if (body.containsKey("remindEnabled") || body.containsKey("remindDays")) {
+            if (body.containsKey("remindEnabled")) {
+                Long v = ParamUtils.parseLong(body.get("remindEnabled"), null);
+                if (v == null || (v != 0 && v != 1)) throw new BusinessException("提醒开关须为0或1");
+                task.setRemindEnabled(v.intValue());
+            }
+            if (body.containsKey("remindDays")) {
+                Long v = ParamUtils.parseLong(body.get("remindDays"), null);
+                if (v == null || v < 1 || v > 30) throw new BusinessException("提前天数须为1至30");
+                task.setRemindDays(v.intValue());
+            }
+            changes.add("reminder");
         }
+        boolean scheduleChanged = changes.stream().anyMatch(c -> List.of("dueDate", "progress", "waiting", "waiting-clear", "reminder").contains(c));
+        if (scheduleChanged) { bumpRevision(task); scheduleTaskReminders(task, e); }
         int previousVersion = task.getRowVersion();
         task.setRowVersion(previousVersion + 1);
         // 显式 set 全部可变字段：MyBatis-Plus updateById 默认忽略 null，无法清空答案/备注/等待/日期
@@ -797,6 +826,7 @@ public class ComplianceV4Service {
         for (ComplianceExecution e : executionMapper.selectList(new LambdaQueryWrapper<ComplianceExecution>()
                 .eq(ComplianceExecution::getOwnerUserId, user.getUserId())
                 .in(ComplianceExecution::getState, states))) {
+            if (!access.canRead(e, user)) continue;
             execIds.add(e.getId());
             execMap.put(e.getId(), e);
         }
@@ -882,11 +912,12 @@ public class ComplianceV4Service {
 
     // ==================== 暂停 / 归档 / 事件 ====================
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public void pauseOrArchive(Long executionId, String action, AuthUser user) {
+        rollout.requireV4(user.getUserId());
         ComplianceExecution e = ownedExecution(executionId, user);
         String target = "pause".equals(action) ? "PAUSED" : "ARCHIVED";
-        if (!"ACTIVE".equals(e.getState())) throw new BusinessException("仅进行中清单可" + ("pause".equals(action) ? "暂停" : "归档"));
+        if (!List.of("ACTIVE", "PAUSED", "DRAFT").contains(e.getState())) throw new BusinessException("清单已关闭");
         e.setState(target);
         e.setClosedAt("ARCHIVED".equals(target) ? java.time.LocalDateTime.now() : null);
         executionMapper.updateById(e);
@@ -918,17 +949,18 @@ public class ComplianceV4Service {
      * 迁移辅助：从 v3 旧事项生成 v4 模板草稿（保留旧公共内容为节点；人工补结构化定义后经维护人发布；
      * 不搬移个人进度/不推断完成状态——设计 §8.2.3/8.2.4）。
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String, Object> createDraftFromV3Items(Long documentId, String title, AuthUser user) {
-        KnowledgeDocument doc = documentMapper.selectById(documentId);
-        if (doc == null) throw new BusinessException("来源文档不存在");
+        rollout.lockUser(user.getUserId());
+        KnowledgeDocument doc = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocument>().eq(KnowledgeDocument::getId, documentId).last("FOR UPDATE"));
+        access.requireDraftAuthor(documentId, user);
         ComplianceTemplateVersion t = new ComplianceTemplateVersion();
         t.setDocumentId(documentId);
         t.setOwnerUserId(user == null ? null : user.getUserId());
         t.setTitle(title == null || title.isBlank() ? doc.getTitle() + " 执行规范（v3 迁移草稿）" : title.trim());
         Integer maxRev = templateVersionMapper.selectList(new LambdaQueryWrapper<ComplianceTemplateVersion>()
                 .eq(ComplianceTemplateVersion::getDocumentId, documentId)
-                .orderByDesc(ComplianceTemplateVersion::getRevision).last("LIMIT 1"))
+                .orderByDesc(ComplianceTemplateVersion::getRevision).last("LIMIT 1 FOR UPDATE"))
                 .stream().findFirst().map(ComplianceTemplateVersion::getRevision).orElse(0);
         t.setRevision(maxRev + 1);
         t.setState("DRAFT");
@@ -964,6 +996,15 @@ public class ComplianceV4Service {
 
     // ==================== 私有辅助 ====================
 
+    private ComplianceTemplateVersion lockedTemplate(Long id, AuthUser user) {
+        requireUser(user);
+        rollout.lockUser(user.getUserId());
+        ComplianceTemplateVersion preview = templateVersionMapper.selectById(id);
+        if (preview == null) throw new BusinessException(404, "模板不存在");
+        documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocument>().eq(KnowledgeDocument::getId, preview.getDocumentId()).last("FOR UPDATE"));
+        return templateVersionMapper.selectOne(new LambdaQueryWrapper<ComplianceTemplateVersion>().eq(ComplianceTemplateVersion::getId, id).last("FOR UPDATE"));
+    }
+
     private void requireUser(AuthUser user) {
         if (user == null) throw new BusinessException(401, "未登录");
     }
@@ -979,7 +1020,7 @@ public class ComplianceV4Service {
         ComplianceExecution e = executionMapper.selectById(executionId);
         if (e == null) throw new BusinessException("清单不存在");
         // 统一 404 语义，不暴露存在性（设计 §4）
-        if (!e.getOwnerUserId().equals(user.getUserId())) throw new BusinessException(404, "清单不存在");
+        if (!access.canRead(e, user)) throw new BusinessException(404, "清单不存在或访问已受限");
         return e;
     }
 
@@ -1061,25 +1102,30 @@ public class ComplianceV4Service {
     }
 
     private void bumpAllRevisions(Long executionId) {
-        ComplianceExecutionReminder patch = new ComplianceExecutionReminder();
-        patch.setState("CANCELLED");
-        reminderMapper.update(patch, new LambdaQueryWrapper<ComplianceExecutionReminder>()
-                .eq(ComplianceExecutionReminder::getExecutionId, executionId)
-                .eq(ComplianceExecutionReminder::getState, "PENDING"));
+        for (ComplianceExecutionTask task : tasksOf(executionId)) {
+            bumpRevision(task);
+            task.setRowVersion(task.getRowVersion() + 1);
+            taskMapper.updateById(task);
+        }
     }
 
     /** 为任务 due_date 生成 提前N天 + 当天 节点（过去时间点跳过；revision 幂等）。 */
     public int scheduleTaskReminders(ComplianceExecutionTask task, ComplianceExecution e) {
-        LocalDate due = task.getDueDate();
-        if (due == null) return 0;
-        int days = task.getRemindDays() == null ? 3 : task.getRemindDays();
-        LocalDate today = LocalDate.now();
+        if (!"ACTIVE".equals(e.getState()) || !Integer.valueOf(1).equals(task.getRemindEnabled())
+                || "COMPLETED".equals(task.getProgress()) || !"APPLICABLE".equals(task.getApplicability())) return 0;
         int n = 0;
+        if (task.getReviewDate() != null && (task.getWaitingReason() != null || task.getNextAction() != null)) {
+            LocalDateTime at = task.getReviewDate().atTime(8, 30);
+            if (!at.isBefore(LocalDateTime.now())) n += trySchedule(e, task, "review_due", at);
+        }
+        LocalDate due = task.getDueDate();
+        if (due == null) return n;
+        int days = task.getRemindDays() == null ? 3 : task.getRemindDays();
         LocalDate before = due.minusDays(days);
-        if (!before.isBefore(today)) {
+        if (!before.atTime(8, 30).isBefore(LocalDateTime.now())) {
             n += trySchedule(e, task, "due_before", before.atTime(8, 30));
         }
-        if (!due.isBefore(today)) {
+        if (!due.atTime(8, 30).isBefore(LocalDateTime.now())) {
             n += trySchedule(e, task, "due_today", due.atTime(8, 30));
         }
         return n;

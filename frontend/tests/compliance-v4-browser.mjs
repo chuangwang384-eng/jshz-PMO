@@ -19,6 +19,7 @@ await page.route('**/api/**', async route => {
   if (!path.startsWith('/api/')) { await route.continue(); return }
   let data = []
   if (path === '/api/auth/me') data = user
+  else if (path.endsWith('/compliance/v4/mode')) data = { enabled: true, mode: 'V4' }
   else if (path.endsWith('/tasks/11') && req.method() === 'PATCH') {
     if (failSave) { failSave = false; await route.fulfill({ json: { code: 409, message: '隔离保存冲突', data: null } }); return }
     const body = req.postDataJSON(); writes.push(body)

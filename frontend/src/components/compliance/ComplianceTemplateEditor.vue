@@ -5,11 +5,12 @@
       <el-select v-model="documentId" placeholder="选择规范文档" filterable @change="selectDocument" aria-label="模板来源文档">
         <el-option v-for="d in docs" :key="d.id" :label="d.title" :value="d.id" />
       </el-select>
-      <el-button :disabled="!documentId" @click="newDraft">新建草稿</el-button>
+      <el-button :disabled="!documentId || !canEditDocument" @click="newDraft">新建草稿</el-button>
+      <el-select v-model="draftId" placeholder="继续编辑草稿" @change="openDraft"><el-option v-for="d in drafts" :key="d.id" :label="`#${d.id} · ${d.title}`" :value="d.id" /></el-select>
       <el-select v-model="versionId" placeholder="已发布版本" @change="openVersion">
         <el-option v-for="v in versions" :key="v.id" :label="`v${v.revision} · ${v.title}`" :value="v.id" />
       </el-select>
-      <el-button :disabled="!versionId" @click="copyDraft">复制为新修订</el-button>
+      <el-button :disabled="!versionId || !canEditDocument" @click="copyDraft">复制为新修订</el-button>
     </div>
     <el-form v-if="draft" label-width="100px" :disabled="draft.state !== 'DRAFT'">
       <el-form-item label="模板名称"><el-input v-model="draft.title" maxlength="200" /></el-form-item>
@@ -49,16 +50,23 @@
   </div>
 </template>
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../api/request'
-import { listKnowledgeDocs } from '../../api/knowledge'
-import { listPublishedTemplates, createTemplateDraft, getTemplateDetail, patchTemplate, publishTemplate } from '../../api/complianceV4'
+import { listAllComplianceDocuments, listPublishedTemplates, listTemplateDrafts, createTemplateDraft, getTemplateDetail, patchTemplate, publishTemplate } from '../../api/complianceV4'
 const docs = ref([]), versions = ref([]), documentId = ref(null), versionId = ref(null), draft = ref(null)
+const drafts = ref([]), draftId = ref(null)
+const username = ref('')
+const canEditDocument = computed(() => canPublish.value || docs.value.find(d => d.id === documentId.value)?.uploadBy === username.value)
 const loading = ref(false), saving = ref(false), canPublish = ref(false), resumeId = ref('')
 const types = [{ value: 'CHECK', label: '确认事项' }, { value: 'TEXT', label: '文本填写' }, { value: 'SINGLE', label: '单选' }, { value: 'MULTI', label: '多选' }]
 const uniqueCode = () => 'code-' + Date.now() + '-' + Math.random().toString(36).slice(2)
-async function selectDocument() { draft.value = null; versionId.value = null; versions.value = await listPublishedTemplates(documentId.value) }
+async function selectDocument() {
+  draft.value = null; versionId.value = null; draftId.value = null
+  versions.value = await listPublishedTemplates(documentId.value)
+  try { drafts.value = canEditDocument.value ? await listTemplateDrafts(documentId.value) : [] } catch { drafts.value = [] }
+}
+async function openDraft() { draft.value = await getTemplateDetail(draftId.value) }
 async function newDraft() { draft.value = await createTemplateDraft(documentId.value, {}); resumeId.value = String(draft.value.id) }
 async function openVersion() { draft.value = await getTemplateDetail(versionId.value) }
 async function copyDraft() { draft.value = await createTemplateDraft(documentId.value, { copyFromVersionId: versionId.value }); resumeId.value = String(draft.value.id) }
@@ -86,7 +94,7 @@ async function publish() {
 }
 onMounted(async () => {
   loading.value = true
-  try { const [d, me] = await Promise.all([listKnowledgeDocs({ category: 'enterprise-compliance', page: 1, pageSize: 100 }), request.get('/auth/me')]); docs.value = d.records || []; canPublish.value = !!(me.isAdmin || me.permissions?.includes('knowledge:maintain')) }
+  try { const [d, me] = await Promise.all([listAllComplianceDocuments(), request.get('/auth/me')]); docs.value = d; username.value = me.username; canPublish.value = !!me.permissions?.includes('knowledge:maintain') }
   finally { loading.value = false }
 })
 </script>

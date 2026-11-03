@@ -20,6 +20,8 @@ class ComplianceV4EditingRegressionTest {
             new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), "fixture"), ComplianceExecutionTask.class);
     }
     @InjectMocks ComplianceV4Service service;
+    @Mock ComplianceV4AccessService access;
+    @Mock ComplianceRolloutService rollout;
     @Mock ComplianceExecutionMapper executions;
     @Mock ComplianceExecutionTaskMapper tasks;
     @Mock ComplianceExecutionEventMapper events;
@@ -31,6 +33,7 @@ class ComplianceV4EditingRegressionTest {
         ComplianceExecutionTask t = new ComplianceExecutionTask(); t.setId(11L); t.setExecutionId(1L);
         t.setRowVersion(0); t.setScheduleRevision(0); t.setProgress("PROCESSING");
         t.setSnapshot("{\"title\":\"协会\",\"required\":1,\"inputType\":\"MULTI\",\"options\":[{\"optionCode\":\"A\"}]}");
+        when(access.canRead(any(), any())).thenReturn(true);
         when(tasks.selectById(11L)).thenReturn(t); when(executions.selectById(1L)).thenReturn(e);
         return t;
     }
@@ -56,11 +59,11 @@ class ComplianceV4EditingRegressionTest {
     @Test void pageBeyondEndReturnsEmpty() {
         when(executions.selectList(any())).thenReturn(List.of());
         assertEquals(List.of(), service.myTasks(user, "ACTIVE", null, null, null, null, 10, 50).get("items"));
-        assertEquals(List.of(), service.listMyExecutions(2L, null, null, null, null, 10, 50).get("items"));
+        assertEquals(List.of(), service.listMyExecutions(user, null, null, null, null, 10, 50).get("items"));
     }
     @Test void invalidPaginationRejected() {
         assertThrows(BusinessException.class, () -> service.myTasks(user, "ACTIVE", null, null, null, null, 1, 0));
-        assertThrows(BusinessException.class, () -> service.listMyExecutions(2L, null, null, null, null, 0, 50));
+        assertThrows(BusinessException.class, () -> service.listMyExecutions(user, null, null, null, null, 0, 50));
         assertThrows(BusinessException.class, () -> service.myTasks(user, "OTHER", null, null, null, null, 1, 50));
     }
     @Test void concurrentUpdateConflictIsNotReportedAsSuccess() {
@@ -70,6 +73,7 @@ class ComplianceV4EditingRegressionTest {
     }
     @Test void otherUserCannotEditPrivateTask() {
         editable();
+        when(access.canRead(any(), any())).thenReturn(false);
         AuthUser other = new AuthUser(3L, "other", true, false, Set.of(), Set.of("knowledge:maintain"));
         assertThrows(BusinessException.class, () -> service.patchTask(11L, Map.of("note", "denied"), other));
         verify(tasks, never()).update(isNull(), any());

@@ -19,7 +19,7 @@
       </el-select>
       <el-input v-model="search" placeholder="搜索事项" clearable size="small" style="width: 180px" @keyup.enter="load" @clear="load" />
       <div style="flex: 1"></div>
-      <el-button type="primary" size="small" @click="openCreate">创建执行清单</el-button>
+      <el-button type="primary" size="small" :disabled="readonly" @click="openCreate">创建执行清单</el-button>
     </div>
 
     <!-- 任务表 -->
@@ -28,6 +28,7 @@
       <el-table-column label="完成" width="60" align="center">
         <template #default="{ row }">
           <el-checkbox
+            :disabled="readonly || saving"
             :model-value="row.progress === 'COMPLETED'"
             @change="(v) => onProgress(row, v ? 'COMPLETED' : 'PROCESSING')"
           />
@@ -55,7 +56,7 @@
       </el-table-column>
       <el-table-column label="本次进度" width="110">
         <template #default="{ row }">
-          <el-select :model-value="row.progress" size="small" style="width: 100px" @change="(v) => onProgress(row, v)">
+          <el-select :model-value="row.progress" :disabled="readonly || saving" size="small" style="width: 100px" @change="(v) => onProgress(row, v)">
             <el-option label="未开始" value="UNPROCESSED" />
             <el-option label="进行中" value="PROCESSING" />
             <el-option label="已完成" value="COMPLETED" />
@@ -65,7 +66,7 @@
       <el-table-column label="操作" width="130" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
-          <el-button link type="warning" size="small" @click="openWaiting(row)">等待跟进</el-button>
+          <el-button link type="warning" :disabled="readonly" size="small" @click="openWaiting(row)">等待跟进</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -73,9 +74,11 @@
     <el-pagination v-if="total > pageSize" v-model:current-page="page" :page-size="pageSize" :total="total" layout="prev, pager, next" @current-change="load" />
     <div class="exec-toolbar" v-if="selectedExecution">
       <span>{{ selectedExecution.name }} · {{ selectedExecution.state }}</span>
-      <el-button v-if="selectedExecution.state === 'DRAFT'" :loading="saving" @click="startSelected">开始执行</el-button>
+      <el-button v-if="['DRAFT', 'PAUSED'].includes(selectedExecution.state)" :disabled="readonly" :loading="saving" @click="startSelected">{{ selectedExecution.state === 'PAUSED' ? '恢复执行' : '开始执行' }}</el-button>
+      <el-button v-if="selectedExecution.state === 'ACTIVE'" :disabled="readonly" :loading="saving" @click="changeLifecycle('pause')">暂停执行</el-button>
+      <el-button v-if="['DRAFT', 'ACTIVE', 'PAUSED'].includes(selectedExecution.state)" :disabled="readonly" :loading="saving" @click="changeLifecycle('archive')">归档</el-button>
       <el-button @click="openExecution">查看清单全部事项</el-button>
-      <el-button @click="openReuse">再次使用</el-button>
+      <el-button :disabled="readonly || selectedExecution.state === 'RESTRICTED'" @click="openReuse">再次使用</el-button>
     </div>
     <el-dialog v-model="executionVisible" title="清单全部事项" width="720px" destroy-on-close>
       <el-alert v-if="executionDetail?.sourceNotice" :title="executionDetail.sourceNotice" type="warning" :closable="false" />
@@ -101,7 +104,7 @@
         <p v-if="snapOf(detailRow).materials">所需材料：{{ snapOf(detailRow).materials }}</p>
         <p v-if="snapOf(detailRow).acceptance">完成标准：{{ snapOf(detailRow).acceptance }}</p>
         <p v-if="snapOf(detailRow).timeRule">规范时限：{{ snapOf(detailRow).timeRule }}</p>
-        <el-form label-width="100px">
+        <el-form label-width="100px" :disabled="detailReadonly">
           <el-form-item label="本次选择">
             <el-select v-if="['SINGLE', 'MULTI'].includes(snapOf(detailRow).inputType)" v-model="detailForm.selection" :multiple="snapOf(detailRow).inputType === 'MULTI'" clearable aria-label="本次选择">
               <el-option v-for="o in snapOf(detailRow).options || []" :key="o.optionCode" :label="o.label" :value="o.optionCode" />
@@ -111,10 +114,12 @@
           <el-form-item label="计划到期日"><el-date-picker v-model="detailForm.dueDate" type="date" value-format="YYYY-MM-DD" aria-label="计划到期日" /></el-form-item>
           <el-form-item label="优先级"><el-select v-model="detailForm.priority" aria-label="优先级"><el-option label="高" value="HIGH" /><el-option label="中" value="MEDIUM" /><el-option label="低" value="LOW" /></el-select></el-form-item>
           <el-form-item label="个人备注"><el-input v-model="detailForm.note" type="textarea" maxlength="2000" show-word-limit aria-label="个人备注" /></el-form-item>
+          <el-form-item label="个人提醒"><el-switch v-model="detailForm.remindEnabled" /></el-form-item>
+          <el-form-item label="提前天数"><el-input-number v-model="detailForm.remindDays" :min="1" :max="30" /><span>另加到期当天各一次，无日期不提醒</span></el-form-item>
         </el-form>
         <el-alert title="修改仅影响本人本次执行，不改动规范模板或其他清单。" :closable="false" />
       </template>
-      <template #footer><el-button @click="detailVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="saveDetail">保存</el-button></template>
+      <template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-if="!detailReadonly" type="primary" :loading="saving" @click="saveDetail">保存</el-button></template>
     </el-dialog>
 
     <!-- 创建清单向导 -->
@@ -191,15 +196,15 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute } from 'vue-router'
 import {
   listMyTasks, createExecution, startExecution, patchTask,
-  listPublishedTemplates, createDraftFromV3, listMyExecutions, getExecutionDetail, reuseExecution
+  listPublishedTemplates, createDraftFromV3, listMyExecutions, getExecutionDetail, reuseExecution, pauseExecution, archiveExecution, listAllComplianceDocuments, listAllReadableProjects
 } from '../../api/complianceV4'
-import { listKnowledgeDocs } from '../../api/knowledge'
-import { listProjects } from '../../api/project'
 
 const stat = ref({})
+const props = defineProps({ readonly: Boolean })
 const rows = ref([])
 const loading = ref(false)
 const loadError = ref(false)
@@ -210,10 +215,12 @@ const search = ref('')
 const executions = ref([])
 const page = ref(1), total = ref(0), pageSize = 50
 const selectedExecution = computed(() => executions.value.find(e => e.id === executionId.value))
+const detailReadonly = computed(() => props.readonly || ['ARCHIVED', 'COMPLETED', 'RESTRICTED'].includes(selectedExecution.value?.state))
 const executionVisible = ref(false), executionDetail = ref(null)
 const reuseVisible = ref(false), reuseForm = reactive({ name: '', projectId: null, copyAnswers: false, key: '' })
 const detailVisible = ref(false), detailRow = ref(null)
 const detailForm = reactive({ selection: null, text: '', dueDate: null, priority: 'MEDIUM', note: '' })
+const route = useRoute()
 watch([scope, executionId, search], () => { page.value = 1 })
 
 // 创建向导
@@ -299,8 +306,7 @@ async function loadExecutions() {
 
 async function loadDocs() {
   try {
-    const d = await listKnowledgeDocs({ category: 'enterprise-compliance', page: 1, pageSize: 100 })
-    complianceDocs.value = d?.records || d?.items || []
+    complianceDocs.value = await listAllComplianceDocuments()
   } catch (e) { complianceDocs.value = [] }
 }
 
@@ -323,8 +329,7 @@ async function migrateV3() {
 
 async function loadMyProjects() {
   try {
-    const d = await listProjects({ page: 1, size: 100 })
-    myProjects.value = d?.records || []
+    myProjects.value = await listAllReadableProjects()
   } catch (e) { myProjects.value = [] }
 }
 
@@ -418,6 +423,8 @@ function openDetail(row) {
   detailForm.dueDate = row.dueDate || null
   detailForm.priority = row.priority || 'MEDIUM'
   detailForm.note = row.note || ''
+  detailForm.remindEnabled = row.remindEnabled !== 0
+  detailForm.remindDays = row.remindDays || 3
   detailVisible.value = true
 }
 const newKey = () => 'exec-' + Date.now() + '-' + Math.random().toString(36).slice(2)
@@ -428,7 +435,7 @@ async function saveDetail() {
     const answer = type === 'SINGLE' ? (detailForm.selection ? { optionCode: detailForm.selection } : null)
       : type === 'MULTI' ? (detailForm.selection?.length ? { optionCodes: detailForm.selection } : null)
       : detailForm.text.trim() ? { text: detailForm.text } : null
-    const updated = await patchTask(detailRow.value.id, { answer, dueDate: detailForm.dueDate || null, priority: detailForm.priority, note: detailForm.note || null, rowVersion: detailRow.value.rowVersion })
+    const updated = await patchTask(detailRow.value.id, { answer, dueDate: detailForm.dueDate || null, priority: detailForm.priority, note: detailForm.note || null, remindEnabled: detailForm.remindEnabled ? 1 : 0, remindDays: detailForm.remindDays, rowVersion: detailRow.value.rowVersion })
     Object.assign(detailRow.value, updated)
     detailVisible.value = false
     ElMessage.success('已保存本次配置')
@@ -447,14 +454,24 @@ async function doReuse() {
   try { const r = await reuseExecution(executionId.value, { name: reuseForm.name.trim(), projectId: reuseForm.projectId, copyAnswers: reuseForm.copyAnswers, idempotencyKey: reuseForm.key }); await loadExecutions(); executionId.value = r.executionId; reuseVisible.value = false; await load() }
   catch { /* 同一幂等键重试 */ } finally { saving.value = false }
 }
+async function changeLifecycle(action) {
+  try { await ElMessageBox.confirm(action === 'archive' ? '归档后此清单只读，未发送提醒取消。确认归档？' : '暂停后停止提醒，可恢复执行。', '清单操作') } catch { return }
+  saving.value = true
+  try { await (action === 'archive' ? archiveExecution : pauseExecution)(executionId.value); await loadExecutions(); await load() }
+  catch { /* 拦截器提示 */ } finally { saving.value = false }
+}
 
 onMounted(async () => {
   load()
   loadExecutions()
   try {
     const me = await fetch('/api/auth/me', { credentials: 'include' }).then((x) => x.json())
-    isMaintainer.value = !!(me.data && (me.data.isAdmin || (me.data.permissions || []).includes('knowledge:maintain')))
+    isMaintainer.value = !!me.data?.permissions?.includes('knowledge:maintain')
   } catch (e) { isMaintainer.value = false }
+  if (/^\d+$/.test(String(route.query.executionId || ''))) {
+    try { executionId.value = Number(route.query.executionId); await openExecution(); const task = executionDetail.value.tasks?.find(t => String(t.id) === route.query.taskId); if (task) openDetail(task) }
+    catch { ElMessage.warning('任务已不可访问，请查看清单历史或联系维护人') }
+  }
 })
 </script>
 

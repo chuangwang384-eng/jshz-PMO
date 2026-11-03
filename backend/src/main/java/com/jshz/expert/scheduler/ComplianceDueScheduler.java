@@ -27,6 +27,7 @@ public class ComplianceDueScheduler {
     private final KnowledgeDocumentMapper documentMapper;
     private final KnowledgeFavoriteMapper favoriteMapper;
     private final NotificationService notificationService;
+    private final com.jshz.expert.service.ComplianceRolloutService rollout;
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Value("${expert.compliance.due-enabled:false}") private boolean dueEnabled;
     @Value("${expert.compliance.assignee-days:3}") private int assigneeDays;
@@ -80,6 +81,8 @@ public class ComplianceDueScheduler {
     }
 
     private void sendWithLog(Long uid, Long itemId, String type, LocalDateTime scheduled, String content) {
+        rollout.lockUser(uid);
+        if (rollout.isV4(uid)) return;
         ComplianceReminderLog row = new ComplianceReminderLog();
         row.setUserId(uid); row.setItemId(itemId); row.setReminderType(type);
         row.setScheduledTime(scheduled); row.setSendStatus("PENDING"); row.setRetryCount(0);

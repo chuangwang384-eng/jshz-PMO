@@ -45,6 +45,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ComplianceService {
 
+    private final ComplianceRolloutService rollout;
     private final ComplianceItemMapper itemMapper;
     private final ComplianceItemAssigneeMapper assigneeMapper;
     private final ComplianceUserProgressMapper progressMapper;
@@ -451,6 +452,7 @@ public class ComplianceService {
     /** 更新个人进度/备注/阻塞原因（仅本人；INSERT ON DUPLICATE 语义）。 */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> updateMyProgress(Long userId, Long itemId, String progressStatus, String remark, String blockReason) {
+        rollout.requireV3(userId);
         ComplianceItem it = itemMapper.selectById(itemId);
         if (it == null || it.getIsDraft() == 1) throw new BusinessException("事项不存在或未发布");
         if (progressStatus != null && !List.of("UNPROCESSED", "PROCESSING", "COMPLETED").contains(progressStatus)) {
@@ -490,6 +492,7 @@ public class ComplianceService {
     /** 提醒设置（仅本人）。 */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> updateMyReminder(Long userId, Long itemId, Integer remindEnabled, Integer remindDays) {
+        rollout.requireV3(userId);
         if (remindDays != null && (remindDays < 1 || remindDays > 30)) {
             throw new BusinessException("提醒提前天数须在 1-30 之间");
         }

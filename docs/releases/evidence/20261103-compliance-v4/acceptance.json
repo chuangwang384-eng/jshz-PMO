@@ -1,0 +1,97 @@
+{
+  "verified_at": "2026-11-03T19:42:37.742736+08:00",
+  "baseline": "f0b1b01",
+  "scope": "isolated candidate, not production",
+  "mysql": {
+    "version": "26.7.0",
+    "endpoint": "127.0.0.1:13316/acceptance_v4",
+    "actual_schema_tables": 65,
+    "fixture": "schema only + synthetic users/documents/projects; no company rows"
+  },
+  "backend": "127.0.0.1:18086",
+  "browser_origin": "http://localhost:5173",
+  "migrations_each_runs": 2,
+  "tests": [
+    {
+      "name": "com.jshz.expert.ComplianceV4AcceptanceIT",
+      "tests": "14",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.jshz.expert.service.ComplianceV4EditingRegressionTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.jshz.expert.scheduler.ComplianceReminderRegressionTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.jshz.expert.service.ProjectAccessRegressionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.jshz.expert.service.ProjectStorageRegressionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.jshz.expert.service.SupplierDeletionRegressionTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.jshz.expert.service.ComplianceAssignmentRegressionTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "total_tests": 36,
+  "real_browser": {
+    "no_api_interception": true,
+    "real_login": true,
+    "anonymous_http": 401,
+    "allowed_origin_patch_preflight_http": 200,
+    "unallowed_origin_preflight_http": 403,
+    "owner_only_execution_application_code": 404,
+    "maintainer_denied_private_events_application_code": 404,
+    "legacy_write_application_code": 409,
+    "complete_reuse_readonly_history": true,
+    "page_errors": 0,
+    "non_aborted_request_failures": 0
+  },
+  "frontend_fixture_regressions": [
+    "compliance-v4-browser.mjs PASS",
+    "project-config-browser.mjs PASS"
+  ],
+  "builds": {
+    "backend_package": "PASS",
+    "frontend_build": "PASS; existing chunk-size warnings",
+    "backend_source_copy_differences": [],
+    "backend_jar_sha256": "ddb6d4eb914747eee322ad8465ba4ee6d0ec1f65a63ecc63af6c2d58c1f0e301",
+    "frontend_index_sha256": "bb0f8b66afaf1f72422660ad37a6b6e9f7b1678c4d23ba0a83eb0e4ec94b89b6"
+  },
+  "production_migration": false,
+  "production_release": false,
+  "cleanup": {
+    "isolated_services_stopped": true,
+    "temporary_plaintext_credential_files_removed": true,
+    "schema_only_snapshot_retained_locally": ".build-compliance-v4-acceptance/schema-only.sql"
+  }
+}

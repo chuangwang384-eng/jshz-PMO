@@ -30,6 +30,28 @@ import java.util.Map;
 public class ComplianceV4Controller {
 
     private final ComplianceV4Service complianceV4Service;
+    private final com.jshz.expert.service.ComplianceRolloutService rollout;
+    private final com.jshz.expert.service.ComplianceLegacyService legacy;
+
+    @GetMapping("/mode")
+    public ApiResponse<Map<String,Object>> mode(@AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
+        return ApiResponse.ok(Map.of("enabled", rollout.isEnabled(), "mode", rollout.isV4(user.getUserId()) ? "V4" : "V3"));
+    }
+    @PostMapping("/mode/enable")
+    public ApiResponse<Void> enable(@RequestBody Map<String,Object> body, @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
+        if (!Boolean.TRUE.equals(body.get("confirmed"))) throw new BusinessException("请确认旧版将转为只读历史");
+        rollout.enable(user.getUserId()); return ApiResponse.ok(null);
+    }
+    @GetMapping("/legacy-history")
+    public ApiResponse<List<Map<String,Object>>> legacyHistory(@AuthenticationPrincipal AuthUser user) {
+        requireUser(user); return ApiResponse.ok(legacy.history(user.getUserId()));
+    }
+    @GetMapping("/documents/{documentId}/drafts")
+    public ApiResponse<List<Map<String,Object>>> drafts(@PathVariable Long documentId, @AuthenticationPrincipal AuthUser user) {
+        requireUser(user); return ApiResponse.ok(complianceV4Service.listDrafts(documentId, user));
+    }
 
     private void requireUser(AuthUser user) {
         if (user == null) throw new BusinessException(401, "未登录");
@@ -45,8 +67,8 @@ public class ComplianceV4Controller {
 
     /** 某文档已发布模板列表（登录）。 */
     @GetMapping("/documents/{documentId}/templates")
-    public ApiResponse<List<Map<String, Object>>> listTemplates(@PathVariable Long documentId) {
-        return ApiResponse.ok(complianceV4Service.listPublishedTemplates(documentId));
+    public ApiResponse<List<Map<String, Object>>> listTemplates(@PathVariable Long documentId, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(complianceV4Service.listPublishedTemplates(documentId, user));
     }
 
     /** 上传者创建自己的模板草稿（可从已发布版本复制）。 */
@@ -114,7 +136,7 @@ public class ComplianceV4Controller {
                                                              @RequestParam(defaultValue = "20") long size,
                                                              @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        return ApiResponse.ok(complianceV4Service.listMyExecutions(user.getUserId(), state, projectId, documentId, search, page, size));
+        return ApiResponse.ok(complianceV4Service.listMyExecutions(user, state, projectId, documentId, search, page, size));
     }
 
     /** 清单详情（含任务；来源可用性标注）。 */
