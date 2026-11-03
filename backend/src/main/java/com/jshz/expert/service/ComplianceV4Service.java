@@ -225,6 +225,7 @@ public class ComplianceV4Service {
             if (!title.isBlank()) t.setTitle(title.trim());
         }
         if (body.containsKey("applicability")) t.setApplicability((String) body.get("applicability"));
+        t.setRowVersion((t.getRowVersion() == null ? 0 : t.getRowVersion()) + 1);
         templateVersionMapper.updateById(t);
 
         // 整树替换

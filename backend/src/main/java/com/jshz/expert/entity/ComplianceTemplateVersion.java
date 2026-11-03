@@ -3,7 +3,6 @@ package com.jshz.expert.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.baomidou.mybatisplus.annotation.Version;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 
@@ -44,7 +43,6 @@ public class ComplianceTemplateVersion {
     private String applicability;
 
     /** 乐观锁版本 */
-    @Version
     private Integer rowVersion;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
