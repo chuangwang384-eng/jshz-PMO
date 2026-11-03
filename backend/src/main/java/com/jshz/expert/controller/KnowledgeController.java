@@ -8,6 +8,7 @@ import com.jshz.expert.entity.KnowledgeDocument;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.KnowledgeDocStorageService;
 import com.jshz.expert.service.KnowledgeDocumentService;
+import com.jshz.expert.service.ComplianceService;
 import com.jshz.expert.service.KnowledgeFavoriteService;
 import com.jshz.expert.service.DownloadAuditService;
 import com.jshz.expert.service.DocPreviewService;
@@ -53,6 +54,7 @@ public class KnowledgeController {
     private final KnowledgeDocumentService documentService;
     private final KnowledgeDocStorageService storageService;
     private final KnowledgeFavoriteService favoriteService;
+    private final ComplianceService complianceService;
     private final DownloadAuditService downloadAuditService;
     private final DocPreviewService docPreviewService;
     private final OperationLogService operationLogService;
@@ -113,7 +115,17 @@ public class KnowledgeController {
                 authUser == null ? null : authUser.getUsername(),
                 OperationLogService.ACTION_UPDATE_DOC, "更新知识文档《" + doc.getTitle() + "》（新版本）",
                 "DOC", id, request);
-        return ApiResponse.ok(doc);
+        // 企业合规分类：更新成功后重新解析生成新事项草稿（REQ/DES-20261102 FR6；事务外静默，不阻断更新）
+        if (complianceService != null) {
+            try {
+                String fileType = doc == null ? null : doc.getFileType();
+                complianceService.parseAndCreateDrafts(id, complianceService.latestVersionIdOf(id),
+                        file.getOriginalFilename(), fileType, file.getBytes(), null, authUser);
+            } catch (Exception ex) {
+                // 静默跳过：解析失败允许维护人手动录入
+            }
+        }
+    return ApiResponse.ok(doc);
     }
 
     // ==================== 下架 ====================

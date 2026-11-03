@@ -37,6 +37,7 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
 
     private final KnowledgeDocStorageService storageService;
     private final KnowledgeDocTextExtractor textExtractor;
+    private final ComplianceService complianceService;
     private final KnowledgeFavoriteService favoriteService;
     private final DownloadAuditService downloadAuditService;
     private final KnowledgeDocVersionMapper versionMapper;
@@ -74,7 +75,30 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
 
         saveVersion(doc.getId(), 1, file.getOriginalFilename(), storedName,
                 doc.getFileType(), file.getSize(), userName);
+        // 企业合规分类：上传后自动解析生成事项草稿（REQ/DES-20261102 FR1）
+        if ("enterprise-compliance".equals(category) && complianceService != null) {
+            try {
+                complianceService.parseAndCreateDrafts(doc.getId(), latestVersionId(doc.getId()),
+                        file.getOriginalFilename(), doc.getFileType(), file.getBytes(), doc.getContent(), user);
+            } catch (Exception ex) {
+                // 解析失败不阻断上传（静默跳过，允许手动录入）
+            }
+        }
         return doc;
+    }
+
+    private String getDocCategory(Long docId) {
+        KnowledgeDocument d = getById(docId);
+        return d == null ? null : d.getCategory();
+    }
+
+    /** 最新版本 id（企业合规解析联动用；无版本记录返回 null）。 */
+    private Long latestVersionId(Long docId) {
+        var v = versionMapper.selectList(new LambdaQueryWrapper<KnowledgeDocVersion>()
+                .eq(KnowledgeDocVersion::getDocId, docId)
+                .orderByDesc(KnowledgeDocVersion::getId)
+                .last("LIMIT 1"));
+        return v.isEmpty() ? null : v.get(0).getId();
     }
 
     /**
@@ -329,7 +353,12 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         notifyDocEvent(NotificationService.TYPE_DOC_DELETED, doc,
                 "文档「" + doc.getTitle() + "」已被永久删除",
                 "您上传的文档已被管理员永久删除（含全部版本历史与磁盘文件），不可恢复");
+     // 企业合规联动：永久删除文档时删除事项与责任人；个人进度保留（孤儿数据不展示）
+    if (complianceService != null) {
+        complianceService.onDocumentDeleted(id);
     }
+}
+
 
     /**
      * 文档事件通知：按 uploadBy 反查接收人，通知到用户。

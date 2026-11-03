@@ -47,6 +47,12 @@ expert:
     preview-dir: 'D:\jshz-PMO\知识文档库\_preview'
     # LibreOffice 可执行文件路径（doc/docx/xls/xlsx/ppt/pptx 在线预览转换）
     libreoffice-path: 'C:\Program Files\LibreOffice\program\soffice.com'
+  # 企业合规：到期提醒定时任务（每日 08:30；个人提醒+全局责任人提醒，幂等去重）
+  compliance:
+    due-enabled: true
+    due-cron: "0 30 8 * * ?"
+    # 全局责任人提醒提前天数
+    assignee-days: 3
   # 供应商图片存储根目录（前端压缩后上传，多图画廊展示）
   # 客户附件存储根目录（客户信息模块：客户档案附件，独立目录）
   customer:
@@ -79,3 +85,4 @@ expert:
 logging:
   level:
     com.jshz.expert: info
+
