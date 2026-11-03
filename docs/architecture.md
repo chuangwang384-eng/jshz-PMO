@@ -140,3 +140,6 @@ AIGC:
 
 ## 2026-11-03 隔离验收补充
 项目配置修复watch初始化顺序与VueFlow slot节点参数传递，类型节点使用computed跟随数据更新。发布增加可选GracefulSwitch与不可变前端root切换，保留旧worker和新旧资产兼容；未部署。完整验证与待审批风险见 docs/releases/20261103-review-fixes-approval.md。
+
+## 生产运行状态更新（2026-11-03 15:37）
+本轮修复已获批准并以蓝绿方式上线。生产API稳定在8080，影子8081已停止；前端通过Nginx root指向frontend/releases/1.0.22-review-fixes-20261103，新旧hash资源并存；回滚配置元数据位于frontend/release-metadata（webroot外、排除版本控制）。发布证据及业务验收边界见docs/releases/20261103-review-fixes-production.md。

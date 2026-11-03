@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param(
     [string]$NginxPrefix = 'D:\nginx',
@@ -32,9 +32,11 @@ try {
     Register-ScheduledTask -TaskName $name -Action $action -Principal $identity | Out-Null
     Start-ScheduledTask -TaskName $name
     $complete = $false
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    for ($attempt = 0; $attempt -lt 80; $attempt++) {
         Start-Sleep -Milliseconds 250
         $info = Get-ScheduledTaskInfo -TaskName $name
+        # Scheduler may briefly report Ready while LastTaskResult still says Running/Queued.
+        if ($info.LastTaskResult -ge 267008 -and $info.LastTaskResult -le 267016) { continue }
         if ($info.LastRunTime.Year -gt 2000 -and (Get-ScheduledTask -TaskName $name).State -ne 'Running') {
             if ($info.LastTaskResult -ne 0) { throw "Nginx signal failed: task result $($info.LastTaskResult)" }
             $complete = $true

@@ -345,3 +345,10 @@ server {
 历史NSSM默认发布会重启Nginx，不能作为严格不停机路径。本轮新增 deploy-backend.ps1 -GracefulSwitch：管理员通过invoke-nginx-graceful.ps1创建SYSTEM一次性任务发送reload，验证master PID不变、新worker出现并等待旧worker全部退出，再检查旧后端连接排空。影子实例仅回环监听，禁用定时任务。
 前端使用deploy-frontend-graceful.ps1不可变release/root平滑切换，保留新旧hash资产并准备兼容回滚目录。旧目录重命名方案不作为本次不停机路径。
 生产SYSTEM权限及慢上传排空尚未实测，需负责人批准后先做身份预检，失败终止而非重启Nginx。操作、风险、回滚与验收证据见 [发布审批单](releases/20261103-review-fixes-approval.md)。无环境变量或数据库结构迁移，新增前端release-metadata存储配置回滚元数据。
+
+## R-1 发布记录
+- 2026-11-03 15:36:44 R-1 发布 1.0.22-review-fixes 成功（jar: expert-system.jar）
+
+## 2026-11-03 15:37 严格不停机模式已执行
+负责人已批准。SYSTEM平滑重载、后端8080/8081蓝绿、前端不可变root切换完成；运行root已为 frontend/releases/1.0.22-review-fixes-20261103，旧dist不是当前入口。后续勿用旧默认dist脚本认定上线。
+Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求零失败。初始预检另有1次连接异常、编码和任务状态误判，均已如实记录。详情及备份/回滚位置见 [生产发布记录](releases/20261103-review-fixes-production.md)。SYSTEM重载现已实测，真实账号业务验收尚待负责人。
