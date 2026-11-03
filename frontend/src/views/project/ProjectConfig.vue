@@ -418,6 +418,9 @@ const bindPhaseId = ref(null)
 const bindFallback = ref(false)
 const bindScopeName = ref('')
 
+const wizardVisible = ref(false)
+const wizardType = ref(null)
+
 // 编辑会话内表单变化 → 置脏（弹窗可见期间 deep 监听）
 watch(editTypeForm, () => { if (editTypeVisible.value) markDirty() }, { deep: true })
 watch(editPhaseForm, () => { if (editPhaseVisible.value) markDirty() }, { deep: true })
@@ -434,8 +437,6 @@ watch([editTypeVisible, editPhaseVisible, editTemplateVisible, wizardVisible], (
 })
 
 // ==================== 图形视图状态 ====================
-const wizardVisible = ref(false)
-const wizardType = ref(null)
 const deleteTypeVisible = ref(false)
 const deleteTarget = ref(null)
 const deletingType = ref(false)

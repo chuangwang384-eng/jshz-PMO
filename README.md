@@ -60,7 +60,7 @@ jshz-PMO/
 
 ## 不停机部署方案（发布运维规范）
 
-> **每次代码/配置更新上线，必须按本方案（R-1 后端蓝绿 / R-2 前端原子发布）执行，禁止直接覆盖运行文件、禁止 `nginx -s reload`。** 完整设计与流程图见 [docs/2026-10-24-发布运维体系与UI偏移修复-design.md](docs/2026-10-24-发布运维体系与UI偏移修复-design.md)。
+> **每次代码/配置更新上线，必须按本方案（R-1 后端蓝绿 / R-2 前端原子发布）执行，禁止直接覆盖运行文件；严格不停机发布使用 `deploy-backend.ps1 -GracefulSwitch` 和 `deploy-frontend-graceful.ps1`，禁止普通用户直接发送 reload。** 完整设计与流程图见 [docs/2026-10-24-发布运维体系与UI偏移修复-design.md](docs/2026-10-24-发布运维体系与UI偏移修复-design.md)。
 
 ### R-1 后端蓝绿不停机发布
 
@@ -72,7 +72,7 @@ jshz-PMO/
 ```
 
 - 端口约定：`8080`=生产（绿），`8081`=影子（蓝）
-- **Nginx 切流一律 `Restart-Service ExpertSystemNginx`**（NSSM 托管约束，禁止 `nginx -s reload`）
+- **严格不停机切流使用 `-GracefulSwitch`**：管理员通过 SYSTEM 一次性任务平滑重载、验证主进程不变并等待旧 worker 排空；旧版默认 `Restart-Service` 会有入口间隙，不能用于不停机验收。详见 `docs/releases/20261103-review-fixes-approval.md`
 - 阶段 9 先停 NSSM 服务再替换 `target/*.jar`（释放进程锁；不先停会替换失败）
 - 归档：`backend/releases/`，默认保留 5 个版本（`-KeepVersions` 可调）
 

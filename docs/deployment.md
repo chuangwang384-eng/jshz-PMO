@@ -340,3 +340,8 @@ server {
 - 旧富文本共享文件保留兼容；没有批量删行/删文件迁移。已被历史覆盖的旧内容无法由本修复恢复。
 - 回滚前备份应用、配置及项目资料库；回滚代码会重新引入旧缺陷。新UUID富文本路径由旧readRichText仍可读取；不要回滚或清空数据。恢复演练需在隔离环境执行。
 - 验证步骤和未验证项见 docs/handover/tasks/20261103_fix_takeover.md。
+
+## 严格不停机发布新模式（2026-11-03，待审批）
+历史NSSM默认发布会重启Nginx，不能作为严格不停机路径。本轮新增 deploy-backend.ps1 -GracefulSwitch：管理员通过invoke-nginx-graceful.ps1创建SYSTEM一次性任务发送reload，验证master PID不变、新worker出现并等待旧worker全部退出，再检查旧后端连接排空。影子实例仅回环监听，禁用定时任务。
+前端使用deploy-frontend-graceful.ps1不可变release/root平滑切换，保留新旧hash资产并准备兼容回滚目录。旧目录重命名方案不作为本次不停机路径。
+生产SYSTEM权限及慢上传排空尚未实测，需负责人批准后先做身份预检，失败终止而非重启Nginx。操作、风险、回滚与验收证据见 [发布审批单](releases/20261103-review-fixes-approval.md)。无环境变量或数据库结构迁移，新增前端release-metadata存储配置回滚元数据。

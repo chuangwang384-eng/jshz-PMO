@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
   R-1 后端蓝绿不停机发布脚本（jshz-PMO 专家库系统）
@@ -33,6 +33,7 @@ param(
     [string]$JarPath = '',
     [string]$Version = '',
     [switch]$DryRun,
+    [switch]$GracefulSwitch,
     [int]$KeepVersions = 5
 )
 
@@ -120,8 +121,35 @@ function Wait-Healthy([string]$url, [int]$retries, [int]$delaySec, [string]$name
     return $false
 }
 
+# -GracefulSwitch is the reviewed no-Nginx-restart path; legacy default remains unchanged.
+function Invoke-NginxSwitch {
+    [CmdletBinding()] param()
+    if ($GracefulSwitch) {
+        & (Join-Path $PSScriptRoot 'invoke-nginx-graceful.ps1')
+    } else {
+        Restart-Service -Name $NginxSvc -Force
+    }
+}
+
 # ==================== 阶段 1: 预检 ====================
+function Wait-PortDrained([int]$port) {
+    if (-not $GracefulSwitch -or $DryRun) { return }
+    $until = (Get-Date).AddSeconds(300)
+    do {
+        $active = @(Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.State -eq 'Established' -and $_.LocalPort -eq $port })
+        if ($active.Count -eq 0) { return }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $until)
+    throw "Port $port still has active requests; preserve backend process and inspect manually."
+}
+
 function Step1-Preflight {
+    if ($GracefulSwitch -and -not $DryRun) {
+        $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+        if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'GracefulSwitch requires elevated PowerShell before any release action.'
+        }
+    }
     Write-Step '1/11 预检（新 jar 存在 + 绿服务健康）'
     if (-not $JarPath) {
         $jar = Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File |
@@ -187,7 +215,7 @@ function Step1-Preflight {
 function Step2-StartShadow {
     Write-Step '2/11 影子启动（新 jar @8081）'
     Invoke-Action "启动影子进程: java -jar $script:NewJar --server.port=${BluePort}（工作目录 $BackendDir，数据库密码经环境变量继承）" {
-        $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}") `
+        $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}", '--server.address=127.0.0.1', '--expert.compliance.due-enabled=false', '--expert.wecom.sync-cron-enabled=false') `
             -WorkingDirectory $BackendDir -PassThru -WindowStyle Hidden
         $script:ShadowPid = $psi.Id
         Write-Ok "影子进程 PID=$($psi.Id)"
@@ -257,16 +285,16 @@ function Step6-TestNginx {
 
 # ==================== 阶段 7: 重启 Nginx ====================
 function Step7-RestartNginx {
-    Write-Step '7/11 重启 Nginx 服务（NSSM 约束: Restart-Service，禁止 nginx -s reload）'
-    $ok = Invoke-Check "Restart-Service $NginxSvc 成功" {
-        Restart-Service -Name $NginxSvc -Force
+    Write-Step ('7/11 Nginx 切流（GracefulSwitch=' + $GracefulSwitch + '）')
+    $ok = Invoke-Check "Nginx 切流成功（GracefulSwitch=$GracefulSwitch）" {
+        Invoke-NginxSwitch
         Start-Sleep -Seconds 3
         if ((Get-Service -Name $NginxSvc).Status -ne 'Running') { throw "服务未运行: $((Get-Service -Name $NginxSvc).Status)" }
     }
     if (-not $ok) {
         Invoke-Action '回滚：恢复备份配置 + 重启 Nginx（绿继续）' {
             Copy-Item -Path $script:ConfBackup -Destination $NginxConfFile -Force
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw 'Nginx 重启失败，已回滚配置'
     }
@@ -285,7 +313,7 @@ function Step8-VerifyBlue {
         Invoke-Action '回滚：Nginx 切回 8080 + 恢复配置 + 重启服务' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${BluePort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${GreenPort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw '蓝验证失败，已回滚到 8080'
     }
@@ -293,6 +321,7 @@ function Step8-VerifyBlue {
 
 # ==================== 阶段 9: 稳态化 NSSM ====================
 function Step9-StabilizeNssm {
+    Wait-PortDrained $GreenPort
     Write-Step '9/11 稳态化：停 NSSM -> 替换 jar -> 启 NSSM -> 8080 健康'
     $targetJar = Join-Path (Join-Path $BackendDir 'target') $TargetJarName
 
@@ -365,13 +394,13 @@ function Step10-SwitchBack {
         Invoke-Action '回滚：Nginx 指回 8081（蓝仍可服务）' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw '切回 8080 配置校验失败，已回滚 Nginx 指向 8081'
     }
 
-    $okR = Invoke-Check "Restart-Service $NginxSvc" {
-        Restart-Service -Name $NginxSvc -Force
+    $okR = Invoke-Check "Nginx 切流（GracefulSwitch=$GracefulSwitch）" {
+        Invoke-NginxSwitch
         Start-Sleep -Seconds 3
         if ((Get-Service -Name $NginxSvc).Status -ne 'Running') { throw 'Nginx 服务未运行' }
     }
@@ -379,7 +408,7 @@ function Step10-SwitchBack {
         Invoke-Action '回滚：Nginx 指回 8081（蓝仍可服务）' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw 'Nginx 重启失败，已回滚 Nginx 指向 8081'
     }
@@ -394,7 +423,7 @@ function Step10-SwitchBack {
         Invoke-Action '回滚：Nginx 指向 8081（蓝继续服务）' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw '验证失败，已回滚 Nginx 指向 8081，蓝继续服务'
     }
@@ -402,6 +431,7 @@ function Step10-SwitchBack {
 
 # ==================== 阶段 11: 清理 + 归档 ====================
 function Step11-Cleanup {
+    Wait-PortDrained $BluePort
     Write-Step '11/11 清理 + 归档'
     if ($script:ShadowPid -and $script:ShadowPid -gt 0) {
         Invoke-Action "kill 8081 影子进程 PID=$script:ShadowPid" {
@@ -413,7 +443,14 @@ function Step11-Cleanup {
         $dirs = @(Get-ChildItem -Path $ReleasesDir -Directory | Sort-Object LastWriteTime -Descending)
         if ($dirs.Count -gt $KeepVersions) {
             $toRemove = $dirs | Select-Object -Skip $KeepVersions
-            foreach ($d in $toRemove) { Remove-Item -Path $d.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+            foreach ($d in $toRemove) {
+                $releaseRoot = [IO.Path]::GetFullPath($ReleasesDir).TrimEnd('\') + '\'
+                $removePath = [IO.Path]::GetFullPath($d.FullName)
+                if (-not $removePath.StartsWith($releaseRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'Refusing archive cleanup outside releases directory'
+                }
+                Remove-Item -LiteralPath $removePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
             Write-Ok "已清理 $($toRemove.Count) 个旧版本目录"
         } else { Write-Ok "当前 $($dirs.Count) 个版本目录，未超上限" }
     }

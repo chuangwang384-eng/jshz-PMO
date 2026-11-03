@@ -137,3 +137,6 @@ AIGC:
 - 责任人编辑仅通知新增者一次，保留者不重新通知。
 - 项目配置图形化接手保留原表格入口及原有权限；新增Vue Flow依赖、统一Pinia配置状态和9个组件，修复阶段拖动、模板异步初始化/排序、兜底来源/影响面与新增部分保存重试。
 - 开发验证及限制见 docs/handover/tasks/20261103_fix_takeover.md，尚未部署。
+
+## 2026-11-03 隔离验收补充
+项目配置修复watch初始化顺序与VueFlow slot节点参数传递，类型节点使用computed跟随数据更新。发布增加可选GracefulSwitch与不可变前端root切换，保留旧worker和新旧资产兼容；未部署。完整验证与待审批风险见 docs/releases/20261103-review-fixes-approval.md。

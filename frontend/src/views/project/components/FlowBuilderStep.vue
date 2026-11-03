@@ -27,7 +27,7 @@
         @node-drag-stop="onDragStop"
       >
         <template #node-phaseNode="nodeProps">
-          <PhaseNode v-bind="nodeProps" :show-target="false" />
+          <PhaseNode :node="nodeProps" :phase="nodeProps.data.phase" :index="nodeProps.data.index" :show-target="false" />
         </template>
         <Background :gap="24" pattern-color="#e6e9ef" />
         <Panel position="top-right">

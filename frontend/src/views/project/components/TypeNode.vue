@@ -11,16 +11,17 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 
 const props = defineProps({
   node: { type: Object, required: true }
 })
 const emit = defineEmits(['edit'])
-const type = props.node.data.type
-const phaseCount = props.node.data.phaseCount
+const type = computed(() => props.node.data.type)
+const phaseCount = computed(() => props.node.data.phaseCount)
 function onEdit() {
-  emit('edit', type)
+  emit('edit', type.value)
 }
 </script>
 

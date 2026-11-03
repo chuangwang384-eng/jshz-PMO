@@ -26,10 +26,10 @@
         :apply-default="false"
       >
         <template #node-typeNode="nodeProps">
-          <TypeNode v-bind="nodeProps" @edit="onEditType" />
+          <TypeNode :node="nodeProps" @edit="onEditType" />
         </template>
         <template #node-phaseNode="nodeProps">
-          <PhaseNode v-bind="nodeProps" />
+          <PhaseNode :node="nodeProps" :phase="nodeProps.data.phase" :index="nodeProps.data.index" :templates="nodeProps.data.templates" :source="nodeProps.data.source" />
         </template>
         <Background :gap="24" pattern-color="#e6e9ef" />
         <Panel position="top-right">
