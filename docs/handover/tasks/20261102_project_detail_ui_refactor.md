@@ -73,3 +73,10 @@
 | 推进必填拦截（预算阶段缺预算 → 按钮禁用 + 阻塞原因条 + 待办解决入口） | 通过 |
 | 文本必填拦截（干净用例 API：有附件无文本 → 400 拦截） | 通过 |
 **状态：已验收。** 验收项目均已软删清理；后端修复 jar 蓝绿 + 前端发布均版本号不变 1.0.21。
+
+## 14. 客户信息板块弹窗修复（2026-11-03，需求人反馈，版本不变）
+- 根因（两层）：① permission 规则 221 将 GET /api/customer/relations/types 绑 customer:manage；② Controller 内 requireManage 代码级硬校验
+- 修复：迁移 20261103_customer_relation_types_read_open.sql 删 GET 规则（写操作 164/165 保留 manage）+ CustomerController 移除该 GET 的 requireManage（登录即可）
+- 部署：迁移已执行 + 后端蓝绿（logs/deploy-1p022-wrapper.log ALL_DONE_OK，版本 1.0.22——注：1.0.22 为部署运行版，非我方升版）
+- 验收：测试账号浏览器实测客户信息板块无弹窗、列表 4 行正常；写操作 POST 仍 403
+- ⚠️ 工作区存在他人进行中的《审批人快速审批》改动（ApplicationService 等 11 文件+3 迁移 SQL 未提交）——与本次无关，未提交未触碰
