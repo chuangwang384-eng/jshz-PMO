@@ -374,3 +374,11 @@
 - [ ] 是否明确哪些操作必须先经负责人批准？
 
 > **交接质量的最终判断标准：新 Agent 无需猜测、无需依赖隐含聊天上下文，也不会因误解项目状态而重复开发、破坏数据或错误发布。**
+
+## Agent skills
+
+### Issue tracker
+任务使用本地 Markdown，见 [任务跟踪约定](docs/agents/issue-tracker.md)。
+
+### Domain docs
+沿用现有术语及决策文档，见 [领域文档约定](docs/agents/domain.md)。
