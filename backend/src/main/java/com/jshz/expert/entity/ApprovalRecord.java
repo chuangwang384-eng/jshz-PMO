@@ -11,7 +11,8 @@ import java.time.LocalDateTime;
 
 /**
  * 审批流进度记录实体（对应数据库表 approval_record）。
- * action：SUBMIT / APPROVE / REJECT / WITHDRAW。
+ * action（8 种）：SUBMIT / APPROVE / REJECT / WITHDRAW / TRANSFER / ADD_APPROVER /
+ *                RETURN（退回修改）/ RESUBMIT（重新提交）。
  */
 @Data
 @TableName("approval_record")
@@ -33,7 +34,7 @@ public class ApprovalRecord {
     @JsonProperty("nodeName")
     private String nodeName;
 
-    /** 动作：SUBMIT / APPROVE / REJECT / WITHDRAW */
+    /** 动作：SUBMIT / APPROVE / REJECT / WITHDRAW / TRANSFER / ADD_APPROVER / RETURN / RESUBMIT */
     @JsonProperty("action")
     private String action;
 

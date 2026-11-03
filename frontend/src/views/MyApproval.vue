@@ -10,6 +10,7 @@
         <el-option label="已通过" :value="1" />
         <el-option label="已驳回" :value="2" />
         <el-option label="已撤回" :value="3" />
+        <el-option label="退回修改" :value="4" />
       </el-select>
     </div>
 
@@ -26,12 +27,13 @@
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
-          <el-tag :type="approvalStatusTagType(row.status)">{{ row.statusText }}</el-tag>
+          <el-tag :type="approvalStatusTagType(row.status)">{{ approvalStatusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="approveComment" label="审批意见" min-width="150" show-overflow-tooltip>
+      <el-table-column label="审批意见" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
-          <span v-if="row.approveComment">{{ row.approveComment }}</span>
+          <span v-if="row.status === 4 && row.returnComment">退回意见：{{ row.returnComment }}</span>
+          <span v-else-if="row.approveComment">{{ row.approveComment }}</span>
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
@@ -47,11 +49,12 @@
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" align="center" fixed="right">
+      <el-table-column label="操作" width="300" align="center" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openProgress(row)">查看进度</el-button>
           <el-button link type="primary" @click="openDiff(row)">查看对比</el-button>
           <el-button v-if="row.status === 0" link type="danger" @click="handleWithdraw(row)">撤回</el-button>
+          <el-button v-if="row.status === 4" link type="warning" @click="handleResubmit(row)">重新编辑提交</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -96,8 +99,8 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMyApplications, withdrawRequest } from '../api/approval'
-import { changeSummary, approvalStatusTagType } from '../utils/format'
+import { getMyApplications, withdrawRequest, resubmitRequest } from '../api/approval'
+import { changeSummary, approvalStatusTagType, approvalStatusText } from '../utils/format'
 import ApprovalDiffDialog from '../components/ApprovalDiffDialog.vue'
 
 const route = useRoute()
@@ -183,6 +186,30 @@ async function handleWithdraw(row) {
   try {
     await withdrawRequest(row.id)
     ElMessage.success('已撤回')
+    fetchList()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+  }
+}
+
+// 重新编辑提交：仅退回修改(status=4)行展示入口，确认后调用后端，成功刷新列表（状态回待审批展示）
+async function handleResubmit(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认重新提交「${row.expertName}」的申请吗？提交后将回到待审批状态。`,
+      '重新提交确认',
+      {
+        confirmButtonText: '确认提交',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await resubmitRequest(row.id)
+    ElMessage.success('已重新提交，等待审批')
     fetchList()
   } catch (e) {
     // 错误提示已由拦截器统一处理

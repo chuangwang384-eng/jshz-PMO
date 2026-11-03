@@ -19,8 +19,8 @@
         <span>
           审批结果：<el-tag :type="approvalStatusTagType(row.status)">{{ row.statusText }}</el-tag>
         </span>
-        <span>审批人：{{ row.approveBy || '-' }}</span>
-        <span>审批时间：{{ row.approveTime || '-' }}</span>
+        <span>审批人：{{ (row.status === 4 ? (row.returnBy || row.approveBy) : row.approveBy) || '-' }}</span>
+        <span>审批时间：{{ (row.status === 4 ? (row.returnTime || row.approveTime) : row.approveTime) || '-' }}</span>
       </div>
     </div>
 
@@ -29,6 +29,16 @@
       <span class="reason-label">申请原因：</span>
       <span>{{ row?.reason || '-' }}</span>
     </div>
+
+    <!-- 退回修改提示：status=4 时展示，附退回意见，提示申请人重新编辑提交 -->
+    <el-alert
+      v-if="row && row.status === 4"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="row.returnComment ? `该申请单已退回修改：${row.returnComment}` : '该申请单已退回修改，请根据审批意见修改后重新提交'"
+      style="margin-bottom: 12px"
+    />
 
     <!-- 历史单提示：修改申请但未留存旧值快照（2026-10-27 之前已通过的存量单） -->
     <el-alert
@@ -98,17 +108,17 @@
           type="textarea"
           :rows="3"
           maxlength="200"
-          :show-word-limit="mode === 'reject'"
-          :placeholder="mode === 'approve' ? '审批意见（可空）' : '请填写驳回意见（必填）'"
+          :show-word-limit="mode === 'reject' || mode === 'return'"
+          :placeholder="mode === 'approve' ? '审批意见（可空）' : (mode === 'return' ? '请填写退回修改意见（必填）' : '请填写驳回意见（必填）')"
         />
         <div class="footer-buttons">
           <el-button @click="emit('update:modelValue', false)">取 消</el-button>
           <el-button
             v-permission="'approval:audit'"
-            :type="mode === 'approve' ? 'success' : 'danger'"
+            :type="actionType"
             :loading="submitting"
             @click="confirm"
-          >{{ mode === 'approve' ? '确认通过' : '确认驳回' }}</el-button>
+          >{{ actionText }}</el-button>
         </div>
       </div>
     </template>
@@ -118,12 +128,12 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { approveRequest, rejectRequest } from '../api/approval'
+import { approveRequest, rejectRequest, returnRequest } from '../api/approval'
 import { approvalStatusTagType } from '../utils/format'
 import PhotoImage from './PhotoImage.vue'
 
 // 审批变更前后对比弹窗（审批管理 + 我的申请共用）：
-// mode=view 只读查看 / approve 通过（意见可空）/ reject 驳回（意见必填），
+// mode=view 只读查看 / approve 通过（意见可空）/ reject 驳回（意见必填）/ return 退回修改（意见必填），
 // 审批动作在弹窗内完成，成功后 emit('success') 由父组件刷新列表。
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -144,9 +154,22 @@ const FIELD_ORDER = [
 const comment = ref('')
 const submitting = ref(false)
 
+// 底部确认按钮文案/颜色：通过=success、驳回=danger、退回修改=warning
+const actionText = computed(() => {
+  if (props.mode === 'approve') return '确认通过'
+  if (props.mode === 'return') return '确认退回修改'
+  return '确认驳回'
+})
+const actionType = computed(() => {
+  if (props.mode === 'approve') return 'success'
+  if (props.mode === 'return') return 'warning'
+  return 'danger'
+})
+
 const dialogTitle = computed(() => {
   if (props.mode === 'approve') return '审批通过（变更前后对比）'
   if (props.mode === 'reject') return '审批驳回（变更前后对比）'
+  if (props.mode === 'return') return '退回修改（变更前后对比）'
   return '申请详情对比'
 })
 
@@ -188,8 +211,8 @@ function newPhotoCleaned(key) {
 }
 
 async function confirm() {
-  if (props.mode === 'reject' && !comment.value.trim()) {
-    ElMessage.warning('请填写驳回意见')
+  if ((props.mode === 'reject' || props.mode === 'return') && !comment.value.trim()) {
+    ElMessage.warning(props.mode === 'return' ? '请填写退回修改意见' : '请填写驳回意见')
     return
   }
   submitting.value = true
@@ -197,6 +220,9 @@ async function confirm() {
     if (props.mode === 'approve') {
       await approveRequest(props.row.id, { comment: comment.value.trim() || undefined })
       ElMessage.success('已通过')
+    } else if (props.mode === 'return') {
+      await returnRequest(props.row.id, comment.value.trim())
+      ElMessage.success('已退回修改，申请人可重新编辑提交')
     } else {
       await rejectRequest(props.row.id, { comment: comment.value.trim() })
       ElMessage.success('已驳回')

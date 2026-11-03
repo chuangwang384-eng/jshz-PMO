@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.common.ApplicationType;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.ApprovalConfig;
+import com.jshz.expert.entity.ApprovalConfigUser;
 import com.jshz.expert.entity.ApprovalRecord;
 import com.jshz.expert.entity.Application;
 import com.jshz.expert.entity.Expert;
@@ -17,6 +18,7 @@ import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.ApprovalConfigMapper;
+import com.jshz.expert.mapper.ApprovalConfigUserMapper;
 import com.jshz.expert.mapper.ApprovalRecordMapper;
 import com.jshz.expert.mapper.ApplicationMapper;
 import com.jshz.expert.mapper.ProjectContractMapper;
@@ -28,6 +30,7 @@ import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -49,8 +52,9 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class ApplicationService extends ServiceImpl<ApplicationMapper, Application> {
 
-    /** 审批流流程键 */
-    public static final String FLOW_KEY = "EXPERT_MODIFY";
+    /** 审批流流程键（专家信息修改/新增共用 EXPERT；合同审批 CONTRACT） */
+    public static final String FLOW_KEY = "EXPERT";
+    public static final String FLOW_KEY_CONTRACT = "CONTRACT";
 
     /** 审批处理权限码（转办/加签目标用户与当前审批人须持有） */
     public static final String PERM_APPROVAL_AUDIT = "approval:audit";
@@ -69,11 +73,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /** 临时照片值格式：TMP:文件名 */
     private static final Pattern TMP_PATTERN = Pattern.compile("^TMP:[A-Za-z0-9._-]+$");
 
-    /** 状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 */
+    /** 状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 / 4 退回修改 */
     private static final int STATUS_PENDING = 0;
     private static final int STATUS_APPROVED = 1;
     private static final int STATUS_REJECTED = 2;
     private static final int STATUS_WITHDRAWN = 3;
+    private static final int STATUS_RETURNED = 4;
 
     /** 新增专家必填文本字段（审批通过后写入 expert_info；模板管理接口对外暴露该清单） */
     public static final List<String> CREATE_REQUIRED_FIELDS = List.of(
@@ -98,6 +103,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     private static final String MANAGE_PATH = "/profile/approval/manage";
 
     private final ApprovalConfigMapper approvalConfigMapper;
+    private final ApprovalConfigUserMapper approvalConfigUserMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
     private final ExpertService expertService;
     private final PhotoStorageService photoStorageService;
@@ -114,25 +120,33 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== 审批流配置 ====================
 
     /**
-     * 读取审批流配置；不存在则初始化默认配置（启用、审批人 ADMIN）。
+     * 读取指定流程的审批流配置；不存在则初始化默认配置（启用、审批人 APPROVER）。
+     * 多流程：按 flowKey 区分（EXPERT / CONTRACT），存量 EXPERT_MODIFY 已迁移为 EXPERT。
      */
-    public ApprovalConfig getConfig() {
-        ApprovalConfig config = findConfig();
+    public ApprovalConfig getConfig(String flowKey) {
+        String key = StringUtils.hasText(flowKey) ? flowKey.trim() : FLOW_KEY;
+        ApprovalConfig config = findConfigByFlowKey(key);
         if (config == null) {
             config = new ApprovalConfig();
-            config.setFlowKey(FLOW_KEY);
-            config.setFlowName("专家信息修改审批");
+            config.setFlowKey(key);
+            config.setFlowName(defaultFlowName(key));
             config.setEnabled(1);
-            config.setApproverRole("ADMIN");
+            config.setApproverRole("APPROVER");
             approvalConfigMapper.insert(config);
         }
         return config;
     }
 
+    /** 兼容保留：默认读取专家流程配置（EXPERT）。 */
+    public ApprovalConfig getConfig() {
+        return getConfig(FLOW_KEY);
+    }
+
     /**
-     * 更新审批流配置（仅 flow_key='EXPERT_MODIFY' 行）。
+     * 更新指定流程的审批流配置（按 flowKey 更新对应行；无行则先自建）。
      */
-    public ApprovalConfig updateConfig(Integer enabled, String approverRole) {
+    public ApprovalConfig updateConfig(String flowKey, Integer enabled, String approverRole) {
+        String key = StringUtils.hasText(flowKey) ? flowKey.trim() : FLOW_KEY;
         if (!StringUtils.hasText(approverRole)) {
             throw new BusinessException("审批人角色不能为空");
         }
@@ -141,7 +155,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (roleMapper.selectCount(new LambdaQueryWrapper<Role>().eq(Role::getCode, approverRole.trim())) == 0) {
             throw new BusinessException("审批人角色「" + approverRole.trim() + "」不存在，请在角色管理中先创建");
         }
-        ApprovalConfig config = getConfig();
+        ApprovalConfig config = getConfig(key);
         if (enabled != null) {
             if (enabled != 0 && enabled != 1) {
                 throw new BusinessException("启用开关取值不合法");
@@ -150,7 +164,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         config.setApproverRole(approverRole.trim());
         approvalConfigMapper.updateById(config);
-        return getConfig();
+        return getConfig(key);
+    }
+
+    /** 流程键 -> 默认流程名称（自建默认行时使用）。 */
+    private String defaultFlowName(String flowKey) {
+        if (FLOW_KEY_CONTRACT.equals(flowKey)) {
+            return "项目合同审批";
+        }
+        return "专家信息修改审批";
     }
 
     // ==================== 临时照片上传（员工） ====================
@@ -173,7 +195,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     public Application submitRequest(Long expertId, Map<String, Object> changes, String reason,
                                      AuthUser user) {
-        checkSubmitEligible(user, "编辑");
+        checkSubmitEligible(user, "编辑", FLOW_KEY);
         if (expertId == null) {
             throw new BusinessException("专家ID不能为空");
         }
@@ -187,10 +209,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setApplicantId(user.getUserId());
         app.setApplicant(user.getUsername());
         app.setApplicationType(ApplicationType.EXPERT_MODIFY.name());
+        app.setFlowKey(FLOW_KEY);
         app.setStatus(STATUS_PENDING);
         // 提交时落专家全量旧值快照：审批通过更新 expert_info 后仍可还原「变更前」
         app.setBizData(writeBizData(expertId, expert.getName(), changes, reason,
                 buildOldSnapshot(expert)));
+        // 提交时按流程配置生成具体审批人快照（R2/R3 或签）
+        app.setApproverSnapshot(buildApproverSnapshot(getConfig(FLOW_KEY)));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -207,7 +232,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     public Application submitCreateRequest(Map<String, Object> changes, String reason,
                                            AuthUser user) {
-        checkSubmitEligible(user, "新增");
+        checkSubmitEligible(user, "新增", FLOW_KEY);
         checkChanges(changes);
         validateCreateChanges(changes);
 
@@ -215,10 +240,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setApplicantId(user.getUserId());
         app.setApplicant(user.getUsername());
         app.setApplicationType(ApplicationType.EXPERT_CREATE.name());
+        app.setFlowKey(FLOW_KEY);
         app.setStatus(STATUS_PENDING);
         String expertName = String.valueOf(changes.get("姓名")).trim();
         // 新增申请无「变更前」，oldData 置空
         app.setBizData(writeBizData(null, expertName, changes, reason, null));
+        app.setApproverSnapshot(buildApproverSnapshot(getConfig(FLOW_KEY)));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -232,14 +259,14 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * 提交资格共用前导：未登录拒绝；拥有 expert:edit 的用户走直编通道拒绝；审批流未启用拒绝。
      * action 仅用于提示文案（"编辑"/"新增"）。
      */
-    private void checkSubmitEligible(AuthUser user, String action) {
+    private void checkSubmitEligible(AuthUser user, String action, String flowKey) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
         if (user.hasPermission("expert:edit")) {
             throw new BusinessException("您已拥有专家编辑权限，请直接在专家管理中" + action + "专家，无需提交审批");
         }
-        ApprovalConfig config = getConfig();
+        ApprovalConfig config = getConfig(flowKey);
         if (config.getEnabled() == null || config.getEnabled() != 1) {
             throw new BusinessException("审批流未启用，暂不支持提交" + action + "申请");
         }
@@ -331,6 +358,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<>();
         if (statuses != null && !statuses.isEmpty()) {
             wrapper.in(Application::getStatus, statuses);
+            // 待办列表（含 status=0）按审批人快照过滤：快照为空（存量/任意审批人）放行；
+            // 快照非空时仅快照内审批人、被转办人、被加签人可见（R2/R3 或签）。
+            if (statuses.contains(STATUS_PENDING) && viewer != null) {
+                wrapper.and(w -> w.isNull(Application::getApproverSnapshot)
+                        .or().eq(Application::getApproverSnapshot, "")
+                        .or().apply("JSON_CONTAINS(approver_snapshot, JSON_OBJECT('username', {0}))", viewer.getUsername())
+                        .or().eq(Application::getCurrentAssignee, viewer.getUsername())
+                        .or().eq(Application::getExtraApprover, viewer.getUsername()));
+            }
         }
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
@@ -356,8 +392,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     public Application submitContractApproval(Long contractId, Long projectId, Map<String, Object> changes,
                                               String reason, AuthUser user) {
-        ApprovalConfig config = findConfig();
-        if (config == null || config.getEnabled() == null || config.getEnabled() != 1) {
+        ApprovalConfig config = getConfig(FLOW_KEY_CONTRACT);
+        if (config.getEnabled() == null || config.getEnabled() != 1) {
             throw new BusinessException("审批流未启用，无法发起合同审批");
         }
         if (contractId == null) {
@@ -379,6 +415,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setApplicantId(user.getUserId());
         app.setApplicant(user.getUsername());
         app.setApplicationType(ApplicationType.CONTRACT.name());
+        app.setFlowKey(FLOW_KEY_CONTRACT);
         app.setStatus(STATUS_PENDING);
         Map<String, Object> biz = new LinkedHashMap<>();
         biz.put("contractId", contractId);
@@ -388,6 +425,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         biz.put("changes", changes);
         biz.put("reason", reason);
         app.setBizData(writeBiz(biz));
+        app.setApproverSnapshot(buildApproverSnapshot(config));
         app.setCreateTime(LocalDateTime.now());
         this.save(app);
 
@@ -607,6 +645,151 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         return fillView(app, isFullSensitive(user));
     }
 
+    // ==================== 退回修改 / 重新提交（R4） ====================
+
+    /**
+     * 退回修改：审批人将待审批单退回申请人修改。
+     * - status 0 → 4（退回修改），写 RETURN 记录，不清临时照片（区别于 reject）；
+     * - 记录 return_comment 与 approve_comment；
+     * - CONTRACT 类型同步合同恢复 DRAFT；
+     * - 通知申请人。
+     */
+    public Application returnRequest(Long id, String comment, AuthUser user) {
+        if (!StringUtils.hasText(comment)) {
+            throw new BusinessException("退回意见不能为空");
+        }
+        Application app = getPending(id);
+        checkAssignee(app, user);
+        // 退回修改：保留临时照片（区别于 reject 的 cleanTempPhotos），供申请人修改后重新提交
+        app.setStatus(STATUS_RETURNED);
+        app.setApproveBy(user == null ? null : user.getUsername());
+        app.setApproveComment(comment.trim());
+        app.setApproveTime(LocalDateTime.now());
+        app.setReturnComment(comment.trim());
+        this.updateById(app);
+
+        addRecord(app.getId(), "审批退回修改", "RETURN", user == null ? null : user.getUsername(), comment.trim());
+        // CONTRACT 类型：同步合同恢复草稿（可修改后重新发起）
+        syncContractByApproval(app, "DRAFT", user);
+        notifyReturned(app, user);
+        return fillView(app, isFullSensitive(user));
+    }
+
+    /**
+     * 重新提交：仅被退回修改（status=4）的申请可重提，仅申请人本人可操作。
+     * - status 4 → 0，写 RESUBMIT 记录；
+     * - 重置审批人字段（approveBy/approveComment/approveTime/returnComment/currentAssignee/extraApprover）；
+     * - 按当前流程配置刷新审批人快照（配置可能已变更）；
+     * - 通知快照内审批人新增待办。
+     */
+    public Application resubmit(Long id, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (id == null) {
+            throw new BusinessException("申请单ID不能为空");
+        }
+        Application app = getById(id);
+        if (app == null) {
+            throw new BusinessException("申请单不存在");
+        }
+        if (app.getStatus() == null || app.getStatus() != STATUS_RETURNED) {
+            throw new BusinessException("仅被退回修改的申请可重新提交");
+        }
+        if (!app.getApplicant().equals(user.getUsername())) {
+            throw new BusinessException("仅申请人本人可重新提交");
+        }
+        fillBiz(app);
+        ApprovalConfig config = getConfig(flowKeyOf(app));
+        if (config.getEnabled() == null || config.getEnabled() != 1) {
+            throw new BusinessException("审批流未启用，暂不支持重新提交");
+        }
+        app.setStatus(STATUS_PENDING);
+        app.setApproveBy(null);
+        app.setApproveComment(null);
+        app.setApproveTime(null);
+        app.setReturnComment(null);
+        // 转办 / 加签重置：回到原审批人待办
+        app.setCurrentAssignee(null);
+        app.setExtraApprover(null);
+        // 按当前流程配置刷新审批人快照
+        app.setApproverSnapshot(buildApproverSnapshot(config));
+        this.updateById(app);
+
+        addRecord(app.getId(), "申请人重新提交", "RESUBMIT", user.getUsername(),
+                StringUtils.hasText(app.getReason()) ? app.getReason() : "重新提交申请");
+        notifyApprovalTodo(app);
+        return fillView(app, isFullSensitive(user));
+    }
+
+    // ==================== 审批人管理（R2 指定具体审批人） ====================
+
+    /**
+     * 查询指定流程已配置的具体审批人（[{id, username}]，按配置顺序）。
+     */
+    public List<Map<String, Object>> listConfigUsers(String flowKey) {
+        ApprovalConfig config = getConfig(flowKey);
+        List<ApprovalConfigUser> users = approvalConfigUserMapper.selectList(
+                new LambdaQueryWrapper<ApprovalConfigUser>()
+                        .eq(ApprovalConfigUser::getConfigId, config.getId())
+                        .orderByAsc(ApprovalConfigUser::getId));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ApprovalConfigUser u : users) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", u.getUserId());
+            item.put("username", u.getUsername());
+            result.add(item);
+        }
+        return result;
+    }
+
+    /**
+     * 保存指定流程的具体审批人（全量覆盖式更新，事务内先删后插）。
+     * 校验：用户名存在、未停用、拥有 approval:audit。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveConfigUsers(String flowKey, List<String> usernames) {
+        ApprovalConfig config = getConfig(flowKey);
+        if (usernames == null) {
+            usernames = new ArrayList<>();
+        }
+        List<String> uniq = usernames.stream().filter(StringUtils::hasText)
+                .map(String::trim).distinct().toList();
+        List<SysUser> targets = new ArrayList<>();
+        for (String name : uniq) {
+            targets.add(checkTargetApprover(name));
+        }
+        approvalConfigUserMapper.delete(new LambdaQueryWrapper<ApprovalConfigUser>()
+                .eq(ApprovalConfigUser::getConfigId, config.getId()));
+        for (SysUser target : targets) {
+            ApprovalConfigUser row = new ApprovalConfigUser();
+            row.setConfigId(config.getId());
+            row.setUserId(target.getId());
+            row.setUsername(target.getUsername());
+            row.setCreateTime(LocalDateTime.now());
+            approvalConfigUserMapper.insert(row);
+        }
+    }
+
+    /**
+     * 审批流配置列表（多流程）：返回各流程的 flowKey/flowName/enabled/approverRole/具体审批人。
+     */
+    public List<Map<String, Object>> listConfigs() {
+        List<ApprovalConfig> configs = approvalConfigMapper.selectList(
+                new LambdaQueryWrapper<ApprovalConfig>().orderByAsc(ApprovalConfig::getFlowKey));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ApprovalConfig c : configs) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("flowKey", c.getFlowKey());
+            item.put("flowName", c.getFlowName());
+            item.put("enabled", c.getEnabled());
+            item.put("approverRole", c.getApproverRole());
+            item.put("users", listConfigUsers(c.getFlowKey()));
+            result.add(item);
+        }
+        return result;
+    }
+
     // ==================== 撤回申请（申请人） ====================
 
     /**
@@ -808,8 +991,14 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (user == null) {
             throw new BusinessException("未登录");
         }
+        String username = user.getUsername();
         String assignee = app.getCurrentAssignee();
-        if (StringUtils.hasText(assignee) && !assignee.equals(user.getUsername())) {
+        String extra = app.getExtraApprover();
+        // 或签：被加签人（extraApprover）与当前审批人任一可审批
+        if (StringUtils.hasText(extra) && extra.equals(username)) {
+            return;
+        }
+        if (StringUtils.hasText(assignee) && !assignee.equals(username)) {
             throw new BusinessException("该申请单已转办给 " + assignee + "，仅被转办人可审批");
         }
     }
@@ -839,7 +1028,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      */
     private void notifyApproverRole(Application app, String type, String title, String content) {
         try {
-            ApprovalConfig config = getConfig();
+            // 多流程：按流程配置通知；快照非空时优先通知快照内具体审批人（R2/R3）
+            List<Long> userIds = snapshotUserIds(app);
+            if (!userIds.isEmpty()) {
+                for (Long uid : userIds) {
+                    notificationService.notify(uid, type, title, content, MANAGE_PATH);
+                }
+                return;
+            }
+            ApprovalConfig config = getConfig(flowKeyOf(app));
             String roleCode = config.getApproverRole();
             if (!StringUtils.hasText(roleCode)) {
                 return;
@@ -965,9 +1162,110 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== 私有方法 ====================
 
 
-    private ApprovalConfig findConfig() {
+    private ApprovalConfig findConfigByFlowKey(String flowKey) {
         return approvalConfigMapper.selectOne(
-                new LambdaQueryWrapper<ApprovalConfig>().eq(ApprovalConfig::getFlowKey, FLOW_KEY));
+                new LambdaQueryWrapper<ApprovalConfig>().eq(ApprovalConfig::getFlowKey, flowKey).last("LIMIT 1"));
+    }
+
+    /** 申请单 -> 流程键（存量单 flow_key 为空时按类型兜底 EXPERT）。 */
+    private String flowKeyOf(Application app) {
+        if (app != null && StringUtils.hasText(app.getFlowKey())) {
+            return app.getFlowKey().trim();
+        }
+        if (app != null && ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT) {
+            return FLOW_KEY_CONTRACT;
+        }
+        return FLOW_KEY;
+    }
+
+    /**
+     * 按流程配置生成审批人快照 JSON 数组 [{id, username}]：
+     * 优先取具体审批人（approval_config_user）；未配置时回退 approver_role 角色下启用用户；
+     * 仍为空返回 "[]"（空数组=任意有审批权限的用户可审，兼容旧语义）。
+     */
+    private String buildApproverSnapshot(ApprovalConfig config) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        try {
+            List<ApprovalConfigUser> users = approvalConfigUserMapper.selectList(
+                    new LambdaQueryWrapper<ApprovalConfigUser>()
+                            .eq(ApprovalConfigUser::getConfigId, config.getId())
+                            .orderByAsc(ApprovalConfigUser::getId));
+            if (!users.isEmpty()) {
+                for (ApprovalConfigUser u : users) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", u.getUserId());
+                    item.put("username", u.getUsername());
+                    items.add(item);
+                }
+            } else if (StringUtils.hasText(config.getApproverRole())) {
+                Role role = roleMapper.selectOne(
+                        new LambdaQueryWrapper<Role>().eq(Role::getCode, config.getApproverRole()).last("LIMIT 1"));
+                if (role != null) {
+                    List<UserRole> bindings = userRoleMapper.selectList(
+                            new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, role.getId()));
+                    List<Long> userIds = bindings.stream().map(UserRole::getUserId).toList();
+                    if (!userIds.isEmpty()) {
+                        List<SysUser> roleUsers = sysUserMapper.selectList(
+                                new LambdaQueryWrapper<SysUser>().in(SysUser::getId, userIds).eq(SysUser::getStatus, 1));
+                        for (SysUser u : roleUsers) {
+                            Map<String, Object> item = new LinkedHashMap<>();
+                            item.put("id", u.getId());
+                            item.put("username", u.getUsername());
+                            items.add(item);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // 快照生成失败不影响提交主流程（返回空数组=任意审批人可审）
+        }
+        try {
+            return objectMapper.writeValueAsString(items);
+        } catch (Exception e) {
+            return "[]";
+        }
+    }
+
+    /** 从审批人快照 JSON 提取 userId 列表（通知用；解析失败或空快照返回空列表）。 */
+    private List<Long> snapshotUserIds(Application app) {
+        List<Long> result = new ArrayList<>();
+        if (app == null || !StringUtils.hasText(app.getApproverSnapshot())) {
+            return result;
+        }
+        try {
+            List<Map<String, Object>> items = objectMapper.readValue(
+                    app.getApproverSnapshot(), new TypeReference<List<Map<String, Object>>>() {
+                    });
+            for (Map<String, Object> item : items) {
+                Object id = item.get("id");
+                if (id != null) {
+                    result.add(ParamUtils.parseLong(id, null));
+                }
+            }
+        } catch (Exception e) {
+            // 解析失败视为无快照（回退角色通知）
+        }
+        return result;
+    }
+
+    /** 退回修改通知（approval_result）：通知申请人修改后重新提交。 */
+    private void notifyReturned(Application app, AuthUser user) {
+        try {
+            Long applicantId = app.getApplicantId() != null ? app.getApplicantId() : notificationService.userIdOf(app.getApplicant());
+            if (applicantId == null) {
+                return;
+            }
+            String typeText = typeTextOf(app);
+            String operator = user == null ? "管理员" : user.getUsername();
+            String content = operator + "已退回您的" + typeText + "，请修改后重新提交";
+            if (StringUtils.hasText(app.getApproveComment())) {
+                content += "，意见：" + app.getApproveComment();
+            }
+            notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
+                    "退回修改：" + typeText, content, "/profile/my-approvals?status=4");
+        } catch (Exception e) {
+            // 通知失败不影响主流程
+        }
     }
 
     /**
@@ -1147,6 +1445,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             case STATUS_APPROVED -> "已通过";
             case STATUS_REJECTED -> "已驳回";
             case STATUS_WITHDRAWN -> "已撤回";
+            case STATUS_RETURNED -> "退回修改";
             default -> "待审批";
         };
     }

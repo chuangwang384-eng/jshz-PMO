@@ -17,7 +17,9 @@ import java.util.Map;
  * 各业务线申请的公共字段存本表，业务差异存 biz_data JSON：
  * 专家申请 biz_data = {expertId, expertName, changes, reason, templateId, oldData?}
  * （照片 TMP: 前缀语义保留；oldData 为修改申请提交时的专家旧值快照，新增申请无）。
- * status：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回（四态通用）。
+ * status：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 / 4 退回修改（R4 退回修改后可重新提交）。
+ * flowKey：多流程标识（EXPERT / CONTRACT，对应 approval_config.flow_key；存量单为空）。
+ * approverSnapshot：提交时由流程配置生成的具体审批人快照 JSON 数组（或签语义）。
  */
 @Data
 @TableName("application")
@@ -35,11 +37,15 @@ public class Application {
     @JsonProperty("applicant")
     private String applicant;
 
-    /** 类型编码：EXPERT_MODIFY / EXPERT_CREATE（未来扩展） */
+    /** 类型编码：EXPERT_MODIFY / EXPERT_CREATE / CONTRACT（未来扩展） */
     @JsonProperty("applicationType")
     private String applicationType;
 
-    /** 审批状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 */
+    /** 流程标识（多流程，对应 approval_config.flow_key：EXPERT / CONTRACT；存量单为空） */
+    @JsonProperty("flowKey")
+    private String flowKey;
+
+    /** 审批状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 / 4 退回修改 */
     @JsonProperty("status")
     private Integer status;
 
@@ -60,6 +66,10 @@ public class Application {
     @JsonProperty("approveTime")
     private LocalDateTime approveTime;
 
+    /** 退回修改意见（status=4 时记录） */
+    @JsonProperty("returnComment")
+    private String returnComment;
+
     /** 当前审批人（B2 转办后有值；为空=未转办，任何拥有 approval:audit 的用户可审批） */
     @JsonProperty("currentAssignee")
     private String currentAssignee;
@@ -67,6 +77,10 @@ public class Application {
     /** 加签审批人（B2 加签后有值；或签语义：与原审批人任一审批即终态） */
     @JsonProperty("extraApprover")
     private String extraApprover;
+
+    /** 审批人快照 JSON 数组 [{"id":1,"username":"jshz"}]（提交时由流程配置生成；空数组=任意有审批权限的用户可审；存量单为空） */
+    @JsonProperty("approverSnapshot")
+    private String approverSnapshot;
 
     /** 提交时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

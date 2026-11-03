@@ -27,6 +27,7 @@
       <el-table-column prop="approveComment" label="审批意见" min-width="180" show-overflow-tooltip>
         <template #default="{ row }">
           <span v-if="row.approveComment">{{ row.approveComment }}</span>
+          <span v-else-if="row.returnComment" class="return-comment">退回意见：{{ row.returnComment }}</span>
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
@@ -73,7 +74,7 @@ const props = defineProps({
   currentUsername: { type: String, default: '' }
 })
 
-const emit = defineEmits(['diff', 'approve', 'reject', 'transfer', 'addsign'])
+const emit = defineEmits(['diff', 'approve', 'reject', 'return', 'transfer', 'addsign'])
 
 // 转办/加签仅对"未指定审批人或当前审批人是本人"的行可见（与后端校验一致）
 function ownedByMe(row) {
@@ -84,5 +85,8 @@ function ownedByMe(row) {
 <style scoped>
 .muted {
   color: #a8abb2;
+}
+.return-comment {
+  color: #e6a23c;
 }
 </style>

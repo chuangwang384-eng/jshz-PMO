@@ -170,10 +170,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as pdfjsLib from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+// 20261103 修复（预览失败的三个叠加原因）：
+// ① pdfDoc 用 shallowRef（见下方说明）——Vue 响应式 Proxy 破坏 pdfjs 私有字段；
+// ② worker 用 blob URL ——独立 .mjs 文件在 nginx 上以 application/octet-stream 返回，浏览器拒绝模块加载；
+// ③ 使用 legacy 兼容构建 ——现代构建依赖 Promise.withResolvers 等新 API，旧浏览器抛错。
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useAuthStore } from '../store/auth'
 import {
   listKnowledgeDocs,
@@ -189,8 +193,13 @@ import {
   unfavoriteKnowledgeDoc
 } from '../api/knowledge'
 
-// pdf.js worker 指向打包后的 worker 文件（Vite ?url 导入）
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+// pdf.js worker：以内联源码生成 blob URL。
+// 原因：此前的独立 .mjs worker 文件在 nginx 上以 application/octet-stream 返回（未配 .mjs MIME），
+// 浏览器拒绝以模块方式加载 → "Setting up fake worker failed"，所有 PDF 预览失败。
+// blob URL 自带正确 MIME，与服务器配置无关，彻底规避该问题。
+pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+  new Blob([pdfWorkerCode], { type: 'application/javascript' })
+)
 
 const props = defineProps({
   category: { type: String, default: '' },
@@ -418,7 +427,9 @@ const previewRow = ref(null)
 const previewImageUrl = ref('')
 const previewBlobUrl = ref('')
 const previewText = ref('')
-const pdfDoc = ref(null)
+// 20261103 修复：必须用 shallowRef——pdfjs 文档对象内部使用私有字段（#field），
+// 被 Vue 响应式 Proxy 包裹后访问会抛 "Cannot read from private field"，导致所有 PDF 预览失败
+const pdfDoc = shallowRef(null)
 const previewPage = ref(1)
 const previewNumPages = ref(0)
 const previewScale = ref(1)

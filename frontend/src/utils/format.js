@@ -18,10 +18,17 @@ export function changeSummary(changes, oldData) {
     .join('；')
 }
 
-// 审批状态 -> Tag 颜色：1已通过 success / 2已驳回 danger / 3已撤回 info / 0待审批 warning
+// 审批状态 -> Tag 颜色：1已通过 success / 2已驳回 danger / 3已撤回 info / 4退回修改 warning / 0待审批 warning
 export function approvalStatusTagType(status) {
   if (status === 1) return 'success'
   if (status === 2) return 'danger'
   if (status === 3) return 'info'
+  if (status === 4) return 'warning'
   return 'warning'
+}
+
+// 审批状态 -> 文案：0待审批 / 1已通过 / 2已驳回 / 3已撤回 / 4退回修改
+export function approvalStatusText(status) {
+  const map = { 0: '待审批', 1: '已通过', 2: '已驳回', 3: '已撤回', 4: '退回修改' }
+  return map[status] ?? '未知'
 }

@@ -7,6 +7,13 @@
     <el-tabs v-model="activeTab" style="margin-top: 12px" @tab-change="handleTabChange">
       <!-- 待审批 -->
       <el-tab-pane label="待审批" name="pending">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="加签采用或签语义：您与被加签人任一人审批（通过/驳回）即生效；转办后仅被转办人可审批。"
+          style="margin-bottom: 12px"
+        />
         <ApprovalTable
           mode="pending"
           :rows="pendingList"
@@ -15,6 +22,7 @@
           @diff="openDiff"
           @approve="(row) => openDiff(row, 'approve')"
           @reject="(row) => openDiff(row, 'reject')"
+          @return="(row) => openDiff(row, 'return')"
           @transfer="openTransfer"
           @addsign="openAddSign"
         />
@@ -54,7 +62,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <!-- 变更前后对比弹窗（查看/通过/驳回三合一，审批意见在弹窗底部） -->
+    <!-- 变更前后对比弹窗（查看/通过/驳回/退回修改四合一，审批意见在弹窗底部） -->
     <ApprovalDiffDialog
       v-model="diffVisible"
       :row="diffRow"
@@ -140,7 +148,7 @@ const donePage = ref(1)
 const doneSize = ref(20)
 const doneLoading = ref(false)
 
-// 变更前后对比弹窗（view/approve/reject 三态）
+// 变更前后对比弹窗（view/approve/reject/return 四态）
 const diffVisible = ref(false)
 const diffRow = ref(null)
 const diffMode = ref('view')
@@ -170,12 +178,12 @@ async function fetchPending() {
   }
 }
 
-// 已处理 = 已通过(1) + 已驳回(2) + 已撤回(3)，后端 statuses 多状态统一分页（避免各取一页合并导致总数不稳定）
+// 已处理 = 已通过(1) + 已驳回(2) + 已撤回(3) + 已退回修改(4)，后端 statuses 多状态统一分页（避免各取一页合并导致总数不稳定）
 async function fetchDone() {
   doneLoading.value = true
   try {
     const data = await getApprovalRequests({
-      statuses: '1,2,3',
+      statuses: '1,2,3,4',
       page: donePage.value,
       size: doneSize.value
     })
@@ -186,7 +194,7 @@ async function fetchDone() {
   }
 }
 
-// 打开变更前后对比弹窗（默认只读 view；通过/驳回经对应 mode 进入）
+// 打开变更前后对比弹窗（默认只读 view；通过/驳回/退回修改经对应 mode 进入）
 function openDiff(row, mode = 'view') {
   diffRow.value = row
   diffMode.value = mode

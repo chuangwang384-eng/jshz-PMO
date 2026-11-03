@@ -2,14 +2,33 @@ import request from './request'
 
 // 审批流接口（对应后端 /api/approval/*）
 
-// 审批流配置：GET /approval/config
-export function getApprovalConfig() {
-  return request.get('/approval/config')
+// 审批流配置列表：GET /approval/config/list（多审批流配置）
+export function getApprovalConfigList() {
+  return request.get('/approval/config/list')
 }
 
-// 更新审批流配置：PUT /approval/config，body {enabled, approverRole}
-export function updateApprovalConfig(data) {
-  return request.put('/approval/config', data)
+// 审批流配置：GET /approval/config?flowKey=（flowKey 可选，兼容旧调用）
+export function getApprovalConfig(flowKey) {
+  return request.get('/approval/config', flowKey ? { params: { flowKey } } : undefined)
+}
+
+// 更新审批流配置：PUT /approval/config，body {flowKey, enabled, approverRole}
+// 兼容旧调用 updateApprovalConfig(data)（data 内含 flowKey）
+export function updateApprovalConfig(flowKey, data) {
+  if (flowKey && typeof flowKey === 'object') {
+    return request.put('/approval/config', flowKey)
+  }
+  return request.put('/approval/config', { ...(data || {}), flowKey })
+}
+
+// 审批流具体审批人列表：GET /approval/config/{flowKey}/users
+export function getConfigUsers(flowKey) {
+  return request.get(`/approval/config/${flowKey}/users`)
+}
+
+// 保存审批流具体审批人：PUT /approval/config/{flowKey}/users，body {usernames}
+export function saveConfigUsers(flowKey, usernames) {
+  return request.put(`/approval/config/${flowKey}/users`, { usernames })
 }
 
 // 提交修改申请：POST /approval/requests，body {expertId, changes: {中文键: 新值}, reason}
@@ -53,6 +72,16 @@ export function rejectRequest(id, data) {
 // 撤回申请：POST /approval/requests/{id}/withdraw（仅申请人本人，status=0 可撤）
 export function withdrawRequest(id) {
   return request.post(`/approval/requests/${id}/withdraw`)
+}
+
+// 退回修改：POST /approval/requests/{id}/return，body {comment}（意见必填）
+export function returnRequest(id, comment) {
+  return request.post(`/approval/requests/${id}/return`, { comment })
+}
+
+// 重新提交：POST /approval/requests/{id}/resubmit（仅申请人本人，status=4 可重提）
+export function resubmitRequest(id) {
+  return request.post(`/approval/requests/${id}/resubmit`)
 }
 
 // ==================== 审批转办 / 加签（B2，或签语义） ====================

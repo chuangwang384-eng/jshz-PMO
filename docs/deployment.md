@@ -316,3 +316,18 @@ server {
 
 ## R-1 发布记录
 - 2026-11-03 00:37:34 R-1 发布 1.0.22 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 08:34:06 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 09:13:52 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 09:21:05 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 09:36:14 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 09:39:26 R-1 发布 1.022 成功（jar: expert-system.jar）

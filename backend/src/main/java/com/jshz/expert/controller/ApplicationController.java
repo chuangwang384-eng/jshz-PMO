@@ -46,13 +46,14 @@ public class ApplicationController {
     private final ApplicationService applicationService;
 
     /**
-     * 审批流配置：GET /api/approval/config（登录即可）。
-     * 返回 {flowName, enabled, approverRole}。
+     * 审批流配置：GET /api/approval/config?flowKey=（登录即可；缺省默认 EXPERT）。
+     * 返回 {flowKey, flowName, enabled, approverRole}。
      */
     @GetMapping("/config")
-    public ApiResponse<Map<String, Object>> config() {
-        ApprovalConfig config = applicationService.getConfig();
+    public ApiResponse<Map<String, Object>> config(@RequestParam(required = false) String flowKey) {
+        ApprovalConfig config = applicationService.getConfig(flowKey);
         Map<String, Object> data = new LinkedHashMap<>();
+        data.put("flowKey", config.getFlowKey());
         data.put("flowName", config.getFlowName());
         data.put("enabled", config.getEnabled());
         data.put("approverRole", config.getApproverRole());
@@ -60,15 +61,26 @@ public class ApplicationController {
     }
 
     /**
+     * 审批流配置列表（多流程）：GET /api/approval/config/list（登录即可）。
+     * 返回各流程 {flowKey, flowName, enabled, approverRole, users}。
+     */
+    @GetMapping("/config/list")
+    public ApiResponse<List<Map<String, Object>>> configList() {
+        return ApiResponse.ok(applicationService.listConfigs());
+    }
+
+    /**
      * 更新审批流配置：PUT /api/approval/config（仅 ADMIN）。
-     * body {enabled, approverRole}。
+     * body {flowKey?, enabled, approverRole}，flowKey 缺省默认 EXPERT。
      */
     @PutMapping("/config")
     public ApiResponse<Map<String, Object>> updateConfig(@RequestBody(required = false) Map<String, Object> body) {
+        String flowKey = body == null ? null : (String) body.get("flowKey");
         Integer enabled = body == null ? null : ParamUtils.toInteger(body.get("enabled"));
         String approverRole = body == null ? null : (String) body.get("approverRole");
-        ApprovalConfig config = applicationService.updateConfig(enabled, approverRole);
+        ApprovalConfig config = applicationService.updateConfig(flowKey, enabled, approverRole);
         Map<String, Object> data = new LinkedHashMap<>();
+        data.put("flowKey", config.getFlowKey());
         data.put("flowName", config.getFlowName());
         data.put("enabled", config.getEnabled());
         data.put("approverRole", config.getApproverRole());
@@ -111,7 +123,7 @@ public class ApplicationController {
     /**
      * 提交专家合同审批：POST /api/approval/contract-request（项目管理模块结算合同）。
      * body {contractId, projectId, changes: {身份证号, 银行卡号}, reason}；
-     * 复用现有审批流（FLOW_KEY=EXPERT_MODIFY 配置），通过后合同生效。
+     * 使用 CONTRACT 流程配置（approval_config flow_key='CONTRACT'），通过后合同生效。
      */
     @PostMapping("/contract-request")
     public ApiResponse<Application> contractRequest(@RequestBody(required = false) Map<String, Object> body,
@@ -249,6 +261,50 @@ public class ApplicationController {
         String targetUser = body == null ? null : (String) body.get("targetUser");
         String comment = body == null ? null : (String) body.get("comment");
         return ApiResponse.ok(applicationService.addApprover(id, targetUser, comment, authUser));
+    }
+
+    /**
+     * 审批退回修改：POST /api/approval/requests/{id}/return（权限码 approval:audit）。
+     * body {comment 必填}；status 0→4，保留临时照片，写 RETURN 记录。
+     */
+    @PostMapping("/requests/{id}/return")
+    public ApiResponse<Application> returnRequest(@PathVariable Long id,
+                                                  @RequestBody(required = false) Map<String, Object> body,
+                                                  @AuthenticationPrincipal AuthUser authUser) {
+        String comment = body == null ? null : (String) body.get("comment");
+        return ApiResponse.ok(applicationService.returnRequest(id, comment, authUser));
+    }
+
+    /**
+     * 重新提交：POST /api/approval/requests/{id}/resubmit（仅申请人本人，status=4 可重提）。
+     * status 4→0，写 RESUBMIT 记录，重置转办/加签并刷新审批人快照。
+     */
+    @PostMapping("/requests/{id}/resubmit")
+    public ApiResponse<Application> resubmit(@PathVariable Long id,
+                                             @AuthenticationPrincipal AuthUser authUser) {
+        return ApiResponse.ok(applicationService.resubmit(id, authUser));
+    }
+
+    /**
+     * 查询流程具体审批人：GET /api/approval/config/{flowKey}/users（登录即可）。
+     * 返回 [{id, username}]。
+     */
+    @GetMapping("/config/{flowKey}/users")
+    public ApiResponse<List<Map<String, Object>>> configUsers(@PathVariable String flowKey) {
+        return ApiResponse.ok(applicationService.listConfigUsers(flowKey));
+    }
+
+    /**
+     * 保存流程具体审批人：PUT /api/approval/config/{flowKey}/users（权限码 approval:config）。
+     * body {usernames: ["u1", "u2"]}，全量覆盖。
+     */
+    @PutMapping("/config/{flowKey}/users")
+    public ApiResponse<Void> saveConfigUsers(@PathVariable String flowKey,
+                                             @RequestBody(required = false) Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<String> usernames = body == null ? null : (List<String>) body.get("usernames");
+        applicationService.saveConfigUsers(flowKey, usernames);
+        return ApiResponse.ok(null);
     }
 
     /**
