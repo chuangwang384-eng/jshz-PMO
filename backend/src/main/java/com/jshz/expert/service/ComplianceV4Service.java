@@ -646,6 +646,11 @@ public class ComplianceV4Service {
                 bumpRevision(task);
                 event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "DUE",
                         "{\"old\":\"" + oldDue + "\",\"new\":\"" + task.getDueDate() + "\"}");
+                // 改期：按新日期重算提醒节点（旧节点已由 bumpRevision 置 CANCELLED，不重发旧节点）
+                if (task.getDueDate() != null && task.getRemindEnabled() != null && task.getRemindEnabled() == 1
+                        && !"COMPLETED".equals(task.getProgress()) && "ACTIVE".equals(e.getState())) {
+                    scheduleTaskReminders(task, e);
+                }
             }
         }
 
@@ -764,7 +769,9 @@ public class ComplianceV4Service {
         // 本人清单（含 ACTIVE/PAUSED 活跃清单的任务；COMPLETED 页签含 COMPLETED 清单任务）
         List<Long> execIds = new ArrayList<>();
         Map<Long, ComplianceExecution> execMap = new LinkedHashMap<>();
-        List<String> states = "COMPLETED".equals(scope) ? List.of("COMPLETED") : List.of("ACTIVE", "PAUSED");
+        List<String> states = "COMPLETED".equals(scope)
+                ? List.of("ACTIVE", "PAUSED", "COMPLETED")  // 完成记录：只要任务完成即可见（不要求整单完成）
+                : List.of("ACTIVE", "PAUSED");
         for (ComplianceExecution e : executionMapper.selectList(new LambdaQueryWrapper<ComplianceExecution>()
                 .eq(ComplianceExecution::getOwnerUserId, user.getUserId())
                 .in(ComplianceExecution::getState, states))) {
