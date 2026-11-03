@@ -469,6 +469,7 @@ public class ComplianceV4Service {
     /** 本人清单分页（state/projectId/documentId/search 筛选）。 */
     public Map<String, Object> listMyExecutions(Long userId, String state, Long projectId, Long documentId,
                                                 String search, long page, long size) {
+        if (page < 1 || size < 1 || size > 200) throw new BusinessException("分页参数超出范围");
         LambdaQueryWrapper<ComplianceExecution> qw = new LambdaQueryWrapper<ComplianceExecution>()
                 .eq(ComplianceExecution::getOwnerUserId, userId);
         if (state != null && !state.isBlank()) qw.eq(ComplianceExecution::getState, state);
@@ -477,7 +478,7 @@ public class ComplianceV4Service {
         if (search != null && !search.isBlank()) qw.like(ComplianceExecution::getName, search);
         qw.orderByDesc(ComplianceExecution::getUpdatedAt);
         List<ComplianceExecution> all = executionMapper.selectList(qw);
-        int from = (int) Math.max(0, (page - 1) * size);
+        int from = page > (all.size() / size) + 1 ? all.size() : (int) Math.min(all.size(), (page - 1) * size);
         int to = (int) Math.min(all.size(), from + size);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceExecution e : all.subList(from, to)) {
@@ -751,10 +752,12 @@ public class ComplianceV4Service {
         if (changes.isEmpty() && rv == null) {
             // 无有效变更且未带版本：仅返回现状
         }
-        task.setRowVersion(task.getRowVersion() + 1);
+        int previousVersion = task.getRowVersion();
+        task.setRowVersion(previousVersion + 1);
         // 显式 set 全部可变字段：MyBatis-Plus updateById 默认忽略 null，无法清空答案/备注/等待/日期
-        taskMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ComplianceExecutionTask>()
+        int updated = taskMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ComplianceExecutionTask>()
                 .eq(ComplianceExecutionTask::getId, task.getId())
+                .eq(ComplianceExecutionTask::getRowVersion, previousVersion)
                 .set(ComplianceExecutionTask::getAnswer, task.getAnswer())
                 .set(ComplianceExecutionTask::getDueDate, task.getDueDate())
                 .set(ComplianceExecutionTask::getPriority, task.getPriority())
@@ -769,6 +772,7 @@ public class ComplianceV4Service {
                 .set(ComplianceExecutionTask::getRemindEnabled, task.getRemindEnabled())
                 .set(ComplianceExecutionTask::getRemindDays, task.getRemindDays())
                 .set(ComplianceExecutionTask::getRowVersion, task.getRowVersion()));
+        if (updated != 1) throw new BusinessException(409, "任务已被修改，请刷新比较后重试");
         if (!changes.isEmpty()) {
             event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "UPDATE", "{\"fields\":" + jsonStr(changes) + "}");
         }
@@ -781,7 +785,9 @@ public class ComplianceV4Service {
     public Map<String, Object> myTasks(AuthUser user, String statusScope, Long projectId, Long executionId,
                                        Long documentId, String search, long page, long size) {
         requireUser(user);
+        if (page < 1 || size < 1 || size > 200) throw new BusinessException("分页参数超出范围");
         String scope = statusScope == null || statusScope.isBlank() ? "ACTIVE" : statusScope;
+        if (!List.of("ACTIVE", "COMPLETED").contains(scope)) throw new BusinessException("非法任务范围");
         // 本人清单（含 ACTIVE/PAUSED 活跃清单的任务；COMPLETED 页签含 COMPLETED 清单任务）
         List<Long> execIds = new ArrayList<>();
         Map<Long, ComplianceExecution> execMap = new LinkedHashMap<>();
@@ -848,7 +854,7 @@ public class ComplianceV4Service {
             else if (!due.isAfter(today.plusDays(3))) nearN++;
             todoN++;
         }
-        int from = (int) Math.max(0, (page - 1) * size);
+        int from = page > (all.size() / size) + 1 ? all.size() : (int) Math.min(all.size(), (page - 1) * size);
         int to = (int) Math.min(all.size(), from + size);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", all.size());
@@ -862,7 +868,7 @@ public class ComplianceV4Service {
         LocalDate today = LocalDate.now();
         if (due.isBefore(today)) return 0;
         if (due.isEqual(today)) return 1;
-        if (due.isBefore(today.plusDays(3))) return 2;
+        if (!due.isAfter(today.plusDays(3))) return 2;
         return 3;
     }
 
@@ -1105,6 +1111,13 @@ public class ComplianceV4Service {
         Object answer = parseJsonSafe(task.getAnswer());
         if (answer == null) return "必做任务「" + snap.get("title") + "」尚未填写，不能完成";
         String type = String.valueOf(snap.get("inputType"));
+        if (!(answer instanceof Map<?, ?> values)) return "必做任务答案格式不正确";
+        if ("MULTI".equals(type) && (!(values.get("optionCodes") instanceof List<?> codes) || codes.isEmpty())) {
+            return "必做任务「" + snap.get("title") + "」请选择至少一个选项";
+        }
+        if ("SINGLE".equals(type) && (values.get("optionCode") == null || String.valueOf(values.get("optionCode")).isBlank())) {
+            return "必做任务「" + snap.get("title") + "」请选择一个选项";
+        }
         if ("CHECK".equals(type) || "TEXT".equals(type)) {
             if (answer instanceof Map<?, ?> m) {
                 Object v = m.get("text");

@@ -17,12 +17,13 @@
       <el-select v-model="executionId" placeholder="全部清单" clearable filterable size="small" style="width: 220px" @change="load">
         <el-option v-for="e in executions" :key="e.id" :label="e.name" :value="e.id" />
       </el-select>
-      <el-input v-model="search" placeholder="搜索事项" clearable size="small" style="width: 180px" @keyup.enter="load" />
+      <el-input v-model="search" placeholder="搜索事项" clearable size="small" style="width: 180px" @keyup.enter="load" @clear="load" />
       <div style="flex: 1"></div>
       <el-button type="primary" size="small" @click="openCreate">创建执行清单</el-button>
     </div>
 
     <!-- 任务表 -->
+    <el-alert v-if="loadError" title="加载失败，请重试" type="error" :closable="false"><el-button @click="load">重试</el-button></el-alert>
     <el-table v-loading="loading" :data="rows" stripe size="small" class="task-table">
       <el-table-column label="完成" width="60" align="center">
         <template #default="{ row }">
@@ -35,7 +36,7 @@
       <el-table-column label="事项与本次选择" min-width="220">
         <template #default="{ row }">
           <div class="task-title">{{ snapTitle(row) }}
-            <el-tag v-if="row.blockReason" size="small" type="danger">等待跟进</el-tag>
+            <el-tag v-if="row.waitingReason || row.nextAction" size="small" type="warning">等待跟进</el-tag>
           </div>
           <div class="task-sub" v-if="snapInstruction(row)">{{ snapInstruction(row) }}</div>
           <div class="task-note" v-if="row.note">备注 · {{ row.note.slice(0, 40) }}{{ row.note.length > 40 ? '…' : '' }}</div>
@@ -68,7 +69,53 @@
         </template>
       </el-table-column>
     </el-table>
-    <el-empty v-if="!loading && !rows.length" :description="scope === 'ACTIVE' ? '暂无进行中任务：创建执行清单开始本次使用' : '暂无完成记录'" :image-size="70" />
+    <el-empty v-if="!loading && !loadError && !rows.length" :description="scope === 'ACTIVE' ? '暂无进行中任务：创建执行清单开始本次使用' : '暂无完成记录'" :image-size="70" />
+    <el-pagination v-if="total > pageSize" v-model:current-page="page" :page-size="pageSize" :total="total" layout="prev, pager, next" @current-change="load" />
+    <div class="exec-toolbar" v-if="selectedExecution">
+      <span>{{ selectedExecution.name }} · {{ selectedExecution.state }}</span>
+      <el-button v-if="selectedExecution.state === 'DRAFT'" :loading="saving" @click="startSelected">开始执行</el-button>
+      <el-button @click="openExecution">查看清单全部事项</el-button>
+      <el-button @click="openReuse">再次使用</el-button>
+    </div>
+    <el-dialog v-model="executionVisible" title="清单全部事项" width="720px" destroy-on-close>
+      <el-alert v-if="executionDetail?.sourceNotice" :title="executionDetail.sourceNotice" type="warning" :closable="false" />
+      <el-table :data="executionDetail?.tasks || []">
+        <el-table-column label="事项"><template #default="{ row }">{{ snapTitle(row) }}</template></el-table-column>
+        <el-table-column prop="progress" label="进度" />
+        <el-table-column label="操作"><template #default="{ row }"><el-button link type="primary" @click="openDetail(row)">详情</el-button></template></el-table-column>
+      </el-table>
+    </el-dialog>
+    <el-dialog v-model="reuseVisible" title="再次使用" width="500px">
+      <el-form label-width="100px">
+        <el-form-item label="新清单名称"><el-input v-model="reuseForm.name" maxlength="200" /></el-form-item>
+        <el-form-item label="关联项目"><el-select v-model="reuseForm.projectId" clearable placeholder="不选则为个人清单"><el-option v-for="p in myProjects" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
+        <el-form-item label="沿用选择"><el-checkbox v-model="reuseForm.copyAnswers">仅复制答案</el-checkbox></el-form-item>
+        <el-alert title="新清单为草稿，日期、进度、备注和提醒记录均重新开始。" :closable="false" />
+      </el-form>
+      <template #footer><el-button :loading="saving" type="primary" :disabled="!reuseForm.name.trim()" @click="doReuse">创建新清单</el-button></template>
+    </el-dialog>
+    <el-dialog v-model="detailVisible" title="任务详情" width="650px" destroy-on-close>
+      <template v-if="detailRow">
+        <h3>{{ snapTitle(detailRow) }}</h3>
+        <p>{{ snapInstruction(detailRow) }}</p>
+        <p v-if="snapOf(detailRow).materials">所需材料：{{ snapOf(detailRow).materials }}</p>
+        <p v-if="snapOf(detailRow).acceptance">完成标准：{{ snapOf(detailRow).acceptance }}</p>
+        <p v-if="snapOf(detailRow).timeRule">规范时限：{{ snapOf(detailRow).timeRule }}</p>
+        <el-form label-width="100px">
+          <el-form-item label="本次选择">
+            <el-select v-if="['SINGLE', 'MULTI'].includes(snapOf(detailRow).inputType)" v-model="detailForm.selection" :multiple="snapOf(detailRow).inputType === 'MULTI'" clearable aria-label="本次选择">
+              <el-option v-for="o in snapOf(detailRow).options || []" :key="o.optionCode" :label="o.label" :value="o.optionCode" />
+            </el-select>
+            <el-input v-else v-model="detailForm.text" type="textarea" :placeholder="snapOf(detailRow).inputType === 'CHECK' ? '填写本次确认结果' : '填写本次内容'" aria-label="本次填写" />
+          </el-form-item>
+          <el-form-item label="计划到期日"><el-date-picker v-model="detailForm.dueDate" type="date" value-format="YYYY-MM-DD" aria-label="计划到期日" /></el-form-item>
+          <el-form-item label="优先级"><el-select v-model="detailForm.priority" aria-label="优先级"><el-option label="高" value="HIGH" /><el-option label="中" value="MEDIUM" /><el-option label="低" value="LOW" /></el-select></el-form-item>
+          <el-form-item label="个人备注"><el-input v-model="detailForm.note" type="textarea" maxlength="2000" show-word-limit aria-label="个人备注" /></el-form-item>
+        </el-form>
+        <el-alert title="修改仅影响本人本次执行，不改动规范模板或其他清单。" :closable="false" />
+      </template>
+      <template #footer><el-button @click="detailVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="saveDetail">保存</el-button></template>
+    </el-dialog>
 
     <!-- 创建清单向导 -->
     <el-dialog v-model="createVisible" title="创建执行清单" width="640px" destroy-on-close>
@@ -116,7 +163,7 @@
           <el-form-item label="默认到期日">
             <el-date-picker v-model="createDefaultDue" type="date" value-format="YYYY-MM-DD" style="width: 100%" placeholder="可为空，创建后逐项排期" />
           </el-form-item>
-          <div class="hint">创建后清单为草稿，点击「开始执行」才进入待办并建立提醒。</div>
+          <div class="hint">创建后先保存为草稿，可填写各项配置，再显式开始执行。</div>
         </el-form>
       </template>
       <template #footer>
@@ -143,28 +190,38 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   listMyTasks, createExecution, startExecution, patchTask,
-  listPublishedTemplates, createTemplateDraft, listMyExecutions
+  listPublishedTemplates, createDraftFromV3, listMyExecutions, getExecutionDetail, reuseExecution
 } from '../../api/complianceV4'
-import { listKnowledgeDocs, listProjectExecutors } from '../../api/knowledge'
-import request from '../../api/request'
+import { listKnowledgeDocs } from '../../api/knowledge'
+import { listProjects } from '../../api/project'
 
 const stat = ref({})
 const rows = ref([])
 const loading = ref(false)
+const loadError = ref(false)
+let loadSequence = 0
 const scope = ref('ACTIVE')
 const executionId = ref(null)
 const search = ref('')
 const executions = ref([])
+const page = ref(1), total = ref(0), pageSize = 50
+const selectedExecution = computed(() => executions.value.find(e => e.id === executionId.value))
+const executionVisible = ref(false), executionDetail = ref(null)
+const reuseVisible = ref(false), reuseForm = reactive({ name: '', projectId: null, copyAnswers: false, key: '' })
+const detailVisible = ref(false), detailRow = ref(null)
+const detailForm = reactive({ selection: null, text: '', dueDate: null, priority: 'MEDIUM', note: '' })
+watch([scope, executionId, search], () => { page.value = 1 })
 
 // 创建向导
 const createVisible = ref(false)
 const createStep = ref(0)
 const createProjectMode = ref('project')
-const createForm = reactive({ projectId: null, templateVersionId: null, name: '', dueDate: null })
+const createForm = reactive({ projectId: null, templateVersionId: null, name: '', key: '' })
+const createdExecutionId = ref(null)
 const createDefaultDue = ref(null)
 const createDocId = ref(null)
 const templates = ref([])
@@ -175,7 +232,7 @@ const creating = ref(false)
 
 // 等待跟进
 const waitingVisible = ref(false)
-const waitingForm = reactive({ taskId: null, reason: '', nextAction: '', reviewDate: null })
+const waitingForm = reactive({ taskId: null, rowVersion: null, reason: '', nextAction: '', reviewDate: null })
 const saving = ref(false)
 
 function snapOf(row) {
@@ -195,48 +252,61 @@ function prioText(p) {
 }
 
 async function load() {
+  const sequence = ++loadSequence
   loading.value = true
+  loadError.value = false
   try {
     const d = await listMyTasks({
       statusScope: scope.value,
       executionId: executionId.value || undefined,
       search: search.value || undefined,
-      page: 1, size: 200
+      page: page.value, size: pageSize
     })
+    if (sequence !== loadSequence) return
     rows.value = d?.items || []
+    total.value = d?.total || 0
     stat.value = d?.stats || {}
+  } catch {
+    if (sequence === loadSequence) loadError.value = true
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 
 async function onProgress(row, v) {
-  const r = await patchTask(row.id, { progress: v, rowVersion: row.rowVersion })
-  const fresh = await listMyTasks({ statusScope: scope.value, executionId: row.executionId, page: 1, size: 200 })
-  const updated = (fresh.items || []).find((x) => x.id === row.id)
-  if (updated) {
-    row.progress = updated.progress
-    row.rowVersion = updated.rowVersion
-    row.completedAt = updated.completedAt
-  }
-  ElMessage.success(v === 'COMPLETED' ? '已完成，已移入完成记录' : '进度已更新')
-  if (v === 'COMPLETED' && scope.value === 'ACTIVE') load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    await patchTask(row.id, { progress: v, rowVersion: row.rowVersion })
+    ElMessage.success(v === 'COMPLETED' ? '已完成，已移入完成记录' : '进度已更新')
+    await load()
+  } catch { /* 请求拦截器提示，保留原行以便重试 */ } finally { saving.value = false }
 }
 
 async function loadExecutions() {
-  const d = await listMyExecutions({ page: 1, size: 100 })
-  executions.value = d?.items || []
+  try {
+    const items = []
+    let current = 1, count = 0
+    do {
+      const d = await listMyExecutions({ page: current++, size: 200 })
+      count = d?.total || 0
+      if (!d?.items?.length) break
+      items.push(...d.items)
+    } while (items.length < count)
+    executions.value = items
+  } catch { /* 拦截器提示，保留已有清单 */ }
 }
 
 async function loadDocs() {
   try {
-    const d = await listKnowledgeDocs({ category: 'enterprise-compliance', page: 1, size: 100 })
+    const d = await listKnowledgeDocs({ category: 'enterprise-compliance', page: 1, pageSize: 100 })
     complianceDocs.value = d?.records || d?.items || []
   } catch (e) { complianceDocs.value = [] }
 }
 
 async function loadTemplates() {
   templates.value = []
+  createForm.templateVersionId = null
   if (!createDocId.value) return
   try {
     templates.value = await listPublishedTemplates(createDocId.value) || []
@@ -245,7 +315,7 @@ async function loadTemplates() {
 
 async function migrateV3() {
   try {
-    const r = await createTemplateDraft(createDocId.value)
+    const r = await createDraftFromV3(createDocId.value)
     ElMessage.success(`已生成迁移草稿（${r?.nodesCreated ?? 0} 个节点），请在模板维护页签补结构化定义后发布`)
     loadTemplates()
   } catch (e) { /* 拦截器已提示 */ }
@@ -253,15 +323,19 @@ async function migrateV3() {
 
 async function loadMyProjects() {
   try {
-    myProjects.value = await request.get('/project/executors').then((x) => x || [])
+    const d = await listProjects({ page: 1, size: 100 })
+    myProjects.value = d?.records || []
   } catch (e) { myProjects.value = [] }
 }
 
 function openCreate() {
   createStep.value = 0
+  createProjectMode.value = 'project'
   createForm.projectId = null
   createForm.templateVersionId = null
   createForm.name = ''
+  createForm.key = newKey()
+  createdExecutionId.value = null
   createDocId.value = null
   templates.value = []
   createDefaultDue.value = null
@@ -273,36 +347,31 @@ function openCreate() {
 async function doCreate() {
   creating.value = true
   try {
-    const idem = 'exec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
-    const r = await createExecution({
+    const r = createdExecutionId.value ? { executionId: createdExecutionId.value } : await createExecution({
       templateVersionId: createForm.templateVersionId,
       projectId: createProjectMode.value === 'project' ? createForm.projectId : undefined,
       name: createForm.name.trim(),
-      idempotencyKey: idem
+      idempotencyKey: createForm.key
     })
     const execId = r?.executionId
+    createdExecutionId.value = execId
     if (r?.alreadyExists) {
       ElMessage.warning('该创建请求已提交过，已返回既有清单')
-    } else {
-      // 默认到期日批量写入任务
-      if (createDefaultDue.value && execId) {
-        const detail = await import('../../api/complianceV4').then((m) => m.getExecutionDetail(execId))
-        for (const t of detail?.tasks || []) {
-          try { await patchTask(t.id, { dueDate: createDefaultDue.value, rowVersion: t.rowVersion }) } catch (e) {}
-        }
-      }
-      ElMessage.success('清单已创建（草稿）')
     }
+    // 部分失败时保留既有草稿和幂等键；重试已成功的日期更新是幂等的。
+    if (createDefaultDue.value && execId) {
+      const detail = await getExecutionDetail(execId)
+      for (const t of detail?.tasks || []) {
+        await patchTask(t.id, { dueDate: createDefaultDue.value, rowVersion: t.rowVersion })
+      }
+    }
+    ElMessage.success('清单已创建（草稿）')
     createVisible.value = false
     await loadExecutions()
     executionId.value = execId
-    if (execId) {
-      try {
-        await startExecution(execId, {})
-        ElMessage.success('已开始执行，任务进入待办')
-      } catch (e) { /* 保持草稿 */ }
-    }
+    scope.value = 'ACTIVE'
     load()
+  } catch { /* 保持向导与同一幂等键；部分失败重试既有草稿 */
   } finally {
     creating.value = false
   }
@@ -310,6 +379,7 @@ async function doCreate() {
 
 function openWaiting(row) {
   waitingForm.taskId = row.id
+  waitingForm.rowVersion = row.rowVersion
   waitingForm.reason = row.waitingReason || ''
   waitingForm.nextAction = row.nextAction || ''
   waitingForm.reviewDate = row.reviewDate || null
@@ -320,29 +390,62 @@ async function saveWaiting() {
   try {
     await patchTask(waitingForm.taskId, {
       waiting: { reason: waitingForm.reason, nextAction: waitingForm.nextAction, reviewDate: waitingForm.reviewDate || null },
-      rowVersion: undefined
+      rowVersion: waitingForm.rowVersion
     })
     ElMessage.success('已设置等待跟进')
     waitingVisible.value = false
     load()
-  } finally {
+  } catch { /* 拦截器提示，保留输入 */ } finally {
     saving.value = false
   }
 }
 async function clearWaiting() {
   saving.value = true
   try {
-    await patchTask(waitingForm.taskId, { waiting: null })
+    await patchTask(waitingForm.taskId, { waiting: null, rowVersion: waitingForm.rowVersion })
     ElMessage.success('已清除等待标记')
     waitingVisible.value = false
     load()
-  } finally {
+  } catch { /* 拦截器提示，保留输入 */ } finally {
     saving.value = false
   }
 }
 
 function openDetail(row) {
-  ElMessage.info('任务详情侧栏迭代中；可在清单内查看规范要求与本次填写')
+  detailRow.value = row
+  detailForm.selection = snapOf(row).inputType === 'MULTI' ? [...(row.answer?.optionCodes || [])] : row.answer?.optionCode || null
+  detailForm.text = row.answer?.text || ''
+  detailForm.dueDate = row.dueDate || null
+  detailForm.priority = row.priority || 'MEDIUM'
+  detailForm.note = row.note || ''
+  detailVisible.value = true
+}
+const newKey = () => 'exec-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+async function saveDetail() {
+  saving.value = true
+  try {
+    const type = snapOf(detailRow.value).inputType
+    const answer = type === 'SINGLE' ? (detailForm.selection ? { optionCode: detailForm.selection } : null)
+      : type === 'MULTI' ? (detailForm.selection?.length ? { optionCodes: detailForm.selection } : null)
+      : detailForm.text.trim() ? { text: detailForm.text } : null
+    const updated = await patchTask(detailRow.value.id, { answer, dueDate: detailForm.dueDate || null, priority: detailForm.priority, note: detailForm.note || null, rowVersion: detailRow.value.rowVersion })
+    Object.assign(detailRow.value, updated)
+    detailVisible.value = false
+    ElMessage.success('已保存本次配置')
+    await load()
+  } catch { /* 保留输入供比较重试 */ } finally { saving.value = false }
+}
+async function openExecution() { executionDetail.value = await getExecutionDetail(executionId.value); executionVisible.value = true }
+async function startSelected() {
+  saving.value = true
+  try { await startExecution(executionId.value, {}); scope.value = 'ACTIVE'; await loadExecutions(); await load(); ElMessage.success('已开始执行') }
+  catch { /* 拦截器提示 */ } finally { saving.value = false }
+}
+function openReuse() { reuseForm.name = selectedExecution.value.name + ' · 再次使用'; reuseForm.projectId = null; reuseForm.copyAnswers = false; reuseForm.key = newKey(); reuseVisible.value = true; loadMyProjects() }
+async function doReuse() {
+  saving.value = true
+  try { const r = await reuseExecution(executionId.value, { name: reuseForm.name.trim(), projectId: reuseForm.projectId, copyAnswers: reuseForm.copyAnswers, idempotencyKey: reuseForm.key }); await loadExecutions(); executionId.value = r.executionId; reuseVisible.value = false; await load() }
+  catch { /* 同一幂等键重试 */ } finally { saving.value = false }
 }
 
 onMounted(async () => {
