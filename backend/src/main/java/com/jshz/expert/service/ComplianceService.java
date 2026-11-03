@@ -227,11 +227,15 @@ public class ComplianceService {
             it.setCreateByName(ParamUtils.usernameOf(user));
             ComplianceItem exact = oldByTitle.get(it.getTitle());
             if (exact != null) {
-                // 第一档：标题完全一致 → 自动匹配，继承 item_code（个人记录按 item_code 迁移），change_type=不变
+                // 第一档：标题完全一致 → 自动匹配：先落库新事项，再迁移个人进度，最后物理删除旧事项
+                // （释放 item_code 避免唯一键冲突；已提交资料/个人记录不丢失，E1）
                 it.setItemCode(exact.getItemCode());
                 it.setPreviousItemId(exact.getId());
                 it.setChangeType("不变");
+                itemMapper.deleteById(exact.getId()); // 先物理删除旧事项，释放 item_code（唯一键）
+                itemMapper.insert(it);
                 migrateProgress(exact.getId(), it.getId());
+                inherited++;
             } else {
                 it.setItemCode(nextItemCode());
                 it.setChangeType("新增");
@@ -243,9 +247,8 @@ public class ComplianceService {
                     it.setChangeType("修改");
                     pending++;
                 }
+                itemMapper.insert(it);
             }
-            itemMapper.insert(it);
-            if (exact != null) inherited++;
         }
         // 旧事项中未被任何新事项引用 → 标记停用（change_type=删除，待办隐藏，个人记录保留）
         Set<String> usedTitles = new HashSet<>();

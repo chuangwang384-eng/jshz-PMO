@@ -106,10 +106,16 @@ const TYPE_LABELS = {
   password_reset: '密码重置',
   doc_off_shelf: '文档下架',
   doc_deleted: '文档删除',
-  doc_updated: '文档更新'
+  doc_updated: '文档更新',
+  compliance_published: '合规事项发布',
+  compliance_updated: '合规事项更新',
+  compliance_due: '合规到期提醒',
+  compliance_assigned: '合规责任人指派',
+  compliance_done_notify: '合规责任人完成提醒'
 }
 
 function typeTagType(type) {
+  if (type && type.startsWith('compliance_')) return type === 'compliance_due' ? 'warning' : 'primary'
   if (type === 'approval_result') return 'success'
   if (type === 'approval_todo' || type === 'approval_transferred' || type === 'approval_assigned') return 'warning'
   if (type === 'role_changed' || type === 'password_reset') return 'danger'

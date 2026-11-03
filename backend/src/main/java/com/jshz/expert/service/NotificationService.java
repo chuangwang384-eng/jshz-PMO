@@ -71,6 +71,17 @@ public class NotificationService extends ServiceImpl<NotificationMapper, Notific
     /** 事件类型：文档重新上架（维护人上架：通知收藏者） */
     public static final String TYPE_DOC_RELISTED = "doc_relisted";
 
+    /** 企业合规：事项发布（推收藏用户+维护人） */
+    public static final String TYPE_COMPLIANCE_PUBLISHED = "compliance_published";
+    /** 企业合规：事项更新（推收藏用户+维护人） */
+    public static final String TYPE_COMPLIANCE_UPDATED = "compliance_updated";
+    /** 企业合规：到期提醒（个人提醒与全局责任人提醒共用） */
+    public static final String TYPE_COMPLIANCE_DUE = "compliance_due";
+    /** 企业合规：责任人指派通知 */
+    public static final String TYPE_COMPLIANCE_ASSIGNED = "compliance_assigned";
+    /** 企业合规：责任人全部完成提醒维护人评估 */
+    public static final String TYPE_COMPLIANCE_DONE_NOTIFY = "compliance_done_notify";
+
     /**
      * 写入一条通知（未读）。
      */

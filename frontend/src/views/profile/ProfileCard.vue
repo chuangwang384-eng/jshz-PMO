@@ -33,6 +33,8 @@
 
     <div class="profile-actions">
       <el-button type="primary" @click="showChangePwd = true">修改密码</el-button>
+      <!-- 企业合规「我的待办」入口（REQ/DES-20261102 D19：个人中心入口） -->
+      <el-button type="success" plain @click="$router.push('/knowledge-planet/enterprise-compliance')">我的待办（企业合规）</el-button>
     </div>
 
     <!-- 修改密码弹窗（复用 ChangePasswordDialog；普通模式：可关闭、无强制改密警示） -->
