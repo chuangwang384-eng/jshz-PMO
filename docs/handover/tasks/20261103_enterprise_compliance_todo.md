@@ -35,3 +35,14 @@
 
 ## 6. 下一步
 需求人按需求 §7/§7.1 复核；提醒 cron 实测可选；历史待办 UI 下轮。
+
+## 7. 追加修复：文档预览失败（2026-11-03 10:40，需求人反馈，未改版本号）
+- 现象：点「预览」显示「预览失败，可下载查看」（xlsx/PDF 全部受影响）
+- 排查结论：后端 GET /docs/files/{name}?preview=true 返回 200 + 合法 PDF（pypdf 可解析），问题在前端渲染
+- **三个叠加根因**（均已在 KnowledgeDocList.vue 修复）：
+  1. `pdfDoc = ref(null)` → Vue 深响应式 Proxy 包裹 pdfjs 文档对象，pdfjs 内部私有字段（#field）经 Proxy 访问抛 `Cannot read from private field`（**主因**，堆栈定位到 pagesNumber getter）→ 改 `shallowRef`
+  2. worker 以独立 `.mjs` 发布，nginx 未配置 .mjs MIME（实测返回 `application/octet-stream`），浏览器拒绝模块加载 → `Setting up fake worker failed` → 改为把 worker 源码以 blob URL 注入（自带 MIME，不依赖服务器配置）
+  3. `pdfjs-dist` 6.x 现代构建依赖 `Promise.withResolvers` 等新 API，旧浏览器直接抛错 → 改用官方 `legacy` 兼容构建
+- 验证：浏览器实测预览抽屉正常显示 canvas（595×841，页码 1/1），内容可见；构建产物无独立 worker .mjs
+- 提交：2bfc6c7；前端原子发布（版本不变 1.0.22）
+- 备注：曾尝试改 nginx `mime.types` 加 `js mjs` 并重启 nginx，但 UAC 提权未生效，已回滚该配置（blob worker 方案不依赖它）；如后续需恢复 .mjs 独立文件方式，再执行该项并重启 Nginx
