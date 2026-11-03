@@ -20,4 +20,3 @@ try {
  fs.writeFileSync(path.join(root,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result))
  if(failures||!green||!blue||before!==after)process.exitCode=1
 }finally{spawnSync(nginx,['-p',prefix,'-c','nginx.conf','-s','quit'],{windowsHide:true})}
-

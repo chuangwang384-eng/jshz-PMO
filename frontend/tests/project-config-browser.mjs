@@ -41,8 +41,3 @@ try {
  console.log('PASS: Edge browser loads graph, edits and preserves async bindings, saves, switches table/graph without page errors. API fixtures isolated; not live backend E2E.')
  await page.screenshot({path:process.env.TEMP+'/jshz-acceptance-0e8f3a4/project-config.png',fullPage:true})
 } catch (error) { console.log('URL',page.url(),'ERRORS',errors,'BODY',(await page.locator('body').innerText()).slice(0,2500));throw error } finally {await browser.close()}
-
-
-
-
-
