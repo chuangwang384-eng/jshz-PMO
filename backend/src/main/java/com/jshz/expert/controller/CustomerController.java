@@ -213,11 +213,12 @@ public class CustomerController {
     // ==================== 客户关系 ====================
 
     /**
-     * 关系类型列表：GET /api/customer/relations/types（含停用类型）。需 customer:manage。
+     * 关系类型列表：GET /api/customer/relations/types（含停用类型）。
+     * 20261103 放开：只读字典，登录即可（客户信息列表页加载即用）；写操作仍需 customer:manage。
      */
     @GetMapping("/relations/types")
     public ApiResponse<List<CustomerRelationType>> relationTypes(@AuthenticationPrincipal AuthUser authUser) {
-        requireManage(authUser);
+        requireUser(authUser);
         return ApiResponse.ok(relationService.listTypes());
     }
 
