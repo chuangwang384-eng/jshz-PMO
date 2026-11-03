@@ -34,6 +34,7 @@ param(
     [string]$Version = '',
     [switch]$DryRun,
     [switch]$GracefulSwitch,
+    [switch]$DisableComplianceSchedulersOnRollback,
     [int]$KeepVersions = 5
 )
 
@@ -215,7 +216,7 @@ function Step1-Preflight {
 function Step2-StartShadow {
     Write-Step '2/11 影子启动（新 jar @8081）'
     Invoke-Action "启动影子进程: java -jar $script:NewJar --server.port=${BluePort}（工作目录 $BackendDir，数据库密码经环境变量继承）" {
-        $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}", '--server.address=127.0.0.1', '--expert.compliance.due-enabled=false', '--expert.wecom.sync-cron-enabled=false') `
+        $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}", '--server.address=127.0.0.1', '--expert.compliance.due-enabled=false', '--expert.compliance.v4-reminder-enabled=false', '--expert.wecom.sync-cron-enabled=false') `
             -WorkingDirectory $BackendDir -PassThru -WindowStyle Hidden
         $script:ShadowPid = $psi.Id
         Write-Ok "影子进程 PID=$($psi.Id)"
@@ -366,6 +367,13 @@ function Step9-StabilizeNssm {
         Invoke-Action '回滚：从 releases 恢复旧 jar -> 重启 NSSM' {
             Stop-Service -Name $BackendSvc -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
+            if ($DisableComplianceSchedulersOnRollback) {
+                $parametersKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters'
+                $parameters = (Get-ItemProperty -Path $parametersKey).AppParameters
+                $parameters += ' --expert.compliance.due-enabled=false --expert.compliance.v4-reminder-enabled=false'
+                Set-ItemProperty -Path $parametersKey -Name AppParameters -Value $parameters
+                Write-Info 'Rollback safety: both compliance schedulers disabled; preserve per-user V4 mode.'
+            }
             if ($script:OldJar -and (Test-Path $script:OldJar)) { Copy-Item -Path $script:OldJar -Destination $targetJar -Force }
             Start-Service -Name $BackendSvc -ErrorAction SilentlyContinue
         }
