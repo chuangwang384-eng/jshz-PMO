@@ -1,23 +1,44 @@
 <template>
   <div class="page-container">
-    <!-- 我的待办区（全员可见；收藏 ∪ 责任人口径） -->
+    <el-tabs v-model="pageTab" class="page-tabs">
+    <!-- 页签 1：我的执行（v4 可复用清单；替换 v3 旧待办区） -->
+    <el-tab-pane label="我的执行" name="execution">
     <el-card shadow="never" class="ui-card todo-card">
       <template #header>
         <div class="sec-head">
-          <span>我的待办（企业合规）</span>
-          <span class="sec-sub">口径：我收藏（关注）文档的已发布事项 + 我作为责任人的事项</span>
+          <span>我的执行清单（企业合规）</span>
+          <span class="sec-sub">口径：我创建的执行清单（项目用途 / 个人用途）；收藏文档仅保存入口，"用于项目"才创建待办</span>
         </div>
       </template>
-      <MyTodoSection
-        :stat="todoStat"
-        :rows="todoRows"
-        :loading="todoLoading"
-        @change-progress="onChangeProgress"
-        @edit-remark="openRemark"
-        @set-reminder="openReminder"
-        @set-block="openBlock"
-      />
+      <ExecutionBoard v-if="v4Ready" />
+      <el-alert v-else type="info" :closable="false" title="正在加载执行清单…" />
     </el-card>
+    </el-tab-pane>
+
+    <!-- 页签 2：规范文档库 -->
+    <el-tab-pane label="规范文档库" name="docs">
+    <el-card shadow="never" class="ui-card doc-card">
+      <template #header>
+        <div class="sec-head">
+          <span>合规文档库<span class="sec-sub" style="margin-left: 8px">收藏（关注）保存入口；需要执行时点「用于本次」创建清单</span></span>
+        </div>
+      </template>
+      <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="true" @favorite-changed="onFavoriteChanged" />
+    </el-card>
+    </el-tab-pane>
+
+    <!-- 页签 3：模板维护（仅维护人可见） -->
+    <el-tab-pane v-if="isMaintainer" label="模板维护" name="maintenance">
+    <el-card shadow="never" class="ui-card board-card">
+      <template #header>
+        <div class="sec-head">
+          <span>模板维护<span class="sec-badge">仅维护人可见</span></span>
+        </div>
+      </template>
+      <MaintenanceBoard />
+    </el-card>
+    </el-tab-pane>
+    </el-tabs>
 
     <!-- 维护人全局看板入口+看板（仅 knowledge:maintain 可见） -->
     <el-card v-if="isMaintainer" shadow="never" class="ui-card board-card">

@@ -209,6 +209,9 @@ const props = defineProps({
   mode: { type: String, default: 'category' }
 })
 
+// 可选事件：收藏状态变更（企业合规页监听以同步待办；其他分类无监听不受影响）
+const emit = defineEmits(['favorite-changed'])
+
 const categoryLabels = {
   'meeting-execution': '会议执行标准',
   'association-compliance': '协会合规要求',
@@ -293,6 +296,7 @@ async function toggleFavorite(row) {
       await unfavoriteKnowledgeDoc(row.id)
       row.isFavorite = false
       ElMessage.success('已取消收藏')
+      emit('favorite-changed', { docId: row.id, isFavorite: false })
       if (isFavoritesMode.value) {
         docs.value = docs.value.filter((d) => d.id !== row.id)
       }
@@ -300,6 +304,7 @@ async function toggleFavorite(row) {
       await favoriteKnowledgeDoc(row.id)
       row.isFavorite = true
       ElMessage.success('已收藏，文档更新时将通知您')
+      emit('favorite-changed', { docId: row.id, isFavorite: true })
     }
   } catch (e) {
     // 错误提示已由拦截器统一处理
