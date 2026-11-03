@@ -10,3 +10,4 @@
 - 2026-11-02 项目详情页追加修复（相关附件富文本混入/调派专家小窗口/新建专家卡视觉/文本必填拦截根因修复）已上线（版本不变 1.0.21，含后端蓝绿）。详见 [tasks/20261102_project_detail_ui_refactor.md](tasks/20261102_project_detail_ui_refactor.md)。
 - 2026-11-02 项目详情页追加修复（附件过滤/专家弹窗视觉/文本必填拦截）需求人**已验收**。
 - 2026-11-03 客户信息板块测试账号「无权限」弹窗修复已上线（版本不变，含后端蓝绿）。详见 [tasks/20261102_project_detail_ui_refactor.md](tasks/20261102_project_detail_ui_refactor.md) §14。
+- 2026-11-03 企业合规板块「个人关注驱动待办」v3.0 改造已上线（版本不变 1.0.22，5 新表+解析/待办/匹配/提醒+看板），API+浏览器验收通过。详见 [tasks/20261103_enterprise_compliance_todo.md](tasks/20261103_enterprise_compliance_todo.md)。
