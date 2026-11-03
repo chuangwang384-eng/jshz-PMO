@@ -752,7 +752,23 @@ public class ComplianceV4Service {
             // 无有效变更且未带版本：仅返回现状
         }
         task.setRowVersion(task.getRowVersion() + 1);
-        taskMapper.updateById(task);
+        // 显式 set 全部可变字段：MyBatis-Plus updateById 默认忽略 null，无法清空答案/备注/等待/日期
+        taskMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ComplianceExecutionTask>()
+                .eq(ComplianceExecutionTask::getId, task.getId())
+                .set(ComplianceExecutionTask::getAnswer, task.getAnswer())
+                .set(ComplianceExecutionTask::getDueDate, task.getDueDate())
+                .set(ComplianceExecutionTask::getPriority, task.getPriority())
+                .set(ComplianceExecutionTask::getProgress, task.getProgress())
+                .set(ComplianceExecutionTask::getNote, task.getNote())
+                .set(ComplianceExecutionTask::getWaitingReason, task.getWaitingReason())
+                .set(ComplianceExecutionTask::getNextAction, task.getNextAction())
+                .set(ComplianceExecutionTask::getReviewDate, task.getReviewDate())
+                .set(ComplianceExecutionTask::getScheduleRevision, task.getScheduleRevision())
+                .set(ComplianceExecutionTask::getCompletedAt, task.getCompletedAt())
+                .set(ComplianceExecutionTask::getApplicability, task.getApplicability())
+                .set(ComplianceExecutionTask::getRemindEnabled, task.getRemindEnabled())
+                .set(ComplianceExecutionTask::getRemindDays, task.getRemindDays())
+                .set(ComplianceExecutionTask::getRowVersion, task.getRowVersion()));
         if (!changes.isEmpty()) {
             event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "UPDATE", "{\"fields\":" + jsonStr(changes) + "}");
         }
