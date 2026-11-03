@@ -61,13 +61,21 @@ public class ProjectStorageService {
     }
 
     /**
-     * 保存富文本内容（JSON 文件），返回相对路径（_richtext/proj{projectId}_p{phaseId}_t{templateId}.json）。
+     * 保存富文本内容（JSON 文件），返回包含UUID的独立相对路径，旧文件仍可读取。
      */
     public String saveRichText(Long projectId, Long phaseId, Long templateId, String content) {
-        String fileName = "proj" + projectId + "_p" + phaseId + "_t" + templateId + ".json";
+        String fileName = "proj" + projectId + "_p" + phaseId + "_t" + templateId + "_" + UUID.randomUUID().toString().replace("-", "") + ".json";
         Path p = storageDir.resolve("_richtext").resolve(fileName).normalize();
         try {
             Files.writeString(p, content);
+            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCompletion(int status) {
+                            if (status != STATUS_COMMITTED) deleteFile("_richtext/" + fileName);
+                        }
+                    });
+            }
         } catch (IOException e) {
             throw new BusinessException("富文本保存失败: " + e.getMessage());
         }
@@ -81,11 +89,9 @@ public class ProjectStorageService {
         if (!StringUtils.hasText(filePath)) {
             return null;
         }
-        String safe = Paths.get(filePath).getFileName().toString();
-        Path p = storageDir.resolve("_richtext").resolve(safe).normalize();
-        if (!p.startsWith(storageDir) || !Files.exists(p) || !Files.isRegularFile(p)) {
-            return null;
-        }
+        if (!filePath.startsWith("_richtext/")) return null;
+        Path p = resolveFile(filePath);
+        if (p == null) return null;
         try {
             return Files.readString(p);
         } catch (IOException e) {
@@ -100,11 +106,16 @@ public class ProjectStorageService {
         if (!StringUtils.hasText(filePath)) {
             return null;
         }
-        String safeName = Paths.get(filePath).getFileName().toString();
-        Path p = storageDir.resolve(safeName).normalize();
-        if (!p.startsWith(storageDir) || !Files.exists(p) || !Files.isRegularFile(p)) {
-            return null;
-        }
+        String normalized = filePath.replace('\\', '/');
+        Path relative = Paths.get(normalized);
+        if (relative.isAbsolute() || normalized.contains(":") || normalized.contains("..")) return null;
+        if (relative.getNameCount() != 1 &&
+                !(relative.getNameCount() == 2 && "_richtext".equals(relative.getName(0).toString()))) return null;
+        Path p = storageDir.resolve(relative).normalize();
+        if (!p.startsWith(storageDir) || !Files.isRegularFile(p)) return null;
+        try {
+            if (!p.toRealPath().startsWith(storageDir.toRealPath())) return null;
+        } catch (IOException e) { return null; }
         return p;
     }
 

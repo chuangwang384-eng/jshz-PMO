@@ -7,6 +7,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.Supplier;
+import com.jshz.expert.entity.ProjectSupplier;
+import com.jshz.expert.mapper.ProjectSupplierMapper;
 import com.jshz.expert.entity.SupplierCity;
 import com.jshz.expert.entity.SupplierHotelPrintRel;
 import com.jshz.expert.entity.SupplierImage;
@@ -50,6 +52,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     /** 打印店类型业务键 */
     public static final String BIZ_PRINT = "PRINT";
 
+    private final ProjectSupplierMapper projectSupplierMapper;
     private final SupplierTypeMapper typeMapper;
     private final SupplierCityMapper cityMapper;
     private final SupplierPriceItemMapper priceItemMapper;
@@ -281,9 +284,13 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
      */
     @Transactional(rollbackFor = Exception.class)
     public void deleteSupplier(Long id) {
-        Supplier s = this.getById(id);
+        Supplier s = baseMapper.selectOne(new LambdaQueryWrapper<Supplier>().eq(Supplier::getId, id).last("FOR UPDATE"));
         if (s == null) {
             throw new BusinessException("供应商不存在");
+        }
+        if (projectSupplierMapper.selectCount(new LambdaQueryWrapper<ProjectSupplier>()
+                .eq(ProjectSupplier::getSupplierId, id)) > 0) {
+            throw new BusinessException("供应商已被项目引用，请先处理项目关联，不能删除");
         }
         priceItemMapper.delete(new LambdaQueryWrapper<SupplierPriceItem>().eq(SupplierPriceItem::getSupplierId, id));
         reviewMapper.delete(new LambdaQueryWrapper<SupplierReview>().eq(SupplierReview::getSupplierId, id));

@@ -205,7 +205,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("contracts", listContracts(id, user));
         m.put("budget", budgetOf(project));
         m.put("phases", phasesWithTemplates());
-        m.put("timeline", timeline(id));
+        m.put("timeline", timeline(id, user));
         m.put("canManage", user != null && (user.isAdmin() || user.hasPermission("project:manage")));
         m.put("canAdvance", fullSensitive);
         // REQ-20261102 需求三：回退权限独立字段（负责人/执行人/admin），与推进语义解耦
@@ -453,7 +453,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     /** 时间线：operation_log target_type=PROJECT 倒序（与后台日志同源）。 */
-    public List<OperationLog> timeline(Long id) {
+    public List<OperationLog> timeline(Long id, AuthUser user) {
+        requireProjectReadable(requireProject(id), user);
         return operationLogMapper.selectList(new LambdaQueryWrapper<OperationLog>()
                 .eq(OperationLog::getTargetType, "PROJECT")
                 .eq(OperationLog::getTargetId, String.valueOf(id))
@@ -591,10 +592,15 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectSupplier rel : rels) {
             Supplier supplier = supplierMapper.selectById(rel.getSupplierId());
-            if (supplier == null) {
-                continue;
+            boolean missing = supplier == null;
+            if (missing) {
+                supplier = new Supplier();
+                supplier.setId(rel.getSupplierId());
+                supplier.setName("已删除供应商#" + rel.getSupplierId());
+                supplier.setTypeName("历史关联");
             }
             Map<String, Object> m = new LinkedHashMap<>();
+            m.put("missing", missing);
             m.put("id", rel.getId());
             m.put("supplierId", supplier.getId());
             m.put("name", supplier.getName());
@@ -613,7 +619,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     public void addSupplier(Long id, Long supplierId, AuthUser user) {
         Project project = requireProject(id);
         requireManage(user);
-        Supplier supplier = supplierId == null ? null : supplierMapper.selectById(supplierId);
+        Supplier supplier = supplierId == null ? null : supplierMapper.selectOne(new LambdaQueryWrapper<Supplier>()
+                .eq(Supplier::getId, supplierId).last("FOR UPDATE"));
         if (supplier == null) {
             throw new BusinessException("供应商不存在");
         }
@@ -646,7 +653,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         supplierRelMapper.deleteById(rel.getId());
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_REMOVE_SUPPLIER,
-                "项目「" + project.getName() + "」移出供应商「" + supplierMapper.selectById(supplierId).getName() + "」",
+                "项目「" + project.getName() + "」移出供应商「" + (supplierMapper.selectById(supplierId) == null ? "已删除供应商#" + supplierId : supplierMapper.selectById(supplierId).getName()) + "」",
                 "PROJECT", id, null);
     }
 
@@ -717,7 +724,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         doc.setDeletedTime(LocalDateTime.now());
         docMapper.updateById(doc);
         if (doc.getFilePath() != null && doc.getFilePath().startsWith("_richtext/")) {
-            storageService.deleteFile(doc.getFilePath());
+            if (docMapper.selectCount(new LambdaQueryWrapper<ProjectDoc>()
+                    .eq(ProjectDoc::getFilePath, doc.getFilePath()).eq(ProjectDoc::getIsDeleted, 0)) == 0) {
+                if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+                    org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                        new org.springframework.transaction.support.TransactionSynchronization() {
+                            @Override public void afterCommit() { storageService.deleteFile(doc.getFilePath()); }
+                        });
+                } else {
+                    storageService.deleteFile(doc.getFilePath());
+                }
+            }
         }
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_DELETE_DOC,

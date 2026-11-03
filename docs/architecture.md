@@ -127,3 +127,13 @@ AIGC:
 
 > 审批「申请前后变化」对比（2026-10-27）：修改申请提交时 `ApplicationService.submitRequest` 从 expert_info 读全量字段写 biz_data.oldData 旧值快照（14 键：11 文本 + 3 照片文件名，新增申请置空）；查询接口返回项增加 `oldData`（身份证/银行卡按查看者脱敏：管理员全量、非管理员前3后4，与 /api/experts/{id} 规则一致）与 `photoChanges`（照片原始文件名供前端预览）；审批通过时把 biz_data.changes 照片键 TMP: 值回填为归档文件名（生效后可预览），且 oldData 快照存在时跳过旧照片物理删除（保证历史单随时可还原「变更前」）。`WebConfig` 新增 /api/files-tmp/** 映射审批临时照片目录（待审批单新照片预览）。前端新增公共组件 `ApprovalDiffDialog.vue`（审批管理 + 我的申请共用，mode=view/approve/reject），审批管理与我的申请操作列加「查看对比」、通过/驳回整合进对比弹窗、摘要列升级「旧值 → 新值」；移除原展开行实时查专家表逻辑（oldValuesMap/handleExpand）。存量迁移 `database/migration/20261027_backfill_application_old_data.sql`：EXPERT_MODIFY 且 status∈{0,2,3} 的存量单用 expert_info 当前值回填 oldData（幂等、无 DDL），status=1 已通过单保持空（前端显示历史单提示）。
 *（内容由AI生成，仅供参考）*
+
+## 2026-11-03 审查修复与项目配置接手（开发分支）
+- 时间线 GET /api/project/{id}/timeline 现在与项目详情采用相同资源读取校验：project:view-all 或负责人/执行人；非成员返回业务403。
+- 供应商删除在事务内锁定供应商行并检查 project_supplier，有任何项目引用则拒删；关联供应商采用相同行锁。历史悬空关联仍显示占位名称/费用，可由授权维护人正常移出，不自动清理历史费用。
+- 富文本每次保存生成含UUID的新文件，作为独立记录内容；旧固定路径继续可读。删除记录后仅无其他有效引用才清理富文本文件，物理删除在事务提交后执行；新文件若事务回滚则清理。未迁移或恢复历史上已被覆盖的内容。
+- 合规到期提醒由事项关联的收藏者与责任人集合产生：首次收藏无需先创建进度行；取消收藏且非责任人不再提醒；仍为责任人的用户继续保留责任提醒。个人完成或关闭提醒停止该用户提醒。收藏者默认提前3天，只有责任人时使用assignee-days；同用户同事项节点去重。
+- 仅提前N天与当天生成提醒，非窗口每日发送；PENDING→SENDING→SENT/FAILED，失败最多3次同步发送尝试。每节点REQUIRES_NEW事务使本地notification及日志原子提交；单节点事务异常最多重试3次，不回滚其他节点。前提：通知与日志使用现有同一MySQL事务数据源。
+- 责任人编辑仅通知新增者一次，保留者不重新通知。
+- 项目配置图形化接手保留原表格入口及原有权限；新增Vue Flow依赖、统一Pinia配置状态和9个组件，修复阶段拖动、模板异步初始化/排序、兜底来源/影响面与新增部分保存重试。
+- 开发验证及限制见 docs/handover/tasks/20261103_fix_takeover.md，尚未部署。

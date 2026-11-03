@@ -103,7 +103,7 @@ public class ComplianceService {
         it.setUpdateByName(ParamUtils.usernameOf(user));
         validateItem(it);
         itemMapper.insert(it);
-        saveAssignees(it.getId(), body.get("assigneeIds"), user);
+        saveAssignees(it.getId(), body.get("assigneeIds"), user, true);
         history(it.getId(), "手动新增", null, it.getTitle(), user, null);
         return it;
     }
@@ -122,7 +122,7 @@ public class ComplianceService {
         itemMapper.updateById(it);
         if (body.containsKey("assigneeIds")) {
             List<Long> oldAssignees = assigneeIdsOf(id);
-            saveAssignees(id, body.get("assigneeIds"), user);
+            saveAssignees(id, body.get("assigneeIds"), user, false);
             List<Long> newAssignees = assigneeIdsOf(id);
             // 责任人变更：写历史 + 通知新责任人（旧责任人保留不通知）
             for (Long uid : newAssignees) {
@@ -614,7 +614,7 @@ public class ComplianceService {
         }
     }
 
-    private void saveAssignees(Long itemId, Object assigneeIds, AuthUser user) {
+    private void saveAssignees(Long itemId, Object assigneeIds, AuthUser user, boolean notify) {
         assigneeMapper.delete(new LambdaQueryWrapper<ComplianceItemAssignee>().eq(ComplianceItemAssignee::getItemId, itemId));
         if (assigneeIds instanceof List<?> list) {
             for (Object o : list) {
@@ -627,7 +627,7 @@ public class ComplianceService {
                 a.setItemId(itemId);
                 a.setUserId(uid);
                 assigneeMapper.insert(a);
-                notifyAssignee(uid, itemMapper.selectById(itemId));
+                if (notify) notifyAssignee(uid, itemMapper.selectById(itemId));
             }
         }
     }

@@ -113,8 +113,8 @@ public class ProjectController {
 
     /** 时间线（operation_log target_type=PROJECT 倒序）。 */
     @GetMapping("/{id}/timeline")
-    public ApiResponse<List<?>> timeline(@PathVariable Long id) {
-        return ApiResponse.ok(projectService.timeline(id));
+    public ApiResponse<List<?>> timeline(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectService.timeline(id, user));
     }
 
     /** 专家名单。 */

@@ -331,3 +331,12 @@ server {
 
 ## R-1 发布记录
 - 2026-11-03 09:39:26 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## 2026-11-03 审查修复发布注意（尚未发布）
+- 代码位于 codex/fix-review-and-config-takeover；按既有前端原子发布/后端蓝绿流程发布，需负责人另行批准。
+- 无表结构迁移、无新增环境变量；提醒日志send_status已有VARCHAR(16)，新运行态SENDING无需DDL。发布前只读核对实际列类型与唯一键(user_id,item_id,reminder_type,scheduled_time)，本轮未连接实际库。
+- 前端新增 @vue-flow/core、@vue-flow/background，依赖锁文件一并交付，按锁文件安装。隔离构建命令：cd frontend 后 npm run build -- --outDir dist-review-fixes，不覆盖运行dist。
+- 后端通知与提醒日志必须保持同一事务数据源；没有配置外部消息发送。持久故障3次后FAILED不无限重试；不要批量修改历史日志来补发，需先审核范围。
+- 旧富文本共享文件保留兼容；没有批量删行/删文件迁移。已被历史覆盖的旧内容无法由本修复恢复。
+- 回滚前备份应用、配置及项目资料库；回滚代码会重新引入旧缺陷。新UUID富文本路径由旧readRichText仍可读取；不要回滚或清空数据。恢复演练需在隔离环境执行。
+- 验证步骤和未验证项见 docs/handover/tasks/20261103_fix_takeover.md。
