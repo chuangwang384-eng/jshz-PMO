@@ -1,0 +1,76 @@
+{
+  "verified_at": "2026-11-03T22:00:32.896084+08:00",
+  "status": "DEPLOYED_TECHNICALLY_VERIFIED_BUSINESS_REVIEW_PENDING",
+  "business_commit": "c24add5",
+  "release_id": "1.0.22-compliance-v4-c24add5-20261103",
+  "started": "2026-11-03T21:41:58.5514719+08:00",
+  "completed": "2026-11-03T21:44:11.5141629+08:00",
+  "nginx_master_before": 39504,
+  "nginx_master_after": 39504,
+  "nginx_restarted": false,
+  "formal_backend_port": 8080,
+  "formal_java_pid": 18436,
+  "shadow_8081_stopped": true,
+  "frontend_root": "<LOCAL_PATH>",
+  "backend_sha256": "DDB6D4EB914747EEE322AD8465BA4EE6D0EC1F65A63ECC63AF6C2D58C1F0E301",
+  "index_sha256": "BB0F8B66AFAF1F72422660AD37A6B6E9F7B1678C4D23BA0A83EB0E4EC94B89B6",
+  "health": 200,
+  "ready": 200,
+  "anonymous_v4_mode": 401,
+  "asset_hash_checks": 8,
+  "continuity": {
+    "pooled_requests": 1815,
+    "fresh_requests": 1815,
+    "failures": 0,
+    "window_start": "2026-11-03T13:41:56.088Z",
+    "window_end": "2026-11-03T13:44:33.815Z"
+  },
+  "authenticated_readonly_smoke": true,
+  "business_write_smoke": false,
+  "business_acceptance": false,
+  "data_counts_before_after_preserved": {
+    "template_version": 2,
+    "execution": 2,
+    "task": 6,
+    "reminder": 2,
+    "legacy_item": 29,
+    "legacy_progress": 5
+  },
+  "new_user_mode_rows": 0,
+  "v4_enabled": true,
+  "v4_reminder_enabled": true,
+  "backup": "<LOCAL_PATH>",
+  "backup_verified_sha256_and_content": true,
+  "full_restore_drill_this_run": false,
+  "previous_on_disk_jar": {
+    "sha256": "3925BA7951CE118FE215B995C5B5D4A36F19A3BDF1936AED8A52E7587B71AEFA",
+    "bytes": 605801,
+    "bootable": false,
+    "must_not_be_used_for_rollback": true
+  },
+  "retained_bootable_packages": {
+    "current": "backend/releases/compliance-v4-c24add5-20261103_214307/current-expert-system.jar",
+    "review_fixes_baseline": "backend/releases/compliance-v4-c24add5-20261103_214307/known-good-review-fixes.jar",
+    "review_fixes_sha256": "6F62438EB5D2C7B13466F044A0709825F7F0D1B31280EA327D9AAF0FC400E278"
+  },
+  "earlier_attempts": [
+    {
+      "stage": "initial UAC",
+      "result": "cancelled before production actions"
+    },
+    {
+      "stage": "21:32 backend preflight",
+      "result": "WinPS5 HTTP/1.1 client read failed; additive migration applied, no traffic switch; HTTP/1.0 read-only deployment helper fixed"
+    }
+  ],
+  "temporary_credential_file_removed": true,
+  "probe_stopped": true,
+  "metadata_comment_correction": {
+    "only_comments_restored_to_canonical": true,
+    "schema_types_constraints_data_unchanged": true,
+    "utf8_native_pipeline_verified_in_winps5": true,
+    "pooled_requests": 129,
+    "fresh_requests": 129,
+    "failures": 0
+  }
+}

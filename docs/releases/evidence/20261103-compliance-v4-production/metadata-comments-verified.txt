@@ -1,0 +1,4 @@
+TABLE_COMMENT
+合规个人切换开关；缺行沿用V3
+COLUMN_COMMENT
+切换时只读旧进度快照，不自动关联项目

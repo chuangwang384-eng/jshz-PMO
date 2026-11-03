@@ -8,7 +8,8 @@
     1 预检 -> 2 影子启动8081 -> 3 健康+业务探测 -> 4 备份conf -> 5 改proxy_pass ->
     6 nginx -t -> 7 Restart-Service ExpertSystemNginx -> 8 蓝验证 -> 9 稳态化NSSM ->
     10 切回8080 -> 11 清理+归档
-  Nginx 切流一律 Restart-Service ExpertSystemNginx（NSSM 约束，禁止 nginx -s reload）。
+  -GracefulSwitch 使用已验证的 SYSTEM 单次任务平滑重载，保持 Nginx 主进程并排空连接；
+  未指定时保留历史 Restart-Service 路径。严格不停机生产发布必须指定 -GracefulSwitch。
   阶段9 先停 NSSM 服务再替换 target/*.jar（释放进程锁，历史踩坑：不先停会替换失败）。
   支持 -DryRun（仅打印动作与检查点，不改配置/不动服务/不启动进程）与 -KeepVersions（默认 5）。
 
@@ -17,6 +18,12 @@
 
 .PARAMETER Version
   发布版本号（用于归档目录命名）；缺省从项目根 version.txt 读取（revision 键）。
+
+.PARAMETER RollbackJarPath
+  可选的经审批回滚基线；缺省取当前 target jar。候选和回滚源都必须是可启动 Boot 包。
+
+.PARAMETER DisableComplianceSchedulersOnRollback
+  自动回退旧二进制前关闭两套合规调度，保留个人模式与数据；不代替人工数据兼容评审。
 
 .PARAMETER DryRun
   仅打印各阶段将执行的动作与检查点，不实际修改配置、不动服务、不启动进程。
@@ -31,6 +38,7 @@
 [CmdletBinding()]
 param(
     [string]$JarPath = '',
+    [string]$RollbackJarPath = '',
     [string]$Version = '',
     [switch]$DryRun,
     [switch]$GracefulSwitch,
@@ -39,6 +47,8 @@ param(
 )
 
 # ==================== 常量区（按环境调整） ====================
+. (Join-Path $PSScriptRoot 'deployment-http.ps1')
+. (Join-Path $PSScriptRoot 'deployment-artifact.ps1')
 $BackendDir      = 'D:\jshz-PMO\backend'
 $TargetJarName   = 'expert-system.jar'   # NSSM AppParameters 固定的正式 jar 名（替换方式保持此名）
 $ReleasesDir     = 'D:\jshz-PMO\backend\releases'
@@ -92,14 +102,14 @@ function Invoke-Check([string]$desc, [scriptblock]$check) {
 
 function Test-HttpOk([string]$url, [int]$timeoutSec = 10) {
     try {
-        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeoutSec
+        $r = Get-DeploymentHttpResponse -Url $url -TimeoutSec $timeoutSec
         return ($r.StatusCode -eq 200)
     } catch { return $false }
 }
 
 function Test-HttpOkOr401([string]$url, [int]$timeoutSec = 10) {
     try {
-        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeoutSec
+        $r = Get-DeploymentHttpResponse -Url $url -TimeoutSec $timeoutSec
         return ($r.StatusCode -eq 200 -or $r.StatusCode -eq 401)
     } catch {
         $code = $_.Exception.Response.StatusCode.value__
@@ -107,7 +117,7 @@ function Test-HttpOkOr401([string]$url, [int]$timeoutSec = 10) {
     }
 }
 function Get-HttpBody([string]$url, [int]$timeoutSec = 10) {
-    try { return (Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeoutSec).Content } catch { return '' }
+    try { return (Get-DeploymentHttpResponse -Url $url -TimeoutSec $timeoutSec).Content } catch { return '' }
 }
 
 function Wait-Healthy([string]$url, [int]$retries, [int]$delaySec, [string]$name) {
@@ -162,6 +172,9 @@ function Step1-Preflight {
         $script:NewJar = $JarPath
     }
     Write-Info "新 jar: $script:NewJar"
+    if(-not (Test-ExecutableBootJar -Path $script:NewJar)){throw 'Candidate JAR is not an executable Spring Boot package.'}
+    $script:RollbackSource = if($RollbackJarPath){(Resolve-Path -LiteralPath $RollbackJarPath).Path}else{Join-Path (Join-Path $BackendDir 'target') $TargetJarName}
+    if(-not (Test-ExecutableBootJar -Path $script:RollbackSource)){throw 'Rollback JAR is not executable. Supply an approved known-good package using -RollbackJarPath before release.'}
 
     if (-not $MysqlPassword) {
         throw '未设置 MYSQL_PASSWORD 环境变量：影子启动(8081)与生产同库依赖该变量，请先注入后再发布'
@@ -339,7 +352,7 @@ function Step9-StabilizeNssm {
     $script:OldJar = Join-Path $relDir "previous-$TargetJarName"
     Invoke-Action "9b 归档当前旧 jar -> $script:OldJar" {
         New-Item -ItemType Directory -Path $relDir -Force | Out-Null
-        if (Test-Path $targetJar) { Copy-Item -Path $targetJar -Destination $script:OldJar -Force }
+        Copy-Item -LiteralPath $script:RollbackSource -Destination $script:OldJar -Force
     }
 
     # 9c 替换 jar（NSSM AppParameters 固定指向 $TargetJarName，替换方式最稳）
@@ -418,7 +431,7 @@ function Step10-SwitchBack {
             [IO.File]::WriteAllText($NginxConfFile, $txt)
             Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
-        throw 'Nginx 重启失败，已回滚 Nginx 指向 8081'
+        throw 'Nginx 切流失败，已回滚 Nginx 指向 8081'
     }
 
     $okV = Invoke-Check '验证：经 Nginx /api 走 8080 新版本' {

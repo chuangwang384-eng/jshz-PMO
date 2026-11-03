@@ -1,0 +1,14 @@
+kind	n
+template_version	2
+execution	2
+task	6
+reminder	2
+user_mode	0
+legacy_item	29
+legacy_progress	5
+TABLE_NAME	COLUMN_NAME	COLUMN_TYPE	IS_NULLABLE
+compliance_user_mode	user_id	bigint	NO
+compliance_user_mode	mode	varchar(8)	NO
+compliance_user_mode	legacy_snapshot	json	YES
+compliance_user_mode	switched_at	datetime	YES
+compliance_user_mode	updated_at	datetime	NO

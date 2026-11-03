@@ -6,6 +6,7 @@ param(
     [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'deployment-http.ps1')
 $conf = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
 $text = [IO.File]::ReadAllText($conf)
 $rootMatch = [regex]::Match($text, '(?m)^\s*root\s+([^;]+);')
@@ -52,8 +53,9 @@ $next = $text.Substring(0,$rootMatch.Index) + ($rootMatch.Value -replace [regex]
 try {
     [IO.File]::WriteAllText($conf,$next)
     & (Join-Path $PSScriptRoot 'invoke-nginx-graceful.ps1')
-    $web = New-Object Net.WebClient
-    try { $served = $web.DownloadData('http://127.0.0.1/') } finally { $web.Dispose() }
+    $web = Get-DeploymentHttpResponse -Url 'http://127.0.0.1/'
+    if($web.StatusCode -ne 200){throw 'Served frontend index did not return HTTP 200.'}
+    $served=$web.ContentBytes
     $sha = [Security.Cryptography.SHA256]::Create()
     try { $hash = ([BitConverter]::ToString($sha.ComputeHash($served))).Replace('-','') } finally { $sha.Dispose() }
     if ($hash -ne (Get-FileHash -LiteralPath (Join-Path $target 'index.html')).Hash) { throw 'Served index hash does not match immutable release.' }

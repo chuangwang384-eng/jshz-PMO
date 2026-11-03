@@ -1,0 +1,10 @@
+﻿{
+    "status":  "FAILED",
+    "stage":  "backend",
+    "started":  "2026-11-03T21:32:50.7533165+08:00",
+    "sourceCommit":  "c24add5",
+    "releaseId":  "1.0.22-compliance-v4-c24add5-20261103",
+    "masterBefore":  39504,
+    "error":  "Backend deployment failed; inspect preserved blue/rollback states before any further service action",
+    "failed":  "2026-11-03T21:32:56.9170620+08:00"
+}

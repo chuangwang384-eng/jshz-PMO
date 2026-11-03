@@ -2,6 +2,8 @@ param(
   [string]$MysqlExe = 'C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe'
 )
 $ErrorActionPreference = 'Stop'
+$previousOutputEncoding = $OutputEncoding
+$OutputEncoding = New-Object Text.UTF8Encoding($false)
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ($env:V4_ACCEPTANCE_DB -ne 'acceptance_v4' -or -not $env:V4_DB_PASSWORD -or -not $env:V4_TEST_PASSWORD) {
   throw 'Set V4_ACCEPTANCE_DB=acceptance_v4, V4_DB_PASSWORD and V4_TEST_PASSWORD for disposable fixtures.'
@@ -25,4 +27,4 @@ try {
   $tests = 'ComplianceV4AcceptanceIT,ComplianceV4EditingRegressionTest,ProjectAccessRegressionTest,ProjectStorageRegressionTest,SupplierDeletionRegressionTest,ComplianceAssignmentRegressionTest,ComplianceReminderRegressionTest'
   & mvn -q -f (Join-Path $repoRoot 'backend/pom.xml') "-Dtest=$tests" test
   if ($LASTEXITCODE -ne 0) { throw 'Acceptance tests failed.' }
-} finally { $env:MYSQL_PWD = $previousMysqlPassword }
+} finally { $env:MYSQL_PWD = $previousMysqlPassword; $OutputEncoding = $previousOutputEncoding }

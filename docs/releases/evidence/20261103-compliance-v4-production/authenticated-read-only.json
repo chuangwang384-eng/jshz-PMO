@@ -1,0 +1,16 @@
+{
+  "verified": "2026-11-03T13:45:18.149Z",
+  "authenticated": true,
+  "authMe": true,
+  "v4Enabled": true,
+  "userMode": "V3",
+  "executionList": true,
+  "myTasks": true,
+  "legacyHistory": true,
+  "personalModeMutationIssued": false,
+  "businessWriteIssued": false,
+  "passwordChanged": false,
+  "mustChangePassword": false,
+  "pageErrors": [],
+  "requestFailures": []
+}

@@ -1,6 +1,6 @@
 # 企业合规 v4：隔离验收、灰度切换与回滚
 
-本文件记录 2026-11-03 开发分支的候选实现；**尚未生产发布**。生产环境当前进程、实际表结构及前任 R-1 发布文字未经本轮核实，不能沿用历史 PID、端口或表数作为现状。
+本文件记录 2026-11-03 企业合规 v4 首期实现；已于21:44生产蓝绿上线并完成技术验证，业务体验待复核，见 [生产记录](releases/20261103-compliance-v4-production.md)。当前部署身份以提交/哈希及实际配置为准，历史 R-1 文字和旧 PID 不能作为现状。
 
 ## 1. 变更与迁移顺序
 
@@ -75,4 +75,10 @@
 
 ## 7. 生产发布准备更新（2026-11-03）
 
-用户已要求发布；本轮已备份并核实生产七表兼容，但 Windows 管理员提升被取消，尚未执行迁移或切流，见 [生产发布状态](releases/20261103-compliance-v4-production.md)。部署脚本影子实例现同时关闭 v3/v4 调度；生产此次发布必须使用 `-GracefulSwitch -DisableComplianceSchedulersOnRollback`，后者在自动回退旧 JAR 前通过 NSSM CLI 参数关闭两套合规调度。脚本 AST / DryRun 通过，真实发布验证仍待管理员执行，不能把 DryRun 的“完成”文案当成已上线。
+最初 UAC 被取消及 WinPS5.1 HTTP 预检兼容问题已处理，21:44完成蓝绿/前端切流；两个 V4 生产开关均为true，个人mode行数仍为0，员工自行明确启用。部署影子同时关闭两套调度，使用 `-GracefulSwitch -DisableComplianceSchedulersOnRollback`；后者只在自动回退路径关闭两套调度。真实发布、登录态只读验证与局限见 [生产记录](releases/20261103-compliance-v4-production.md)，不能把 DryRun 文案当成上线证据。
+
+部署 GET 共用 `scripts/deployment-http.ps1` 的本机 HTTP/1.0 探测，规避已复现的 WinPS5.1 HTTP/1.1 读取失败；不改变浏览器/业务协议。`deployment-artifact.ps1` 验证候选及回滚包具有启动清单和Boot依赖，坏包拒绝发布；`-RollbackJarPath` 用于指定经审批的可启动基线。本次发现归档的旧磁盘小包不可启动，已标为禁止回滚并额外保存完整已验证基线；日常回退优先保留当前兼容后端，关闭新版/切回兼容前端。禁止在正式 NSSM 的 `backend/target` 执行 `mvn package/clean`，必须隔离构建。
+
+运维回归：`powershell.exe -NoProfile -File scripts/tests/deployment-http-regression.ps1`（只读 health/匿名/前端）；`scripts/tests/deployment-artifact-regression.ps1 -NonExecutableJar <经核实的坏包路径>`（包结构接受/拒绝）；完整 DryRun 与坏回滚源拒绝均已实测。上述护栏补正没有再次切流。
+
+WinPS5.1执行SQL原生管道前必须将 `$OutputEncoding` 设为UTF-8，`--default-character-set=utf8mb4` 不能替代上游管道编码；本次新表注释曾出现问号，已按源迁移修正并回读。隔离迁移脚本已设置并在结束时恢复编码；生产执行器同步处理。备份脚本通过mysqldump原生`-r`写文件，不受此管道问题影响。

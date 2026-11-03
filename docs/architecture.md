@@ -144,13 +144,15 @@ AIGC:
 ## 生产运行状态更新（2026-11-03 15:37）
 本轮修复已获批准并以蓝绿方式上线。生产API稳定在8080，影子8081已停止；前端通过Nginx root指向frontend/releases/1.0.22-review-fixes-20261103，新旧hash资源并存；回滚配置元数据位于frontend/release-metadata（webroot外、排除版本控制）。发布证据及业务验收边界见docs/releases/20261103-review-fixes-production.md。
 
-## 企业合规可复用清单 v4（开发分支，隔离验收通过待业务复核）
-2026-11-03 开发分支已有 `ComplianceV4Controller/Service`、七张执行/模板表及用户切换表实体与迁移，以及 `ComplianceV4ReminderScheduler`；前端企业合规页分为我的执行、规范文档库、模板维护和原有待办/只读历史，个人任务与模板分离。目标生产表结构和运行版本未经本轮核实。旧 v3 表/接口/调度保留，按个人模式与 V4 互斥；生产灰度尚未执行。
+## 企业合规可复用清单 v4（首期已上线，业务体验待复核）
+2026-11-03 已交付 `ComplianceV4Controller/Service`、七张执行/模板表及用户切换表实体与迁移，以及 `ComplianceV4ReminderScheduler`；前端企业合规页分为我的执行、规范文档库、模板维护和原有待办/只读历史，个人任务与模板分离。目标生产相关结构和运行版本已在本次发布核实。旧 v3 表/接口/调度保留，按个人模式与 V4 互斥，员工逐人明确确认切换。
 
 页面使用 `/api/compliance/v4` 模板草稿/版本发布、个人清单创建/显式开始/再次使用与任务 PATCH；个人答案、日期、优先级和备注不写回模板。任务更新以 `id + row_version` 条件更新，冲突返回业务 409；列表超末页返回空集，分页限制见 [施工交接第6节](handover/tasks/20261103_compliance_v4_takeover.md)。本轮强化 V4 资源授权，公共账号/JWT/Cookie 语义不变。
 
-完整规格见 [需求](20261103-企业合规可复用清单-需求文档.md) 与 [技术设计](20261103-企业合规可复用清单-技术设计.md)。后续已补资源权限、个人提醒、逐节点事务与旧版切换；14 项真实 MySQL、22 项服务回归及真实浏览器通过，见 [发布阻断闭环](handover/tasks/20261103_compliance_v4_release_blockers.md)。业务验收与生产发布尚未执行。
+完整规格见 [需求](20261103-企业合规可复用清单-需求文档.md) 与 [技术设计](20261103-企业合规可复用清单-技术设计.md)。已补资源权限、个人提醒、逐节点事务与旧版切换；14 项真实 MySQL、22 项服务回归及真实浏览器通过，见 [发布阻断闭环](handover/tasks/20261103_compliance_v4_release_blockers.md)。首期生产上线与技术只读验收已完成，员工业务体验待复核。
 
-V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `compliance_user_mode` 表（user_id 主键、mode、legacy_snapshot JSON、switched_at、updated_at）。缺行仍是 V3；切换锁定用户并保存个人旧进度快照，新版与旧个人写/到期发送互斥。关闭 V4 不清除个人切换标记，不恢复旧写入/旧提醒。七表迁移及用户开关迁移均需目标元数据核对后执行，本轮仅在独立库验证。
+V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `compliance_user_mode` 表（user_id 主键、mode、legacy_snapshot JSON、switched_at、updated_at）。缺行仍是 V3；切换锁定用户并保存个人旧进度快照，新版与旧个人写/到期发送互斥。关闭 V4 不清除个人切换标记，不恢复旧写入/旧提醒。七表迁移及用户开关迁移先经独立库验证，再核实生产元数据并按本次授权执行；不得据此跳过后续环境核查。
 
 资源策略在 V4 内实施：本人执行/事件必须再检来源和项目，维护人不豁免个人隐私；模板由上传者/维护人维护、维护人发布。提醒使用 READ_COMMITTED、每节点 REQUIRES_NEW 与用户/执行/任务/提醒行锁；站内通知和 SENT 原子提交，失败回滚后独立计次，3 次上限。CORS 仅补 PATCH 方法，不改变允许来源。接口、权限、数据字典和发布/回滚限制见 [部署说明](deployment-compliance-v4.md)。
+
+2026-11-03 21:44生产更新：八张v4相关表已核实，用户切换表新增；两个V4开关均已开启，个人mode行数0，保持员工显式切换。正式8080 Java进程18436，Nginx主进程39504未重启，前端root为 `frontend/releases/1.0.22-compliance-v4-c24add5-20261103`；运行JAR SHA256 DDB6D4EB914747EEE322AD8465BA4EE6D0EC1F65A63ECC63AF6C2D58C1F0E301。前述“未经本轮核实/尚未执行”是开发阶段历史基线，当前事实见 [生产记录](releases/20261103-compliance-v4-production.md)，后续应重新实测，不把PID当常量。
