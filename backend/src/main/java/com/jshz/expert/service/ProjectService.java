@@ -1615,7 +1615,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     /** 读出口校验：非豁免用户越权访问返回 403。 */
-    private void requireProjectReadable(Project project, AuthUser user) {
+    /** 读出口校验：非豁免用户越权访问返回 403。（20261103 改 public：合规 v4 清单项目关联复用） */
+    public void requireProjectReadable(Project project, AuthUser user) {
         if (!canViewProject(project, user)) {
             throw new BusinessException(403, "无权限访问该项目");
         }
