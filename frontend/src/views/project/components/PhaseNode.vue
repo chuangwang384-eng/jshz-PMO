@@ -6,9 +6,10 @@
       <div class="phase-node__info">
         <div class="phase-node__name">{{ phase?.name || node.data.label }}</div>
         <div class="phase-node__sub">
-          <span v-if="source === 'global'" class="src-tag src-tag--global">全局兜底</span>
-          <span v-else class="src-tag src-tag--own">类型专属</span>
-          <span class="tmpl-count">{{ templates.length }} 个模板</span>
+          <span v-if="source === 'global'" class="src-tag src-tag--global">沿用通用</span>
+          <span v-else-if="source === 'none'" class="src-tag">无需材料</span>
+          <span v-else class="src-tag src-tag--own">单独配置</span>
+          <span class="tmpl-count">{{ templates.length }} 项资料要求</span>
         </div>
       </div>
       <el-icon class="phase-node__arrow"><ArrowDown /></el-icon>
@@ -22,7 +23,7 @@
         :source="source"
       />
     </div>
-    <div v-if="expanded && !templates.length" class="phase-node__empty">未绑定模板</div>
+    <div v-if="expanded && !templates.length" class="phase-node__empty">{{ source === 'none' ? '无需提交材料' : '当前没有资料要求' }}</div>
     <Handle v-if="showTarget" type="source" :position="Position.Right" />
   </div>
 </template>

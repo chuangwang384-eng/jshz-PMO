@@ -369,3 +369,10 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 已按用户指令完成后端蓝绿与前端不可变root切换，业务代码c24add5；Nginx主进程39504不变，最终发布探测两路各1815次零失败。正式8080 Java PID18436，前端root为frontend/releases/1.0.22-compliance-v4-c24add5-20261103；两个V4开关true，用户仍自行确认模式切换，原有清单/任务/旧进度保留。测试账号真实登录及只读接口、页面和新旧资源验证通过，未进行生产业务写入或提醒发送测试。
 
 旧磁盘归档小JAR不可启动，禁止用作回滚；已额外保存完整当前包/已验证基线，部署脚本增加可启动回滚校验及WinPS HTTP兼容探测。完整证据、备份和回滚限制见 [最终生产记录](releases/20261103-compliance-v4-production.md)。业务体验待负责人复核，历史R-1文字不替代本次实测。
+
+
+## 项目配置 v3 待发布增量（2026-11-04，PC-20261104）
+
+本地施工新增四张配置表和 project_type 的版本指针/唯一排序约束，尚未执行生产迁移或切流。完整迁移、数据盘点、兼容窗口、接口和回退限制见 [deployment-project-config-v3.md](deployment-project-config-v3.md)。迁移文件为 database/migration/20261104_project_config_snapshots.sql 与 20261104_project_config_finalize.sql，中间必须运行受控离线预检/回填；异常和旧规则差异需要复核。
+
+新后端依赖存量快照完整性；旧后端不支持 NONE 和固定流程，不能无条件回滚旧包。生产迁移/发布须另行批准。所有 Maven 验证在 .build-project-config-acceptance/backend 内完成，禁止清理或重打生产服务正在使用的 backend/target。

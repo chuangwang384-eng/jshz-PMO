@@ -240,3 +240,11 @@ export function updateProjectTemplate(id, data) {
 export function deleteProjectTemplate(id) {
   return request.delete(`/project/config/templates/${id}`)
 }
+
+// PC-20261104: atomic project configuration definitions.
+export const getDefinitionContext = () => request.get('/project/config/definition-context')
+export const getTypeDefinition = (id) => request.get(`/project/config/types/${id}/definition`)
+export const previewDefinition = (data) => request.post('/project/config/definitions/preview', data)
+export const saveTypeDefinition = (id, data) => id ? request.put(`/project/config/types/${id}/definition`, data) : request.post('/project/config/definitions', data)
+export const orderProjectTypes = (data) => request.put('/project/config/types/order', data)
+export const getProjectConfiguration = (id) => request.get(`/project/${id}/configuration`)

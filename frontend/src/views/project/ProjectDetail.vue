@@ -191,7 +191,12 @@
               </div>
             </div>
           </template>
-          <el-empty v-else description="本阶段未绑定模板" :image-size="60" />
+          <template v-else>
+            <el-empty description="本阶段无需提交材料，向后推进没有材料拦截" :image-size="60" />
+            <el-upload v-if="canOperatePhase" :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
+              <el-button size="small" plain>按需补充本阶段附件</el-button>
+            </el-upload>
+          </template>
         </div>
 
         <!-- ⑥ 基本信息（4 分组卡） -->
@@ -701,8 +706,9 @@ const sortedPhases = computed(() => [...(detail.value.phases || [])].sort((a, b)
 async function fetchDetail() {
   loading.value = true
   try {
+    const previousPhaseId = detail.value.phaseId
     detail.value = await getProjectDetail(projectId)
-    if (!viewPhaseId.value && detail.value.phases?.length) {
+    if ((!viewPhaseId.value || previousPhaseId !== detail.value.phaseId) && detail.value.phases?.length) {
       viewPhaseId.value = String(detail.value.phaseId || detail.value.phases[0].id)
     }
     // 填充各阶段富文本内容（listDocs 对 isRichText 行返回 content）
@@ -775,8 +781,8 @@ function richTextOf(phaseId) {
 
 function isTemplateFulfilled(t) {
   if (t.templateType === 'FILE') return docsOfPhase(t.phaseId, 'FILE').length > 0
-  if (t.templateType === 'RICH_TEXT') return !!richOfPhase.value[t.phaseId]
-  if (t.templateType === 'BUDGET') return Number(budgetAmount.value) > 0
+  if (t.templateType === 'RICH_TEXT') return docsOfPhase(t.phaseId, 'RICH_TEXT').length > 0
+  if (t.templateType === 'BUDGET') return detail.value.budgetAmount !== null && detail.value.budgetAmount !== undefined
   if (t.templateType === 'EXPERT') return (detail.value.experts || []).length > 0
   if (t.templateType === 'SUPPLIER') return (detail.value.suppliers || []).length > 0
   return true

@@ -1,0 +1,10 @@
+{
+  "startup": "actual java -jar and /ready=200",
+  "notPublished": true,
+  "frontendIndexSha256": "2B27C6CBCB827F1481B13C24D0CC9F7E467A13578E494CE7C6FC478FDFFEBF62",
+  "backendSha256": "8DA0033E12B6A5B2AA0D224DD4232C673E8E277CA1F88991023215247488E4EC",
+  "frontendBuild": "npm run build -- --outDir ../.build-project-config-acceptance/frontend-dist-final-reviewed",
+  "productionJarSha256": "DDB6D4EB914747EEE322AD8465BA4EE6D0EC1F65A63ECC63AF6C2D58C1F0E301",
+  "bootLibraries": 72,
+  "backendBytes": 60256455
+}

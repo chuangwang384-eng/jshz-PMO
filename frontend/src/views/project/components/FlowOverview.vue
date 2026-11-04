@@ -2,9 +2,9 @@
   <div class="flow-overview">
     <div class="flow-overview__head">
       <div class="flow-overview__legend">
-        <span class="legend-item"><span class="legend-dot legend-dot--own"></span>类型专属绑定</span>
-        <span class="legend-item"><span class="legend-dot legend-dot--global"></span>全局兜底绑定</span>
-        <span class="legend-item"><span class="legend-dot legend-dot--empty"></span>未配置流程（使用全部启用阶段）</span>
+        <span class="legend-item"><span class="legend-dot legend-dot--own"></span>单独配置</span>
+        <span class="legend-item"><span class="legend-dot legend-dot--global"></span>沿用通用要求</span>
+        <span class="legend-item"><span class="legend-dot legend-dot--empty"></span>未加载流程（请检查配置）</span>
       </div>
       <div class="flow-overview__hint">拖动画布/滚轮缩放，点击阶段节点可折叠模板卡片，点击类型「配置」进入三步向导</div>
     </div>
@@ -110,7 +110,7 @@ const nodes = computed(() => {
           data: {
             phase,
             index: idx,
-            source: binds.fallback ? 'global' : 'own',
+            source: binds.mode === 'NONE' ? 'none' : binds.fallback ? 'global' : 'own',
             templates: bindCards(t.id, f.phaseId, binds)
           },
           draggable: false
@@ -127,7 +127,7 @@ const nodes = computed(() => {
           index: 0,
           source: 'global',
           templates: [],
-          label: '未配置流程，使用全部启用阶段'
+          label: '流程未加载，请检查配置'
         },
         draggable: false
       })
@@ -166,27 +166,9 @@ const edges = computed(() => {
 
 // 合并绑定与模板信息 → 模板卡片数据
 function bindCards(typeId, phaseId, binds) {
-  const phase = store.phases.find((p) => p.id === phaseId)
-  const fallback = binds.fallback
-  const cards = []
-  if (phase) {
-    // 该阶段专属绑定（保存后生效的）
-    const own = store.phaseTemplateRels[`${typeId}_${phaseId}`] || []
-    // 专属为空时回退全局
-    const effective = own.length ? own : (store.phaseTemplateRels[`0_${phaseId}`] || [])
-    for (const b of effective) {
-      const tmpl = store.templates.find((x) => x.id === b.templateId)
-      if (tmpl) cards.push({
-        templateId: b.templateId,
-        name: tmpl.name,
-        templateType: tmpl.templateType,
-        required: b.required,
-        sort: b.sort,
-        source: own.length ? 'own' : 'global'
-      })
-    }
-  }
-  return cards.sort((a, b) => (a.sort || 0) - (b.sort || 0))
+  return binds.list.map(b => ({...b,name:b.templateName || b.name || store.templates.find(t=>t.id===b.templateId)?.name,
+    templateType:b.templateType || store.templates.find(t=>t.id===b.templateId)?.templateType,
+    source:binds.fallback?'global':'own'})).sort((a,b)=>(a.sort||0)-(b.sort||0))
 }
 
 function onEditType(type) {

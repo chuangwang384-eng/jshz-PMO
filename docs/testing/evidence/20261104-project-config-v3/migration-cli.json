@@ -1,0 +1,6 @@
+{
+  "result": "PASS",
+  "snapshotHashesPreserved": true,
+  "environment": "final pc_acceptance / 13317 / mysql-data-final",
+  "tool": "ProjectConfigurationMigrationMain --apply"
+}

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import {
-  listProjectTypes, createProjectType, updateProjectType, deleteProjectType,
+  getTypeDefinition, listProjectTypes, createProjectType, updateProjectType, deleteProjectType,
   listProjectPhases, createProjectPhase, updateProjectPhase, deleteProjectPhase,
   listProjectTemplates, createProjectTemplate, updateProjectTemplate, deleteProjectTemplate,
   listPhaseTemplates, savePhaseTemplates,
@@ -9,7 +9,7 @@ import {
 
 /**
  * 项目配置板块图形化改造 —— 统一数据源（设计文档 §6）
- * 图形视图与表格视图共享同一份数据与保存逻辑；后端零改动，复用 /api/project/config/**。
+ * 图形视图与表格视图共享同一份数据与保存逻辑；快照与聚合保存见 PC-20261104；只读兼容 /api/project/config/**。
  *
  * 数据模型：
  * - types: project_type 列表
@@ -22,6 +22,7 @@ import {
 export const useProjectConfigStore = defineStore('projectConfig', {
   state: () => ({
     types: [],
+    phaseModes: {},
     phases: [],
     templates: [],
     allTemplates: [],
@@ -69,12 +70,14 @@ export const useProjectConfigStore = defineStore('projectConfig', {
     async loadTypes() {
       this.types = await listProjectTypes()
       // 并行拉取各类型流程，失败不影响类型列表
-      await Promise.allSettled(this.types.map((t) => this.loadTypeFlow(t.id)))
+      await Promise.all(this.types.map((t) => this.loadTypeFlow(t.id)))
     },
 
     // 拉取单个类型的阶段序列（type_phase_rel）
     async loadTypeFlow(typeId) {
       const flow = await listTypePhases(typeId)
+      const definition = await getTypeDefinition(typeId)
+      for (const phase of definition.phases) this.phaseModes[`${typeId}_${phase.phaseId}`] = phase.mode
       this.typeFlowCache[typeId] = flow
       this.typePhaseRels[typeId] = flow.map((f) => f.phaseId)
       return flow
@@ -115,17 +118,20 @@ export const useProjectConfigStore = defineStore('projectConfig', {
         const flow = this.typePhaseRels[tid]
         if (flow) flow.forEach((pid) => jobs.push(this.loadPhaseTemplateRels(tid, pid)))
       }
-      await Promise.allSettled(jobs)
+      await Promise.all(jobs)
     },
 
     // 计算某类型某阶段的绑定结果（专属优先，无则回退全局；返回 { list, fallback }）
     bindsFor(typeId, phaseId) {
       const ownKey = `${typeId}_${phaseId}`
+      const mode = this.phaseModes?.[ownKey]
+      if (mode === "NONE") return {list:[],fallback:false,mode}
       const own = this.phaseTemplateRels[ownKey]
+      if (mode === "CUSTOM") return {list:own || [],fallback:false,mode}
       if (own && own.length && !own.some((b) => b.fallback)) return { list: own, fallback: false }
       const gKey = `0_${phaseId}`
       const g = this.phaseTemplateRels[gKey]
-      return { list: g || own || [], fallback: true }
+      return { list: g || own || [], fallback: true, mode: mode || "INHERIT" }
     },
 
     // 某全局阶段绑定被多少类型"回退使用"（无专属覆盖的类型；未配置流程的类型使用全部启用阶段，同样计入）
@@ -135,9 +141,11 @@ export const useProjectConfigStore = defineStore('projectConfig', {
         const flow = this.typePhaseRels[t.id]
         const hasPhase = flow?.length
           ? flow.includes(phaseId)
-          : this.activePhases.some((p) => p.id === phaseId)
+          : false
         if (!hasPhase) continue
         const ownKey = `${t.id}_${phaseId}`
+        const mode = this.phaseModes?.[ownKey]
+        if (mode === "NONE" || mode === "CUSTOM") continue
         const own = this.phaseTemplateRels[ownKey]
         if (!own || !own.length || own.some((b) => b.fallback)) ids.push(t.id)
       }
@@ -174,7 +182,7 @@ export const useProjectConfigStore = defineStore('projectConfig', {
     // 删除类型（后端有引用项目时拒删；成功则清理本地缓存）
     async removeType(typeId) {
       await deleteProjectType(typeId)
-      this.types = this.types.filter((x) => x.id !== typeId)
+      await this.loadTypes()
       delete this.typePhaseRels[typeId]
       delete this.typeFlowCache[typeId]
       // 清理该类型专属绑定缓存

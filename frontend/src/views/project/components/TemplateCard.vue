@@ -9,7 +9,7 @@
         {{ required === 1 ? '必填' : '选填' }}
       </span>
       <span class="tmpl-card__src" :class="source === 'global' ? 'is-global' : 'is-own'">
-        {{ source === 'global' ? '全局兜底' : '类型专属' }}
+        {{ source === 'global' ? '沿用通用' : '单独配置' }}
       </span>
     </div>
     <slot />

@@ -156,3 +156,12 @@ V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `
 资源策略在 V4 内实施：本人执行/事件必须再检来源和项目，维护人不豁免个人隐私；模板由上传者/维护人维护、维护人发布。提醒使用 READ_COMMITTED、每节点 REQUIRES_NEW 与用户/执行/任务/提醒行锁；站内通知和 SENT 原子提交，失败回滚后独立计次，3 次上限。CORS 仅补 PATCH 方法，不改变允许来源。接口、权限、数据字典和发布/回滚限制见 [部署说明](deployment-compliance-v4.md)。
 
 2026-11-03 21:44生产更新：八张v4相关表已核实，用户切换表新增；两个V4开关均已开启，个人mode行数0，保持员工显式切换。正式8080 Java进程18436，Nginx主进程39504未重启，前端root为 `frontend/releases/1.0.22-compliance-v4-c24add5-20261103`；运行JAR SHA256 DDB6D4EB914747EEE322AD8465BA4EE6D0EC1F65A63ECC63AF6C2D58C1F0E301。前述“未经本轮核实/尚未执行”是开发阶段历史基线，当前事实见 [生产记录](releases/20261103-compliance-v4-production.md)，后续应重新实测，不把PID当常量。
+
+
+## 项目配置 v3（PC-20261104，2026-11-04 已完成开发待业务验收，尚未部署）
+
+新增配置聚合服务、不可变类型版本和项目运行快照。项目详情/列表名称、阶段推进回退、资料阶段校验与导出使用项目快照；三种要求模式先解析再判断必填。配置写操作共同锁定 project_config_state，类型展示位置为唯一连续 1～N。项目创建在 READ_COMMITTED 事务中解析配置并冻结，公共字典维护不回写旧项目。
+
+新增表 project_config_state / project_type_config_revision / project_config_snapshot / project_config_request，project_type 增加 active_config_revision_id 与唯一 sort。数据字典、接口、权限和迁移步骤见 [项目配置 v3 实施说明](deployment-project-config-v3.md)。旧分步类型写入适配为完整配置版本，仅拒绝含义不明确的空流程/空专属绑定；现有页面已收口新版向导，兼容细则见该说明。新增管理 API 服务内显式验证 project:manage；项目快照读取保留原项目级可读校验。原项目权限范围不扩大。
+
+本节为本地施工增量，生产仍以已发布版本和目标库实际元数据为准，不能据此认定表或接口已上线。

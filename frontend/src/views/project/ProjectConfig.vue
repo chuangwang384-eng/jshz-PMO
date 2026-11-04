@@ -13,13 +13,23 @@
       </el-radio-group>
     </div>
 
+    <el-button class="order-entry" @click="openOrder">调整类型顺序</el-button>
+    <el-dialog v-model="orderVisible" title="调整类型展示顺序" width="600px" :close-on-click-modal="false">
+      <p>拖动或上下移动，保存后自动排为连续且唯一的 1～N；不改变项目内阶段顺序。</p>
+      <div v-for="(t,i) in orderTypes" :key="t.id" class="order-row" draggable="true" @dragstart="orderDrag=i" @dragover.prevent @drop.prevent="dropOrder(i)">
+        <span>{{ i+1 }}. {{ t.name }}</span><el-button :disabled="i===0" @click="moveOrder(i,-1)">上移</el-button><el-button :disabled="i===orderTypes.length-1" @click="moveOrder(i,1)">下移</el-button>
+      </div>
+      <template #footer><el-button @click="orderVisible=false">取消</el-button><el-button type="primary" :loading="orderSaving" @click="saveOrder">保存顺序</el-button></template>
+    </el-dialog>
+    <step-wizard v-model:visible="wizardVisible" :type="wizardType" @saved="onWizardSaved" />
     <!-- ==================== 图形视图 ==================== -->
     <div v-if="activeView === 'graph'" class="graph-view">
+      <el-alert v-if="typesError" :title="typesError" type="error" :closable="false"/>
       <el-card shadow="never">
         <div class="graph-toolbar">
           <div>
             <div class="graph-title">项目类型流程总览</div>
-            <div class="graph-sub">一屏展示全部类型及各类型流程阶段连线图，阶段节点下挂模板卡片（绿=类型专属 / 蓝=全局兜底）</div>
+            <div class="graph-sub">一屏展示全部类型及各类型流程阶段连线图，阶段节点下挂模板卡片（绿=单独配置 / 蓝=沿用通用）</div>
           </div>
           <el-button type="primary" @click="openWizard(null)">新增类型</el-button>
         </div>
@@ -54,7 +64,7 @@
       </el-card>
 
       <!-- 三步向导 -->
-      <step-wizard v-model:visible="wizardVisible" :type="wizardType" @saved="onWizardSaved" />
+
 
       <!-- 删除类型：影响面提示 -->
       <el-dialog v-model="deleteTypeVisible" title="删除类型 · 影响面确认" width="680px" destroy-on-close>
@@ -82,8 +92,7 @@
             <el-button link type="primary" @click="loadTypes">重试</el-button>
           </el-alert>
           <div style="margin-bottom: 10px">
-            <el-input v-model="typeForm.name" placeholder="新类型名称（展会/会议/论坛等）" style="width: 240px" />
-            <el-button type="primary" style="margin-left: 8px" :disabled="!typeForm.name.trim()" @click="addType">新增类型</el-button>
+            <el-button type="primary" style="margin-left: 8px" @click="openWizard(null)">新增类型</el-button>
           </div>
           <el-table :data="store.types" stripe>
             <el-table-column prop="id" label="ID" width="60" />
@@ -95,7 +104,7 @@
             <el-table-column prop="createTime" label="创建时间" width="160" />
             <el-table-column label="操作" width="180">
               <template #default="{ row }">
-                <el-button link type="primary" @click="startEditType(row)">编辑</el-button>
+                <el-button link type="primary" @click="openWizard(row)">编辑</el-button>
                 <el-popconfirm title="确认删除该类型？（有项目引用时将拒绝；无引用将级联清理其流程与专属绑定）" width="280" @confirm="delType(row)">
                   <template #reference>
                     <el-button link type="danger">删除</el-button>
@@ -105,76 +114,6 @@
             </el-table-column>
           </el-table>
 
-          <!-- 编辑类型弹窗：基础信息 + 流程配置（阶段序列）+ 阶段模板绑定 -->
-          <el-dialog v-model="editTypeVisible" title="编辑类型（含流程配置）" width="760px" destroy-on-close>
-            <el-form label-width="90px">
-              <el-form-item label="类型名称" required>
-                <el-input v-model="editTypeForm.name" placeholder="类型名称" style="width: 280px" />
-              </el-form-item>
-              <el-form-item label="排序">
-                <el-input-number v-model="editTypeForm.sort" :min="0" />
-              </el-form-item>
-            </el-form>
-
-            <el-divider content-position="left">流程配置（阶段序列，未配置时该项目类型使用全部启用阶段）</el-divider>
-            <div style="margin-bottom: 8px">
-              <el-select v-model="flowAddPhaseId" placeholder="添加阶段（仅启用阶段）" style="width: 220px">
-                <el-option v-for="p in activePhasesNotInFlow" :key="p.id" :label="p.name" :value="p.id" />
-              </el-select>
-              <el-button type="primary" style="margin-left: 8px" :disabled="!flowAddPhaseId" @click="flowAdd">添加</el-button>
-            </div>
-            <el-table :data="editTypeForm.flow" size="small" max-height="220" stripe>
-              <el-table-column type="index" label="#" width="50" />
-              <el-table-column prop="phaseName" label="阶段" />
-              <el-table-column label="操作" width="220">
-                <template #default="{ $index }">
-                  <el-button link :disabled="$index === 0" @click="flowMove($index, -1)">上移</el-button>
-                  <el-button link :disabled="$index === editTypeForm.flow.length - 1" @click="flowMove($index, 1)">下移</el-button>
-                  <el-button link type="danger" @click="editTypeForm.flow.splice($index, 1)">移除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-
-            <template v-if="editTypeForm.flow.length">
-              <el-divider content-position="left">阶段模板绑定（该类型专属；未配置的阶段回退全局兜底绑定）</el-divider>
-              <el-collapse v-model="expandedPhases">
-                <el-collapse-item v-for="fp in editTypeForm.flow" :key="fp.phaseId" :name="fp.phaseId" :title="fp.phaseName">
-                  <el-table :data="fp.templates" size="small" max-height="240" stripe>
-                    <el-table-column prop="name" label="模板名称" />
-                    <el-table-column label="模板类型" width="110">
-                      <template #default="{ row }">
-                        <el-tag size="small">{{ typeText(row.templateType) }}</el-tag>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="是否绑定" width="90" align="center">
-                      <template #default="{ row }">
-                        <el-checkbox v-model="row._bound" />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="必填/选填" width="110" align="center">
-                      <template #default="{ row }">
-                        <el-select v-model="row._required" :disabled="!row._bound" size="small" style="width: 90px">
-                          <el-option label="必填" :value="1" />
-                          <el-option label="选填" :value="0" />
-                        </el-select>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="排序" width="110">
-                      <template #default="{ row }">
-                        <el-input-number v-model="row._sort" :min="1" size="small" :disabled="!row._bound" />
-                      </template>
-                    </el-table-column>
-                  </el-table>
-                  <div v-if="fp.fallback" class="hint-text" style="margin-top: 4px">当前展示的是全局兜底绑定（该类型此阶段尚无专属绑定），保存后即成为类型专属</div>
-                </el-collapse-item>
-              </el-collapse>
-            </template>
-
-            <template #footer>
-              <el-button @click="editTypeVisible = false">取消</el-button>
-              <el-button type="primary" :loading="savingType" :disabled="!editTypeForm.name.trim()" @click="saveTypeFull">保存</el-button>
-            </template>
-          </el-dialog>
         </el-card>
       </el-tab-pane>
 
@@ -186,6 +125,7 @@
             阶段列表加载失败：{{ phasesError }}
             <el-button link type="primary" @click="loadPhases">重试</el-button>
           </el-alert>
+          <el-alert title="新增公共阶段不会自动加入其他类型。停用仅限制新配置选择，已有项目保持原流程；历史引用会阻止删除。" type="info" :closable="false" style="margin-bottom:12px"/>
           <div style="margin-bottom: 10px">
             <el-input v-model="phaseForm.name" placeholder="新阶段名称（如 筹备）" style="width: 200px" />
             <el-input-number v-model="phaseForm.sort" :min="1" placeholder="排序" style="width: 120px; margin-left: 8px" />
@@ -194,7 +134,8 @@
           <el-table :data="store.phases" stripe>
             <el-table-column prop="id" label="ID" width="60" />
             <el-table-column prop="name" label="阶段名称" />
-            <el-table-column prop="sort" label="排序" width="80" />
+            <el-table-column prop="sort" label="公共库顺序" width="110" />
+            <el-table-column label="引用（类型 / 项目）" width="150"><template #default="{row}">{{ usageOf(row.id).typeCount }} / {{ usageOf(row.id).projectCount }}</template></el-table-column>
             <el-table-column label="启用" width="80">
               <template #default="{ row }">
                 <el-tag :type="row.isActive === 1 ? 'success' : 'info'">{{ row.isActive === 1 ? '启用' : '停用' }}</el-tag>
@@ -310,8 +251,8 @@
           </el-alert>
           <div style="margin-bottom: 10px">
             <el-select v-model="bindScope" placeholder="配置范围" style="width: 200px" @change="onScopeChange">
-              <el-option label="全局兜底（type_id=0）" :value="0" />
-              <el-option v-for="t in store.types" :key="t.id" :label="'类型：' + t.name" :value="t.id" />
+              <el-option label="通用材料要求" :value="0" />
+
             </el-select>
             <el-select v-model="bindPhaseId" placeholder="选择阶段" style="width: 220px; margin-left: 8px" @change="loadBindings">
               <el-option v-for="p in bindPhaseOptions" :key="p.id" :label="p.name" :value="p.id" />
@@ -323,7 +264,7 @@
           </div>
           <div v-if="bindScope === 0 && bindPhaseId" class="hint-text" style="margin-bottom: 8px">
             <el-alert type="warning" :closable="false" show-icon style="margin-top: 6px">
-              全局兜底绑定影响范围：{{ store.globalFallbackTypeCount(bindPhaseId).length }} 个未配置专属绑定的类型（保存前请确认影响面）
+              通用要求影响：{{ store.globalFallbackTypeCount(bindPhaseId).length }} 个沿用通用要求的类型，仅以后新建项目生效
             </el-alert>
           </div>
           <el-table v-if="bindScope !== null && bindPhaseId" :data="allTemplates" stripe>
@@ -381,9 +322,17 @@ import FlowOverview from './components/FlowOverview.vue'
 import MiniFlowThumbnail from './components/MiniFlowThumbnail.vue'
 import StepWizard from './components/StepWizard.vue'
 import ImpactPreview from './components/ImpactPreview.vue'
+import { getDefinitionContext, orderProjectTypes } from '../../api/project'
 import { useProjectConfigStore } from '../../stores/projectConfig'
 
 const store = useProjectConfigStore()
+const orderVisible=ref(false), orderSaving=ref(false), orderTypes=ref([]), orderEpoch=ref(0), orderDrag=ref(null), phaseUsage=ref([])
+const usageOf=(id)=>phaseUsage.value.find(p=>p.phaseId===id)||{typeCount:'-',projectCount:'-'}
+async function openOrder(){try{const ctx=await getDefinitionContext();orderTypes.value=ctx.types;orderEpoch.value=ctx.expectedEpoch;orderVisible.value=true}catch{}}
+function moveOrder(i,d){const [t]=orderTypes.value.splice(i,1);orderTypes.value.splice(i+d,0,t)}
+function dropOrder(i){if(orderDrag.value!==null){const [t]=orderTypes.value.splice(orderDrag.value,1);orderTypes.value.splice(i,0,t);orderDrag.value=null}}
+async function saveOrder(){orderSaving.value=true;try{await orderProjectTypes({ids:orderTypes.value.map(t=>t.id),expectedEpoch:orderEpoch.value});orderVisible.value=false;await loadTypes();ElMessage.success('类型顺序已更新')}catch(e){ElMessage.error('顺序未保存，请保留草稿并刷新核对：'+e.message)}finally{orderSaving.value=false}}
+
 const { activeView, allTemplates } = storeToRefs(store)
 
 // ==================== 未保存状态检测（D3） ====================
@@ -398,12 +347,6 @@ const phasesError = ref('')
 const templatesError = ref('')
 const bindError = ref('')
 
-const typeForm = reactive({ name: '' })
-const editTypeVisible = ref(false)
-const savingType = ref(false)
-const editTypeForm = reactive({ id: null, name: '', sort: 0, flow: [] })
-const flowAddPhaseId = ref(null)
-const expandedPhases = ref([])
 
 const phaseForm = reactive({ name: '', sort: 1 })
 const editPhaseVisible = ref(false)
@@ -413,7 +356,7 @@ const templateForm = reactive({ name: '', templateType: 'RICH_TEXT' })
 const editTemplateVisible = ref(false)
 const editTemplateForm = reactive({ id: null, name: '', templateType: 'FILE' })
 
-const bindScope = ref(null)
+const bindScope = ref(0)
 const bindPhaseId = ref(null)
 const bindFallback = ref(false)
 const bindScopeName = ref('')
@@ -422,17 +365,15 @@ const wizardVisible = ref(false)
 const wizardType = ref(null)
 
 // 编辑会话内表单变化 → 置脏（弹窗可见期间 deep 监听）
-watch(editTypeForm, () => { if (editTypeVisible.value) markDirty() }, { deep: true })
 watch(editPhaseForm, () => { if (editPhaseVisible.value) markDirty() }, { deep: true })
 watch(editTemplateForm, () => { if (editTemplateVisible.value) markDirty() }, { deep: true })
-watch(() => typeForm.name, (v) => { if (v) markDirty() })
 watch(() => phaseForm.name, (v) => { if (v) markDirty() })
 watch(() => phaseForm.sort, (v) => { if (v > 1) markDirty() })
 watch(() => templateForm.name, (v) => { if (v) markDirty() })
 watch(() => templateForm.templateType, (v) => { if (v) markDirty() })
 watch(wizardVisible, (v) => { if (v) markDirty() })
 // 所有编辑会话关闭（保存/取消/放弃）→ 清脏
-watch([editTypeVisible, editPhaseVisible, editTemplateVisible, wizardVisible], (arr) => {
+watch([editPhaseVisible, editTemplateVisible, wizardVisible], (arr) => {
   if (arr.every((v) => !v)) clearDirty()
 })
 
@@ -451,16 +392,6 @@ const deletingTemplate = ref(false)
 const globalBindConfirmVisible = ref(false)
 const savingBindings = ref(false)
 
-const activePhasesNotInFlow = computed(() =>
-  store.phases.filter((p) => p.isActive === 1 && !editTypeForm.flow.some((f) => f.phaseId === p.id))
-)
-const bindPhaseOptions = computed(() => {
-  if (bindScope.value > 0 && (store.typeFlowCache[bindScope.value] || []).length) {
-    const ids = new Set(store.typeFlowCache[bindScope.value].map((f) => f.phaseId))
-    return store.phases.filter((p) => ids.has(p.id))
-  }
-  return store.phases
-})
 
 function typeText(t) {
   return { FILE: '资料附件', EXPERT: '专家', SUPPLIER: '供应商', BUDGET: '预算', RICH_TEXT: '自定义文本' }[t] || t
@@ -473,7 +404,7 @@ function typeFlowOf(typeId) {
     return cache.map((f) => ({ phaseId: f.phaseId, phaseName: f.phaseName, active: true }))
   }
   // 未配置：展示全部启用阶段（实际语义）
-  return store.activePhases.map((p) => ({ phaseId: p.id, phaseName: p.name, active: true }))
+  return []
 }
 
 // ==================== 视图切换（D3：切换前检测未保存状态） ====================
@@ -514,6 +445,7 @@ async function loadPhases() {
   phasesError.value = ''
   try {
     await store.loadPhases()
+    phaseUsage.value=(await getDefinitionContext()).phaseUsage
   } catch (e) {
     phasesError.value = e?.message || String(e)
   }
@@ -534,82 +466,11 @@ async function fetchAll() {
 }
 
 // ==================== 类型（表格视图，保留原交互） ====================
-async function addType() {
-  await store.saveType({ id: null, name: typeForm.name.trim(), sort: store.types.length })
-  ElMessage.success('类型已新增')
-  typeForm.name = ''
-  clearDirty()
-  loadTypes()
-}
-async function startEditType(row) {
-  editTypeForm.id = row.id
-  editTypeForm.name = row.name
-  editTypeForm.sort = row.sort
-  editTypeForm.flow = []
-  flowAddPhaseId.value = null
-  editTypeVisible.value = true
-  // 拉取该类型流程 + 每阶段绑定（无专属回退全局，fallback 标识展示）
-  try {
-    const flow = await store.loadTypeFlow(row.id)
-    editTypeForm.flow = []
-    for (const f of flow) {
-      const binds = await store.loadPhaseTemplateRels(row.id, f.phaseId)
-      const templatesOfPhase = store.templates.length ? store.templates : await listProjectTemplatesLazy()
-      const map = {}
-      binds.forEach((b) => { map[String(b.templateId)] = b })
-      editTypeForm.flow.push({
-        phaseId: f.phaseId,
-        phaseName: f.phaseName,
-        fallback: binds.length === 0 || binds.some((b) => b.fallback),
-        templates: templatesOfPhase.map((t) => ({
-          ...t,
-          _bound: !!map[String(t.id)],
-          _required: map[String(t.id)] ? map[String(t.id)].required : 0,
-          _sort: map[String(t.id)] ? map[String(t.id)].sort : 1
-        }))
-      })
-    }
-    expandedPhases.value = []
-  } catch (e) {
-    ElMessage.error('流程配置加载失败：' + (e?.message || e))
-  }
-}
-function flowAdd() {
-  const p = store.phases.find((x) => x.id === flowAddPhaseId.value)
-  if (!p) return
-  editTypeForm.flow.push({ phaseId: p.id, phaseName: p.name, fallback: false, templates: store.templates.map((t) => ({ ...t, _bound: false, _required: 0, _sort: 1 })) })
-  flowAddPhaseId.value = null
-}
-function flowMove(index, dir) {
-  const arr = editTypeForm.flow
-  const target = index + dir
-  if (target < 0 || target >= arr.length) return
-  const [item] = arr.splice(index, 1)
-  arr.splice(target, 0, item)
-}
-async function saveTypeFull() {
-  savingType.value = true
-  try {
-    await store.saveType({ id: editTypeForm.id, name: editTypeForm.name.trim(), sort: editTypeForm.sort })
-    await store.saveTypePhases(editTypeForm.id, editTypeForm.flow.map((f) => f.phaseId))
-    for (const f of editTypeForm.flow) {
-      const binds = f.templates.filter((t) => t._bound).map((t) => ({ templateId: t.id, required: t._required, sort: t._sort }))
-      await store.saveScopePhaseTemplates(editTypeForm.id, f.phaseId, binds)
-    }
-    ElMessage.success('类型（含流程配置）已保存')
-    editTypeVisible.value = false
-    loadTypes()
-  } catch (e) {
-    ElMessage.error('保存失败：' + (e?.message || e))
-  } finally {
-    savingType.value = false
-  }
-}
 async function delType(row) {
   try {
     await store.removeType(row.id)
     ElMessage.success('类型已删除')
-    loadTypes()
+    await loadTypes()
   } catch (e) {
     ElMessage.error('删除失败：' + (e?.message || e))
   }
@@ -795,10 +656,16 @@ function openWizard(type) {
   wizardType.value = type || null
   wizardVisible.value = true
 }
-function onWizardSaved() {
-  // 向导保存后刷新总览（store 已同步，这里兜底重载保证与后端一致）
-  loadTypes()
+async function onWizardSaved() {
+  try {
+    await store.loadPhases()
+    await store.loadTypes()
+    store.phaseTemplateRels = {}
+    await store.ensureAllBindings()
+    phaseUsage.value=(await getDefinitionContext()).phaseUsage
+  } catch(e) {typesError.value='保存已成功，但总览刷新失败，请刷新页面：'+e.message}
 }
+
 function openDeleteType(row) {
   deleteTarget.value = row
   deleteTypeVisible.value = true
@@ -821,7 +688,7 @@ async function confirmDeleteType() {
     await store.removeType(deleteTarget.value.id)
     ElMessage.success('类型已删除')
     deleteTypeVisible.value = false
-    loadTypes()
+    await loadTypes()
   } catch (e) {
     ElMessage.error('删除失败：' + (e?.message || e))
   } finally {
@@ -839,6 +706,7 @@ onMounted(fetchAll)
 </script>
 
 <style scoped>
+.order-entry{margin-bottom:12px}.order-row{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid #dcdfe6;margin:8px 0}.order-row span{flex:1}
 .page-head { margin-bottom: 12px; }
 .page-title { font-size: 18px; font-weight: 600; }
 .page-sub { margin-left: 8px; color: #909399; font-size: 13px; }

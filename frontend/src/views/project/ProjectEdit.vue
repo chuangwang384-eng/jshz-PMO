@@ -1,5 +1,6 @@
 <template>
   <el-dialog v-model="visible" :title="form.id ? '编辑项目' : '新建项目'" width="620px" destroy-on-close @closed="onClosed">
+    <el-alert v-if="flowError" :title="flowError" type="error" :closable="false"/><el-alert v-if="form.id" title="已有项目保留原类型及流程；阶段变化请使用推进或回退操作。" type="info" :closable="false"/>
     <el-form :model="form" label-width="100px">
       <el-form-item label="项目名称" required>
         <el-input v-model="form.name" maxlength="100" placeholder="必填" />
@@ -15,7 +16,7 @@
         </el-col>
         <el-col :span="12">
           <el-form-item label="类型" required>
-            <el-select v-model="form.typeId" placeholder="选择类型" style="width: 100%">
+            <el-select :disabled="!!form.id" v-model="form.typeId" placeholder="选择类型" style="width: 100%">
               <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
             </el-select>
           </el-form-item>
@@ -42,7 +43,7 @@
         </el-col>
         <el-col :span="12">
           <el-form-item label="当前阶段">
-            <el-select v-model="form.phaseId" placeholder="默认立项" style="width: 100%">
+            <el-select :disabled="!!form.id || flowLoading || !!flowError" v-model="form.phaseId" placeholder="默认立项" style="width: 100%">
               <el-option v-for="p in phaseOptions" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
           </el-form-item>
@@ -64,7 +65,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createProject, updateProject, listTypePhases } from '../../api/project'
+import { createProject, updateProject, listTypePhases, getProjectConfiguration } from '../../api/project'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -87,21 +88,18 @@ const form = reactive({ id: null, name: '', category: 'OFFLINE', typeId: null, o
 
 // 类型流程联动（配置 v2 20261102）：类型已配流程时阶段下拉仅显示流程内阶段
 const typeFlowPhases = ref([]) // [{phaseId, phaseName}]；空=该类型未配置流程
-const phaseOptions = computed(() => {
-  if (form.typeId && typeFlowPhases.value.length) {
-    const ids = new Set(typeFlowPhases.value.map((f) => f.phaseId))
-    return props.phases.filter((p) => ids.has(p.id))
-  }
-  return props.phases.filter((p) => p.isActive === undefined || p.isActive === 1)
-})
+const flowLoading = ref(false), flowError = ref('')
+let flowGeneration = 0
+const phaseOptions = computed(() => typeFlowPhases.value.map(p => ({id:p.phaseId,name:p.phaseName})))
 async function loadTypeFlow(typeId) {
-  typeFlowPhases.value = []
-  if (!typeId) return
+  const generation = ++flowGeneration
+  typeFlowPhases.value = []; flowError.value = ''; flowLoading.value = true
   try {
-    typeFlowPhases.value = await listTypePhases(typeId)
-  } catch (e) {
-    typeFlowPhases.value = [] // 加载失败回退全部启用阶段，不阻塞弹窗
-  }
+    if (!typeId) return
+    const result = form.id ? (await getProjectConfiguration(form.id)).phases.map(p=>({phaseId:p.phaseId,phaseName:p.name})) : await listTypePhases(typeId)
+    if (generation===flowGeneration) typeFlowPhases.value=result
+  } catch(e) { if(generation===flowGeneration) flowError.value='流程加载失败，请关闭后重试：'+e.message }
+  finally { if(generation===flowGeneration) flowLoading.value=false }
 }
 watch(() => form.typeId, async (nv, ov) => {
   if (!visible.value) return
@@ -145,6 +143,7 @@ watch(
 )
 
 async function save() {
+  if(flowLoading.value || flowError.value || !phaseOptions.value.length) return ElMessage.warning("流程尚未正确加载");
   if (!form.name.trim()) {
     ElMessage.warning('项目名称必填')
     return

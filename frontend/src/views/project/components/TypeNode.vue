@@ -12,14 +12,16 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useProjectConfigStore } from '../../../stores/projectConfig'
 import { Handle, Position } from '@vue-flow/core'
 
 const props = defineProps({
   node: { type: Object, required: true }
 })
 const emit = defineEmits(['edit'])
-const type = computed(() => props.node.data.type)
-const phaseCount = computed(() => props.node.data.phaseCount)
+const store = useProjectConfigStore()
+const type = computed(() => store.types.find(t => t.id === props.node.data.type.id) || props.node.data.type)
+const phaseCount = computed(() => store.typeFlowCache[type.value.id]?.length || 0)
 function onEdit() {
   emit('edit', type.value)
 }

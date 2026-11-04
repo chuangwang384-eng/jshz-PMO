@@ -299,24 +299,24 @@ public class ProjectController {
     }
 
     @PostMapping("/config/types")
-    public ApiResponse<ProjectType> createType(@RequestBody Map<String, Object> body) {
+    public ApiResponse<ProjectType> createType(@RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
         Object name = body == null ? null : body.get("name");
         Object sort = body == null ? null : body.get("sort");
         return ApiResponse.ok(projectService.createType(name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort))));
+                sort == null ? null : Integer.valueOf(String.valueOf(sort)), user));
     }
 
     @PutMapping("/config/types/{id}")
-    public ApiResponse<ProjectType> updateType(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public ApiResponse<ProjectType> updateType(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
         Object name = body == null ? null : body.get("name");
         Object sort = body == null ? null : body.get("sort");
         return ApiResponse.ok(projectService.updateType(id, name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort))));
+                sort == null ? null : Integer.valueOf(String.valueOf(sort)), user));
     }
 
     @DeleteMapping("/config/types/{id}")
-    public ApiResponse<Void> deleteType(@PathVariable Long id) {
-        projectService.deleteType(id);
+    public ApiResponse<Void> deleteType(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        projectService.deleteType(id, user);
         return ApiResponse.ok(null);
     }
 
@@ -326,26 +326,26 @@ public class ProjectController {
     }
 
     @PostMapping("/config/phases")
-    public ApiResponse<ProjectPhase> createPhase(@RequestBody Map<String, Object> body) {
+    public ApiResponse<ProjectPhase> createPhase(@RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
         Object name = body == null ? null : body.get("name");
         Object sort = body == null ? null : body.get("sort");
         return ApiResponse.ok(projectService.createPhase(name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort))));
+                sort == null ? null : Integer.valueOf(String.valueOf(sort)), user));
     }
 
     @PutMapping("/config/phases/{id}")
-    public ApiResponse<ProjectPhase> updatePhase(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public ApiResponse<ProjectPhase> updatePhase(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
         Object name = body == null ? null : body.get("name");
         Object sort = body == null ? null : body.get("sort");
         Object isActive = body == null ? null : body.get("isActive");
         return ApiResponse.ok(projectService.updatePhase(id, name == null ? null : String.valueOf(name),
                 sort == null ? null : Integer.valueOf(String.valueOf(sort)),
-                isActive == null ? null : Integer.valueOf(String.valueOf(isActive))));
+                isActive == null ? null : Integer.valueOf(String.valueOf(isActive)), user));
     }
 
     @DeleteMapping("/config/phases/{id}")
-    public ApiResponse<Void> deletePhase(@PathVariable Long id) {
-        projectService.deletePhase(id);
+    public ApiResponse<Void> deletePhase(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        projectService.deletePhase(id, user);
         return ApiResponse.ok(null);
     }
 
