@@ -187,6 +187,25 @@
             </template>
             <template v-if="s.cityId">
               <el-input v-model="cityKeyword" size="small" placeholder="按名称过滤" clearable style="margin-bottom: 8px" />
+              <div v-if="sameCityTypes.length" class="city-type-filter">
+                <button
+                  class="type-chip"
+                  :class="{ active: !cityTypeFilter }"
+                  type="button"
+                  @click="cityTypeFilter = ''"
+                >全部</button>
+                <button
+                  v-for="t in sameCityTypes"
+                  :key="t.bizKey"
+                  class="type-chip"
+                  :class="{ active: cityTypeFilter === t.bizKey, ['chip-' + supplierTypeTagColor(t.bizKey)]: true }"
+                  type="button"
+                  :title="'筛选类型：' + t.name"
+                  @click="cityTypeFilter = cityTypeFilter === t.bizKey ? '' : t.bizKey"
+                >
+                  <span class="chip-dot" :data-color="supplierTypeTagColor(t.bizKey)"></span>{{ t.name }}
+                </button>
+              </div>
               <div v-if="sameCityTotal > sameCityList.length" class="rate-text" style="margin-bottom: 6px">共 {{ sameCityTotal }} 家，仅展示前 {{ sameCityList.length }} 家</div>
               <div v-if="filteredSameCity.length" class="city-list">
                 <div
@@ -198,7 +217,7 @@
                 >
                   <span class="city-name" :title="o.name">{{ o.name }}</span>
                   <el-tag v-if="isBoundPeer(o.id)" size="small" type="primary" effect="plain">已绑定</el-tag>
-                  <span class="city-type">{{ o.typeName }}</span>
+                  <el-tag v-if="o.typeName" :type="supplierTypeTagColor(o.typeBizKey)" size="small" effect="plain">{{ o.typeName }}</el-tag>
                 </div>
               </div>
               <div v-else class="empty-line">同城市无匹配供应商</div>
@@ -213,6 +232,25 @@
     <el-drawer v-model="cityDrawer" title="同城市供应商" size="320px" direction="rtl">
       <template v-if="s && s.cityId">
         <el-input v-model="cityKeyword" size="small" placeholder="按名称过滤" clearable style="margin-bottom: 8px" />
+        <div v-if="sameCityTypes.length" class="city-type-filter">
+          <button
+            class="type-chip"
+            :class="{ active: !cityTypeFilter }"
+            type="button"
+            @click="cityTypeFilter = ''"
+          >全部</button>
+          <button
+            v-for="t in sameCityTypes"
+            :key="t.bizKey"
+            class="type-chip"
+            :class="{ active: cityTypeFilter === t.bizKey, ['chip-' + supplierTypeTagColor(t.bizKey)]: true }"
+            type="button"
+            :title="'筛选类型：' + t.name"
+            @click="cityTypeFilter = cityTypeFilter === t.bizKey ? '' : t.bizKey"
+          >
+            <span class="chip-dot" :data-color="supplierTypeTagColor(t.bizKey)"></span>{{ t.name }}
+          </button>
+        </div>
         <div v-if="sameCityTotal > sameCityList.length" class="rate-text" style="margin-bottom: 6px">共 {{ sameCityTotal }} 家，仅展示前 {{ sameCityList.length }} 家</div>
         <div v-if="filteredSameCity.length" class="city-list">
           <div
@@ -224,7 +262,7 @@
           >
             <span class="city-name" :title="o.name">{{ o.name }}</span>
             <el-tag v-if="isBoundPeer(o.id)" size="small" type="primary" effect="plain">已绑定</el-tag>
-            <span class="city-type">{{ o.typeName }}</span>
+            <el-tag v-if="o.typeName" :type="supplierTypeTagColor(o.typeBizKey)" size="small" effect="plain">{{ o.typeName }}</el-tag>
           </div>
         </div>
         <div v-else class="empty-line">同城市无匹配供应商</div>
@@ -450,8 +488,18 @@ function goPeer(id) {
 // ==================== 同城市供应商导航（复用 list 接口，不新增后端） ====================
 const cityKeyword = ref('')
 const cityDrawer = ref(false)
+const cityTypeFilter = ref('')
 const sameCityList = ref([])
 const sameCityTotal = ref(0)
+
+// 同城列表中实际出现的类型（按出现顺序去重），供类型筛选 chips
+const sameCityTypes = computed(() => {
+  const seen = new Map()
+  for (const o of sameCityList.value) {
+    if (o.typeBizKey && !seen.has(o.typeBizKey)) seen.set(o.typeBizKey, o.typeName || o.typeBizKey)
+  }
+  return [...seen].map(([bizKey, name]) => ({ bizKey, name }))
+})
 
 // 酒店/打印店：同城列表内已绑定供应商置顶（绑定标记）
 function isBoundPeer(id) {
@@ -469,9 +517,11 @@ const sortedSameCity = computed(() => {
 })
 
 const filteredSameCity = computed(() => {
+  let list = sortedSameCity.value
+  if (cityTypeFilter.value) list = list.filter((o) => o.typeBizKey === cityTypeFilter.value)
   const kw = cityKeyword.value.trim().toLowerCase()
-  if (!kw) return sortedSameCity.value
-  return sortedSameCity.value.filter((o) => String(o.name).toLowerCase().includes(kw))
+  if (!kw) return list
+  return list.filter((o) => String(o.name).toLowerCase().includes(kw))
 })
 
 const sameCityTotalText = computed(() => String(sameCityTotal.value))
@@ -888,6 +938,26 @@ watch(
 .city-name { flex: 1; font-size: 13px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .city-item.current .city-name { color: #409eff; font-weight: 600; }
 .city-type { font-size: 11px; color: #a8abb2; flex-shrink: 0; }
+/* 类型筛选 chips：色块与 el-tag 色表一致（复用 supplierTypeTagColor） */
+.city-type-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.type-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+  font-size: 12px; color: #606266; background: #f5f7fa; border: 1px solid transparent;
+  border-radius: 12px; cursor: pointer; user-select: none; line-height: 18px;
+}
+.type-chip:hover { color: #409eff; background: #ecf5ff; }
+.type-chip.active { color: #409eff; background: #ecf5ff; border-color: #a0cfff; font-weight: 600; }
+.chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.chip-dot[data-color='success'] { background: #67c23a; }
+.chip-dot[data-color='warning'] { background: #e6a23c; }
+.chip-dot[data-color='primary'] { background: #409eff; }
+.chip-dot[data-color='danger'] { background: #f56c6c; }
+.chip-dot[data-color='info'] { background: #909399; }
+.chip-success.active { border-color: #b3e19d; color: #529b2e; }
+.chip-warning.active { border-color: #f3d19e; color: #b88230; }
+.chip-primary.active { border-color: #a0cfff; color: #337ecc; }
+.chip-danger.active { border-color: #fab6b6; color: #c45656; }
+.chip-info.active { border-color: #c8c9cc; color: #73767a; }
 .empty-line { font-size: 13px; color: #909399; padding: 10px 4px; }
 
 /* 小屏 <1200px：右栏折叠，顶部出现展开按钮 */
