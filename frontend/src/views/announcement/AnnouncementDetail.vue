@@ -40,6 +40,7 @@
 </template>
 
 <script setup>
+import { dashboardFocus } from '../../api/dashboard'
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -59,7 +60,11 @@ function formatTime(t) {
 async function loadDetail() {
   loading.value = true
   try {
-    detail.value = await getAnnouncement(route.params.id)
+    detail.value = route.query.from === 'dashboard' ? await dashboardFocus('announcement', route.params.id) : await getAnnouncement(route.params.id)
+    if(route.query.from === 'dashboard' && !detail.value.read) {
+      try { await markAnnouncementRead(detail.value.id); detail.value.read = true }
+      catch { ElMessage.warning('公告已打开，但标记已读失败，请重试') }
+    }
   } finally {
     loading.value = false
   }

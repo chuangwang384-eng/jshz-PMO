@@ -71,6 +71,14 @@
       />
     </div>
 
+    <el-dialog v-model="resubmitVisible" title="重新编辑提交" width="600px" :close-on-click-modal="false">
+      <el-alert v-if="resubmitRow?.returnComment" :title="resubmitRow.returnComment" type="warning" :closable="false" />
+      <p class="page-sub">修改申请文本后重新提交；照片保留原申请内容。身份和银行卡字段留空表示保留原提交值。</p>
+      <el-form label-width="120px"><el-form-item v-for="field in resubmitFields" :key="field" :label="field">
+        <el-input v-model="resubmitChanges[field]" :type="['身份证号','银行卡号'].includes(field)?'password':'textarea'" :show-password="['身份证号','银行卡号'].includes(field)" :maxlength="5000" />
+      </el-form-item><el-form-item label="申请原因"><el-input v-model="resubmitReason" type="textarea" :maxlength="1000" /></el-form-item></el-form>
+      <template #footer><el-button @click="resubmitVisible=false">取消</el-button><el-button type="primary" :loading="resubmitLoading" @click="confirmResubmit">确认提交</el-button></template>
+    </el-dialog>
     <!-- 审批进度：时间线 -->
     <el-dialog v-model="progressVisible" title="审批进度" width="560px" destroy-on-close>
       <div class="progress-expert">专家：{{ progressRow?.expertName }}</div>
@@ -96,6 +104,7 @@
 </template>
 
 <script setup>
+import { watchDashboardFocus } from '../utils/dashboardFocus'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -192,28 +201,29 @@ async function handleWithdraw(row) {
   }
 }
 
-// 重新编辑提交：仅退回修改(status=4)行展示入口，确认后调用后端，成功刷新列表（状态回待审批展示）
-async function handleResubmit(row) {
-  try {
-    await ElMessageBox.confirm(
-      `确认重新提交「${row.expertName}」的申请吗？提交后将回到待审批状态。`,
-      '重新提交确认',
-      {
-        confirmButtonText: '确认提交',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-  } catch (e) {
-    return
+const resubmitVisible=ref(false), resubmitLoading=ref(false), resubmitRow=ref(null), resubmitChanges=ref({}), resubmitFields=ref([]), resubmitReason=ref('')
+const editableFields=['姓名','单位','科室','职称','联系方式','简介','身份证号','银行卡号','银行卡开户行']
+function handleResubmit(row) {
+  resubmitRow.value=row
+  resubmitFields.value=row.applicationType==='CONTRACT'?['身份证号','银行卡号']:[...new Set([...editableFields,...['研究方向','擅长领域'].filter(key=>key in (row.changes || {}))])]
+  resubmitChanges.value=Object.fromEntries(resubmitFields.value.map(key=>[key,['身份证号','银行卡号'].includes(key)?'':String(row.changes?.[key] ?? '')]))
+  resubmitReason.value=row.reason || ''
+  resubmitVisible.value=true
+}
+async function confirmResubmit() {
+  const changes={}
+  for(const field of resubmitFields.value) {
+    const value=resubmitChanges.value[field]
+    if(['身份证号','银行卡号'].includes(field) && !value)continue
+    if(value !== String(resubmitRow.value.changes?.[field] ?? ''))changes[field]=value
   }
+  resubmitLoading.value=true
   try {
-    await resubmitRequest(row.id)
+    await resubmitRequest(resubmitRow.value.id,{changes,reason:resubmitReason.value})
+    resubmitVisible.value=false
     ElMessage.success('已重新提交，等待审批')
-    fetchList()
-  } catch (e) {
-    // 错误提示已由拦截器统一处理
-  }
+    await fetchList()
+  } finally {resubmitLoading.value=false}
 }
 
 function handleStatusChange() {
@@ -258,6 +268,7 @@ onBeforeUnmount(() => {
     pollTimer = null
   }
 })
+watchDashboardFocus(route, 'applicationId', 'application', row => row.status === 4 ? handleResubmit(row) : openProgress(row), message => ElMessage.warning(message))
 </script>
 
 <style scoped>

@@ -43,6 +43,7 @@
 </template>
 
 <script setup>
+import { safeLocalPath } from '../utils/dashboard'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -112,7 +113,7 @@ async function handleLogin() {
     const user = await auth.login(form.username.trim(), form.password)
     ElMessage.success(`欢迎回来，${user.username}`)
     const redirect = route.query.redirect
-    router.push(typeof redirect === 'string' && redirect ? redirect : '/experts')
+    router.push(safeLocalPath(redirect))
   } catch (e) {
     console.error('登录请求失败', e)
     ElMessage.error(e?.message || '登录失败，请稍后重试')

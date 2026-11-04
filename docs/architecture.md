@@ -165,3 +165,13 @@ V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `
 新增表 project_config_state / project_type_config_revision / project_config_snapshot / project_config_request，project_type 增加 active_config_revision_id 与唯一 sort。数据字典、接口、权限和迁移步骤见 [项目配置 v3 实施说明](deployment-project-config-v3.md)。旧分步类型写入适配为完整配置版本，仅拒绝含义不明确的空流程/空专属绑定；现有页面已收口新版向导，兼容细则见该说明。新增管理 API 服务内显式验证 project:manage；项目快照读取保留原项目级可读校验。原项目权限范围不扩大。
 
 本节为本地施工增量，生产仍以已发布版本和目标库实际元数据为准，不能据此认定表或接口已上线。
+
+## 个人工作台与全局搜索（2026-11-04 本地实施，未发布）
+
+新增 `/dashboard`，默认登录落地且保留合法原目标；固定首屏展示待我审批/退回修改与项目风险，其后本人项目、收藏、公告和消息。新增只读聚合、六类搜索、共用规格的完整结果列表与授权单条定位；原模块路由保留，query只承载定位/筛选，不参与授权。
+
+后端为DashboardController/DashboardFocusController/GlobalSearchController、DashboardReadService、DashboardTasks、ModuleSearcher/GlobalSearchModules及DashboardRules。前端容器DashboardView、GlobalSearchBar、GlobalModuleResults、DashboardWorkList，原目标页补query定位。聚合查询按原权限规则和资源过滤输出最小DTO，卡片错误不伪装成空；8线程/128有界队列、查询/模块/请求超时与失效响应保护。
+
+完成判定仅复用已批准的历史LEGACY_BASELINE快照中的唯一“已完成”阶段；新类型及无法确认的流程为UNKNOWN，不修改生命周期或数据。退回申请可在原页面编辑文本并重提，原bodyless调用兼容；本人/status=4校验保持，变更/状态/指派清理/记录/通知同事务。
+
+无新增业务表、权限码、生产环境变量或外部服务；新增测试schema仅供隔离验证，不能当作迁移。接口/权限矩阵、目标路径、故障与验证边界见[工作台说明](deployment-dashboard-v11.md)，原需求与设计已同步为V1.1.1。生产快照前置条件及实际部署状态本次未验证。

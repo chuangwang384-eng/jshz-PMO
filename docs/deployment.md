@@ -391,3 +391,9 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 
 ## R-1 发布记录
 - 2026-11-04 11:31:21 R-1 发布 1.0.23 成功（jar: expert-system.jar）
+
+## 个人工作台 V1.1.1（本地实施，未发布）
+
+本次新增工作台、全局搜索及原页面精确定位；业务库无需新迁移，现有生产端口/认证/CORS与角色权限规则保持。发布前须先核实目标库的项目配置快照与应用兼容性，不能自动运行其他项目迁移。正式上线仍须独立批准并使用现有不停机发布流程。
+
+隔离验证使用环回MySQL13319/dashboard_acceptance、应用18085、现有允许来源localhost:5173，均非生产。`scripts/test-dashboard.ps1`具有数据库身份护栏，后端制品与前端build均输出`.build-dashboard-acceptance`；需设置测试专用DASHBOARD_ACCEPTANCE_DB与DASHBOARD_DB_PASSWORD，不得复用生产凭证。详细API、测试命令、结果、风险和回滚见[工作台API/部署/测试说明](deployment-dashboard-v11.md)。

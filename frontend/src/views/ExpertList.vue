@@ -468,8 +468,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
@@ -477,6 +477,7 @@ import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
 import { CopyDocument } from '@element-plus/icons-vue'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const canAddExpert = computed(() => authStore.hasPermission('expert:add'))
@@ -595,8 +596,12 @@ function removeSelectedExpert(expert) {
   selectedExperts.value = selectedExperts.value.filter((e) => e.id !== expert.id)
 }
 
+let detailSequence = 0
+onBeforeUnmount(() => { detailSequence++ })
 async function openDetail(row) {
+  const sequence = ++detailSequence
   const data = await getExpert(row.id, canEditExpert.value ? { sensitive: 1 } : undefined)
+  if(sequence !== detailSequence)return
   detail.value = data
   // 统一视图初始化：详情弹窗文本字段统一回填 editForm（管理员免审批直写 / 员工审批流共用）
   if (canEditExpert.value) {
@@ -638,6 +643,7 @@ async function openDetail(row) {
   if (data['身份证正面']) {
     try {
       const resp = await fetchPhotoBlob(data['身份证正面'])
+      if(sequence !== detailSequence)return
       idFrontUrl.value = URL.createObjectURL(resp.data)
     } catch (e) {
       // 照片不存在或无权限：保持占位
@@ -646,12 +652,13 @@ async function openDetail(row) {
   if (data['身份证反面']) {
     try {
       const resp = await fetchPhotoBlob(data['身份证反面'])
+      if(sequence !== detailSequence)return
       idBackUrl.value = URL.createObjectURL(resp.data)
     } catch (e) {
       // 照片不存在或无权限：保持占位
     }
   }
-  detailVisible.value = true
+  if(sequence === detailSequence) detailVisible.value = true
 }
 
 // 复制字段值到剪贴板：优先 navigator.clipboard，不可用时兜底 document.execCommand('copy')
@@ -1112,6 +1119,11 @@ async function submitAdminCreate() {
 onMounted(() => {
   fetchList()
 })
+watch(() => route.query.expertId, async id => {
+  if(id===undefined)return
+  if(!/^[1-9]\d{0,17}$/.test(String(id)))return ElMessage.warning('记录编号无效')
+  try{await openDetail({id:String(id)})}catch{ElMessage.warning('记录不可用或无权访问')}
+},{immediate:true})
 </script>
 
 <style scoped>

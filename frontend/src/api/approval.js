@@ -80,8 +80,8 @@ export function returnRequest(id, comment) {
 }
 
 // 重新提交：POST /approval/requests/{id}/resubmit（仅申请人本人，status=4 可重提）
-export function resubmitRequest(id) {
-  return request.post(`/approval/requests/${id}/resubmit`)
+export function resubmitRequest(id, data) {
+  return request.post(`/approval/requests/${id}/resubmit`, data)
 }
 
 // ==================== 审批转办 / 加签（B2，或签语义） ====================

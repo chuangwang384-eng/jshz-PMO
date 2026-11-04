@@ -118,6 +118,9 @@
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
+import { watchDashboardFocus } from '../utils/dashboardFocus'
+const route = useRoute()
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -292,6 +295,7 @@ onMounted(() => {
   // 预加载已处理列表，保证首次切到"已处理"Tab 时数据已就绪
   fetchDone()
 })
+watchDashboardFocus(route, 'applicationId', 'approval', row => openDiff(row, 'approve'), message => ElMessage.warning(message))
 </script>
 
 <style scoped>

@@ -170,6 +170,8 @@
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
+import { watchDashboardFocus } from '../utils/dashboardFocus'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // 20261103 修复（预览失败的三个叠加原因）：
@@ -220,7 +222,8 @@ const categoryLabels = {
 
 const authStore = useAuthStore()
 const canManage = computed(() => authStore.hasPermission('knowledge:maintain'))
-const isFavoritesMode = computed(() => props.mode === 'favorites')
+const route = useRoute()
+const isFavoritesMode = computed(() => props.mode === 'favorites' || route.query.favorites === '1')
 
 const keyword = ref('')
 const docs = ref([])
@@ -659,6 +662,8 @@ function formatSize(bytes) {
 }
 
 onMounted(fetchList)
+watch(() => route.query.favorites, fetchList)
+watchDashboardFocus(route, 'docId', 'knowledge', handlePreview, message => ElMessage.warning(message))
 </script>
 
 <style scoped>

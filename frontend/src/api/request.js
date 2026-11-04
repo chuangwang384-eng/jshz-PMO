@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { safeLocalPath } from '../utils/dashboard'
 import { ElMessage } from 'element-plus'
 
 // 统一请求封装：baseURL /api，httpOnly cookie 鉴权（withCredentials），401 跳登录，统一错误提示
@@ -12,7 +13,7 @@ function redirectLogin() {
   localStorage.removeItem('expert_token')
   localStorage.removeItem('expert_user')
   if (!window.location.pathname.startsWith('/login')) {
-    window.location.href = '/login'
+    window.location.href = '/login?redirect=' + encodeURIComponent(safeLocalPath(window.location.pathname + window.location.search + window.location.hash))
   }
 }
 
@@ -27,6 +28,7 @@ request.interceptors.response.use(
     }
     const res = response.data
     const isLoginReq = (response.config.url || '').includes('/auth/login')
+    const silent = response.config.silent
     if (res && typeof res === 'object' && 'code' in res) {
       if (res.code === 0) {
         return res.data
@@ -38,7 +40,7 @@ request.interceptors.response.use(
         }
         return Promise.reject(new Error(res.message || '未登录'))
       }
-      if (!isLoginReq) {
+      if (!isLoginReq && !silent) {
         ElMessage.error(res.message || '请求失败')
       }
       return Promise.reject(new Error(res.message || '请求失败'))
@@ -46,6 +48,8 @@ request.interceptors.response.use(
     return res
   },
   (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error)
+    const silent = error.config?.silent
     const isLoginReq = (error.config?.url || '').includes('/auth/login')
     const status = error.response?.status
     if (status === 401) {
@@ -54,11 +58,11 @@ request.interceptors.response.use(
         redirectLogin()
       }
     } else if (status === 403) {
-      if (!isLoginReq) {
+      if (!isLoginReq && !silent) {
         ElMessage.error('无权限执行该操作')
       }
     } else {
-      if (!isLoginReq) {
+      if (!isLoginReq && !silent) {
         ElMessage.error(error.response?.data?.message || error.message || '网络错误')
       }
     }

@@ -1,0 +1,4 @@
+{
+  "corruptSnapshotIsUnknownNotOverdue": true,
+  "rollbackHistoryUsesSnapshotNames": true
+}

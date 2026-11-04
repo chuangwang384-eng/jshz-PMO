@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { safeLocalPath } from '../utils/dashboard'
 
 const routes = [
   {
@@ -10,8 +11,9 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/experts'
+    redirect: '/dashboard'
   },
+  { path: '/dashboard', name: 'dashboard', component: () => import('../views/dashboard/DashboardView.vue'), meta: { title: '工作台', requiresAuth: true } },
   {
     path: '/experts',
     name: 'experts',
@@ -165,7 +167,7 @@ const routes = [
       if (perms.includes('role:manage')) return '/admin/roles/manage'
       if (perms.includes('audit:view')) return '/admin/audit/downloads'
       if (perms.includes('approval:config')) return '/admin/approval/config'
-      return '/experts'
+      return '/dashboard'
     },
     meta: {
       title: '管理员设置',
@@ -245,7 +247,7 @@ router.beforeEach((to) => {
 
   if (to.meta.public) {
     if (loggedIn && to.path === '/login') {
-      return '/experts'
+      return safeLocalPath(to.query.redirect)
     }
     return true
   }
@@ -266,14 +268,14 @@ router.beforeEach((to) => {
   const required = to.meta?.permissions
   if (Array.isArray(required) && required.length && !required.some((p) => permissions.includes(p))) {
     ElMessage.error('无权限访问该页面')
-    return '/experts'
+    return '/dashboard'
   }
 
   const roles = user?.roles || []
   const requiredRoles = to.meta?.roles
   if (Array.isArray(requiredRoles) && requiredRoles.length && !requiredRoles.some((r) => roles.includes(r))) {
     ElMessage.error('无权限访问该页面')
-    return '/experts'
+    return '/dashboard'
   }
 
   return true

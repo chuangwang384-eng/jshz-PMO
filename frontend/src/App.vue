@@ -33,7 +33,10 @@
         </div>
       </el-header>
       <el-main class="main">
-        <router-view />
+        <GlobalModuleResults v-if="globalModule" :module="globalModule" />
+        <DashboardWorkList v-else-if="route.path === '/project' && route.query.mine === '1'" kind="projects" />
+        <DashboardWorkList v-else-if="route.path === '/profile/approval/manage' && route.query.actionable === '1'" kind="approvals" />
+        <router-view v-else />
       </el-main>
     </el-container>
   </el-container>
@@ -43,6 +46,9 @@
 </template>
 
 <script setup>
+import GlobalModuleResults from './components/GlobalModuleResults.vue'
+import DashboardWorkList from './components/DashboardWorkList.vue'
+
 import { computed, onMounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
@@ -56,6 +62,9 @@ import { buildMenuTree } from './utils/menu'
 
 const route = useRoute()
 const router = useRouter()
+const globalModule = computed(() => route.query.searchMode === 'global' ? ({
+ '/experts':'expert','/project':'project','/supplier':'supplier','/knowledge-planet/customer-info':'customer','/knowledge-planet/meeting-execution':'knowledge','/profile/announcements':'announcement'
+})[route.path] || null : null)
 const auth = useAuthStore()
 
 // 侧边菜单实例：供 SideMenuItem 展开/收起子菜单（点标题跳父路由、点箭头展开）

@@ -341,6 +341,32 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         return result;
     }
 
+    /** Authorized single-record lookup for dashboard deep links; no action permissions changed. */
+    public Application dashboardFocus(Long id, boolean audit, AuthUser user) {
+        if (user == null) throw new BusinessException(401, "未登录");
+        Application app = getById(id);
+        if (app == null) throw new BusinessException(404, "记录不可用");
+        if (!audit) {
+            if (!java.util.Objects.equals(app.getApplicantId(), user.getUserId()) && !java.util.Objects.equals(app.getApplicant(), user.getUsername()))
+                throw new BusinessException(403, "记录不可用");
+        } else {
+            if (!user.hasPermission(PERM_APPROVAL_AUDIT) || !java.util.Objects.equals(app.getStatus(), STATUS_PENDING))
+                throw new BusinessException(403, "记录不可处理，请刷新待办");
+            checkAssignee(app,user);
+            String snapshot=app.getApproverSnapshot();
+            if (org.springframework.util.StringUtils.hasText(snapshot)
+                    && !java.util.Objects.equals(app.getCurrentAssignee(),user.getUsername())
+                    && !java.util.Objects.equals(app.getExtraApprover(),user.getUsername())) {
+                try {
+                    java.util.List<java.util.Map<String,Object>> members=objectMapper.readValue(snapshot,new com.fasterxml.jackson.core.type.TypeReference<java.util.List<java.util.Map<String,Object>>>(){});
+                    if(members.stream().noneMatch(m->user.getUsername().equals(m.get("username")))) throw new BusinessException(403,"记录不可用");
+                } catch (BusinessException ex) { throw ex; }
+                catch (Exception ex) { throw new BusinessException(403,"记录不可用"); }
+            }
+        }
+        return fillView(app,isFullSensitive(user));
+    }
+
     // ==================== 全部申请（审批管理） ====================
 
     /**
@@ -682,7 +708,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - 按当前流程配置刷新审批人快照（配置可能已变更）；
      * - 通知快照内审批人新增待办。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application resubmit(Long id, AuthUser user) {
+        return resubmit(id, null, null, user);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Application resubmit(Long id, Map<String,Object> patch, String reason, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
@@ -704,6 +736,23 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (config.getEnabled() == null || config.getEnabled() != 1) {
             throw new BusinessException("审批流未启用，暂不支持重新提交");
         }
+        if (patch != null) {
+            Map<String,Object> biz = readBiz(app);
+            Map<String,Object> changes = new LinkedHashMap<>(asStringKeyMap(biz.get("changes")));
+            for (Map.Entry<String,Object> entry : patch.entrySet()) {
+                String field = entry.getKey(); Object value = entry.getValue();
+                if (!WHITELIST_FIELDS.contains(field) || PHOTO_FIELDS.contains(field)) throw new BusinessException("仅支持修改申请文本字段");
+                if (ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT && !List.of("身份证号","银行卡号").contains(field)) throw new BusinessException("合同申请仅支持修改身份与银行卡字段");
+                if (value != null && (!(value instanceof String) || value.toString().length() > 5000)) throw new BusinessException("字段内容格式不正确或过长");
+                changes.put(field,value);
+            }
+            checkChanges(changes);
+            if (isCreateRequest(app)) validateCreateChanges(changes); else validateSensitiveFields(changes);
+            biz.put("changes",changes);
+            if(changes.get("姓名") != null) biz.put("expertName",changes.get("姓名"));
+            if(reason != null) { if(reason.length()>1000) throw new BusinessException("申请原因过长"); biz.put("reason",reason); }
+            app.setBizData(writeBiz(biz)); fillBiz(app);
+        }
         app.setStatus(STATUS_PENDING);
         app.setApproveBy(null);
         app.setApproveComment(null);
@@ -714,7 +763,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setExtraApprover(null);
         // 按当前流程配置刷新审批人快照
         app.setApproverSnapshot(buildApproverSnapshot(config));
-        this.updateById(app);
+        boolean changed = this.lambdaUpdate().eq(Application::getId,id).eq(Application::getStatus,STATUS_RETURNED)
+                .set(Application::getStatus,STATUS_PENDING).set(Application::getBizData,app.getBizData())
+                .set(Application::getApproveBy,null).set(Application::getApproveComment,null).set(Application::getApproveTime,null)
+                .set(Application::getReturnComment,null).set(Application::getCurrentAssignee,null).set(Application::getExtraApprover,null)
+                .set(Application::getApproverSnapshot,app.getApproverSnapshot()).update();
+        if(!changed) throw new BusinessException(409,"申请状态已变化，请刷新后重试");
 
         addRecord(app.getId(), "申请人重新提交", "RESUBMIT", user.getUsername(),
                 StringUtils.hasText(app.getReason()) ? app.getReason() : "重新提交申请");

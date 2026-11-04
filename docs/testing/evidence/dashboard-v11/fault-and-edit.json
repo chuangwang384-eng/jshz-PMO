@@ -1,0 +1,21 @@
+{
+  "editResubmitPersisted": true,
+  "authoritativeExpertUnchangedUntilApproval": true,
+  "returnedCountRefreshed": true,
+  "faults": [
+    {
+      "module": "supplier",
+      "result": "PASS",
+      "elapsedMs": 1070.5,
+      "errorCode": "MODULE_UNAVAILABLE",
+      "otherModulesAvailable": true
+    },
+    {
+      "module": "favorites",
+      "result": "PASS",
+      "elapsedMs": 1032.2,
+      "errorCode": "MODULE_UNAVAILABLE",
+      "otherModulesAvailable": true
+    }
+  ]
+}
