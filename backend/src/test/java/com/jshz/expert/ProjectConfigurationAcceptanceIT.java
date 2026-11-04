@@ -239,6 +239,19 @@ class ProjectConfigurationAcceptanceIT {
         assertEquals("RICH_TEXT",ProjectConfigurationService.rows(ProjectConfigurationService.rows(config.definition(901).get("phases")).get(0).get("requirements")).get(0).get("templateType"));
         migration.migrate(false); // Reviewed differences and frozen projects do not re-block a retry.
     }
+    @Test void deletedOrphanExclusionRequiresExplicitPolicyAndNeverExcludesLiveProjects() {
+        db.update("INSERT INTO project(id,name,category,type_id,owner_id,creator_id,phase_id,status) VALUES(901,'已删孤儿','OFFLINE',999,1,1,101,'DELETED')");
+        assertFalse(((List<?>)migration.preflight().get("anomalies")).isEmpty());
+        assertThrows(BusinessException.class,()->migration.migrate(false));
+        Map<String,Object> report=migration.migrate(false,true);
+        assertEquals(1,((List<?>)report.get("excludedDeletedOrphans")).size());
+        assertEquals("DELETED",db.queryForObject("SELECT status FROM project WHERE id=901",String.class));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM project_config_snapshot WHERE project_id=901",Integer.class));
+        db.update("UPDATE project SET status='ACTIVE' WHERE id=901");
+        assertThrows(BusinessException.class,()->migration.migrate(false,true));
+        db.update("UPDATE project SET status='DELETED',type_id=NULL WHERE id=901");
+        assertThrows(BusinessException.class,()->migration.migrate(false,true));
+    }
     @Test void concurrentCreateAndPublishProduceCoherentSnapshots() throws Exception {
         long type=save("原配置",1,List.of(stage(101,"NONE",List.of())));
         Map<String,Object> input=body("新配置",1,List.of(stage(102,"NONE",List.of())));

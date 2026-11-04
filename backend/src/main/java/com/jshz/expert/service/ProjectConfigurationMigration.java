@@ -38,14 +38,19 @@ public class ProjectConfigurationMigration {
         }
         return new LinkedHashMap<>(Map.of("typeId",type,"name",name,"schemaVersion",1,"phases",phases));
     }
-    public Map<String,Object> preflight() {
-        List<Map<String,Object>> anomalies=new ArrayList<>(), differences=new ArrayList<>(), orderDifferences=new ArrayList<>();
-        for(Map<String,Object> p:db.queryForList("SELECT p.id,p.type_id,p.phase_id FROM project p LEFT JOIN project_config_snapshot s ON s.project_id=p.id WHERE s.project_id IS NULL")) {
+    public Map<String,Object> preflight() { return preflight(false); }
+    public Map<String,Object> preflight(boolean allowDeletedOrphans) {
+        List<Map<String,Object>> anomalies=new ArrayList<>(), differences=new ArrayList<>(), orderDifferences=new ArrayList<>(), excluded=new ArrayList<>();
+        for(Map<String,Object> p:db.queryForList("SELECT p.id,p.type_id,p.phase_id,p.status FROM project p LEFT JOIN project_config_snapshot s ON s.project_id=p.id WHERE s.project_id IS NULL")) {
             long project=ProjectConfigurationService.number(p.get("id"));
             if(p.get("type_id")==null || p.get("phase_id")==null) {anomalies.add(Map.of("projectId",project,"reason","缺类型或当前阶段"));continue;}
             long type=ProjectConfigurationService.number(p.get("type_id"));
             List<String> names=db.queryForList("SELECT name FROM project_type WHERE id=?",String.class,type);
-            if(names.isEmpty()){anomalies.add(Map.of("projectId",project,"reason","类型缺失"));continue;}
+            if(names.isEmpty()){
+                if(allowDeletedOrphans && "DELETED".equals(p.get("status"))) excluded.add(Map.of("projectId",project,"typeId",type,"reason","已软删除且类型缺失；按明确批准保留原记录并跳过快照"));
+                else anomalies.add(Map.of("projectId",project,"reason","类型缺失"));
+                continue;
+            }
             Map<String,Object> def=legacy(type,names.get(0),true);
             Set<Long> ids=new HashSet<>(); for(Map<String,Object> stage:ProjectConfigurationService.rows(def.get("phases"))) ids.add(ProjectConfigurationService.number(stage.get("phaseId")));
             Set<Long> used=new HashSet<>(db.queryForList("SELECT phase_id FROM project_doc WHERE project_id=? UNION SELECT from_phase_id FROM project_phase_history WHERE project_id=? UNION SELECT to_phase_id FROM project_phase_history WHERE project_id=?",Long.class,project,project,project));
@@ -70,11 +75,15 @@ public class ProjectConfigurationMigration {
         if(dangling+danglingFlow>0) anomalies.add(Map.of("reason","配置有悬空引用","count",dangling+danglingFlow));
         long unsupported=db.queryForObject("SELECT COUNT(*) FROM project_phase_template_rel r JOIN project_template t ON t.id=r.template_id WHERE t.template_type NOT IN ('FILE','EXPERT','SUPPLIER','BUDGET','RICH_TEXT')",Long.class);
         if(unsupported>0)anomalies.add(Map.of("reason","配置引用未知资料类别","count",unsupported));
-        return Map.of("anomalies",anomalies,"optionalFallbackDifferences",differences,"flowOrderDifferences",orderDifferences);
+        return Map.of("anomalies",anomalies,"optionalFallbackDifferences",differences,"flowOrderDifferences",orderDifferences,"excludedDeletedOrphans",excluded);
     }
     @Transactional
     public Map<String,Object> migrate(boolean reviewedDifferences) {
-        config.lock();Map<String,Object> report=preflight();
+        return migrate(reviewedDifferences,false);
+    }
+    @Transactional
+    public Map<String,Object> migrate(boolean reviewedDifferences,boolean allowDeletedOrphans) {
+        config.lock();Map<String,Object> report=preflight(allowDeletedOrphans);
         if(!((List<?>)report.get("anomalies")).isEmpty()) throw new BusinessException("迁移阻断：存在异常阶段或配置引用，请查看只读预检报告");
         if(!reviewedDifferences && (!((List<?>)report.get("optionalFallbackDifferences")).isEmpty() || !((List<?>)report.get("flowOrderDifferences")).isEmpty())) throw new BusinessException("迁移阻断：须复核旧全选填回退及流程顺序差异");
         for(Map<String,Object> t:db.queryForList("SELECT id,name FROM project_type ORDER BY sort,id")) {

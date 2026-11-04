@@ -13,7 +13,7 @@ import java.util.*;
 public final class ProjectConfigurationMigrationMain {
     public static void main(String[] args) {
         Set<String> options=Set.of(args);
-        if(!Set.of("--preflight","--apply","--review-legacy-differences").containsAll(options)) throw new IllegalArgumentException("Unsupported migration option");
+        if(!Set.of("--preflight","--apply","--review-legacy-differences","--allow-deleted-orphans").containsAll(options)) throw new IllegalArgumentException("Unsupported migration option");
         String url=required("PC_MIGRATION_URL"), database=required("PC_MIGRATION_DATABASE");
         var source=new DriverManagerDataSource(url,required("PC_MIGRATION_USER"),required("PC_MIGRATION_PASSWORD"));
         JdbcTemplate db=new JdbcTemplate(source);
@@ -23,8 +23,8 @@ public final class ProjectConfigurationMigrationMain {
         Map<String,Object> report;
         if(options.contains("--apply")) {
             if(!database.equals(required("PC_MIGRATION_APPROVED_DATABASE"))) throw new IllegalStateException("Explicit approved database is required");
-            report=new TransactionTemplate(new DataSourceTransactionManager(source)).execute(status->migration.migrate(options.contains("--review-legacy-differences")));
-        } else report=migration.preflight();
+            report=new TransactionTemplate(new DataSourceTransactionManager(source)).execute(status->migration.migrate(options.contains("--review-legacy-differences"),options.contains("--allow-deleted-orphans")));
+        } else report=migration.preflight(options.contains("--allow-deleted-orphans"));
         System.out.println(config.encode(report));
     }
     private static String required(String key) {
