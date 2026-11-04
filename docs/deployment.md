@@ -356,6 +356,18 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 ## 企业合规 v4 设计阶段历史记录
 初始方案和设计基线见 [技术设计](20261103-企业合规可复用清单-技术设计.md)。后续已有候选实现与隔离验收，当前状态以本文件末尾“企业合规 v4 候选”及关联部署说明为准；本文件不授权执行生产 DDL 或发布。
 
+## R-1 发布记录
+- 2026-11-03 17:07:38 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 17:11:48 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 17:15:55 R-1 发布 1.022 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-03 17:19:23 R-1 发布 1.022 成功（jar: expert-system.jar）
+
 
 ## 企业合规 v4 候选：隔离验收与后续审批
 
@@ -376,3 +388,6 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 本地施工新增四张配置表和 project_type 的版本指针/唯一排序约束，尚未执行生产迁移或切流。完整迁移、数据盘点、兼容窗口、接口和回退限制见 [deployment-project-config-v3.md](deployment-project-config-v3.md)。迁移文件为 database/migration/20261104_project_config_snapshots.sql 与 20261104_project_config_finalize.sql，中间必须运行受控离线预检/回填；异常和旧规则差异需要复核。
 
 新后端依赖存量快照完整性；旧后端不支持 NONE 和固定流程，不能无条件回滚旧包。生产迁移/发布须另行批准。所有 Maven 验证在 .build-project-config-acceptance/backend 内完成，禁止清理或重打生产服务正在使用的 backend/target。
+
+## R-1 发布记录
+- 2026-11-04 11:31:21 R-1 发布 1.0.23 成功（jar: expert-system.jar）

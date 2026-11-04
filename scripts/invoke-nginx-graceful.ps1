@@ -23,8 +23,14 @@ if (-not $service -or $service.State -ne 'Running' -or $service.StartName -notin
 }
 $masterBefore = (Get-Content -LiteralPath $pidFile -Raw).Trim()
 $oldWorkers = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$masterBefore AND Name='nginx.exe'" | Select-Object -ExpandProperty ProcessId)
-& $exe -p ($prefix.Replace('\','/') + '/') -t
-if ($LASTEXITCODE -ne 0) { throw 'Nginx configuration validation failed; no signal sent.' }
+# nginx -t writes its success lines to stderr; capture explicitly (PS 5.1 turns redirected native
+# stderr into ErrorRecords which would throw under ErrorActionPreference=Stop with a confusing
+# message). Success is judged by $LASTEXITCODE, matching deploy-backend Step6's pattern.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$nginxTestOutput = & $exe -p ($prefix.Replace('\','/') + '/') -t 2>&1
+$ErrorActionPreference = $prevEap
+if ($LASTEXITCODE -ne 0) { throw ('Nginx configuration validation failed: ' + (@($nginxTestOutput | ForEach-Object { [string]$_ }) -join ' | ')) }
 $name = 'JshzGracefulReload-' + [guid]::NewGuid().ToString('N')
 $action = New-ScheduledTaskAction -Execute $exe -Argument ('-p "' + $prefix.Replace('\','/') + '/" -s reload') -WorkingDirectory $prefix
 $identity = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest

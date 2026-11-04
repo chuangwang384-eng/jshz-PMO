@@ -74,3 +74,16 @@ project_type 新增 active_config_revision_id，sort 最终非空且唯一（uk_
 前端组件：在 frontend 执行 `node tests/project-config-regression.mjs`。真实浏览器：先生成 prepareBrowserFixture（PC_BROWSER_FIXTURE=yes、PC_TEST_PASSWORD 为临时随机值），启动以上隔离服务，再执行 `node frontend/tests/project-config-v3-live.mjs`，PLAYWRIGHT_MODULE 指向本机可用 Playwright。脚本不 mock API；实际使用 Edge→Vite→Spring→MySQL。
 
 构建输出、原始日志与截图在忽略目录 `.build-project-config-acceptance/`；交付汇总证据另行归档到 docs 下。业务负责人易用性验收仍需首次使用者执行需求 A5，不用开发者自动化代替。
+
+## 7. 生产发布实录（2026-11-04 11:31 完成，1.0.23）
+
+- **结果**：发布执行器 `scripts/release-project-config-v3.ps1 -Apply` 全流程 SUCCESS：写闸冻结→最终备份（backup_20261104_110914，含 sha256 校验+资料库 zip）→加法 schema→离线预检/事务回填→finalize→业务哈希语义比对通过→后端蓝绿（NSSM 已运行新 jar，target jar 哈希=候选哈希）→前端原子切换→登录态只读校验（PC_EXPECT_V3）→解冻写闸。最终连续性探针 pooled 969 / fresh 966，**0 失败**，Nginx 主进程未变。
+- **迁移结果**：anomalies=0、fallbacks=0、flowOrder=0；excludedDeletedOrphans=1（project 3 / type 5，理由"已软删除且类型缺失；按明确批准保留原记录并跳过快照"）；库内 snapshots=8（=9-1）、revisions=6、重复 sort=0、未删除项目无快照=0。
+- **发布流水线缺陷修复（均在本次发布中实测生效）**：
+  1. 发布脚本写 nginx conf 用了带 BOM 的 `[Text.Encoding]::UTF8`（PS5.1 默认 UTF8=带 BOM），nginx 报 `unknown directive ﻿#`。改用 `[Text.UTF8Encoding]::new($false)` 写 conf（4 处）。教训：**给 nginx 写配置必须无 BOM**；`nginx -t` 校验失败时"无信号发送"属安全设计。
+  2. 业务哈希比对曾用 JSON 字符串比较——Java 两次输出哈希表键序不同导致误报"业务数据被改"（实际 sha256/rows 全等）。改为按表语义比对 rows+sha256。**教训：跨进程 JSON 比较必须语义比较，不能字符串比较。**
+  3. `PSObject.Properties.Count` 在 PS5.1 触发成员枚举（输出 N 个 1 而非集合数 N），需 `@(...)` 包裹。
+  4. `invoke-nginx-graceful.ps1` 裸调 `nginx -t`：nginx 把成功信息也写 stderr，PS5.1 在重定向/EAP=Stop 上下文会抛 `NativeCommandError`（消息恰是"…syntax is ok"）。改为 EAP=Continue 包裹 + `$LASTEXITCODE` 判定（与 deploy-backend Step6 同款）。
+  5. 连续性探针零容忍导致 nginx 平滑重载排空 keep-alive 连接的瞬态 `socket hang up` 误杀发布；已加传输层单次重试（仅零字节被重置时、销毁受污染连接后重试一次；应用层失败永不重试）。本次全流程 3 次 nginx 重载均平稳通过。
+- **中断恢复记录**：attempt-3/4 失败后写闸按设计保持冻结（migrationStarted=true 不自动回滚），用 `logs/ungate-20261104.ps1` 手工卸闸恢复 401 正常鉴权后重跑；attempt-5 蓝绿失败后用 `logs/recover-20261104-attempt5.ps1` 恢复 conf（gate 剥离+BOM-less）+杀残留影子+校验。迁移/SQL 全程幂等，重跑安全（类型 `COUNT>0 continue`、快照只补缺失、SQL 均 IF NOT EXISTS/INSERT IGNORE/守卫式 DDL）。
+- **验收状态**：发布成功；登录态只读校验（含普通账号被拒配置管理）通过；连续性零失败。**业务负责人易用性验收（需求 A5 首次使用）仍待执行**，勿以开发者自动化替代。
