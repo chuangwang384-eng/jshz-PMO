@@ -2,8 +2,10 @@
   <div class="mini-flow">
     <div class="mini-flow__wrap" :title="tip">
       <svg
-        class="mini-flow__svg"
+        :width="width"
+        :height="height"
         viewBox="0 0 120 34"
+        class="mini-flow__svg"
         xmlns="http://www.w3.org/2000/svg"
       >
         <!-- 连线 -->
@@ -49,7 +51,9 @@ import { computed } from 'vue'
 
 const props = defineProps({
   phases: { type: Array, default: () => [] }, // [{phaseId, phaseName, active}]
-  label: { type: String, default: '' }
+  label: { type: String, default: '' },
+  width: { type: Number, default: 120 },
+  height: { type: Number, default: 34 }
 })
 
 const points = computed(() => {
@@ -81,19 +85,22 @@ const tip = computed(() => {
 
 <style scoped>
 .mini-flow {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  width: 100%;
 }
-.mini-flow__wrap { position: relative; width: 100%; }
+.mini-flow__wrap { position: relative; }
 .mini-flow__svg {
-  display: block; width: 100%; height: auto; border-radius: 4px; background: #fafbfc;
-  transition: box-shadow 0.18s ease;
+  display: block; border-radius: 4px; background: #fafbfc;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transform-origin: left top;
 }
 .mini-flow__wrap:hover .mini-flow__svg {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  transform: scale(1.85);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  z-index: 5;
+  border-radius: 6px;
 }
 .mini-flow__count {
   position: absolute;
@@ -105,11 +112,14 @@ const tip = computed(() => {
   border-radius: 7px;
   background: #409eff;
   color: #fff;
+  transition: transform 0.18s ease;
+  transform-origin: top right;
 }
+.mini-flow__wrap:hover .mini-flow__count { transform: scale(1.85); }
 .mini-flow__label {
   font-size: 11px;
   color: #909399;
-  max-width: 100%;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
