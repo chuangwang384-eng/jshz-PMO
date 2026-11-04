@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$true)][string]$ExpectedJarSha256,[Parameter(Mandatory=$true)][string]$ExpectedIndexSha256,[switch]$Apply)
 $ErrorActionPreference='Stop'
@@ -6,6 +6,7 @@ $root='D:\jshz-PMO'
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
 if(-not $stage.StartsWith($root+'\.build-dashboard-production-',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected dashboard stage directory'}
 $release='1.0.24-dashboard-20261104'
+if($Apply -and (Test-Path -LiteralPath (Join-Path $stage 'release-state.json'))){throw 'Release already attempted. Inspect release-state.json and final-state.json; do not repeat production switches.'}
 $jar=Join-Path $stage 'backend\target\expert-system.jar'
 $dist=Join-Path $stage 'frontend-dist'
 $rollback=Join-Path $stage 'previous-expert-system.jar'
@@ -38,7 +39,7 @@ try {
  if(-not $backup){throw 'Fresh backup absent'}
  & (Join-Path $PSScriptRoot 'backup.ps1') -Mode Verify -From $backup.FullName *> (Join-Path $stage 'backup-verify.log')
  $state.backup=$backup.FullName;Save-State
- $probe=Start-Process node.exe -ArgumentList @((Join-Path $stage 'continuity.mjs'),$stage) -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $stage 'probe.log') -RedirectStandardError (Join-Path $stage 'probe.err')
+ $probe=Start-Process node.exe -ArgumentList @((Join-Path $PSScriptRoot 'dashboard-release-probe.mjs'),$stage) -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $stage 'probe.log') -RedirectStandardError (Join-Path $stage 'probe.err')
  Start-Sleep -Seconds 3
  if($probe.HasExited){throw 'Continuity probe failed before release'}
  $state.phase='backend';Save-State
@@ -46,7 +47,7 @@ try {
  $state.phase='frontend';Save-State
  & (Join-Path $PSScriptRoot 'deploy-frontend-graceful.ps1') -StagedDist $dist -ReleaseId $release -Apply *> (Join-Path $stage 'frontend-release.log')
  $state.phase='verification';Save-State
- & node.exe (Join-Path $stage 'verify.mjs') $stage *> (Join-Path $stage 'production-verification.log')
+ & node.exe (Join-Path $PSScriptRoot 'dashboard-release-verify.mjs') $stage *> (Join-Path $stage 'production-verification.log')
  if($LASTEXITCODE -ne 0){throw 'Authenticated verification failed; preserve evidence and inspect release'}
  Start-Sleep -Seconds 5
  [IO.File]::WriteAllText((Join-Path $stage 'probe.stop'),'stop')

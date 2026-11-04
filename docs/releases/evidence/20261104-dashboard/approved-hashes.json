@@ -1,0 +1,7 @@
+{
+  "release": "1.0.24-dashboard-20261104",
+  "candidateJar": "7c1e724e72edd597b02e9c1873de2c249a48f45cb0f85b7212258d302fa4d5d2",
+  "candidateIndex": "c8e442437ce02bf6838dadcec191bb4506a1ed68486d42367a4ceb5111424480",
+  "rollbackJar": "8220dfe36b7ef9806120de3a290dadbd5cce007d3c8adc20319c5e4977894cfa",
+  "testedBusinessClassesIdentical": 242
+}

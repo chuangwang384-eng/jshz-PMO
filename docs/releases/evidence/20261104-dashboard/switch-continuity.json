@@ -1,0 +1,22 @@
+{
+  "start": "2026-11-04T07:44:02.363Z",
+  "pooled": {
+    "requests": 1102,
+    "failures": 0
+  },
+  "fresh": {
+    "requests": 1098,
+    "failures": 1
+  },
+  "errors": [
+    {
+      "at": "2026-11-04T07:44:32.037Z",
+      "key": "fresh",
+      "path": "/api/health",
+      "error": "read ECONNRESET"
+    }
+  ],
+  "retries": 0,
+  "updated": "2026-11-04T07:46:05.946Z",
+  "end": "2026-11-04T07:46:06.158Z"
+}
