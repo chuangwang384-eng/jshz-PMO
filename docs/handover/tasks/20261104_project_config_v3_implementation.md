@@ -28,7 +28,7 @@
 ## 3. 项目基线与交付状态
 
 - 工作分支：codex/fix-review-and-config-takeover；施工源基线：8c49755。
-- 实现提交：待本次施工提交后在此记录。
+- 实现提交：b189a7017d4cad46731a587955e9a95fb1554c9a（b189a70，含代码、测试和文档）；后续交接补充提交以git log核实。
 - 接手前已有 docs/deployment.md 的4条 R-1 历史追加，以及未跟踪 .bdv4b.txt / tv.txt，均保留。仅将本任务的 deployment 增量纳入交付，不混入上述历史改动。
 - 前端现有 Vue/Vite、后端 Java17/Spring Boot3.2.5；本次未增加运行依赖。未提前修改生产版本号。
 - 隔离 MySQL 26.7.0，13317 / pc_acceptance（最终 datadir=mysql-data-final，完全用仓库结构基线引导）；后端18087、前端5173，仅回环监听。运行的后端为本次隔离 Maven 打包的可执行 JAR，含72个 BOOT-INF/lib 依赖。

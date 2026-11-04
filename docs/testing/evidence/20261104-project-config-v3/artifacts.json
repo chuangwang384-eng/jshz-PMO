@@ -6,5 +6,6 @@
   "frontendBuild": "npm run build -- --outDir ../.build-project-config-acceptance/frontend-dist-final-reviewed",
   "productionJarSha256": "DDB6D4EB914747EEE322AD8465BA4EE6D0EC1F65A63ECC63AF6C2D58C1F0E301",
   "bootLibraries": 72,
-  "backendBytes": 60256455
+  "backendBytes": 60256455,
+  "sourceCommit": "b189a7017d4cad46731a587955e9a95fb1554c9a"
 }
