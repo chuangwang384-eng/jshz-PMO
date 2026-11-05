@@ -21,14 +21,22 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
+import { useAuthStore } from '../store/auth'
 import { getComplianceMode, enableComplianceV4 } from '../api/complianceV4'
 import KnowledgeDocList from '../components/KnowledgeDocList.vue'
 import ExecutionBoard from '../components/compliance/ExecutionBoard.vue'
 import ComplianceTemplateEditor from '../components/compliance/ComplianceTemplateEditor.vue'
 import LegacyCompliancePanel from '../components/compliance/LegacyCompliancePanel.vue'
+const auth = useAuthStore()
 const pageTab = ref('execution')
-const mode = ref('V3'), enabled = ref(false), switching = ref(false)
-async function loadMode() { const d = await getComplianceMode(); mode.value = d.mode; enabled.value = d.enabled }
+// 模式会话级缓存：刷新首帧用上次已知模式渲染页签，避免 V4 用户首帧闪现"原有待办"页签
+const cachedMode = (() => { try { return JSON.parse(sessionStorage.getItem(`compliance-mode:${auth.id}`) || 'null') } catch (e) { return null } })()
+const mode = ref(cachedMode?.mode || 'V3'), enabled = ref(cachedMode?.enabled ?? false), switching = ref(false)
+async function loadMode() {
+  const d = await getComplianceMode()
+  mode.value = d.mode; enabled.value = d.enabled
+  try { sessionStorage.setItem(`compliance-mode:${auth.id}`, JSON.stringify({ mode: mode.value, enabled: enabled.value })) } catch (e) {}
+}
 async function enable() {
   try { await ElMessageBox.confirm('确认启用新版？旧到期提醒停止；不会自动搬移或推断项目。', '启用新版执行清单') } catch { return }
   switching.value = true
