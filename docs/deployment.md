@@ -416,3 +416,6 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 2026-11-05最终状态：合规模板草稿已蓝绿上线，PUBLISHED_WITH_WARNING。Nginx平滑重载改为Task Scheduler原生COM，未放宽权限；登录态业务只读检查通过，但fresh连续性探针2次连接重置，严格不停机未通过。见[发布记录](releases/20261105-compliance-template-production.md)。
 
 2026-11-05可视化维护阶段三最终结果：核心链路真实MySQL和Edge验收通过，含员工新建后模板更新不改变原任务；生产四表尚不存在。发布评估为可进入业务复核和发布准备，本次不执行生产迁移/切流。详见releases/20261105-compliance-visual-release-assessment.md。
+
+## R-1 发布记录
+- 2026-11-05 12:04:57 R-1 发布 1.0.25-compliance-visual-20261105 成功（jar: expert-system.jar）
