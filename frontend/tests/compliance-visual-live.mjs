@@ -26,7 +26,7 @@ try {
  await page.locator('.editor main article strong').filter({hasText:'真实页面新增事项'}).waitFor()
  assert.equal(await page.getByRole('textbox',{name:'模板名称',exact:true}).inputValue(),'可视化真实验收')
  await page.getByRole('button',{name:'保存并生效',exact:true}).click()
- await page.getByRole('dialog',{name:'保存并生效'}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByRole('dialog',{name:'核对并生效'}).getByRole('button',{name:'确认并生效',exact:true}).click()
  await page.getByText('已生效，仅用于之后新建的清单',{exact:true}).waitFor()
 
  await page.getByRole('button',{name:'添加阶段',exact:true}).click()
@@ -49,9 +49,21 @@ try {
  await page.getByRole('button',{name:'从原文提取',exact:true}).click()
  const imported=page.getByRole('dialog',{name:'原文提取候选与差异合并',exact:true})
  await imported.locator('.el-card').first().waitFor({timeout:180000})
- await imported.locator('.el-card .el-select').first().click()
- await page.getByRole('option',{name:'新增事项',exact:true}).click()
- await imported.getByRole('button',{name:'合并所选候选',exact:true}).click()
+ const tableRow=imported.locator('.el-card').filter({hasText:'专家讲课费'}).filter({hasText:'PDF第2页'}).first()
+ await tableRow.waitFor()
+ assert.match(await tableRow.innerText(),/5000.*3000.*2000.*1000/s)
+ const originalResponse=page.context().waitForEvent('response',{predicate:r=>new URL(r.url()).pathname.startsWith('/api/knowledge/docs/files/') && r.url().includes('preview=true')})
+ const originalTab=page.context().waitForEvent('page')
+ await tableRow.getByRole('button',{name:'查看原件',exact:true}).click()
+ const original=await originalTab
+ const originalFile=await originalResponse
+ assert.equal(originalFile.status(),200)
+ assert.match(originalFile.headers()['content-type'],/application\/pdf/)
+ await original.waitForURL(url=>url.hash==='#page=2')
+ await original.close()
+ await tableRow.getByRole('button',{name:'确认新增',exact:true}).click()
+ await page.getByText('已新增并保存，请核对原文',{exact:true}).waitFor()
+ await imported.locator('.el-dialog__headerbtn').click()
  await imported.waitFor({state:'hidden'})
  await page.locator('.editor main article').first().click()
  await page.getByRole('button',{name:'确认已核对当前事项',exact:true}).click()
@@ -62,12 +74,48 @@ try {
   await page.getByText('已记录人工核对',{exact:true}).waitFor()
  }
  await page.getByRole('button',{name:'保存并生效',exact:true}).click()
- await page.getByRole('dialog',{name:'保存并生效'}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByRole('dialog',{name:'核对并生效'}).getByRole('button',{name:'确认并生效',exact:true}).click()
  await page.getByText('已生效，仅用于之后新建的清单',{exact:true}).waitFor()
 
 
  const endpoint=`http://localhost:5173/api/compliance/v4/documents/${sourceDocId}/template-workspace`
  const state=(await (await page.request.get(endpoint)).json()).data
+ const storedCitation=JSON.parse(state.content.nodes[0].sourceAnchor)
+ assert.match(storedCitation.anchor,/PDF第2页表格第\d+项/)
+ assert.match(state.content.nodes[0].title,/专家讲课费/)
+ assert.match(state.content.nodes[0].acceptance,/5000.*3000.*2000.*1000/s)
+ console.log('PASS: OCR table title/body, PDF original page and persisted citation')
+
+ await page.getByRole('tab',{name:'规范文档库',exact:true}).click()
+ const sourceRow=page.getByRole('row').filter({hasText:'候选合并真实验收'})
+ const fixtureRow=page.getByRole('row').filter({hasText:'隔离规范'})
+ for (const row of [sourceRow,fixtureRow]) {
+  await row.getByRole('button',{name:'收藏',exact:true}).click()
+  await row.getByRole('button',{name:'取消收藏',exact:true}).waitFor()
+ }
+ const onlyFavorites=page.getByRole('checkbox',{name:'仅看收藏'})
+ await page.getByText('仅看收藏',{exact:true}).click()
+ assert.equal(await onlyFavorites.isChecked(),true)
+ const list=async params=>{
+  const response=await page.request.get('http://localhost:5173/api/knowledge/docs',{params:{category:'enterprise-compliance',favoritesOnly:true,pageSize:1,...params}})
+  const payload=await response.json()
+  assert.equal(payload.code,0)
+  return payload.data
+ }
+ const favoritesFirst=await list({page:1})
+ const favoritesSecond=await list({page:2})
+ assert.equal(favoritesFirst.total,2);assert.equal(favoritesSecond.total,2)
+ assert.equal(favoritesFirst.items.length,1);assert.equal(favoritesSecond.items.length,1)
+ assert.notEqual(favoritesFirst.items[0].id,favoritesSecond.items[0].id)
+ const search=page.getByPlaceholder('按标题 / 内容关键字检索')
+ await page.locator('.format-filters').getByText('PDF',{exact:true}).click()
+ await search.fill('候选合并真实验收');await search.press('Enter')
+ await fixtureRow.waitFor({state:'hidden'})
+ await sourceRow.getByRole('button',{name:'取消收藏',exact:true}).click()
+ await sourceRow.waitFor({state:'hidden'})
+ assert.equal((await list({page:1,fileType:'pdf',keyword:'候选合并真实验收'})).total,0)
+ console.log('PASS: favorites across two database pages and Edge filter/unfavorite')
+
  const forged=JSON.parse(JSON.stringify(state.content));const forgedSource=JSON.parse(forged.nodes[0].sourceAnchor);forgedSource.excerpt='forged excerpt';forged.nodes[0].sourceAnchor=JSON.stringify(forgedSource)
  const denied=await page.request.put(endpoint,{data:{content:forged,expectedRowVersion:state.rowVersion}});assert.notEqual((await denied.json()).code,0)
  const duplicated=JSON.parse(JSON.stringify(state.content));duplicated.nodes.push({...duplicated.nodes[0]})
@@ -84,6 +132,9 @@ try {
  await employee.getByRole('button',{name:/登\s*录/}).click()
  await employee.getByRole('button',{name:'启用新版执行清单',exact:true}).click()
  await employee.getByRole('dialog',{name:'启用新版执行清单',exact:true}).getByRole('button',{name:'确定',exact:true}).click()
+ await employee.getByRole('button',{name:'创建执行清单',exact:true}).waitFor()
+ assert.equal(await employee.getByRole('tab',{name:'旧版只读历史',exact:true}).count(),0)
+ console.log('PASS: upgraded employee has no legacy history tab')
  await employee.getByRole('button',{name:'创建执行清单',exact:true}).click()
  const create=employee.getByRole('dialog',{name:'创建执行清单',exact:true})
  await create.locator('.el-select').click();await employee.getByRole('option',{name:'隔离项目',exact:true}).click()
@@ -105,6 +156,7 @@ try {
  await employee.reload();await employee.getByRole('button',{name:'创建执行清单',exact:true}).waitFor()
  await employeeContext.close()
 
+ await page.getByRole('tab',{name:'模板维护',exact:true}).click()
  assert.deepEqual(errors,[])
  await page.locator('.editor main article').first().click()
  await page.screenshot({path:'../.build-compliance-v4-acceptance/evidence/visual-editor-live.png',fullPage:true})

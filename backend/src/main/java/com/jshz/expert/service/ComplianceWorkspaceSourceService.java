@@ -33,14 +33,17 @@ public class ComplianceWorkspaceSourceService {
   String extractionId=UUID.randomUUID().toString();List<Map<String,Object>> candidates=new ArrayList<>();List<String> missing=new ArrayList<>();Set<String> seen=new HashSet<>();boolean truncated=false;
   for(var block:extracted.blocks()){
    if("PAGE".equals(block.kind())) missing.add(block.anchor());
-   for(String line:block.text().split("\\R")){
-    String text=line.trim();if(text.length()<8 || text.matches("^[\\d\\s.、，；;：:()（）-]+$"))continue;
+   for (String text : logicalItems(block)) {
+    if (text.length()<8 || text.matches("^[0-9\\s.、，；;：:()（）-]+$")) continue;
     if(candidates.size()>=200){truncated=true;break;}
-    if(text.length()>180){text=text.substring(0,180);truncated=true;}
+    if(text.length()>10000){text=text.substring(0,10000);truncated=true;}
     String candidateId=hash(Map.of("version",doc.getVersion(),"anchor",block.anchor(),"text",text));
     if(!seen.add(candidateId))continue;
-    Map<String,Object> source=Map.of("extractionId",extractionId,"candidateId",candidateId,"sourceVersion",doc.getVersion(),"anchor",block.anchor(),"excerpt",text,"needsReview",true);
-    candidates.add(Map.of("candidateId",candidateId,"title",text.length()>120?text.substring(0,120):text,"acceptance",text,"sourceAnchor",encode(source)));
+    var fields = itemFields(text, "TABLE_ROW".equals(block.kind()));
+    String title = fields.get(0);
+    String excerpt = text.length()>180 ? text.substring(0,180) : text;
+    Map<String,Object> source=Map.of("extractionId",extractionId,"candidateId",candidateId,"sourceVersion",doc.getVersion(),"anchor",block.anchor(),"excerpt",excerpt,"needsReview",true);
+    candidates.add(Map.of("candidateId",candidateId,"title",title.length()>120?title.substring(0,120):title,"acceptance",fields.get(1),"sourceAnchor",encode(source)));
    }
   }
   Map<String,Object> result=new LinkedHashMap<>();result.put("extractionId",extractionId);result.put("sourceVersion",doc.getVersion());result.put("candidates",candidates);result.put("incomplete",extracted.incomplete() || truncated);result.put("missingAnchors",missing);result.put("warning",Objects.toString(extracted.warning(),"")+(truncated?"；候选超过长度或数量限制，已截断，请人工补齐":""));
@@ -49,6 +52,48 @@ public class ComplianceWorkspaceSourceService {
    if(!Objects.equals(doc.getVersion(),documents.selectById(id).getVersion()))throw new BusinessException(409,"来源已更新，请重新提取");
    db.update("INSERT INTO compliance_template_extraction(id,document_id,source_version,result) VALUES(?,?,?,?)",extractionId,id,doc.getVersion(),encode(result));return result;
   });
+ }
+ private static final java.util.regex.Pattern ITEM_START = java.util.regex.Pattern.compile(
+         "^(?:[0-9０-９一二三四五六七八九十]+(?:[、)）]|[.．](?![0-9０-９]))|[（(][0-9０-９一二三四五六七八九十]+[)）]|[•●])\\s*");
+
+ private static List<String> logicalItems(KnowledgeDocTextExtractor.SourceBlock block) {
+  if ("TABLE_ROW".equals(block.kind()) || "PARAGRAPH".equals(block.kind())) return List.of(block.text().trim());
+  List<String> items = new ArrayList<>();
+  StringBuilder current = new StringBuilder();
+  for (String raw : block.text().split("\\R", -1)) {
+   String line = raw.trim();
+   boolean nextItem = ITEM_START.matcher(line).find();
+   boolean paragraphEnded = !current.isEmpty()
+           && !ITEM_START.matcher(current).find()
+           && "。！？；!?".indexOf(current.charAt(current.length() - 1)) >= 0;
+   if (line.isEmpty() || nextItem || paragraphEnded) {
+    if (!current.isEmpty()) items.add(current.toString());
+    current.setLength(0);
+   }
+   if (!line.isEmpty()) {
+    if (!current.isEmpty()) {
+     char previous = current.charAt(current.length()-1);
+     if (previous < 128 && line.charAt(0) < 128
+             && Character.isLetterOrDigit(previous) && Character.isLetterOrDigit(line.charAt(0))) current.append(' ');
+    }
+    current.append(line);
+   }
+  }
+  if (!current.isEmpty()) items.add(current.toString());
+  return items;
+ }
+
+ private static List<String> itemFields(String text, boolean table) {
+  if (table && text.contains(" | ")) {
+   List<String> cells = new ArrayList<>(Arrays.stream(text.split(" \\| ", -1)).map(String::trim).filter(v -> !v.isEmpty()).toList());
+   if (cells.size()>2 && cells.get(0).matches("[0-9０-９]+")) cells.remove(0);
+   if (cells.size()>1) return List.of(cells.get(0).replace('\n',' ').trim(), String.join("\n",cells.subList(1,cells.size())));
+  }
+  String body = ITEM_START.matcher(text).replaceFirst("");
+  int colon = Math.max(0, body.indexOf('：'));
+  if (colon==0) colon=body.indexOf(':');
+  if (colon>0 && colon<=40 && colon+1<body.length()) return List.of(body.substring(0,colon),body.substring(colon+1).trim());
+  return List.of(body,body);
  }
  public Map<String,Object> extraction(long id,String extractionId,AuthUser user){
   access.requireDraftAuthor(id,user);var rows=db.queryForList("SELECT source_version,result,confirmed_by FROM compliance_template_extraction WHERE id=? AND document_id=?",extractionId,id);

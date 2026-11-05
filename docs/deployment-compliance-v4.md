@@ -109,3 +109,11 @@ workspace新增GET legacy-candidates、POST select-existing与activate，后两�
 在/api/compliance/v4/documents/{id}/template-workspace下：POST extract提取当前原件，GET extractions/{extractionId}读取绑定版本结果；POST merge-candidates需要expectedRowVersion、requestId、extractionId、actions[{candidateId,targetCode可空}]；POST review-node需要expectedRowVersion和nodeCode，记录当前事项内容核对；POST confirm-extraction需要extractionId及confirmed:true，记录漏页人工补齐确认。权限均复用来源上传者/维护人；生效仍限维护人。旧来源版本409，无权来源拒绝；保存/生效校验重复ID、类型、长度、选项与真实来源候选。相同生效内容无操作返回，不生成重复历史。
 
 迁移扩展为四张工作区/请求/提取/核对表；只在独立MySQL验收，生产未执行。文件目录必须通过启动参数显式覆盖至沙箱，不能仅隔离数据库。2026-11-05脚本已修正并完成一次包含真实上传的重跑；早期一次测试文件落正式文件目录的情况已记入交接，不清理未知文件。复现用V4_VISUAL_EDITOR=true运行scripts/run-compliance-v4-e2e.ps1，证据及剩余边界见施工交接阶段三。
+
+## OCR 事项分组与规范文档库筛选
+
+本轮复用现有本机 Tesseract 和简中/英文模型，不增加环境变量、OCR 服务或数据库迁移。受支持的 PDF 表格按行生成候选，仍需对照原件核对数值、比较符号及漏提取位置。发布后在隔离环境检查原文提取、旧版页签移除、收藏与关键词组合筛选及取消收藏后的分页刷新。
+
+### 隔离验收复跑
+
+在仓库根目录设置 `$env:V4_VISUAL_EDITOR='true'`，执行 `./scripts/run-compliance-v4-e2e.ps1`。脚本启动本地隔离 MySQL、Spring、Vite 与真实 Edge，凭据在同一进程生成并传递。新增断言覆盖基金会 PDF 第 2 页打开及表格引用持久化、两页收藏列表响应、浏览器筛选和取消收藏、员工启用新版后的页签列表。

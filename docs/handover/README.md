@@ -1,5 +1,7 @@
 # 最新交接摘要
 
+- 2026-11-05 企业合规原文引用、收藏分页及旧版页签移除通过隔离 MySQL 和真实 Edge 验收。未部署，见 [施工交接](tasks/20261105_compliance_visual_editor_implementation.md)。
+
 - 2026-11-05 可视化维护阶段三核心技术验收通过，已补候选/差异合并、阶段管理、服务端来源核对；真实MySQL与Edge含员工快照保护通过，文件隔离脚本已修正。尚未发布，见[发布评估](../releases/20261105-compliance-visual-release-assessment.md)及[施工记录](tasks/20261105_compliance_visual_editor_implementation.md)。
 
 - 2026-11-05 可视化维护阶段二：存量选择、原子生效、阶段卡片/自动保存已接入，真实隔离MySQL和Edge通过，未部署；整体仍有文件候选合并、阶段管理和来源校验待完成。见[施工交接](tasks/20261105_compliance_visual_editor_implementation.md)。

@@ -1,16 +1,17 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # 20261105 compliance visual editor release executor (1.0.25-compliance-visual-20261105).
 # Sequence: backup -> continuity probe -> metadata guard (4 tables absent) -> additive migration
 # -> backend blue/green (COM graceful) -> frontend root switch -> authenticated read checks.
 # Rollback: previous-expert-system.jar + frontend rollback metadata; migration tables are
 # additive and retained on rollback (per release assessment section 5).
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$true)][string]$ExpectedJarSha256,[Parameter(Mandatory=$true)][string]$ExpectedIndexSha256,[switch]$Apply)
+param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$true)][string]$ExpectedJarSha256,[Parameter(Mandatory=$true)][string]$ExpectedIndexSha256,[switch]$Apply,[switch]$Hotfix,[ValidatePattern('^\d+\.\d+\.\d+$')][string]$HotfixVersion='1.0.26')
 $ErrorActionPreference='Stop'
 $root='D:\jshz-PMO'
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
 if(-not $stage.StartsWith($root+'\.build-compliance-visual-production-',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected stage directory'}
-$release='1.0.25-compliance-visual-20261105'
+$expectedVersion=if($Hotfix){$HotfixVersion}else{'1.0.25'}
+$release=if($Hotfix){"$HotfixVersion-compliance-visual-hotfix-20261105"}else{'1.0.25-compliance-visual-20261105'}
 $jar=Join-Path $stage 'backend\target\expert-system.jar'
 $dist=Join-Path $stage 'frontend-dist'
 $rollback=Join-Path $stage 'previous-expert-system.jar'
@@ -35,6 +36,7 @@ function Invoke-MetadataGuard{
 if(-not $Apply){
   & (Join-Path $PSScriptRoot 'deploy-backend.ps1') -JarPath $jar -RollbackJarPath $rollback -Version $release -GracefulSwitch -KeepVersions 1000 -DryRun
   & (Join-Path $PSScriptRoot 'deploy-frontend-graceful.ps1') -StagedDist $dist -ReleaseId $release
+  if($Hotfix){Write-Output 'Plan validated: backup, metadata verification, backend and frontend switch, smoke checks. No migration.';return}
   Write-Output ('Plan validated: backup; probe; metadata guard (4 tables must be absent); additive migration; verify tables empty; backend blue/green; frontend root switch; authenticated read checks; continuity evidence recorded strictly. No production writes.')
   return
 }
@@ -57,6 +59,12 @@ try {
  $probe=Start-Process node.exe -ArgumentList @((Join-Path $PSScriptRoot 'dashboard-release-probe.mjs'),$stage) -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $stage 'probe.log') -RedirectStandardError (Join-Path $stage 'probe.err')
  Start-Sleep -Seconds 3
  if($probe.HasExited){throw 'Continuity probe failed before release'}
+ if($Hotfix){
+   foreach($table in $newTables){
+     & $mysqlExe --no-defaults --host=127.0.0.1 --port=3306 --user=root --batch --raw -N -e "SELECT 1 FROM expert_system.$table LIMIT 1" | Out-Null
+     if($LASTEXITCODE -ne 0){throw ('Required table unavailable: '+$table)}
+   }
+ }else{
  $state.phase='migration';$state.migration=$true;Save-State
  Invoke-MetadataGuard
  Get-Content $migrationSql -Raw -Encoding UTF8 | & $mysqlExe --no-defaults --host=127.0.0.1 --port=3306 --user=root --default-character-set=utf8mb4 --batch --raw expert_system *> (Join-Path $stage 'migration.log')
@@ -65,6 +73,7 @@ try {
    $n=& $mysqlExe --no-defaults --host=127.0.0.1 --port=3306 --user=root --batch --raw -N -e "SELECT COUNT(*) FROM expert_system.$t"
    if($LASTEXITCODE -ne 0){throw ('Post-migration verification failed for '+$t)}
    Write-Output ('table '+$t+' rows='+$n)
+ }
  }
  $state.phase='backend';Save-State
  & (Join-Path $PSScriptRoot 'deploy-backend.ps1') -JarPath $jar -RollbackJarPath $rollback -Version $release -GracefulSwitch -KeepVersions 1000 *> (Join-Path $stage 'backend-release.log')
@@ -75,7 +84,7 @@ try {
  & node.exe (Join-Path $PSScriptRoot 'dashboard-release-verify.mjs') $stage *> (Join-Path $stage 'production-verification.log')
  if($LASTEXITCODE -ne 0){throw 'Authenticated verification failed; preserve evidence and inspect release'}
  $health=Invoke-WebRequest -Uri 'http://127.0.0.1:8080/health' -UseBasicParsing -TimeoutSec 10
- if($health.Content -notmatch '1\.0\.25'){throw 'Health endpoint does not report 1.0.25'}
+ if($health.Content -notmatch [regex]::Escape($expectedVersion)){throw "Health endpoint does not report $expectedVersion"}
  Start-Sleep -Seconds 5
  [IO.File]::WriteAllText((Join-Path $stage 'probe.stop'),'stop')
  $probe.WaitForExit(10000) | Out-Null
@@ -87,7 +96,7 @@ try {
  }
  $state.status='COMPLETE';$state.phase='verified';$state.completed=(Get-Date).ToString('o');Save-State
 } catch {
- $state.status='FAILED';$state.error=$_.Exception.Message;Save-State
+ if($state.status -ne 'DEPLOYED_CONTINUITY_FAILED'){$state.status='FAILED'};$state.error=$_.Exception.Message;Save-State
  if($probe -and -not $probe.HasExited){[IO.File]::WriteAllText((Join-Path $stage 'probe.stop'),'stop')}
  throw
 }

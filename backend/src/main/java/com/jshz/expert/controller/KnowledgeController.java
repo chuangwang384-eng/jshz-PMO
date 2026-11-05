@@ -93,8 +93,9 @@ public class KnowledgeController {
                                                            @RequestParam(required = false) String fileType,
                                                            @RequestParam(defaultValue = "1") long page,
                                                            @RequestParam(defaultValue = "20") long pageSize,
+                                                           @RequestParam(defaultValue = "false") boolean favoritesOnly,
                                                            @AuthenticationPrincipal AuthUser authUser) {
-        Page<KnowledgeDocument> p = documentService.pageList(category, keyword, fileType, page, pageSize, authUser);
+        Page<KnowledgeDocument> p = documentService.pageList(category, keyword, fileType, page, pageSize, authUser, favoritesOnly);
         return ApiResponse.ok(PageResult.of(p));
     }
 

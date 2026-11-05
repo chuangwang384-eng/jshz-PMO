@@ -65,12 +65,19 @@ public class ComplianceV4Service {
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private Long currentWorkspaceTemplate(Long documentId) {
-        if(workspaceDb.queryForObject("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='compliance_template_workspace'",Integer.class)==0) return null;
+        if(workspaceDb.queryForObject("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='compliance_template_workspace'",Integer.class)==0) return latestPublishedTemplate(documentId);
         var rows=workspaceDb.queryForList("SELECT active_template_version_id FROM compliance_template_workspace WHERE document_id=? AND selection_resolved=1",documentId);
-        if(rows.isEmpty()) return null;
+        if(rows.isEmpty()) return latestPublishedTemplate(documentId);
         Object id=rows.get(0).get("active_template_version_id");
         return id==null?-1L:((Number)id).longValue();
     }
+    private Long latestPublishedTemplate(Long documentId) {
+        var ids=workspaceDb.queryForList(
+                "SELECT id FROM compliance_template_version WHERE document_id=? AND state='PUBLISHED' ORDER BY revision DESC,id DESC LIMIT 1",
+                Long.class,documentId);
+        return ids.isEmpty()?-1L:ids.get(0);
+    }
+
     public static final List<String> NODE_TYPES = List.of("CHECK", "SINGLE", "MULTI", "TEXT");
     public static final List<String> PRIORITIES = List.of("HIGH", "MEDIUM", "LOW");
     public static final List<String> PROGRESS_STATES = List.of("UNPROCESSED", "PROCESSING", "COMPLETED");

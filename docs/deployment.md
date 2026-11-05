@@ -419,3 +419,9 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 
 ## R-1 发布记录
 - 2026-11-05 12:04:57 R-1 发布 1.0.25-compliance-visual-20261105 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-05 13:59:41 R-1 发布 1.0.26-compliance-visual-hotfix-20261105 成功（jar: expert-system.jar）
+
+## R-1 发布记录
+- 2026-11-05 14:24:55 R-1 发布 1.0.27-compliance-visual-hotfix-20261105 成功（jar: expert-system.jar）

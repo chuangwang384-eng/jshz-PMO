@@ -109,7 +109,17 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
      */
     public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
                                             long page, long pageSize, AuthUser user) {
+        return pageList(category, keyword, fileType, page, pageSize, user, false);
+    }
+
+    public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
+                                            long page, long pageSize, AuthUser user, boolean favoritesOnly) {
         LambdaQueryWrapper<KnowledgeDocument> wrapper = new LambdaQueryWrapper<>();
+        if (favoritesOnly) {
+            if (user == null) throw new BusinessException("未登录");
+            wrapper.apply("EXISTS (SELECT 1 FROM knowledge_favorite f WHERE f.doc_id = knowledge_document.id AND f.user_id = {0})",
+                    user.getUserId());
+        }
         if (StringUtils.hasText(category)) {
             if (!CATEGORIES.contains(category)) {
                 throw new BusinessException("分类不合法");

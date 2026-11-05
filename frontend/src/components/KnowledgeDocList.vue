@@ -23,6 +23,8 @@
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
+      <el-checkbox v-if="props.category === 'enterprise-compliance' && !isFavoritesMode"
+        v-model="favoritesOnly" @change="handleSearch">仅看收藏</el-checkbox>
       <!-- 需求 2：仅知识星球维护人（knowledge:maintain）显示上传入口 -->
       <el-button v-if="props.allowUpload && canManage && !isFavoritesMode" type="primary" @click="openUpload">上传文档</el-button>
     </div>
@@ -226,11 +228,13 @@ const route = useRoute()
 const isFavoritesMode = computed(() => props.mode === 'favorites' || route.query.favorites === '1')
 
 const keyword = ref('')
+const favoritesOnly = ref(false)
 const docs = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
+let listRequestId = 0
 
 // 格式筛选：''=全部；pdf/docx/doc/xlsx/pptx=等值；image=图片集合
 const fileTypeFilter = ref('')
@@ -302,6 +306,9 @@ async function toggleFavorite(row) {
       emit('favorite-changed', { docId: row.id, isFavorite: false })
       if (isFavoritesMode.value) {
         docs.value = docs.value.filter((d) => d.id !== row.id)
+      } else if (favoritesOnly.value) {
+        if (docs.value.length === 1 && page.value > 1) page.value--
+        await fetchList()
       }
     } else {
       await favoriteKnowledgeDoc(row.id)
@@ -326,11 +333,13 @@ const versionLoading = ref(false)
 const versions = ref([])
 
 async function fetchList() {
+  const requestId = ++listRequestId
   loading.value = true
   try {
     if (isFavoritesMode.value) {
       // 我的收藏：一次性拉取（含 doc 与 favoriteTime），客户端筛选
       const data = await listMyFavoriteDocs()
+      if (requestId !== listRequestId) return
       docs.value = (Array.isArray(data) ? data : []).map((item) => ({
         ...(item.doc || {}),
         favoriteTime: item.favoriteTime
@@ -340,15 +349,17 @@ async function fetchList() {
       const data = await listKnowledgeDocs({
         category: props.category || undefined,
         keyword: keyword.value || undefined,
+        favoritesOnly: favoritesOnly.value || undefined,
         fileType: fileTypeFilter.value || undefined,
         page: page.value,
         pageSize: pageSize.value
       })
+      if (requestId !== listRequestId) return
       docs.value = data?.items || []
       total.value = data?.total || 0
     }
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loading.value = false
   }
 }
 

@@ -91,9 +91,20 @@ public class KnowledgeDocTextExtractor {
                             PDFTextStripper stripper = new PDFTextStripper();
                             stripper.setStartPage(i); stripper.setEndPage(i);
                             String page = clean(stripper.getText(doc));
-                            if (page.length() < 20) {
-                                String ocr = ocrPage(new PDFRenderer(doc), i - 1);
-                                if (ocr.length() >= 20) page = ocr;
+                            if (page.length() < 20 || (page.contains("序号") && page.contains("标准"))) {
+                                var raster = new PDFRenderer(doc).renderImageWithDPI(i - 1, 250);
+                                var grid = ComplianceOcrTable.grid(raster);
+                                if (grid != null) {
+                                    var table = ComplianceOcrTable.blocks(grid, ocrPage(raster, true), "PDF第" + i + "页");
+                                    if (!table.isEmpty()) {
+                                        blocks.addAll(table);
+                                        continue;
+                                    }
+                                }
+                                if (page.length() < 20) {
+                                    String ocr = clean(ocrPage(raster, false));
+                                    if (ocr.length() >= 20) page = ocr;
+                                }
                             }
                             blocks.add(new SourceBlock("PDF第" + i + "页", page, page.length() < 20 ? "PAGE" : "PDF_PAGE"));
                         }
@@ -142,9 +153,9 @@ public class KnowledgeDocTextExtractor {
                 }
                 default -> { return new StructuredExtraction(List.of(), true, "该格式暂不支持结构化提取"); }
             }
-            long emptyPages = blocks.stream().filter(b -> "PAGE".equals(b.kind()) && b.text().length() < 20).count();
+            long emptyPages = blocks.stream().filter(b -> "PAGE".equals(b.kind())).count();
             boolean incomplete = blocks.isEmpty() || emptyPages > 0;
-            String warning = emptyPages > 0 ? "有 " + emptyPages + " 页未提取到有效文字，可能是扫描页或图片页，请人工核对原文件" : (blocks.isEmpty() ? "未提取到可确认内容" : null);
+            String warning = emptyPages > 0 ? "有 " + emptyPages + " 处扫描页或表格内容未完整提取，请人工核对原文件" : (blocks.isEmpty() ? "未提取到可确认内容" : null);
             return new StructuredExtraction(List.copyOf(blocks), incomplete, warning);
         } catch (Exception e) {
             return new StructuredExtraction(List.copyOf(blocks), true, "提取失败，请人工核对原文件");
@@ -152,11 +163,14 @@ public class KnowledgeDocTextExtractor {
     }
 
     private static String clean(String text) { return text == null ? "" : text.replaceAll("[ \\t]+", " ").trim(); }
-    private static String ocrPage(PDFRenderer renderer, int pageIndex) {
+    private static String ocrPage(java.awt.image.BufferedImage raster, boolean coordinates) {
         Path image = null;
+        Path output = null;
+        Process process = null;
         try {
             image = Files.createTempFile("knowledge-ocr-", ".png");
-            javax.imageio.ImageIO.write(renderer.renderImageWithDPI(pageIndex, 250), "png", image.toFile());
+            javax.imageio.ImageIO.write(raster, "png", image.toFile());
+            output = Files.createTempFile("knowledge-ocr-", ".txt");
             String command = System.getenv().getOrDefault("TESSERACT_CMD", "tesseract");
             Path installed = Path.of(System.getenv().getOrDefault("ProgramFiles", "C:\\Program Files"), "Tesseract-OCR", "tesseract.exe");
             if ("tesseract".equals(command) && Files.isRegularFile(installed)) command = installed.toString();
@@ -166,12 +180,22 @@ public class KnowledgeDocTextExtractor {
                     : Path.of(configuredData);
             Path systemData = Path.of(System.getenv().getOrDefault("ProgramFiles", "C:\\Program Files"), "Tesseract-OCR", "tessdata");
             Path data = Files.isRegularFile(localData.resolve("chi_sim.traineddata")) ? localData : systemData;
-            Process p = new ProcessBuilder(command, image.toString(), "stdout", "--tessdata-dir", data.toString(), "-l", "chi_sim+eng", "--psm", "6").redirectErrorStream(true).start();
-            if (!p.waitFor(45, TimeUnit.SECONDS)) { p.destroyForcibly(); return ""; }
-            String text = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            return p.exitValue() == 0 ? clean(text) : "";
+            var arguments = new ArrayList<>(List.of(command, image.toString(), "stdout",
+                    "--tessdata-dir", data.toString(), "-l", "chi_sim+eng", "--psm", coordinates ? "11" : "6"));
+            if (coordinates) arguments.addAll(List.of("-c", "tessedit_create_tsv=1"));
+            process = new ProcessBuilder(arguments).redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .redirectOutput(output.toFile()).start();
+            if (!process.waitFor(45, TimeUnit.SECONDS)) return "";
+            return process.exitValue() == 0 ? Files.readString(output) : "";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
         } catch (Exception e) { return ""; }
-        finally { if (image != null) try { Files.deleteIfExists(image); } catch (Exception ignored) {} }
+        finally {
+            if (process != null && process.isAlive()) process.destroyForcibly();
+            if (image != null) try { Files.deleteIfExists(image); } catch (Exception ignored) {}
+            if (output != null) try { Files.deleteIfExists(output); } catch (Exception ignored) {}
+        }
     }
     private static void add(List<SourceBlock> blocks, String anchor, String text, String kind) {
         String value = clean(text); if (!value.isBlank()) blocks.add(new SourceBlock(anchor, value, kind));

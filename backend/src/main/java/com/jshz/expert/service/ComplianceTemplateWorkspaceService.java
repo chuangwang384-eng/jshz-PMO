@@ -105,7 +105,7 @@ public class ComplianceTemplateWorkspaceService {
     @Transactional(rollbackFor=Exception.class,isolation=Isolation.READ_COMMITTED)
     public List<Map<String,Object>> candidates(long id,AuthUser user) {
         lock(id,user); maintainer(user);
-        return db.queryForList("SELECT id,title,state,revision,update_time AS updated_at FROM compliance_template_version WHERE document_id=? AND state IN ('DRAFT','PUBLISHED') ORDER BY id DESC",id);
+        return db.queryForList("SELECT v.id,v.title,v.state,v.revision,v.update_time AS updated_at, (SELECT COUNT(*) FROM compliance_template_node n WHERE n.version_id=v.id) AS node_count FROM compliance_template_version v WHERE v.document_id=? AND v.state IN ('DRAFT','PUBLISHED') ORDER BY id DESC",id);
     }
     @Transactional(rollbackFor=Exception.class,isolation=Isolation.READ_COMMITTED)
     public Map<String,Object> select(long id,Map<String,Object> body,AuthUser user) {
@@ -117,10 +117,17 @@ public class ComplianceTemplateWorkspaceService {
         var found=db.queryForList("SELECT state FROM compliance_template_version WHERE id=? AND document_id=? AND state IN ('DRAFT','PUBLISHED')",selected.longValue(),id);
         if(found.isEmpty()) throw new BusinessException(404,"所选模板不可用");
         Map<String,Object> content=templates.templateDetail(selected.longValue(),user);
-        Long active="PUBLISHED".equals(found.get(0).get("state"))?selected.longValue():null;
+        boolean selectedPublished = "PUBLISHED".equals(found.get(0).get("state"));
+        Long active = selectedPublished ? selected.longValue() : null;
+        if (!selectedPublished) {
+            var published = db.queryForList(
+                    "SELECT id FROM compliance_template_version WHERE document_id=? AND state='PUBLISHED' ORDER BY revision DESC,id DESC LIMIT 1",
+                    Long.class, id);
+            if (!published.isEmpty()) active = published.get(0);
+        }
         int n=db.update("UPDATE compliance_template_workspace SET content=?,active_template_version_id=?,selection_resolved=1,row_version=row_version+1,updated_by=? WHERE document_id=? AND row_version=? AND selection_resolved=0",encode(content),active,user.getUserId(),id,revision(body));
         if(n!=1) throw new BusinessException(409,"内容已变化，请刷新");
-        db.update("UPDATE compliance_template_workspace SET active_content_hash=? WHERE document_id=?",active==null?null:sources.hash(content),id);
+        db.update("UPDATE compliance_template_workspace SET active_content_hash=? WHERE document_id=?",selectedPublished?sources.hash(content):null,id);
         // Unselected immutable records remain readable by existing execution references.
         return record(id,body,open(id,user));
     }
@@ -133,15 +140,22 @@ public class ComplianceTemplateWorkspaceService {
         Map<String,Object> content=decode(encode(workspace.get("content")));
         String activationHash=sources.hash(content);
         validate(id,content,user,true);
-        if(content.get("extractionId")!=null){var extraction=sources.extraction(id,content.get("extractionId").toString(),user);if(Boolean.TRUE.equals(extraction.get("incomplete")) && !Boolean.TRUE.equals(extraction.get("confirmed")))throw new BusinessException("请人工确认漏提取页及截断内容已补齐");}
+        if(content.get("extractionId")!=null){var extraction=sources.extraction(id,content.get("extractionId").toString(),user);if(Boolean.TRUE.equals(extraction.get("incomplete")) && !Boolean.TRUE.equals(extraction.get("confirmed"))){
+            if(!Boolean.TRUE.equals(body.get("confirmIncomplete")))throw new BusinessException("请人工确认漏提取页及截断内容已补齐");
+            confirmExtraction(id,Map.of("extractionId",content.get("extractionId"),"confirmed",true),user);
+        }}
         if(Objects.toString(content.get("title"),"").isBlank()) throw new BusinessException("请填写模板名称");
         if(!(content.get("nodes") instanceof List<?> nodes) || nodes.isEmpty()) throw new BusinessException("请添加事项");
+        List<?> reviewedCodes=body.get("reviewedNodeCodes") instanceof List<?> codes ? codes : List.of();
         for(Object item:nodes) {
             if(!(item instanceof Map<?,?> node) || Objects.toString(node.get("title"),"").isBlank()) throw new BusinessException("请填写所有事项名称");
             String source=Objects.toString(node.get("sourceAnchor"),"");
             if(source.trim().startsWith("{")) {
-                Map<String,Object> citation=decode(source);
                 String hash=sources.reviewHash(decode(encode(node)));
+                if(reviewedCodes.contains(node.get("nodeCode"))) {
+                    db.update("INSERT INTO compliance_template_review(document_id,node_code,content_hash,reviewed_by) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE content_hash=VALUES(content_hash),reviewed_by=VALUES(reviewed_by),reviewed_at=CURRENT_TIMESTAMP",
+                            id,node.get("nodeCode"),hash,user.getUserId());
+                }
                 if(db.queryForObject("SELECT COUNT(*) FROM compliance_template_review WHERE document_id=? AND node_code=? AND content_hash=?",Integer.class,id,node.get("nodeCode"),hash)==0) throw new BusinessException("请逐项核对原文；修改事项后须重新核对");
             }
         }
@@ -194,7 +208,26 @@ public class ComplianceTemplateWorkspaceService {
             if(!target.isBlank()){node=nodes.stream().filter(n->target.equals(n.get("nodeCode"))).findFirst().orElseThrow(()->new BusinessException("替换目标不存在"));}
             else if(nodes.stream().anyMatch(n->candidateId.equals(n.get("sourceKey"))))continue;
             if(node==null){node=new LinkedHashMap<>(Map.of("nodeCode",UUID.randomUUID().toString(),"inputType","CHECK","required",0));nodes.add(node);}
-            node.put("title",candidate.get("title"));node.put("instruction",candidate.get("acceptance"));node.put("acceptance",candidate.get("acceptance"));node.put("sourceAnchor",candidate.get("sourceAnchor"));node.put("sourceKey",candidateId);
+            Object title = candidate.get("title");
+            Object instruction = candidate.get("acceptance");
+            if (action.containsKey("edits")) {
+                if (!target.isBlank() || !(action.get("edits") instanceof Map<?,?> edits)
+                        || !(edits.get("title") instanceof String editedTitle)
+                        || !(edits.get("instruction") instanceof String editedInstruction)) {
+                    throw new BusinessException("编辑内容仅可用于新增事项，请检查名称和操作要求");
+                }
+                title = editedTitle.trim();
+                instruction = editedInstruction.trim();
+                if (editedTitle.trim().isEmpty() || editedTitle.trim().length() > 200
+                        || editedInstruction.trim().length() > 10000) {
+                    throw new BusinessException("事项名称须为1～200字，操作要求最多10000字");
+                }
+            }
+            node.put("title", title);
+            node.put("instruction", instruction);
+            node.put("acceptance", instruction);
+            node.put("sourceAnchor", candidate.get("sourceAnchor"));
+            node.put("sourceKey", candidateId);
         }
         content.put("extractionId",extractionId);validate(id,content,user,false);
         db.update("UPDATE compliance_template_workspace SET content=?,row_version=row_version+1,updated_by=? WHERE document_id=?",encode(content),user.getUserId(),id);
