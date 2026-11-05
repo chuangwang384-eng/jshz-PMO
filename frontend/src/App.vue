@@ -49,7 +49,7 @@
 import GlobalModuleResults from './components/GlobalModuleResults.vue'
 import DashboardWorkList from './components/DashboardWorkList.vue'
 
-import { computed, onMounted, provide, ref } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from './store/auth'
@@ -66,6 +66,25 @@ const globalModule = computed(() => route.query.searchMode === 'global' ? ({
  '/experts':'expert','/project':'project','/supplier':'supplier','/knowledge-planet/customer-info':'customer','/knowledge-planet/meeting-execution':'knowledge','/profile/announcements':'announcement'
 })[route.path] || null : null)
 const auth = useAuthStore()
+
+// 登录后空闲时预热工作台懒加载 chunk（vue-router-prefetch/Nuxt 同思路：resolve 后调用懒加载函数，
+// Vite 按 module id 去重，与路由表共用同一 chunk；仅预热网络缓存，不挂载组件、不发业务请求）
+let dashboardPrefetched = false
+function prefetchDashboardChunk() {
+  if (dashboardPrefetched || !auth.isLoggedIn) return
+  dashboardPrefetched = true
+  const warm = () => {
+    try {
+      router.resolve({ path: '/dashboard' }).matched.forEach((record) => {
+        const component = record.components?.default
+        if (typeof component === 'function') Promise.resolve(component()).catch(() => {})
+      })
+    } catch (e) { /* 预热失败静默忽略，不影响正常导航 */ }
+  }
+  if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 3000 })
+  else setTimeout(warm, 1500)
+}
+watch(() => auth.isLoggedIn, prefetchDashboardChunk, { immediate: true })
 
 // 侧边菜单实例：供 SideMenuItem 展开/收起子菜单（点标题跳父路由、点箭头展开）
 const sideMenuRef = ref(null)
