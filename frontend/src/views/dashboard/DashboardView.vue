@@ -5,8 +5,8 @@
     <nav class="quick-links" aria-label="快捷入口"><router-link v-for="entry in visibleEntries" :key="entry[1]" :to="entry[1]">{{ entry[0] }} <span>↗</span></router-link></nav>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
     <section class="summary-grid" aria-label="待处理与到期风险">
-      <button v-if="section.myApprovals" class="summary" @click="go({ path:'/profile/approval/manage', query:{ actionable:'1' } })"><span>待我审批</span><strong>{{ count('myApprovals','total') }}</strong><small>当前可由我处理</small></button>
-      <button v-if="section.myApplications" class="summary" @click="go({ path:'/profile/my-approvals', query:{ status:'4' } })"><span>退回待修改</span><strong>{{ count('myApplications','returnedCount') }}</strong><small>需要我补充或重新提交</small></button>
+      <button v-if="(loading && auth.hasPermission('approval:audit')) || section.myApprovals" class="summary" @click="go({ path:'/profile/approval/manage', query:{ actionable:'1' } })"><span>待我审批</span><strong>{{ count('myApprovals','total') }}</strong><small>当前可由我处理</small></button>
+      <button v-if="loading || section.myApplications" class="summary" @click="go({ path:'/profile/my-approvals', query:{ status:'4' } })"><span>退回待修改</span><strong>{{ count('myApplications','returnedCount') }}</strong><small>需要我补充或重新提交</small></button>
       <button v-if="loading || section.projectRisk" class="summary danger" @click="scrollProjects"><span>已逾期项目</span><strong>{{ count('projectRisk','overdueCount') }}</strong><small>按项目结束日期计算</small></button>
       <button v-if="loading || section.projectRisk" class="summary caution" @click="scrollProjects"><span>今天到期 / 七天内到期</span><strong>{{ count('projectRisk','dueTodayCount') }} <i>/</i> {{ count('projectRisk','dueSoonCount') }}</strong><small>今天到期不计入逾期</small></button>
     </section>
@@ -26,7 +26,9 @@ import { useAuthStore } from '../../store/auth'
 import { overview } from '../../api/dashboard'
 import { sectionRequests, safeTarget, warningNames } from '../../utils/dashboard'
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
-const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),capabilities=ref([]),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),seq=sectionRequests()
+const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),seq=sectionRequests()
+// capabilities 会话级缓存：首帧立即渲染快捷入口，避免 overview 返回前整条消失再弹入
+const capabilities=ref((()=>{try{return JSON.parse(sessionStorage.getItem(`dashboard-capabilities:${auth.id}`)||'[]')}catch(e){return []}})())
 const greeting=new Date().getHours()<12?'早上好':new Date().getHours()<18?'下午好':'晚上好'
 const titles={myApprovals:'待我审批',myApplications:'我发起的申请',returned:'退回待修改',favorites:'我的收藏',announcements:'最新公告',notifications:'未读消息'}
 const statuses={0:'等待审批',1:'已通过',2:'已驳回',3:'已撤回',4:'退回修改'}
@@ -36,7 +38,15 @@ const entries=[['知识星球','/knowledge-planet/meeting-execution'],['项目�
 const entryModules=['knowledge','project','expert','customer','supplier','myApplications','announcement','directory']
 const visibleEntries=computed(()=>entries.filter((_,i)=>capabilities.value.includes(entryModules[i])))
 const allTargets={favorites:{path:'/knowledge-planet/meeting-execution',query:{favorites:'1'}},announcements:{path:'/profile/announcements'},notifications:{path:'/profile/notifications'}}
-const pendingKeys=computed(()=>[...(section.value.myApprovals?['myApprovals']:[]),...(section.value.myApplications?['returned','myApplications']:[])])
+// 首帧骨架：加载中且对应数据未返回时，预先渲染面板容器，避免内容逐块弹入造成布局跳变
+const pendingKeys=computed(()=>{
+  const keys=[...(section.value.myApprovals?['myApprovals']:[]),...(section.value.myApplications?['returned','myApplications']:[])]
+  if(loading.value){
+    if(!section.value.myApprovals && auth.hasPermission('approval:audit'))keys.unshift('myApprovals')
+    if(!section.value.myApplications)keys.push('returned','myApplications')
+  }
+  return [...new Set(keys)]
+})
 const data=key=>section.value[key]?.data || {}
 const count=(key,field)=>section.value[key]?.status==='error'?'暂不可用':data(key)[field] ?? '—'
 const pendingItems=key=>key==='returned'?data('myApplications').returnedItems || []:key==='myApplications'?data(key).latestItems || []:data(key).items || []
@@ -58,7 +68,7 @@ async function refresh(keys) {
    else delete next[key]
   }
   section.value=next
-  if(id>=capabilityVersion){capabilities.value=response.capabilities || [];capabilityVersion=id;businessDate.value=response.businessDate;updatedAt.value=new Date(response.generatedAt).toLocaleTimeString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'})}
+  if(id>=capabilityVersion){capabilities.value=response.capabilities || [];capabilityVersion=id;businessDate.value=response.businessDate;updatedAt.value=new Date(response.generatedAt).toLocaleTimeString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});try{sessionStorage.setItem(`dashboard-capabilities:${auth.id}`,JSON.stringify(capabilities.value))}catch(e){}}
  } catch(e) {
   if(alive && e.code!=='ERR_CANCELED') {
    pageError.value=true
