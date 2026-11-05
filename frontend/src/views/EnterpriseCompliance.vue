@@ -13,7 +13,7 @@
       <el-tab-pane label="规范文档库" name="docs">
         <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="true" />
       </el-tab-pane>
-      <el-tab-pane label="模板维护" name="maintenance"><ComplianceTemplateEditor v-if="enabled" /></el-tab-pane>
+      <el-tab-pane v-if="auth.hasPermission('knowledge:maintain')" label="模板维护" name="maintenance"><ComplianceTemplateEditor v-if="enabled" /></el-tab-pane>
       <el-tab-pane v-if="mode === 'V3'" label="原有待办" name="legacy"><LegacyCompliancePanel /></el-tab-pane>
     </el-tabs>
   </div>
@@ -29,6 +29,9 @@ import ComplianceTemplateEditor from '../components/compliance/ComplianceTemplat
 import LegacyCompliancePanel from '../components/compliance/LegacyCompliancePanel.vue'
 const auth = useAuthStore()
 const pageTab = ref('execution')
+// 模板维护页签与后端同权限码（knowledge:maintain，知识星球维护人角色持有）；
+// 无权限时页签隐藏，若当前停留在维护页签则回退到"我的执行"
+if (!auth.hasPermission('knowledge:maintain') && pageTab.value === 'maintenance') pageTab.value = 'execution'
 // 模式会话级缓存：刷新首帧用上次已知模式渲染页签，避免 V4 用户首帧闪现"原有待办"页签
 const cachedMode = (() => { try { return JSON.parse(sessionStorage.getItem(`compliance-mode:${auth.id}`) || 'null') } catch (e) { return null } })()
 const mode = ref(cachedMode?.mode || 'V3'), enabled = ref(cachedMode?.enabled ?? false), switching = ref(false)
