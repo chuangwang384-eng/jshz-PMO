@@ -19,7 +19,7 @@ try {
   }
   # Both additive migrations are deliberately executed twice to validate re-runs.
   foreach ($round in 1..2) {
-    foreach ($name in @('20261103_add_compliance_v4_tables.sql','20261103_compliance_v4_user_mode.sql')) {
+    foreach ($name in @('20261105_compliance_template_workspace.sql','20261104_project_config_snapshots.sql','20261103_add_compliance_v4_tables.sql','20261103_compliance_v4_user_mode.sql')) {
       Get-Content -LiteralPath (Join-Path $repoRoot "database/migration/$name") -Raw -Encoding UTF8 | & $MysqlExe @dbArgs | Out-Null
       if ($LASTEXITCODE -ne 0) { throw "Migration failed: $name" }
     }

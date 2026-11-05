@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 if (process.env.LIVE_V4_ACCEPTANCE !== 'acceptance_v4' || !process.env.V4_TEST_PASSWORD) throw new Error('Opt-in isolated fixture credentials required')
 const base = 'http://localhost:5173'
@@ -70,6 +70,59 @@ try {
   const reviewer = await browser.newContext()
   await ok(reviewer.request, '/auth/login', 'POST', { username: '验收维护人', password: process.env.V4_TEST_PASSWORD })
   await ok(reviewer.request, `/compliance/v4/templates/${templateId}/publish`, 'POST')
+
+  console.log('Live: real PDF upload, OCR/extraction draft and source citation confirmation')
+  const samplePath = process.env.V4_SAMPLE_PDF
+  assert.ok(samplePath, 'Real PDF fixture path required')
+  const sampleBytes = await readFile(samplePath)
+  const uploadResponse = await reviewer.request.post(`${base}/api/knowledge/docs?category=enterprise-compliance&title=${encodeURIComponent('真实文件解析验收规范')}`, {
+    multipart: { file: { name: '北京融和医学发展基金会合规要求.pdf', mimeType: 'application/pdf', buffer: sampleBytes } }
+  })
+  const uploaded = await uploadResponse.json()
+  assert.equal(uploadResponse.status(), 200)
+  assert.equal(uploaded.code, 0, `Upload failed: ${uploaded.message}`)
+  const sourceDocId = uploaded.data.id
+  assert.ok(sourceDocId)
+  const reviewerPage = await reviewer.newPage()
+  reviewerPage.setDefaultTimeout(20000)
+  await reviewerPage.goto(base + '/login?redirect=/knowledge-planet/enterprise-compliance', { waitUntil: 'domcontentloaded' })
+  await reviewerPage.locator('input[autocomplete="username"]').fill('验收维护人')
+  await reviewerPage.getByPlaceholder('密码', { exact: true }).fill(process.env.V4_TEST_PASSWORD)
+  await Promise.all([
+    reviewerPage.waitForResponse(r => r.url().endsWith('/api/auth/login') && r.request().method() === 'POST'),
+    reviewerPage.getByRole('button', { name: /登\s*录/ }).click()
+  ])
+  await reviewerPage.getByRole('tab', { name: '模板维护', exact: true }).click()
+  const sourceSelect = reviewerPage.getByRole('combobox', { name: '模板来源文档' })
+  await sourceSelect.click()
+  await reviewerPage.getByRole('option', { name: '真实文件解析验收规范', exact: true }).click()
+  await reviewerPage.getByRole('button', { name: '上传规范生成待确认草稿', exact: true }).click()
+  const citation = reviewerPage.locator('.source-citation').first()
+  await citation.waitFor({ state: 'visible', timeout: 60000 })
+  const citationText = await citation.innerText()
+  assert.match(citationText, /第\s*\d+\s*页|页\s*\d+/)
+  assert.match(citationText, /系统候选内容，请对照原件确认后再发布/)
+  const generatedDraftId = await reviewerPage.getByLabel('草稿版本编号').inputValue()
+  assert.ok(/^\d+$/.test(generatedDraftId))
+  const generatedNodes = await ok(reviewer.request, `/compliance/v4/documents/${sourceDocId}/drafts`)
+  assert.equal(generatedNodes.length, 1)
+  assert.ok(generatedNodes[0].id)
+  await reviewerPage.getByRole('button', { name: '上传规范生成待确认草稿', exact: true }).click()
+  await citation.waitFor({ state: 'visible', timeout: 60000 })
+  const repeatedDrafts = await ok(reviewer.request, `/compliance/v4/documents/${sourceDocId}/drafts`)
+  assert.equal(repeatedDrafts.length, 1, 'Repeated generation must reuse the same draft')
+  assert.equal(String(repeatedDrafts[0].id), generatedDraftId)
+  const concurrent = await Promise.all([1, 2].map(() => ok(reviewer.request, `/compliance/v4/documents/${sourceDocId}/templates/generate-draft`, 'POST')))
+  assert.ok(concurrent.every(d => String(d.id) === generatedDraftId), 'Concurrent generation must reuse the committed draft')
+  assert.equal((await ok(reviewer.request, `/compliance/v4/documents/${sourceDocId}/drafts`)).length, 1)
+  const generatedDetail = await ok(reviewer.request, `/compliance/v4/templates/${generatedDraftId}`)
+  assert.ok(generatedDetail.nodes.length > 0)
+  for (const node of generatedDetail.nodes) {
+    const source = JSON.parse(node.sourceAnchor)
+    assert.ok(source.anchor && source.excerpt, 'Each generated node must cite its source location and excerpt')
+  }
+  await reviewerPage.close()
+
   const intruder = await browser.newContext()
   await ok(intruder.request, '/auth/login', 'POST', { username: '验收员工乙', password: process.env.V4_TEST_PASSWORD })
 

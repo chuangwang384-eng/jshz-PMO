@@ -38,12 +38,17 @@ class ComplianceV4AcceptanceIT {
             r.add("expert."+key, () -> Path.of(System.getProperty("java.io.tmpdir"), "jshz-v4-acceptance", key).toString());
     }
     @Autowired JdbcTemplate db;
+    @Autowired ComplianceTemplateWorkspaceService workspace;
+    @Autowired ComplianceWorkspaceSourceService workspaceSources;
+    @Autowired KnowledgeDocStorageService workspaceStorage;
     @Autowired ComplianceV4Service v4;
     @Autowired ComplianceService old;
     @Autowired ComplianceRolloutService rollout;
     @Autowired ComplianceLegacyService legacy;
     @Autowired ComplianceV4ReminderService delivery;
     @Autowired ComplianceDueScheduler v3scheduler;
+    @Autowired ProjectConfigurationService projectConfiguration;
+    @Autowired ProjectService projects;
     @Autowired PermissionService permissions;
     @Autowired PasswordEncoder encoder;
     @Autowired org.springframework.transaction.PlatformTransactionManager manager;
@@ -54,7 +59,7 @@ class ComplianceV4AcceptanceIT {
     @BeforeEach void seed() {
         assertEquals("acceptance_v4", db.queryForObject("SELECT DATABASE()",String.class));
         reset(notifications); permissions.clearCaches();
-        for (String t : List.of("notification", "compliance_execution_reminder", "compliance_execution_event", "compliance_execution_task", "compliance_execution", "compliance_template_option", "compliance_template_node", "compliance_template_version", "compliance_user_mode", "compliance_reminder_log", "compliance_user_progress", "compliance_item_assignee", "compliance_item", "knowledge_favorite", "knowledge_doc_version", "knowledge_document", "project_executor", "project", "user_role", "role_permission", "role", "permission", "sys_user")) db.update("DELETE FROM "+t);
+        for (String t : List.of("compliance_template_review", "compliance_template_extraction", "compliance_template_workspace_request", "compliance_template_workspace", "notification", "compliance_execution_reminder", "compliance_execution_event", "compliance_execution_task", "compliance_execution", "compliance_template_option", "compliance_template_node", "compliance_template_version", "compliance_user_mode", "compliance_reminder_log", "compliance_user_progress", "compliance_item_assignee", "compliance_item", "knowledge_favorite", "knowledge_doc_version", "knowledge_document", "project_executor", "project_config_snapshot", "project", "project_phase", "user_role", "role_permission", "role", "permission", "sys_user")) db.update("DELETE FROM "+t);
         String pass = encoder.encode(System.getenv("V4_TEST_PASSWORD"));
         for (int i=1;i<=3;i++) db.update("INSERT INTO sys_user(id,username,password,is_admin,must_change_password,status) VALUES(?,?,?,0,0,1)", i, i==1?"验收维护人":i==2?"验收员工甲":"验收员工乙",pass);
         db.update("INSERT INTO role(id,code,name) VALUES(1,'FIXTURE','fixture')");
@@ -62,7 +67,11 @@ class ComplianceV4AcceptanceIT {
         db.update("INSERT INTO role_permission(role_id,permission_code) VALUES(1,'knowledge:maintain')");
         db.update("INSERT INTO user_role(user_id,role_id) VALUES(1,1)");
         db.update("INSERT INTO knowledge_document(id,category,title,upload_by,status,content) VALUES(1,'enterprise-compliance','隔离规范','验收员工甲',1,'隔离示例条款')");
+        db.update("INSERT INTO project_phase(id,name,sort,is_active) VALUES(1,'验收阶段',1,1)");
         db.update("INSERT INTO project(id,name,category,creator_id,owner_id,phase_id,status) VALUES(1,'隔离项目','ONLINE',2,2,1,'ACTIVE')");
+        Map<String,Object> phase = Map.of("phaseId",1,"name","验收阶段","position",1,"mode","NONE","requirements",List.of());
+        Map<String,Object> snapshot = Map.of("schemaVersion",1,"name","验收类型","phases",List.of(phase));
+        db.update("INSERT INTO project_config_snapshot(project_id,schema_version,effective_config,config_hash,origin) VALUES(1,1,?,?,'CREATED')", projectConfiguration.encode(snapshot), projectConfiguration.configHash(snapshot));
         db.update("INSERT INTO compliance_item(id,item_code,document_id,title,is_draft,due_date) VALUES(1,'FIXTURE-1',1,'历史事项',0,CURRENT_DATE)");
         db.update("INSERT INTO knowledge_favorite(user_id,doc_id) VALUES(2,1)");
         db.update("INSERT INTO compliance_user_progress(user_id,item_id,progress_status,remark) VALUES(2,1,'COMPLETED','历史私人备注')");
@@ -78,6 +87,73 @@ class ComplianceV4AcceptanceIT {
     }
     long task(long execution) { return db.queryForObject("SELECT id FROM compliance_execution_task WHERE execution_id=?",Long.class,execution); }
     int n(String t) { return db.queryForObject("SELECT COUNT(*) FROM "+t,Integer.class); }
+    @Test void workspaceSelectionActivationAndExecutionIsolation() {
+        db.update("DELETE FROM compliance_template_workspace_request");
+        db.update("DELETE FROM compliance_template_workspace");
+        long original=template();
+        long execution=execution(original,"workspace-original");
+        String before=db.queryForObject("SELECT CAST(snapshot AS CHAR) FROM compliance_execution_task WHERE execution_id=?",String.class,execution);
+        long second=template();
+        var initial=workspace.open(1L,reviewer());
+        assertEquals(false,initial.get("selectionResolved"));
+        var selected=workspace.select(1L,Map.of("selectedId",original,"expectedRowVersion",initial.get("rowVersion"),"requestId",UUID.randomUUID().toString()),reviewer());
+        assertEquals(original,((Number)selected.get("activeTemplateVersionId")).longValue());
+        Map<String,Object> content=new LinkedHashMap<>(Map.of("title","更新后的模板","nodes",List.of(Map.of("nodeCode","new-item","title","新增事项","inputType","CHECK"))));
+        var saved=workspace.save(1L,Map.of("content",content,"expectedRowVersion",selected.get("rowVersion")),reviewer());
+        assertThrows(BusinessException.class,()->workspace.save(1L,Map.of("content",content,"expectedRowVersion",selected.get("rowVersion")),reviewer()));
+        var activation=Map.<String,Object>of("expectedRowVersion",saved.get("rowVersion"),"requestId",UUID.randomUUID().toString());
+        var active=workspace.activate(1L,activation,reviewer());
+        assertEquals(((Number)active.get("activeTemplateVersionId")).longValue(),((Number)workspace.activate(1L,activation,reviewer()).get("activeTemplateVersionId")).longValue());
+        assertEquals(1,v4.listPublishedTemplates(1L,owner()).size());
+        assertEquals(before,db.queryForObject("SELECT CAST(snapshot AS CHAR) FROM compliance_execution_task WHERE execution_id=?",String.class,execution));
+        assertThrows(BusinessException.class,()->workspace.activate(1L,Map.of("expectedRowVersion",active.get("rowVersion"),"requestId",UUID.randomUUID().toString()),owner()));
+    }    @Test @SuppressWarnings("unchecked") void workspaceSourceMergeReviewAndStaleVersion() throws Exception {
+        Path file=workspaceStorage.resolveDocument("workspace-source.pdf"); Files.createDirectories(file.getParent());
+        try(var pdf=new org.apache.pdfbox.pdmodel.PDDocument()) {
+            var page=new org.apache.pdfbox.pdmodel.PDPage();pdf.addPage(page);
+            try(var stream=new org.apache.pdfbox.pdmodel.PDPageContentStream(pdf,page)) {
+                stream.beginText();stream.setFont(org.apache.pdfbox.pdmodel.font.PDType1Font.HELVETICA,12);stream.newLineAtOffset(40,700);stream.showText("Submit compliance materials before the meeting date.");stream.endText();
+            } pdf.save(file.toFile());
+        }
+        db.update("UPDATE knowledge_document SET file_path='workspace-source.pdf',file_name='workspace-source.pdf',version=1 WHERE id=1");
+        var extraction=workspaceSources.extract(1L,reviewer());
+        var candidates=(List<Map<String,Object>>)extraction.get("candidates");assertFalse(candidates.isEmpty());
+        var opened=workspace.open(1L,reviewer());
+        var saved=workspace.save(1L,Map.of("expectedRowVersion",opened.get("rowVersion"),"content",Map.of("title","来源校验模板","nodes",List.of())),reviewer());
+        var mergeBody=Map.<String,Object>of("expectedRowVersion",saved.get("rowVersion"),"requestId",UUID.randomUUID().toString(),"extractionId",extraction.get("extractionId"),"actions",List.of(Map.of("candidateId",candidates.get(0).get("candidateId"))));
+        var merged=workspace.merge(1L,mergeBody,reviewer());
+        var content=(Map<String,Object>)merged.get("content");var nodes=(List<Map<String,Object>>)content.get("nodes");assertEquals(1,nodes.size());
+        assertThrows(BusinessException.class,()->workspace.activate(1L,Map.of("expectedRowVersion",merged.get("rowVersion"),"requestId",UUID.randomUUID().toString()),reviewer()));
+        var reviewed=workspace.review(1L,Map.of("expectedRowVersion",merged.get("rowVersion"),"nodeCode",nodes.get(0).get("nodeCode")),reviewer());
+        var active=workspace.activate(1L,Map.of("expectedRowVersion",reviewed.get("rowVersion"),"requestId",UUID.randomUUID().toString()),reviewer());assertNotNull(active.get("activeTemplateVersionId"));
+        var edited=(Map<String,Object>)active.get("content");var editedNodes=(List<Map<String,Object>>)edited.get("nodes");editedNodes.get(0).put("title","修改后的要求");
+        var changed=workspace.save(1L,Map.of("content",edited,"expectedRowVersion",active.get("rowVersion")),reviewer());
+        assertThrows(BusinessException.class,()->workspace.activate(1L,Map.of("expectedRowVersion",changed.get("rowVersion"),"requestId",UUID.randomUUID().toString()),reviewer()));
+        var source=workspaceSources.decode(editedNodes.get(0).get("sourceAnchor").toString());source.put("excerpt","forged excerpt");editedNodes.get(0).put("sourceAnchor",workspaceSources.encode(source));
+        assertThrows(BusinessException.class,()->workspace.save(1L,Map.of("content",edited,"expectedRowVersion",changed.get("rowVersion")),reviewer()));
+        db.update("UPDATE knowledge_document SET version=2 WHERE id=1");
+        assertThrows(BusinessException.class,()->workspaceSources.extraction(1L,extraction.get("extractionId").toString(),reviewer()));
+        assertThrows(BusinessException.class,()->workspaceSources.extract(1L,other()));
+        Files.deleteIfExists(file);
+    }
+    @Test void workspaceIncompleteExtractionRequiresConfirmation() throws Exception {
+        Path file=workspaceStorage.resolveDocument("workspace-unsupported.txt");Files.createDirectories(file.getParent());Files.writeString(file,"Manual source verification fixture");
+        db.update("UPDATE knowledge_document SET file_path='workspace-unsupported.txt',file_name='workspace-unsupported.txt',version=1 WHERE id=1");
+        var extraction=workspaceSources.extract(1L,reviewer());assertEquals(true,extraction.get("incomplete"));
+        var opened=workspace.open(1L,reviewer());
+        var saved=workspace.save(1L,Map.of("content",Map.of("title","人工补齐模板","nodes",List.of(Map.of("nodeCode","manual-1","title","人工补充事项","inputType","CHECK"))),"expectedRowVersion",opened.get("rowVersion")),reviewer());
+        var merged=workspace.merge(1L,Map.of("expectedRowVersion",saved.get("rowVersion"),"extractionId",extraction.get("extractionId"),"actions",List.of(),"requestId",UUID.randomUUID().toString()),reviewer());
+        assertThrows(BusinessException.class,()->workspace.activate(1L,Map.of("expectedRowVersion",merged.get("rowVersion"),"requestId",UUID.randomUUID().toString()),reviewer()));
+        workspace.confirmExtraction(1L,Map.of("extractionId",extraction.get("extractionId"),"confirmed",true),reviewer());
+        assertNotNull(workspace.activate(1L,Map.of("expectedRowVersion",merged.get("rowVersion"),"requestId",UUID.randomUUID().toString()),reviewer()).get("activeTemplateVersionId"));
+        Files.deleteIfExists(file);
+    }
+    @Test void browserFixture() {
+        assertEquals(3, n("sys_user"));
+        assertEquals(1, n("project"));
+        assertEquals("隔离项目", db.queryForObject("SELECT name FROM project WHERE id=1",String.class));
+        assertEquals(1, projects.pageProjects(null,null,null,null,null,null,null,null,null,1,100,owner()).getTotal());
+    }
     long dueNode(long e) {
         long t=task(e); v4.startExecution(e,Map.of(),owner());
         db.update("INSERT INTO compliance_execution_reminder(execution_id,task_id,recipient_user_id,kind,scheduled_at,schedule_revision) VALUES(?,?,2,'due_today',?,0)",e,t,LocalDateTime.now().minusMinutes(1));

@@ -32,6 +32,9 @@ public class ComplianceV4Controller {
     private final ComplianceV4Service complianceV4Service;
     private final com.jshz.expert.service.ComplianceRolloutService rollout;
     private final com.jshz.expert.service.ComplianceLegacyService legacy;
+    private final com.jshz.expert.service.KnowledgeDocStorageService docStorage;
+    private final com.jshz.expert.service.KnowledgeDocTextExtractor textExtractor;
+    private final com.jshz.expert.mapper.KnowledgeDocumentMapper documentMapper;
 
     @GetMapping("/mode")
     public ApiResponse<Map<String,Object>> mode(@AuthenticationPrincipal AuthUser user) {
@@ -51,6 +54,57 @@ public class ComplianceV4Controller {
     @GetMapping("/documents/{documentId}/drafts")
     public ApiResponse<List<Map<String,Object>>> drafts(@PathVariable Long documentId, @AuthenticationPrincipal AuthUser user) {
         requireUser(user); return ApiResponse.ok(complianceV4Service.listDrafts(documentId, user));
+    }
+
+    @PostMapping("/documents/{documentId}/templates/generate-draft")
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public ApiResponse<Map<String,Object>> generateDraft(@PathVariable Long documentId, @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
+        // Match the template service lock order; the document lock serializes
+        // generation across users and application instances until commit.
+        rollout.lockUser(user.getUserId());
+        var doc = documentMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.jshz.expert.entity.KnowledgeDocument>()
+                .eq(com.jshz.expert.entity.KnowledgeDocument::getId, documentId).last("FOR UPDATE"));
+        if (doc == null || !"enterprise-compliance".equals(doc.getCategory()) || !Integer.valueOf(1).equals(doc.getStatus()))
+            throw new BusinessException(404, "来源文档不可用");
+        if (!user.hasPermission("knowledge:maintain") && !user.getUsername().equals(doc.getUploadBy()))
+            throw new BusinessException(403, "仅上传者或维护人可生成规范草稿");
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(docStorage.resolveDocument(doc.getFilePath()));
+            var extracted = textExtractor.extractStructured(bytes, doc.getFileName());
+            if (extracted.blocks().isEmpty()) throw new BusinessException("未提取到可确认内容，请核对文件格式");
+            List<Map<String,Object>> nodes = new java.util.ArrayList<>();
+            int index = 0;
+            for (var block : extracted.blocks()) {
+                for (String line : block.text().split("\\R")) {
+                    String candidate = line.trim();
+                    if (candidate.length() < 8 || candidate.length() > 500 || candidate.matches("^[\\d\\s.、，；;：:()（）-]+$")) continue;
+                    Map<String,Object> node = new java.util.LinkedHashMap<>();
+                    node.put("nodeCode", "extract-" + (++index));
+                    node.put("title", candidate.length() > 120 ? candidate.substring(0, 120) : candidate);
+                    node.put("inputType", "CHECK"); node.put("required", false);
+                    node.put("acceptance", candidate);
+                    node.put("sourceAnchor", new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of("anchor", block.anchor(), "excerpt", candidate, "kind", block.kind(), "needsReview", true)).toString());
+                    nodes.add(node);
+                    if (nodes.size() >= 200) break;
+                }
+                if (nodes.size() >= 200) break;
+            }
+            if (nodes.isEmpty()) throw new BusinessException("未识别到候选条目，请人工核对原文");
+            String draftTitle = doc.getTitle() + "（第" + doc.getVersion() + "版解析待确认）";
+            for (Map<String,Object> existing : complianceV4Service.listDrafts(documentId, user)) {
+                if (draftTitle.equals(existing.get("title"))) {
+                    Map<String,Object> reused = complianceV4Service.templateDetail(((Number) existing.get("id")).longValue(), user);
+                    reused.put("extractionIncomplete", extracted.incomplete()); reused.put("extractionWarning", "该文档版本已有解析草稿，已为你打开现有草稿"); reused.put("candidateCount", nodes.size());
+                    return ApiResponse.ok(reused);
+                }
+            }
+            Map<String,Object> draft = complianceV4Service.createDraft(documentId, null, draftTitle, user);
+            Map<String,Object> patch = new java.util.LinkedHashMap<>(); patch.put("rowVersion", draft.get("rowVersion")); patch.put("nodes", nodes);
+            Map<String,Object> saved = complianceV4Service.patchTemplate(((Number)draft.get("id")).longValue(), patch, user);
+            saved.put("extractionIncomplete", extracted.incomplete()); saved.put("extractionWarning", extracted.warning()); saved.put("candidateCount", nodes.size());
+            return ApiResponse.ok(saved);
+        } catch (java.io.IOException e) { throw new BusinessException("读取来源文件失败，请重新上传"); }
     }
 
     private void requireUser(AuthUser user) {

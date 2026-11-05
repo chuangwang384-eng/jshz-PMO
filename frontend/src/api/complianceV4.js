@@ -26,6 +26,9 @@ export function listPublishedTemplates(documentId) {
 export function createTemplateDraft(documentId, data) {
   return request.post(`/compliance/v4/documents/${documentId}/templates/drafts`, data)
 }
+export function generateTemplateDraft(documentId) {
+  return request.post(`/compliance/v4/documents/${documentId}/templates/generate-draft`)
+}
 export function getTemplateDetail(templateVersionId) {
   return request.get(`/compliance/v4/templates/${templateVersionId}`)
 }

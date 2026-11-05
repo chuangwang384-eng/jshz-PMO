@@ -59,10 +59,10 @@
 
 1. 创建新的独立 datadir，仅监听本机 13316，禁用 mysqlx。初始化 root 后立即设置随机临时口令；创建 `acceptance_v4`，导入经核实的纯结构快照。不要把生产数据导出作为 fixture。
 2. 配置进程环境 `V4_ACCEPTANCE_DB=acceptance_v4`、`V4_DB_PASSWORD=<临时口令>`、`V4_TEST_PASSWORD=<随机测试账号口令>`。不要将口令放在命令参数、提交或交接记录中。
-3. 运行 `scripts/test-compliance-v4.ps1`。脚本先核实实际 DATABASE、端口、datadir，拒绝其他端点；两份迁移各运行两遍，再执行服务回归和真实 MySQL 验收。测试会清理该隔离库中指定 fixture 表，严禁换成生产连接。报告位于 `backend/target/surefire-reports`。
+3. 运行 `scripts/test-compliance-v4.ps1`。脚本先核实实际 DATABASE、端口、datadir，拒绝其他端点；项目配置快照、V4表和个人模式迁移各运行两遍，再执行服务回归和真实 MySQL 验收。项目配置快照迁移是为了让现有项目列表真实服务可读取验收项目；它不是本次规范解析功能新增的生产迁移。测试会清理该隔离库中指定 fixture 表，严禁换成生产连接。报告位于 `backend/target/surefire-reports`。
 4. 独立复制 `backend/pom.xml`、`backend/src` 和父级 `version.txt` 到忽略构建目录；`mvn -DskipTests package`。不要占用或覆盖运行中的正式 JAR。
 5. 启动候选 JAR，固定上述隔离连接和文件目录，随机 `JWT_SECRET`，启用 V4，关闭 v3/v4 定时调度与企微同步；健康检查通过后启动 Vite，`VITE_API_PROXY_TARGET=http://127.0.0.1:18086`。勿因测试端口改变而放宽生产 CORS 来源。
-6. `LIVE_V4_ACCEPTANCE=acceptance_v4` 且 `V4_TEST_PASSWORD` 就绪后运行 `node frontend/tests/compliance-v4-live.mjs`（从 frontend 目录执行时为 `node tests/compliance-v4-live.mjs`）。可用 `PLAYWRIGHT_MODULE=file:///.../playwright/index.mjs` 指向本机安装。此脚本无 API 拦截，真实 UI/登录→Spring→MySQL；不要复用已被其他任务改写的 fixture，先跑步骤 3 重建基线。
+6. `LIVE_V4_ACCEPTANCE=acceptance_v4` 且 `V4_TEST_PASSWORD` 就绪后运行 `node frontend/tests/compliance-v4-live.mjs`（从 frontend 目录执行时为 `node tests/compliance-v4-live.mjs`）。可用 `PLAYWRIGHT_MODULE=file:///.../playwright/index.mjs` 指向本机安装。此脚本无 API 拦截，真实 UI/登录→Spring→MySQL；包含上传真实 PDF、生成并重复打开待确认草稿、核对页面原文引用及服务端 sourceAnchor、项目关联、个人执行与跨用户拒绝。不要复用已被其他任务改写的 fixture，先跑步骤 3 重建基线。
 7. 旧夹具回归仍用 15173：`tests/compliance-v4-browser.mjs`、`tests/project-config-browser.mjs`。这两项仅作为前端回归，不能替代上一步。
 
 ## 6. 发布前验证与回滚限制
@@ -82,3 +82,30 @@
 运维回归：`powershell.exe -NoProfile -File scripts/tests/deployment-http-regression.ps1`（只读 health/匿名/前端）；`scripts/tests/deployment-artifact-regression.ps1 -NonExecutableJar <经核实的坏包路径>`（包结构接受/拒绝）；完整 DryRun 与坏回滚源拒绝均已实测。上述护栏补正没有再次切流。
 
 WinPS5.1执行SQL原生管道前必须将 `$OutputEncoding` 设为UTF-8，`--default-character-set=utf8mb4` 不能替代上游管道编码；本次新表注释曾出现问号，已按源迁移修正并回读。隔离迁移脚本已设置并在结束时恢复编码；生产执行器同步处理。备份脚本通过mysqldump原生`-r`写文件，不受此管道问题影响。
+
+
+## 4. 规范文件生成草稿（2026-11-05）
+
+新增 `POST /api/compliance/v4/documents/{documentId}/templates/generate-draft`，仅接受已上架的 `enterprise-compliance` 文档；上传者或 `knowledge:maintain` 维护人可生成。接口从知识文档存储读取原件，以 V4 草稿版本保存候选节点，不发布。每条节点的 `sourceAnchor` JSON 保存页/段/表格位置、原文摘录、内容类型及 `needsReview=true`。响应含 `candidateCount`、`extractionIncomplete`、`extractionWarning`。前端模板维护页显示警告及原文摘录，维护人仍须人工核对并手动发布。
+
+结构化提取保留 PDF 页、DOCX 正文段落/表格行、PPTX 幻灯片、XLS/XLSX 工作表行。PDF 页少于20个文字字符时提示可能为扫描/图片页，并尝试调用本地 Tesseract OCR（简体中文+英文，250 DPI）；OCR失败或结果仍过短时保留扫描页提示。配置 `TESSERACT_CMD`（缺省按 PATH/Program Files 查找）和可选 `TESSDATA_DIR`。识别文字是候选，仍须人工对照原页；不保证准确。Windows可从[UB Mannheim发行页](https://github.com/UB-Mannheim/tesseract/wiki)安装Tesseract；简体中文模型来自[tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)，Apache-2.0。Windows当前开发机实测 Tesseract 5.4.0 与 chi_sim 模型安装于当前用户本地数据目录；Windows服务账号需要能读模型文件，部署时应把模型置于服务账号可读的本地目录并设置 `TESSDATA_DIR`。当前正式后端服务身份为 LocalSystem，交互用户 LocalAppData 模型不可被当作正式可用模型；本次尚未变更正式服务环境或模型文件。行/段候选是待确认草稿；单次最多200条候选。相同文档版本按草稿标题复用既有解析草稿以避免常规重复点击；并发请求尚无数据库唯一约束，仍需后续补原子幂等护栏。接口暂无异步任务。
+
+## 7. 本机真实数据库与 Edge 验收记录（2026-11-05）
+
+执行 `scripts/run-compliance-v4-e2e.ps1`：同一 PowerShell 控制进程为新隔离 datadir 生成随机 MySQL root、员工测试账号和 JWT 凭据，临时 init SQL 删除后再经子进程环境传递；schema 导入前核实 `127.0.0.1:13316/acceptance_v4` 与沙箱 datadir。V4/项目快照迁移重复执行、七组服务/数据库测试及真实 Edge → Vite → 候选 Spring → 隔离 MySQL 流程通过。浏览器上传了 `E:\王创\2026-11-4\北京融和医学发展基金会合规要求.pdf`，验证解析草稿可见页码/摘录引用、每个候选均有 sourceAnchor，重复生成复用同一草稿；随后验证新版清单编辑/发布、项目关联、用户隔离、完成/重用/旧历史。运行产物和截图位于忽略目录 `.build-compliance-v4-acceptance/`。本记录仅为本地隔离验收，不代表生产部署。
+
+2026-11-05补充：并发生成事务护栏及真实Edge并发复验通过。管理员发布尝试已配置ProgramData OCR路径并完成备份，但Nginx SYSTEM平滑重载任务查询失败/超时，发布FAILED，未认定上线；正式8080和首页健康200。详见任务交接追加记录和.build-compliance-template-production-20261105证据。后端发布退出码门禁已补入专用编排。
+
+生产最终记录见 [20261105发布记录](releases/20261105-compliance-template-production.md)：已切流但严格不停机探针失败，保留告警。并发生成已通过事务用户/文档行锁串行，替代此前无并发护栏描述。
+
+可视化维护施工新增GET/PUT /api/compliance/v4/documents/{id}/template-workspace（尚未部署）：仅上传者/维护人，PUT需要content和expectedRowVersion，冲突409。增量迁移20261105_compliance_template_workspace.sql未执行；禁止在未迁移环境启用新入口。完整生效/迁移/回滚仍在施工，见施工交接。
+
+### 可视化维护阶段二（未部署）
+workspace新增GET legacy-candidates、POST select-existing与activate，后两者需要expectedRowVersion及requestId（16～64字母数字连字符）；select-existing另需selectedId。服务端检查维护权限，工作区保存与生效分离，旧执行快照不改。已收口文档的新建入口限制唯一active模板。前端阶段卡片/自动保存/原文核对和生效已接入；候选文件提取合并尚未接入新编辑器。具体边界与测试见施工交接，不能视作完整需求验收。
+
+阶段二技术验证更新：V4_VISUAL_EDITOR=true运行run-compliance-v4-e2e.ps1退出0，真实隔离MySQL迁移/服务测试与Edge卡片编辑→自动保存刷新恢复→生效通过；旧执行快照不变用例通过。本轮仍未生产迁移/部署。证据与未完成范围见handover/tasks/20261105_compliance_visual_editor_implementation.md。
+
+## 工作区候选与来源核对接口（设计施工已实现，尚未生产部署）
+在/api/compliance/v4/documents/{id}/template-workspace下：POST extract提取当前原件，GET extractions/{extractionId}读取绑定版本结果；POST merge-candidates需要expectedRowVersion、requestId、extractionId、actions[{candidateId,targetCode可空}]；POST review-node需要expectedRowVersion和nodeCode，记录当前事项内容核对；POST confirm-extraction需要extractionId及confirmed:true，记录漏页人工补齐确认。权限均复用来源上传者/维护人；生效仍限维护人。旧来源版本409，无权来源拒绝；保存/生效校验重复ID、类型、长度、选项与真实来源候选。相同生效内容无操作返回，不生成重复历史。
+
+迁移扩展为四张工作区/请求/提取/核对表；只在独立MySQL验收，生产未执行。文件目录必须通过启动参数显式覆盖至沙箱，不能仅隔离数据库。2026-11-05脚本已修正并完成一次包含真实上传的重跑；早期一次测试文件落正式文件目录的情况已记入交接，不清理未知文件。复现用V4_VISUAL_EDITOR=true运行scripts/run-compliance-v4-e2e.ps1，证据及剩余边界见施工交接阶段三。

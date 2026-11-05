@@ -32,24 +32,35 @@ $nginxTestOutput = & $exe -p ($prefix.Replace('\','/') + '/') -t 2>&1
 $ErrorActionPreference = $prevEap
 if ($LASTEXITCODE -ne 0) { throw ('Nginx configuration validation failed: ' + (@($nginxTestOutput | ForEach-Object { [string]$_ }) -join ' | ')) }
 $name = 'JshzGracefulReload-' + [guid]::NewGuid().ToString('N')
-$action = New-ScheduledTaskAction -Execute $exe -Argument ('-p "' + $prefix.Replace('\','/') + '/" -s reload') -WorkingDirectory $prefix
-$identity = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+# Use the native Task Scheduler COM API: the CIM ScheduledTasks provider on
+# this host denies SYSTEM registration even with a verified elevated token.
+$scheduler = New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$folder = $scheduler.GetFolder('\')
+$definition = $scheduler.NewTask(0)
+$definition.Principal.UserId = 'SYSTEM'
+$definition.Principal.LogonType = 5
+$definition.Principal.RunLevel = 1
+$definition.Settings.ExecutionTimeLimit = 'PT1M'
+$action = $definition.Actions.Create(0)
+$action.Path = $exe
+$action.Arguments = '-p "' + $prefix.Replace('\','/') + '/" -s reload'
+$action.WorkingDirectory = $prefix
+$registered = $false
 try {
-    Register-ScheduledTask -TaskName $name -Action $action -Principal $identity | Out-Null
-    Start-ScheduledTask -TaskName $name
+    $task = $folder.RegisterTaskDefinition($name, $definition, 6, 'SYSTEM', $null, 5, $null)
+    $registered = $true
+    $running = $task.Run($null)
     $complete = $false
     for ($attempt = 0; $attempt -lt 80; $attempt++) {
         Start-Sleep -Milliseconds 250
-        $info = Get-ScheduledTaskInfo -TaskName $name
-        # Scheduler may briefly report Ready while LastTaskResult still says Running/Queued.
-        if ($info.LastTaskResult -ge 267008 -and $info.LastTaskResult -le 267016) { continue }
-        if ($info.LastRunTime.Year -gt 2000 -and (Get-ScheduledTask -TaskName $name).State -ne 'Running') {
-            if ($info.LastTaskResult -ne 0) { throw "Nginx signal failed: task result $($info.LastTaskResult)" }
+        $task = $folder.GetTask($name)
+        if ($task.LastRunTime.Year -gt 2000 -and $task.State -ne 4 -and $task.LastTaskResult -eq 0) {
             $complete = $true
             break
         }
     }
-    if (-not $complete) { throw 'Timed out waiting for Nginx signal task.' }
+    if (-not $complete) { throw "Nginx signal task failed or timed out; result=$($task.LastTaskResult)" }
     $newWorker = $false
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
         $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$masterBefore AND Name='nginx.exe'")
@@ -68,7 +79,5 @@ try {
     if ((Get-Service -Name $ServiceName).Status -ne 'Running') { throw 'Nginx service is no longer Running.' }
     Write-Output "Graceful reload signal accepted; master PID unchanged: $masterBefore. Caller must verify upstream and continuous HTTP probes."
 } finally {
-    if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $name -Confirm:$false
-    }
+    if ($registered) { $folder.DeleteTask($name, 0) }
 }

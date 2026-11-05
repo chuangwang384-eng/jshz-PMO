@@ -404,3 +404,15 @@ Nginx主进程4364未重启，后端正式PID33864；最终双路各10377请求�
 ### 2026-11-04 工作台1.0.24生产结果
 
 已按用户批准完成蓝绿后端与不可变前端root发布，源码1980a66；master39504不变、健康/授权只读业务/372资源核验通过。切流原探针1次连接重置，严格连续性门禁失败；单独稳态3034请求零失败，最终PUBLISHED_WITH_WARNING，待业务验收。无本轮迁移或密钥轮换。完整证据、备份和旧后端补丁兼容回滚限制见[生产发布记录](releases/20261104-dashboard-production.md)。
+
+## 2026-11-05 企业合规模板草稿隔离验收
+同一受控进程新建隔离库、生成并传递临时凭据、运行数据库及真实Edge流程通过；生产构建已准备。本轮未执行生产发布：当前终端非管理员，LocalSystem后端未配置中文OCR模型路径。接口、复现步骤和局限见[合规部署说明](deployment-compliance-v4.md)及[任务交接](handover/tasks/20261105_compliance_template_generation.md)。
+
+平滑重载2026-11-05诊断：管理员注册SYSTEM任务被Windows返回0x80070005拒绝访问；原超时为后续查询的次生错误。脚本已补显式TaskPath与注册/启动/查询失败立即停止。仍需恢复系统任务注册权限后实测；不得将脚本修正认作重载成功。
+
+## R-1 发布记录
+- 2026-11-05 10:23:18 R-1 发布 1.0.24-compliance-template-20261105-r2 成功（jar: expert-system.jar）
+
+2026-11-05最终状态：合规模板草稿已蓝绿上线，PUBLISHED_WITH_WARNING。Nginx平滑重载改为Task Scheduler原生COM，未放宽权限；登录态业务只读检查通过，但fresh连续性探针2次连接重置，严格不停机未通过。见[发布记录](releases/20261105-compliance-template-production.md)。
+
+2026-11-05可视化维护阶段三最终结果：核心链路真实MySQL和Edge验收通过，含员工新建后模板更新不改变原任务；生产四表尚不存在。发布评估为可进入业务复核和发布准备，本次不执行生产迁移/切流。详见releases/20261105-compliance-visual-release-assessment.md。

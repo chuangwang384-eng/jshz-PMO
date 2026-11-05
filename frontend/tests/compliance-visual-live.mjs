@@ -1,0 +1,112 @@
+import assert from 'node:assert/strict'
+import {readFile} from 'node:fs/promises'
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
+if(process.env.LIVE_V4_ACCEPTANCE!=='acceptance_v4' || !process.env.V4_TEST_PASSWORD) throw Error('Isolated fixture required')
+const browser=await chromium.launch({channel:'msedge',headless:true})
+try {
+ const page=await browser.newPage({viewport:{width:1500,height:1000}})
+ const errors=[];page.on('pageerror',e=>errors.push(e.message))
+ await page.goto('http://localhost:5173/login?redirect=/knowledge-planet/enterprise-compliance')
+ await page.locator('input[autocomplete="username"]').fill('验收维护人')
+ await page.getByPlaceholder('密码',{exact:true}).fill(process.env.V4_TEST_PASSWORD)
+ await page.getByRole('button',{name:/登\s*录/}).click()
+ await page.getByRole('tab',{name:'模板维护',exact:true}).click()
+ await page.locator('.editor .toolbar .el-select').first().click()
+ await page.getByRole('option',{name:'隔离规范',exact:true}).click()
+ const legacy=await page.request.get('http://localhost:5173/api/compliance/v4/documents/1/template-workspace/legacy-candidates'); assert.equal((await legacy.json()).code,0)
+ await page.getByRole('textbox',{name:'模板名称',exact:true}).fill('可视化真实验收')
+ await page.getByRole('button',{name:'添加事项',exact:true}).click()
+ await page.locator('.properties input').first().fill('真实页面新增事项')
+ await page.locator('.properties textarea').first().fill('原文核实后提交材料')
+ await page.getByRole('status').filter({hasText:'编辑已保存'}).waitFor()
+ await page.reload()
+ await page.getByRole('tab',{name:'模板维护',exact:true}).click()
+ await page.locator('.editor .toolbar .el-select').first().click()
+ await page.getByRole('option',{name:'隔离规范',exact:true}).click()
+ await page.locator('.editor main article strong').filter({hasText:'真实页面新增事项'}).waitFor()
+ assert.equal(await page.getByRole('textbox',{name:'模板名称',exact:true}).inputValue(),'可视化真实验收')
+ await page.getByRole('button',{name:'保存并生效',exact:true}).click()
+ await page.getByRole('dialog',{name:'保存并生效'}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByText('已生效，仅用于之后新建的清单',{exact:true}).waitFor()
+
+ await page.getByRole('button',{name:'添加阶段',exact:true}).click()
+ await page.getByRole('dialog',{name:'添加阶段',exact:true}).locator('input').fill('会议前')
+ await page.getByRole('dialog',{name:'添加阶段',exact:true}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByRole('button',{name:'改名',exact:true}).click()
+ await page.getByRole('dialog',{name:'阶段改名',exact:true}).locator('input').fill('准备阶段')
+ await page.getByRole('dialog',{name:'阶段改名',exact:true}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByRole('button',{name:'删除阶段',exact:true}).click()
+ await page.getByRole('dialog',{name:'删除阶段',exact:true}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByRole('button',{name:'撤销结构操作',exact:true}).click()
+ await page.locator('aside button').filter({hasText:'准备阶段'}).waitFor()
+ await page.getByRole('status').filter({hasText:'编辑已保存'}).waitFor()
+ const upload=await page.request.post('http://localhost:5173/api/knowledge/docs?category=enterprise-compliance&title='+encodeURIComponent('候选合并真实验收'),{multipart:{file:{name:'北京融和医学发展基金会合规要求.pdf',mimeType:'application/pdf',buffer:await readFile(process.env.V4_SAMPLE_PDF)}}})
+ const uploaded=await upload.json();assert.equal(uploaded.code,0);const sourceDocId=uploaded.data.id
+ await page.reload();await page.getByRole('tab',{name:'模板维护',exact:true}).click()
+ await page.locator('.editor .toolbar .el-select').first().click()
+ await page.getByRole('option',{name:'候选合并真实验收',exact:true}).click()
+ await page.getByRole('textbox',{name:'模板名称',exact:true}).fill('真实候选模板')
+ await page.getByRole('button',{name:'从原文提取',exact:true}).click()
+ const imported=page.getByRole('dialog',{name:'原文提取候选与差异合并',exact:true})
+ await imported.locator('.el-card').first().waitFor({timeout:180000})
+ await imported.locator('.el-card .el-select').first().click()
+ await page.getByRole('option',{name:'新增事项',exact:true}).click()
+ await imported.getByRole('button',{name:'合并所选候选',exact:true}).click()
+ await imported.waitFor({state:'hidden'})
+ await page.locator('.editor main article').first().click()
+ await page.getByRole('button',{name:'确认已核对当前事项',exact:true}).click()
+ await page.getByText('已记录本次内容核对，后续修改须重新核对',{exact:true}).waitFor()
+ if(await page.getByRole('button',{name:'已人工核对并补齐漏提取内容',exact:true}).count()){
+  await page.getByRole('button',{name:'已人工核对并补齐漏提取内容',exact:true}).click()
+  await page.getByRole('dialog',{name:'人工核对',exact:true}).getByRole('button',{name:'确定',exact:true}).click()
+  await page.getByText('已记录人工核对',{exact:true}).waitFor()
+ }
+ await page.getByRole('button',{name:'保存并生效',exact:true}).click()
+ await page.getByRole('dialog',{name:'保存并生效'}).getByRole('button',{name:'确定',exact:true}).click()
+ await page.getByText('已生效，仅用于之后新建的清单',{exact:true}).waitFor()
+
+
+ const endpoint=`http://localhost:5173/api/compliance/v4/documents/${sourceDocId}/template-workspace`
+ const state=(await (await page.request.get(endpoint)).json()).data
+ const forged=JSON.parse(JSON.stringify(state.content));const forgedSource=JSON.parse(forged.nodes[0].sourceAnchor);forgedSource.excerpt='forged excerpt';forged.nodes[0].sourceAnchor=JSON.stringify(forgedSource)
+ const denied=await page.request.put(endpoint,{data:{content:forged,expectedRowVersion:state.rowVersion}});assert.notEqual((await denied.json()).code,0)
+ const duplicated=JSON.parse(JSON.stringify(state.content));duplicated.nodes.push({...duplicated.nodes[0]})
+ const invalid=await page.request.put(endpoint,{data:{content:duplicated,expectedRowVersion:state.rowVersion}});assert.notEqual((await invalid.json()).code,0)
+ const noChange=await page.request.post(endpoint+'/activate',{data:{expectedRowVersion:state.rowVersion,requestId:crypto.randomUUID()}})
+ const unchanged=await noChange.json();assert.equal(unchanged.code,0);assert.equal(unchanged.data.activeTemplateVersionId,state.activeTemplateVersionId)
+
+
+ const employeeContext=await browser.newContext()
+ const employee=await employeeContext.newPage()
+ await employee.goto('http://localhost:5173/login?redirect=/knowledge-planet/enterprise-compliance')
+ await employee.locator('input[autocomplete="username"]').fill('验收员工甲')
+ await employee.getByPlaceholder('密码',{exact:true}).fill(process.env.V4_TEST_PASSWORD)
+ await employee.getByRole('button',{name:/登\s*录/}).click()
+ await employee.getByRole('button',{name:'启用新版执行清单',exact:true}).click()
+ await employee.getByRole('dialog',{name:'启用新版执行清单',exact:true}).getByRole('button',{name:'确定',exact:true}).click()
+ await employee.getByRole('button',{name:'创建执行清单',exact:true}).click()
+ const create=employee.getByRole('dialog',{name:'创建执行清单',exact:true})
+ await create.locator('.el-select').click();await employee.getByRole('option',{name:'隔离项目',exact:true}).click()
+ await create.getByRole('button',{name:'下一步',exact:true}).click()
+ await create.locator('.el-select').first().click();await employee.getByRole('option',{name:'隔离规范',exact:true}).click()
+ await create.getByRole('button',{name:'下一步',exact:true}).click()
+ await create.getByPlaceholder('如：君实·6月项目·协会与材料').fill('可视化员工真实清单')
+ await create.getByRole('button',{name:'创建清单',exact:true}).click();await create.waitFor({state:'hidden'})
+ const executionList=await (await employeeContext.request.get('http://localhost:5173/api/compliance/v4/executions')).json()
+ const execution=executionList.data.items.find(e=>e.name==='可视化员工真实清单');assert.ok(execution)
+ const oldDetail=(await (await employeeContext.request.get(`http://localhost:5173/api/compliance/v4/executions/${execution.id}`)).json()).data
+ const firstEndpoint='http://localhost:5173/api/compliance/v4/documents/1/template-workspace'
+ const first=(await (await page.request.get(firstEndpoint)).json()).data
+ first.content.nodes[0].title='更新后的模板事项'
+ const updated=(await (await page.request.put(firstEndpoint,{data:{content:first.content,expectedRowVersion:first.rowVersion}})).json()).data
+ const applied=await page.request.post(firstEndpoint+'/activate',{data:{expectedRowVersion:updated.rowVersion,requestId:crypto.randomUUID()}});assert.equal((await applied.json()).code,0)
+ const preserved=(await (await employeeContext.request.get(`http://localhost:5173/api/compliance/v4/executions/${execution.id}`)).json()).data
+ assert.deepEqual(preserved.tasks,oldDetail.tasks,'Template update must preserve existing employee tasks')
+ await employee.reload();await employee.getByRole('button',{name:'创建执行清单',exact:true}).waitFor()
+ await employeeContext.close()
+
+ assert.deepEqual(errors,[])
+ await page.locator('.editor main article').first().click()
+ await page.screenshot({path:'../.build-compliance-v4-acceptance/evidence/visual-editor-live.png',fullPage:true})
+ console.log('PASS: real Edge visual cards, autosave/reload and activation')
+} finally {await browser.close()}

@@ -48,6 +48,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ComplianceV4Service {
 
+    private final org.springframework.jdbc.core.JdbcTemplate workspaceDb;
     private final ComplianceTemplateVersionMapper templateVersionMapper;
     private final ComplianceTemplateNodeMapper templateNodeMapper;
     private final ComplianceTemplateOptionMapper templateOptionMapper;
@@ -63,6 +64,13 @@ public class ComplianceV4Service {
     private final ComplianceRolloutService rollout;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
+    private Long currentWorkspaceTemplate(Long documentId) {
+        if(workspaceDb.queryForObject("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='compliance_template_workspace'",Integer.class)==0) return null;
+        var rows=workspaceDb.queryForList("SELECT active_template_version_id FROM compliance_template_workspace WHERE document_id=? AND selection_resolved=1",documentId);
+        if(rows.isEmpty()) return null;
+        Object id=rows.get(0).get("active_template_version_id");
+        return id==null?-1L:((Number)id).longValue();
+    }
     public static final List<String> NODE_TYPES = List.of("CHECK", "SINGLE", "MULTI", "TEXT");
     public static final List<String> PRIORITIES = List.of("HIGH", "MEDIUM", "LOW");
     public static final List<String> PROGRESS_STATES = List.of("UNPROCESSED", "PROCESSING", "COMPLETED");
@@ -83,11 +91,13 @@ public class ComplianceV4Service {
     /** 某文档已发布模板列表（登录即可读）。 */
     public List<Map<String, Object>> listPublishedTemplates(Long documentId, AuthUser user) {
         access.requireDocument(documentId, user, true);
+        Long currentWorkspaceTemplate = currentWorkspaceTemplate(documentId);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceTemplateVersion t : templateVersionMapper.selectList(new LambdaQueryWrapper<ComplianceTemplateVersion>()
                 .eq(ComplianceTemplateVersion::getDocumentId, documentId)
                 .eq(ComplianceTemplateVersion::getState, "PUBLISHED")
                 .orderByDesc(ComplianceTemplateVersion::getRevision))) {
+            if (currentWorkspaceTemplate != null && !currentWorkspaceTemplate.equals(t.getId())) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", t.getId());
             m.put("revision", t.getRevision());
@@ -380,6 +390,9 @@ public class ComplianceV4Service {
         ComplianceTemplateVersion t = templateVersionMapper.selectById(templateVersionId);
         if (t == null || !"PUBLISHED".equals(t.getState())) throw new BusinessException("模板不存在或未发布");
         access.requireDocument(t.getDocumentId(), user, true);
+        Long currentTemplate = currentWorkspaceTemplate(t.getDocumentId());
+
+        if(currentTemplate != null && !currentTemplate.equals(templateVersionId)) throw new BusinessException(409,"模板已更新，请重新选择规范文档");
         Long projectId = ParamUtils.parseLong(body.get("projectId"), null);
         access.requireProject(projectId, user);
         if (projectId != null) {
@@ -507,6 +520,7 @@ public class ComplianceV4Service {
         List<ComplianceExecution> all = executionMapper.selectList(qw);
         int from = page > (all.size() / size) + 1 ? all.size() : (int) Math.min(all.size(), (page - 1) * size);
         int to = (int) Math.min(all.size(), from + size);
+
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceExecution e : all.subList(from, to)) {
             if (!access.canRead(e, user)) { rows.add(Map.of("id", e.getId(), "state", "RESTRICTED", "name", "来源或项目访问受限")); continue; }
@@ -567,6 +581,8 @@ public class ComplianceV4Service {
         access.requireDocument(src.getSourceDocumentId(), user, true);
         String idem = str(body.get("idempotencyKey"));
         if (idem == null || idem.isBlank()) throw new BusinessException("idempotencyKey 不能为空");
+
+
         Long projectId = ParamUtils.parseLong(body.get("projectId"), null);
         access.requireProject(projectId, user);
         if (projectId != null) {
@@ -931,6 +947,7 @@ public class ComplianceV4Service {
         ComplianceExecutionTask task = taskMapper.selectById(taskId);
         if (task == null) throw new BusinessException("任务不存在");
         ownedExecution(task.getExecutionId(), user);
+
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceExecutionEvent ev : eventMapper.selectList(new LambdaQueryWrapper<ComplianceExecutionEvent>()
                 .eq(ComplianceExecutionEvent::getTaskId, taskId)

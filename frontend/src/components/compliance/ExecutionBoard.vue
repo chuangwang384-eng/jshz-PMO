@@ -151,9 +151,9 @@
               <el-option v-for="d in complianceDocs" :key="d.id" :label="d.title" :value="d.id" />
             </el-select>
           </el-form-item>
-          <el-form-item label="模板版本" required>
-            <el-select v-model="createForm.templateVersionId" placeholder="选择已发布模板" style="width: 100%">
-              <el-option v-for="t in templates" :key="t.id" :label="`v${t.revision} · ${t.title}（${t.nodeCount} 项）`" :value="t.id" />
+          <el-form-item label="执行模板" required>
+            <el-select v-model="createForm.templateVersionId" placeholder="当前生效模板" style="width: 100%">
+              <el-option v-for="t in templates" :key="t.id" :label="`${t.title}（${t.nodeCount} 项）`" :value="t.id" />
             </el-select>
           </el-form-item>
           <div v-if="!templates.length && createDocId" class="hint">该文档暂无已发布模板；可在「模板维护」页签发布模板，或使用「迁移草稿」辅助</div>
@@ -316,6 +316,7 @@ async function loadTemplates() {
   if (!createDocId.value) return
   try {
     templates.value = await listPublishedTemplates(createDocId.value) || []
+    if (templates.value.length === 1) createForm.templateVersionId = templates.value[0].id
   } catch (e) { templates.value = [] }
 }
 
