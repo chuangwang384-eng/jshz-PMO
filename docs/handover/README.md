@@ -1,6 +1,7 @@
 # 最新交接摘要
 
-- 2026-11-07 工作台信息密度优化已按需求 v1.1 发布 **1.0.34.2-dashboard-density-r2-20261107**（头部压缩/KPI降噪/项目行结构化/时间格式化/颜色降噪；空面板形态未变、布局编辑逻辑零改动；首版属性列溢出已修复并以 r2 重发）。真机验证通过，提交 1691c24。见 [发布记录](../releases/20261107-dashboard-density-1.0.34.2.md)。
+- 2026-11-07 Owner 要求回滚，工作台已从 1.0.34.2（信息密度优化）回退至 **1.0.34.1**（我的项目列表形态），nginx root 直接指向 1.0.34.1 release 并优雅重载，真机验证通过。注意：r2 的自动回滚点是密度首版（同版本号 1.0.34.2）而非 1.0.34.1；1.0.34.2 代码仍保留在仓库（1691c24）未删除，version.txt 仍为 1.0.34.2；浏览器对 SPA 路由的入口页缓存可能导致老用户需强刷。详见 [发布记录回滚章节](../releases/20261107-dashboard-density-1.0.34.2.md)。
+- 2026-11-07 工作台信息密度优化曾发布 **1.0.34.2-dashboard-density-r2-20261107**（头部压缩/KPI降噪/项目行结构化/时间格式化/颜色降噪；布局编辑逻辑零改动），当日被 Owner 回滚，见下方回滚记录与 [发布记录](../releases/20261107-dashboard-density-1.0.34.2.md)。
 - 2026-11-07 工作台「我的项目」列表形态改版已发布 1.0.34.1-dashboard-projectlist-20261107（纯前端，复用 item-row，无迁移）。UAC 提权走 deploy-frontend-graceful.ps1，nginx root 已切至新 release；真实页面验证通过（测试账号）。提交 7e69d89。见 [发布记录](../releases/20261107-dashboard-projectlist-1.0.34.1.md)。
 - 2026-11-06 审查缺陷 H1 修复完成（未发布）：`ApplicationService` 审批流 14 个写入口统一加 `@Transactional(rollbackFor = Exception.class)`，照片归档/旧照片删除/临时照片清理由 `TransactionSynchronization.afterCommit` 移到提交后；合同联动失败改为抛出以触发整体回滚。编译通过、后端 75 项测试 0 失败 0 错误 9 跳过；真实库全链路验证与 H2 并发双批未处理，见 [专项交接](tasks/20261106_approval_transaction_boundary.md)。
 - 2026-11-06 工作台卡片显示修复已平滑上线 1.0.31-dashboard-layout-ui-fix-20261106。1522 次切流探测零失败，发布目录制品 Edge 回归通过，生产账号验收待完成。见 [生产发布记录](../releases/20261106-dashboard-layout-production.md)。
