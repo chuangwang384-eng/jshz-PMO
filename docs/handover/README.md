@@ -1,5 +1,22 @@
 # 最新交接摘要
 
+- 2026-11-07 工作台「我的项目」列表形态改版已发布 1.0.34.1-dashboard-projectlist-20261107（纯前端，复用 item-row，无迁移）。UAC 提权走 deploy-frontend-graceful.ps1，nginx root 已切至新 release；真实页面验证通过（测试账号）。提交 7e69d89。见 [发布记录](../releases/20261107-dashboard-projectlist-1.0.34.1.md)。
+- 2026-11-06 审查缺陷 H1 修复完成（未发布）：`ApplicationService` 审批流 14 个写入口统一加 `@Transactional(rollbackFor = Exception.class)`，照片归档/旧照片删除/临时照片清理由 `TransactionSynchronization.afterCommit` 移到提交后；合同联动失败改为抛出以触发整体回滚。编译通过、后端 75 项测试 0 失败 0 错误 9 跳过；真实库全链路验证与 H2 并发双批未处理，见 [专项交接](tasks/20261106_approval_transaction_boundary.md)。
+- 2026-11-06 工作台卡片显示修复已平滑上线 1.0.31-dashboard-layout-ui-fix-20261106。1522 次切流探测零失败，发布目录制品 Edge 回归通过，生产账号验收待完成。见 [生产发布记录](../releases/20261106-dashboard-layout-production.md)。
+- 2026-11-06 工作台卡片显示修复完成，真实 Edge 通过编辑、保存及刷新后的正文几何与文字居中回归。前端修复未发布，见 [专项交接](tasks/20261106_dashboard_editable_layout_design.md)。
+- 2026-11-06 工作台二维布局已生产迁移并上线 1.0.31-dashboard-layout-20261106。原布局记录校验一致。正式入口和资源通过冒烟，切流记录一次新连接重置，生产业务账号验收待完成。见 [生产发布记录](../releases/20261106-dashboard-layout-production.md)。
+- 2026-11-06 工作台二维布局施工完成待业务验收。GridStack 14.1.0 已锁定，真实 Edge 和隔离 MySQL 通过拖动缩放、刷新还原、冲突及权限检查。未部署，见 [专项交接](tasks/20261106_dashboard_editable_layout_design.md)。
+- 2026-11-06 12:29 生产后端已通过管理员重启恢复，运行 1.0.31。正式首页 HTTP 200，登录接口恢复业务响应。真实账号登录和重登通知待完成。见 [上线执行卡](tasks/20261106_release_runbook_1.0.31.md)。
+- 2026-11-06 12:25 生产恢复仍阻塞。正式入口首页 HTTP 200，后端 8080 /health 返回 1.0.30、UP，但经正式入口提交登录探针仍为 HTTP 500 空体。磁盘制品 SHA256 25653800… 与 1.0.31 记录一致，回退包 SHA256 E3971F5A… 一致。当前会话执行 Restart-Service 被 Windows 拒绝打开服务，未重启，未改动制品、配置或数据库。管理员重启后需确认后端版本与真实账号登录，见 [上线执行卡](tasks/20261106_release_runbook_1.0.31.md)。
+- 2026-11-06 12:20 恢复进展：复核服务**仍未重启**（`/health` version=1.0.30、登录 500）。再次确认 `Stop-Process`（含沙箱豁免）与 `taskkill /F /PID 8720` 均「拒绝访问」，父进程为 `nssm.exe`；属 Windows 账户层限制。已生成一键脚本 `logs/recover-and-smoke-1.0.31.ps1`：管理员会话执行一次即完成重启 + 6 项只读冒烟，日志见 `logs/recover-and-smoke-1.0.31.log`。冒烟、公告发布、发布记录回填仍未执行。见 [执行卡附 2](tasks/20261106_release_runbook_1.0.31.md)。
+- 2026-11-06 12:15 上线推进：**备份完成**（`backup/backup_20261106_120546`）、**两个生产加列迁移完成并验证**、**1.0.31 fat jar 已写入 `backend/target/expert-system.jar`**（旧包归档 `backend/releases/1.0.31-20261106_121500/`）、**通知文案已备**（`../releases/20261106-user-notice-1.0.31.md`）。期间清理了挂起 ALTER 与 4 个僵尸事务造成的 `sys_user` 元数据锁。因 nginx reload 需 LocalSystem 权限且工具禁止提权，降级为「替换 jar + 重启」；**服务重启、冒烟、公告发布仍未执行**，现网 `/health`=200 但登录 500。管理员执行 `Restart-Service -Name ExpertSystemBackend -Force` 后即切换 1.0.31 并恢复登录，随后需冒烟与全员重登通知。见 [审查记录第 11 节](tasks/20261106_deployment_preflight.md)。
+- 2026-11-06 不停机评估：蓝绿不停机在管理员会话可行（隔离构建已完成、nginx 配置可写且语法校验通过、凭据可读），但 Agent 无管理员权限且工具禁止提权，且现网恢复前蓝绿预检无法通过；1.0.31 制品 `.build-1.0.31/backend/target/expert-system.jar`（sha256 `25653800…`）已构建校验、**未部署**。见 [执行卡](tasks/20261106_release_runbook_1.0.31.md)。
+- 2026-11-06 上线准备：负责人已批准上线，指定版本号 **1.0.31**、维护窗口「现网恢复冒烟通过后立即」；`version.txt` 已更新为 `revision=1.0.31`。现网仍待管理员执行重启恢复（Agent 三条提权路径均被权限/安全策略拒绝），登录链路 500 未恢复，冒烟未通过，**上线动作未执行**。见 [发布说明](../releases/20261106-review-fixes-1.0.31.md)、[上线执行卡](tasks/20261106_release_runbook_1.0.31.md) 与 [审查与事件记录](tasks/20261106_deployment_preflight.md)。
+- 2026-11-06 上线前审查：**已阻塞**。工作区代码审查无阻断缺陷（注入测试密钥后后端 64 用例 0 失败 0 错误、9 跳过），但发布前置条件未满足；且本会话在服务运行期间执行 mvn package 覆盖了 NSSM 正在加载的 jar，登录链路现返回 500 空体。原版 fat jar 已按字节写回，仍需管理员执行 Restart-Service 恢复。上线/迁移/发布均未执行。见 [审查与事件记录](tasks/20261106_deployment_preflight.md)。
+- 2026-11-06 docs 资料整理：根目录 85 份散落文档按内容重命名并归档至 requirements/、design/、decisions/、handover/tasks/、releases/、deployment/、guides/、reviews/、testing/，3 份被脚本硬编码引用的核心文档保留根目录；已同步全仓引用路径、修正 6 处标题。仅文档路径变更，无代码/数据库/部署改动。见 [整理台账](tasks/20261106_docs_organization.md)。
+
+- 2026-11-06 P1-2/P1-5/P2-7/P2-9 审查修复已完成代码与后端测试（64 用例通过），新增两份幂等迁移脚本，已在隔离测试库完成首轮执行与重复执行演练（列/数据均正确）；生产库已备份并完成恢复演练（74 表 / 2714 行 / 全表 CHECKSUM 一致），生产迁移未执行、未接口实测、未发布。上线后存量 Token 需重新登录一次。见 [修复交接](20261106_p1p2_review_fixes.md)。
+
 - 2026-11-05 企业合规原文引用、收藏分页及旧版页签移除通过隔离 MySQL 和真实 Edge 验收。未部署，见 [施工交接](tasks/20261105_compliance_visual_editor_implementation.md)。
 
 - 2026-11-05 可视化维护阶段三核心技术验收通过，已补候选/差异合并、阶段管理、服务端来源核对；真实MySQL与Edge含员工快照保护通过，文件隔离脚本已修正。尚未发布，见[发布评估](../releases/20261105-compliance-visual-release-assessment.md)及[施工记录](tasks/20261105_compliance_visual_editor_implementation.md)。
@@ -22,13 +39,13 @@
 
 - 2026-11-04 工作台1.0.24已获批准并发布生产（业务源码1980a66），授权账号只读/页面/372资源检查通过，Nginx master39504不变、无本次迁移或密钥轮换。切流原窗口有1次ECONNRESET，严格连续性门禁FAILED；单独稳态3034请求零失败，最终保留健康版本并记PUBLISHED_WITH_WARNING，待业务验收。见[生产发布与回滚记录](../releases/20261104-dashboard-production.md)和[连接重置跟踪](tasks/20261104_nginx_switch_reset.md)。下方“未发布”为历史状态。
 
-- 2026-11-04 个人工作台V1.1.1已实施并完成隔离技术验证，待业务验收，未发布生产。负责人已选仅复用历史完成阶段；首屏事项/风险、搜索、定位、编辑重提与返回刷新已落地。17项后端、8项前端、真实浏览器及HTTP/故障验证通过；小数据集4000请求零模块错误。见[实施交接](tasks/20261104_dashboard_implementation.md)与[API/部署/测试说明](../deployment-dashboard-v11.md)。下方“仅文档/未施工”为历史阶段。
+- 2026-11-04 个人工作台V1.1.1已实施并完成隔离技术验证，待业务验收，未发布生产。负责人已选仅复用历史完成阶段；首屏事项/风险、搜索、定位、编辑重提与返回刷新已落地。17项后端、8项前端、真实浏览器及HTTP/故障验证通过；小数据集4000请求零模块错误。见[实施交接](tasks/20261104_dashboard_implementation.md)与[API/部署/测试说明](../deployment/2026-11-04-个人工作台V1.1.1接口与隔离验证-部署说明.md)。下方“仅文档/未施工”为历史阶段。
 
 - 2026-11-04 个人工作台需求/设计已按负责人采纳意见原位替换为 V1.1.0：首屏事项与风险优先、申请/审批分开、具体对象处理闭环、日期/排序边界、六类搜索交互及权限降级已明确。仅文档、未施工未部署；项目完成权威来源仍是实施验收门槛。见 [修订交接](tasks/20261104_dashboard_documents_v11.md)。
 
 - 2026-11-04 个人工作台需求审查已交付待确认：明确申请/审批混用、个人项目范围、取消/删除状态、路由契约、异常降级及验收缺口，并附飞书/SharePoint 官方资料与分期建议。原需求/设计未改，未施工未部署。见 [审查与交接](tasks/20261104_dashboard_requirements_review.md)。
 
-- 2026-11-04 项目配置 v3（实现提交b189a70）已完成施工与隔离技术验收，待业务复核，生产未变更。就地新增公共阶段、三种材料模式、唯一连续排序、项目快照和新旧规则隔离已实现；26项后端回归、前端组件/构建及真实Edge无mock链路通过。见 [施工交接](tasks/20261104_project_config_v3_implementation.md) 与 [接口/迁移/测试说明](../deployment-project-config-v3.md)。下方设计待评审条目为历史状态。
+- 2026-11-04 项目配置 v3（实现提交b189a70）已完成施工与隔离技术验收，待业务复核，生产未变更。就地新增公共阶段、三种材料模式、唯一连续排序、项目快照和新旧规则隔离已实现；26项后端回归、前端组件/构建及真实Edge无mock链路通过。见 [施工交接](tasks/20261104_project_config_v3_implementation.md) 与 [接口/迁移/测试说明](../deployment/2026-11-04-项目配置V3接口数据字典与发布步骤-部署说明.md)。下方设计待评审条目为历史状态。
 
 - 2026-11-04 项目配置易用性与版本隔离：四项业务规则已确认，需求和设计文档已编写待评审，未施工、未迁移、未部署。入口见 [PC-20261104 交接](tasks/20261104_project_config_design.md)，内含两份文档路径、静态核查结论和下一步。
 
@@ -36,7 +53,7 @@
 
 - 2026-11-03 企业合规 v4 生产发布已获用户要求，但 Windows UAC 返回“操作已被用户取消”，管理员执行器未启动。生产七表结构兼容、备份及内容校验、严格发布 DryRun 已完成；未补表、未改开关、未切流，原服务在线。见 [生产发布状态与接手步骤](../releases/20261103-compliance-v4-production.md)。
 
-- 2026-11-03 企业合规 v4 发布阻断闭环：资源隔离、提醒事务/并发、个人提醒及等待复查、旧版只读快照与逐人互斥切换已实现；14 项真实 MySQL + 22 项服务回归、真实 Edge→Spring→MySQL 核心流程及旧页面回归通过。仅隔离验收，待业务复核和生产审批；见 [最新闭环交接](tasks/20261103_compliance_v4_release_blockers.md) 与 [部署/API/权限说明](../deployment-compliance-v4.md)。
+- 2026-11-03 企业合规 v4 发布阻断闭环：资源隔离、提醒事务/并发、个人提醒及等待复查、旧版只读快照与逐人互斥切换已实现；14 项真实 MySQL + 22 项服务回归、真实 Edge→Spring→MySQL 核心流程及旧页面回归通过。仅隔离验收，待业务复核和生产审批；见 [最新闭环交接](tasks/20261103_compliance_v4_release_blockers.md) 与 [部署/API/权限说明](../deployment/2026-11-03-企业合规V4隔离验收灰度切换与回滚-部署说明.md)。
 
 - 2026-11-03 企业合规 v4 接手：已补真实页面、模板细项编辑、个人答案/日期/优先级/备注、草稿显式开始与再次使用；22 项服务回归及合规/项目配置 Edge 隔离 API 浏览器回归通过。页面链路已完成待验收，整体 v4 的权限/提醒/历史兼容仍有发布阻断，未做本轮发布。见 [施工与验收交接](tasks/20261103_compliance_v4_takeover.md)。下方“未施工”条目为此前历史状态。
 
