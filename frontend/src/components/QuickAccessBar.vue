@@ -23,7 +23,7 @@
           <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
           <span role="button" tabindex="0" class="qa-remove" aria-label="移除" @click="draft.splice(index,1)">×</span>
         </span>
-        <span v-if="!draft.length" class="qa-empty-tip">已全部移除，可从下方候选添加</span>
+        <span v-if="!draft.length" class="qa-empty-tip">已全部移除，可从上方「恢复默认」还原</span>
         <span class="qa-add">
           <span v-for="item in addable" :key="item.id" role="button" tabindex="0" class="qa-item qa-candidate"
                 @click="draft.push(item)" @keydown.enter.prevent="draft.push(item)">
@@ -31,10 +31,6 @@
           </span>
           <span v-if="!addable.length" class="qa-empty-tip">暂无可添加候选</span>
         </span>
-      </div>
-      <div class="qa-edit-actions">
-        <el-button size="small" type="primary" :loading="saving" @click="save">保存</el-button>
-        <el-button size="small" :disabled="saving" @click="resetDefault">恢复默认</el-button>
       </div>
     </template>
   </div>
@@ -54,12 +50,13 @@ const ICONS = { 'page.project': Folder, 'page.experts': User, 'page.knowledge': 
 const iconOf = id => ICONS[id] || Folder
 
 const config = ref(null)          // 服务端已保存配置；null=未配置，用默认顺序
-const saving = ref(false), draft = ref([]), dragIndex = ref(-1)
+const draft = ref([]), dragIndex = ref(-1)
 
-// 管理态由外层「自定义布局」驱动：进入时初始化草稿，退出时丢弃未保存改动
+// 管理态由外层「自定义布局」驱动：进入时初始化草稿，退出时丢弃未保存改动；
+// 保存/恢复默认统一走页头「保存布局/恢复默认」，本组件不再自带按钮。
 watch(() => props.editing, active => {
   if (active) draft.value = enabled.value.slice()
-  else { dragIndex.value = -1; saving.value = false }
+  else dragIndex.value = -1
 })
 
 /** 默认顺序 = 候选集原顺序（与旧固定入口一致）。 */
@@ -82,18 +79,13 @@ function reorder(toIndex) {
   draft.value.splice(toIndex, 0, moved)
   dragIndex.value = -1
 }
-function resetDefault() { draft.value = defaultEnabled.value.slice() }
-async function save() {
-  if (!draft.value.length) { ElMessage.warning('至少保留一个快捷入口'); return }
-  saving.value = true
-  try {
-    const { items } = await saveQuickAccess(draft.value.map(d => d.id))
-    config.value = items
-    editing.value = false
-    ElMessage.success('快捷访问已保存')
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '保存失败，请重试（编辑内容已保留）')
-  } finally { saving.value = false }
+function resetDraft() { draft.value = defaultEnabled.value.slice() }
+/** 由页头「保存布局」调用；失败时抛错交由父级统一提示。 */
+async function saveDraft() {
+  if (!draft.value.length) { ElMessage.warning('至少保留一个快捷入口'); return false }
+  const { items } = await saveQuickAccess(draft.value.map(d => d.id))
+  config.value = items
+  return true
 }
 function go(path) { if (path) router.push(path) }
 
@@ -103,6 +95,8 @@ onMounted(async () => {
     if (Array.isArray(items) && items.length) config.value = items
   } catch (e) { /* 接口失败回退默认入口，不阻塞页面 */ }
 })
+
+defineExpose({ saveDraft, resetDraft })
 </script>
 <style scoped>
 .quick-access{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--c-border,#e2e8f0)}
@@ -111,14 +105,11 @@ onMounted(async () => {
 .qa-item:hover{border-color:var(--c-primary,#2563eb);background:#eff6ff}
 .qa-icon{width:14px;height:14px;color:var(--c-primary,#2563eb)}
 .qa-more{font-family:inherit}
-
-.qa-edit:hover{color:var(--c-primary,#2563eb)}
 .qa-edit-area{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1}
 .qa-draft{cursor:grab}
 .qa-remove{margin-left:2px;color:var(--c-text-sub,#64748b);font-size:13px;line-height:1}
 .qa-remove:hover{color:#dc2626}
 .qa-candidate{border-style:dashed;color:var(--c-text-sub,#64748b)}
 .qa-empty-tip{font-size:11px;color:var(--c-text-sub,#64748b)}
-.qa-edit-actions{display:flex;align-items:center;gap:6px}
 button:focus-visible,[role="button"]:focus-visible{outline:2px solid #2864d8;outline-offset:2px}
 </style>

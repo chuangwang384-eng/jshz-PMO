@@ -1,7 +1,7 @@
 <template>
   <main class="dashboard">
     <header class="dashboard-head"><div><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted"><span v-if="weekdayLabel">{{ weekdayLabel }} · </span>先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><template v-if="!editing"><el-button v-if="layoutEnabled" :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">自定义布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" class="refresh-btn" aria-label="刷新工作台" @click="refreshWorkbench"><el-icon><Refresh /></el-icon></el-button></div></header>
-    <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar :candidates="quickCandidates" :editing="editing" /></div>
+    <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar ref="quickBar" :candidates="quickCandidates" :editing="editing" /></div>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
     <p v-if="layoutEnabled && !wide" class="muted">请使用宽屏编辑布局。</p>
     <p v-if="editing" class="edit-tip">拖动标题移动，拖动右下角改变宽高。聚焦手柄可用方向键移动，按住 Shift 改变宽高。<span role="status">{{ layoutStatus }}</span></p>
@@ -60,7 +60,7 @@ import { normalizeDashboardLayout, orderLayout, placeCard } from '../../utils/da
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
 import QuickAccessBar from '../../components/QuickAccessBar.vue'
 import { Refresh } from '@element-plus/icons-vue'
-const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),searchBar=ref(null),seq=sectionRequests()
+const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),searchBar=ref(null),quickBar=ref(null),seq=sectionRequests()
 // capabilities 会话级缓存：首帧立即渲染快捷入口，避免 overview 返回前整条消失再弹入
 const capabilities=ref((()=>{try{return JSON.parse(sessionStorage.getItem(`dashboard-capabilities:${auth.id}`)||'[]')}catch(e){return []}})())
 const greeting=new Date().getHours()<12?'早上好':new Date().getHours()<18?'下午好':'晚上好'
@@ -193,6 +193,7 @@ function resetEdit() {
   const items = defaults()
   grid?.sync(items)
   editLayout.value = items
+  quickBar.value?.resetDraft()
   nextTick(() => grid?.restore(items))
 }
 function cancelEdit() {
@@ -243,11 +244,12 @@ async function saveLayout() {
   grid?.setEnabled(false)
   const items = displayLayout.value.map(item => ({ ...item }))
   try {
+    await quickBar.value?.saveDraft()
     const result = await saveDashboardLayout(revision.value, items)
     revision.value = result.revision
     savedLayout.value = items
     cancelEdit()
-    ElMessage.success('布局已保存')
+    ElMessage.success('布局与快捷访问已保存')
   } catch (error) {
     conflict.value = error.response?.status === 409 || Number(error.code) === 409
     ElMessage.error(conflict.value ? '布局已在其他窗口更新，请重新加载' : '保存失败，编辑内容已保留')
