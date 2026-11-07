@@ -29,8 +29,11 @@ import com.jshz.expert.mapper.UserRoleMapper;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -49,6 +52,7 @@ import java.util.regex.Pattern;
  * 接口路径沿用 /api/approval/*（permission 表路径规则不变），HTTP 层见 ApplicationController。
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ApplicationService extends ServiceImpl<ApplicationMapper, Application> {
 
@@ -81,8 +85,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     private static final int STATUS_RETURNED = 4;
 
     /** 新增专家必填文本字段（审批通过后写入 expert_info；模板管理接口对外暴露该清单） */
+    // Owner 2026-11-07：新增专家必填仅 姓名+单位，其余可选（DB 除 name 外均可空）
     public static final List<String> CREATE_REQUIRED_FIELDS = List.of(
-            "姓名", "单位", "科室", "职称", "联系方式");
+            "姓名", "单位");
 
     /** 姓名正则：2-20 个汉字，可含间隔号 */
     private static final Pattern NAME_PATTERN = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,20}$");
@@ -145,6 +150,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /**
      * 更新指定流程的审批流配置（按 flowKey 更新对应行；无行则先自建）。
      */
+    @Transactional(rollbackFor = Exception.class)
     public ApprovalConfig updateConfig(String flowKey, Integer enabled, String approverRole) {
         String key = StringUtils.hasText(flowKey) ? flowKey.trim() : FLOW_KEY;
         if (!StringUtils.hasText(approverRole)) {
@@ -193,6 +199,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - changes 非空且字段必须在白名单；
      * - 生成申请单(status=0)并写一条 SUBMIT 记录。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application submitRequest(Long expertId, Map<String, Object> changes, String reason,
                                      AuthUser user) {
         checkSubmitEligible(user, "编辑", FLOW_KEY);
@@ -230,6 +237,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - 额外校验新增必填项（姓名、单位等，姓名须满足 ^[一-龥·]{2,20}$）；
      * - expertId 为空，审批通过后创建专家并回填 biz_data.expertId。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application submitCreateRequest(Map<String, Object> changes, String reason,
                                            AuthUser user) {
         checkSubmitEligible(user, "新增", FLOW_KEY);
@@ -416,6 +424,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - changes 仅含敏感字段（身份证号/银行卡号），发起时校验格式；
      * - 生成申请单(status=0)并置合同 status=PENDING、approval_ref=申请单id，写 operation_log 留痕。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application submitContractApproval(Long contractId, Long projectId, Map<String, Object> changes,
                                               String reason, AuthUser user) {
         ApprovalConfig config = getConfig(FLOW_KEY_CONTRACT);
@@ -474,9 +483,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - CONTRACT 专家合同审批：合同生效（status=APPROVED）；
      * - EXPERT_MODIFY 修改申请：走原修改逻辑。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application approve(Long id, String comment, AuthUser user) {
         Application app = getPending(id);
         checkAssignee(app, user);
+        // H2 并发抢占：以 status=0 为条件原子更新，影响行数为 0 说明已被其他审批人处理。
+        // 必须在建专家 / 合同生效 / 写审批记录等任何副作用之前执行，保证同一申请只被通过一次。
+        claimPending(app, STATUS_APPROVED);
         Application result;
         if (isCreateRequest(app)) {
             result = approveCreate(app, comment, user);
@@ -524,8 +537,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         applyChanges(expert, changes);
         expertService.create(expert, user);
 
-        // 2. 归档照片并回填
+        // 2. 计算照片归档文件名并回填（只做命名与临时文件校验，物理拷贝延后到事务提交后）
         Map<String, String> photoApplied = new LinkedHashMap<>();
+        Map<String, String> pendingArchives = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
             String key = entry.getKey();
             if (!PHOTO_FIELDS.contains(key)) {
@@ -536,7 +550,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 continue;
             }
             String tempName = value.substring(TMP_PREFIX.length());
-            String newName = photoStorageService.moveTempPhoto(tempName, expert.getId(), photoTypeOf(key));
+            String newName = photoStorageService.buildArchivedName(tempName, expert.getId(), photoTypeOf(key));
+            pendingArchives.put(tempName, newName);
             photoApplied.put(key, newName);
             switch (key) {
                 case "照片" -> expert.setPhoto(newName);
@@ -563,6 +578,11 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意新增专家");
+
+        // 4. 事务提交后再做物理归档：提交失败则不会产生孤儿文件，提交成功才落盘（失败仅记日志，不影响已通过的审批结果）
+        if (!pendingArchives.isEmpty()) {
+            afterCommit("新增专家照片归档", () -> archiveTempPhotos(pendingArchives, expert.getId()));
+        }
         return fillView(app, isFullSensitive(user));
     }
 
@@ -570,6 +590,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * 审批通过（修改申请）：校验待审批状态，将白名单字段写入 expert_info（update_by=申请人），
      * 状态置为已通过，写 APPROVE 记录。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application approveModify(Application app, String comment, AuthUser user) {
         Map<String, Object> changes = readChanges(app);
         // 敏感字段格式兜底校验（身份证/银行卡/联系方式）
@@ -579,6 +600,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         Expert patch = new Expert();
         Map<String, String> oldPhotos = new HashMap<>();
         Map<String, String> photoApplied = new LinkedHashMap<>();
+        Map<String, String> pendingArchives = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
             String key = entry.getKey();
             if (!PHOTO_FIELDS.contains(key)) {
@@ -589,7 +611,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 continue;
             }
             String tempName = value.substring(TMP_PREFIX.length());
-            String newName = photoStorageService.moveTempPhoto(tempName, app.getExpertId(), photoTypeOf(key));
+            String newName = photoStorageService.buildArchivedName(tempName, app.getExpertId(), photoTypeOf(key));
+            pendingArchives.put(tempName, newName);
             photoApplied.put(key, newName);
             switch (key) {
                 case "照片" -> {
@@ -618,16 +641,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         expertService.update(app.getExpertId(), patch, null);
 
         // 旧照片处理：oldData 快照存在时保留旧文件（对比弹窗随时可回看「变更前」）；
-        // 无快照的历史单维持原有物理删除行为（仅照片键有变更时删）
-        if (readOldData(app).isEmpty()) {
-            for (String oldName : oldPhotos.values()) {
-                if (StringUtils.hasText(oldName)) {
-                    photoStorageService.deletePhoto(oldName);
-                }
-            }
-        }
-        // 防御性清理临时文件（moveTempPhoto 已归档并删除，此处兜底）
-        cleanTempPhotos(app);
+        // 无快照的历史单维持原有物理删除行为（仅照片键有变更时删）。
+        // 物理删除、临时文件清理与照片归档统一延后到事务提交后执行，避免文件 IO 占用数据库事务。
+        boolean deleteOldPhotos = readOldData(app).isEmpty();
 
         // 照片生效后把 biz_data.changes 的 TMP: 值替换为归档文件名（生效后可预览），随状态更新一并落库
         if (!photoApplied.isEmpty()) {
@@ -644,20 +660,35 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意修改");
+
+        // 事务提交后执行文件操作：先归档新照片，再按需删除旧照片，最后清理残留临时文件
+        afterCommit("修改申请照片归档", () -> {
+            archiveTempPhotos(pendingArchives, app.getExpertId());
+            if (deleteOldPhotos) {
+                for (String oldName : oldPhotos.values()) {
+                    if (StringUtils.hasText(oldName)) {
+                        photoStorageService.deletePhoto(oldName);
+                    }
+                }
+            }
+            cleanTempPhotos(app);
+        });
         return fillView(app, isFullSensitive(user));
     }
 
     /**
      * 审批驳回：校验待审批状态与意见必填，状态置为已驳回，写 REJECT 记录。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application reject(Long id, String comment, AuthUser user) {
         if (!StringUtils.hasText(comment)) {
             throw new BusinessException("驳回意见不能为空");
         }
         Application app = getPending(id);
         checkAssignee(app, user);
-        // 驳回：清理该申请关联的所有临时照片（与撤回共用 cleanTempPhotos）
-        cleanTempPhotos(app);
+        // H2 并发抢占：驳回同样以 status=0 为条件，避免与并发通过/驳回重复处理同一申请。
+        claimPending(app, STATUS_REJECTED);
+        // 驳回：提交后清理该申请关联的所有临时照片（与撤回共用 cleanTempPhotos）；事务失败时保留临时文件
         app.setStatus(STATUS_REJECTED);
         app.setApproveBy(user == null ? null : user.getUsername());
         app.setApproveComment(comment);
@@ -668,6 +699,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         // CONTRACT 类型：同步合同驳回
         syncContractByApproval(app, "REJECTED", user);
         notifyApprovalResult(app, user);
+        // 临时照片清理（文件 IO）延后到事务提交后
+        afterCommit("驳回清理临时照片", () -> cleanTempPhotos(app));
         return fillView(app, isFullSensitive(user));
     }
 
@@ -680,12 +713,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - CONTRACT 类型同步合同恢复 DRAFT；
      * - 通知申请人。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application returnRequest(Long id, String comment, AuthUser user) {
         if (!StringUtils.hasText(comment)) {
             throw new BusinessException("退回意见不能为空");
         }
         Application app = getPending(id);
         checkAssignee(app, user);
+        // H2 并发抢占：退回与通过/驳回互斥，抢占失败即说明该单已被处理。
+        claimPending(app, STATUS_RETURNED);
         // 退回修改：保留临时照片（区别于 reject 的 cleanTempPhotos），供申请人修改后重新提交
         app.setStatus(STATUS_RETURNED);
         app.setApproveBy(user == null ? null : user.getUsername());
@@ -850,6 +886,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * 撤回申请：仅申请人本人可撤，status=0 才可撤。
      * 撤回后状态置为已撤回(3)，清理该单全部临时照片，写 WITHDRAW 记录，通知审批人角色下用户。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application withdraw(Long id, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
@@ -868,7 +905,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             throw new BusinessException("仅申请人本人可撤回申请");
         }
         fillBiz(app);
-        cleanTempPhotos(app);
+        // H2 并发抢占：撤回与并发审批互斥——抢占失败说明审批人已先一步处理，不能再撤回。
+        claimPending(app, STATUS_WITHDRAWN);
+        // 临时照片清理延后到事务提交后（与合同状态回退、状态更新同事务，撤销失败不删文件）
         // CONTRACT 类型：同步合同恢复草稿
         syncContractByApproval(app, "DRAFT", user);
         app.setStatus(STATUS_WITHDRAWN);
@@ -876,6 +915,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "申请人撤回", "WITHDRAW", user.getUsername(), "撤回本人提交的申请");
         notifyApprovalWithdrawn(app);
+        afterCommit("撤回清理临时照片", () -> cleanTempPhotos(app));
         return fillView(app, isFullSensitive(user));
     }
 
@@ -889,6 +929,49 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                     && String.valueOf(entry.getValue()).startsWith(TMP_PREFIX)) {
                 photoStorageService.deleteTempPhoto(
                         String.valueOf(entry.getValue()).substring(TMP_PREFIX.length()));
+            }
+        }
+    }
+
+    // ==================== 事务提交后的文件 IO（照片归档 / 删除） ====================
+
+    /**
+     * 注册「事务提交后执行」的文件 IO 任务：照片归档、旧照片删除、临时文件清理统一走此通道。
+     * 目的：数据库写入在同一事务内原子提交，文件 IO 不占用事务与数据库连接。
+     * 无事务上下文时（如测试直接调用）立即执行。
+     * 说明：数据库与文件系统无法共享事务，IO 失败只记录 error 日志，不回滚已提交的审批结果。
+     */
+    private void afterCommit(String scene, Runnable task) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            runAfterCommitSafely(scene, task);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                runAfterCommitSafely(scene, task);
+            }
+        });
+    }
+
+    private void runAfterCommitSafely(String scene, Runnable task) {
+        try {
+            task.run();
+        } catch (Exception e) {
+            log.error("[审批流] 事务提交后文件操作失败（数据已提交，需人工核查照片文件）：{}", scene, e);
+        }
+    }
+
+    /**
+     * 批量归档临时照片：单张失败不阻断其余照片，逐张记录 error 日志便于人工补偿。
+     */
+    private void archiveTempPhotos(Map<String, String> pendingArchives, Long expertId) {
+        for (Map.Entry<String, String> entry : pendingArchives.entrySet()) {
+            try {
+                photoStorageService.archiveTempPhoto(entry.getKey(), entry.getValue());
+            } catch (Exception e) {
+                log.error("[审批流] 照片归档失败：专家ID={}，临时文件={}，目标文件={}",
+                        expertId, entry.getKey(), entry.getValue(), e);
             }
         }
     }
@@ -911,41 +994,42 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             rel.setContractStatus(status);
             projectExpertMapper.updateById(rel);
         } catch (Exception e) {
-            // 快照同步失败不影响审批主流程
+            // 项目-专家合同状态属派生快照，失败不回滚主流程，但必须留痕便于核查
+            log.warn("[审批流] 项目专家合同状态快照同步失败：projectId={}，expertId={}，status={}",
+                    projectId, expertId, status, e);
         }
     }
 
     /**
      * 审批联动：同步合同状态（审批通过 APPROVED / 驳回 REJECTED / 撤回 DRAFT），并写 operation_log 留痕。
+     * 合同 status 是审批的业务结果，写入失败必须向上抛出以触发整体回滚；
+     * 仅「无合同关联」等前置条件不满足时直接返回，项目专家快照降级为告警日志。
      */
     private void syncContractByApproval(Application app, String targetStatus, AuthUser user) {
-        try {
-            Map<String, Object> biz = readBiz(app);
-            Object contractIdObj = biz.get("contractId");
-            if (contractIdObj == null) {
-                return;
-            }
-            Long contractId = ParamUtils.parseLong(contractIdObj, null);
-            if (contractId == null) {
-                return;
-            }
-            ProjectContract contract = projectContractMapper.selectById(contractId);
-            if (contract == null) {
-                return;
-            }
-            contract.setStatus(targetStatus);
-            projectContractMapper.updateById(contract);
-            if (contract.getProjectId() != null && contract.getExpertId() != null) {
-                syncProjectExpertSnapshot(contract.getProjectId(), contract.getExpertId(), targetStatus);
-            }
-            operationLogService.record(user == null ? null : user.getUserId(),
-                    user == null ? "system" : user.getUsername(),
-                    OperationLogService.ACTION_UPDATE_CONTRACT,
-                    "审批联动：专家「" + contract.getExpertName() + "」合同状态更新为 " + targetStatus,
-                    "PROJECT", contract.getProjectId(), null);
-        } catch (Exception e) {
-            // 联动失败不影响审批主流程
+        Map<String, Object> biz = readBiz(app);
+        Object contractIdObj = biz.get("contractId");
+        if (contractIdObj == null) {
+            return;
         }
+        Long contractId = ParamUtils.parseLong(contractIdObj, null);
+        if (contractId == null) {
+            return;
+        }
+        ProjectContract contract = projectContractMapper.selectById(contractId);
+        if (contract == null) {
+            log.warn("[审批流] 申请单 {} 关联的合同 {} 不存在，跳过合同状态联动", app.getId(), contractId);
+            return;
+        }
+        contract.setStatus(targetStatus);
+        projectContractMapper.updateById(contract);
+        if (contract.getProjectId() != null && contract.getExpertId() != null) {
+            syncProjectExpertSnapshot(contract.getProjectId(), contract.getExpertId(), targetStatus);
+        }
+        operationLogService.record(user == null ? null : user.getUserId(),
+                user == null ? "system" : user.getUsername(),
+                OperationLogService.ACTION_UPDATE_CONTRACT,
+                "审批联动：专家「" + contract.getExpertName() + "」合同状态更新为 " + targetStatus,
+                "PROJECT", contract.getProjectId(), null);
     }
 
     // ==================== 转办 / 加签（B2） ====================
@@ -958,6 +1042,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - 转办后仅被转办人可审批（approve/reject 经 checkAssignee 校验）；
      * - 写 TRANSFER 记录并通知被转办人与申请人。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application transfer(Long id, String targetUser, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
@@ -989,6 +1074,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - 已加签不可重复加签；不能加签给自己；
      * - extra_approver 置为目标用户，写 ADD_APPROVER 记录并通知被加签人。
      */
+    @Transactional(rollbackFor = Exception.class)
     public Application addApprover(Long id, String targetUser, String comment, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
@@ -1339,6 +1425,24 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         fillBiz(app);
         return app;
+    }
+
+    /**
+     * H2 并发抢占：把待审批单以 {@code status=0} 为条件原子推进到目标状态。
+     *
+     * <p>并发场景：两名审批人同时点击「通过」，双方 {@link #getPending(Long)} 都会读到 status=0；
+     * 只有一方能在条件更新中拿到影响行数 1，另一方拿到 0 并立即抛 409 回滚，
+     * 因此「同一申请重复审批通过」「重复创建专家」「合同重复生效」不会发生。</p>
+     *
+     * <p>必须在任何业务副作用（建专家、合同生效、写审批记录、发通知）之前调用；
+     * 后续步骤抛异常时由 {@code @Transactional} 整体回滚，状态自然恢复为 0，不留抢占痕迹。</p>
+     */
+    private void claimPending(Application app, int targetStatus) {
+        int affected = getBaseMapper().updateStatusIfCurrent(app.getId(), STATUS_PENDING, targetStatus);
+        if (affected != 1) {
+            throw new BusinessException(409, "该申请单已被其他审批人处理，请刷新后重试");
+        }
+        app.setStatus(targetStatus);
     }
 
     /**

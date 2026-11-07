@@ -1042,7 +1042,8 @@ function onCreatePickPhoto(kind, file) {
 
 // 提交新增专家申请：先逐个上传照片取 TMP: 文件名并入 changes，再调用 create-request
 async function submitCreateExpert() {
-  const requiredFields = ['姓名', '单位', '科室', '职称', '联系方式']
+  // Owner 2026-11-07：必填仅 姓名+单位
+  const requiredFields = ['姓名', '单位']
   for (const k of requiredFields) {
     if (!String(createForm[k] ?? '').trim()) {
       ElMessage.warning(`请填写${k}`)
@@ -1318,7 +1319,8 @@ function buildAdminCreateFormData() {
 }
 
 async function submitAdminCreate() {
-  const requiredFields = ['姓名', '单位', '科室', '职称', '联系方式']
+  // Owner 2026-11-07：必填仅 姓名+单位
+  const requiredFields = ['姓名', '单位']
   for (const k of requiredFields) {
     if (!String(adminCreateForm[k] ?? '').trim()) {
       ElMessage.warning(`请填写${k}`)
