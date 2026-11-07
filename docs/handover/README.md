@@ -1,5 +1,7 @@
 # 最新交接摘要
 
+- 2026-11-07 **编辑布局功能恢复**已发布 1.0.34.1.1-dashboard-editfix。根因：`VITE_DASHBOARD_LAYOUT_V2` 是构建时开关且不在 .env 中，当日 Agent 裸 `npm run build` 未注入导致功能编译排除；已 revert 密度提交、带开关重建发布，真机验证编辑模式完整可用。**待办：开关尚未固化进 .env/构建脚本，下次发布必须带 `VITE_DASHBOARD_LAYOUT_V2=true`**。见 [发布记录](../releases/20261107-dashboard-editfix-1.0.34.1.1.md)。
+
 - 2026-11-07 Owner 要求回滚，工作台已从 1.0.34.2（信息密度优化）回退至 **1.0.34.1**（我的项目列表形态），nginx root 直接指向 1.0.34.1 release 并优雅重载，真机验证通过。注意：r2 的自动回滚点是密度首版（同版本号 1.0.34.2）而非 1.0.34.1；1.0.34.2 代码仍保留在仓库（1691c24）未删除，version.txt 仍为 1.0.34.2；浏览器对 SPA 路由的入口页缓存可能导致老用户需强刷。详见 [发布记录回滚章节](../releases/20261107-dashboard-density-1.0.34.2.md)。
 - 2026-11-07 工作台信息密度优化曾发布 **1.0.34.2-dashboard-density-r2-20261107**（头部压缩/KPI降噪/项目行结构化/时间格式化/颜色降噪；布局编辑逻辑零改动），当日被 Owner 回滚，见下方回滚记录与 [发布记录](../releases/20261107-dashboard-density-1.0.34.2.md)。
 - 2026-11-07 工作台「我的项目」列表形态改版已发布 1.0.34.1-dashboard-projectlist-20261107（纯前端，复用 item-row，无迁移）。UAC 提权走 deploy-frontend-graceful.ps1，nginx root 已切至新 release；真实页面验证通过（测试账号）。提交 7e69d89。见 [发布记录](../releases/20261107-dashboard-projectlist-1.0.34.1.md)。
