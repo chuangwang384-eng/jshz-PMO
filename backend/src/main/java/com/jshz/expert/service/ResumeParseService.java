@@ -151,17 +151,34 @@ public class ResumeParseService {
         StringBuilder text = new StringBuilder();
         try (XMLSlideShow ppt = new XMLSlideShow(new ByteArrayInputStream(bytes))) {
             for (XSLFSlide slide : ppt.getSlides()) {
-                slide.iterator().forEachRemaining(shape -> {
-                    if (shape instanceof org.apache.poi.xslf.usermodel.XSLFTextShape ts) {
-                        text.append(ts.getText()).append('\n');
-                    }
-                });
+                // 递归展开组合形状：简历版式中姓名/单位常嵌套在 grpSp 内
+                for (var shape : slide) {
+                    collectShapeText(shape, text);
+                }
             }
             for (XSLFPictureData pic : ppt.getPictureData()) {
                 addCandidate(photoCandidates, pic.getData());
             }
         }
         return buildResult(text.toString(), photoCandidates);
+    }
+
+    /** 递归收集形状文本：组合形状逐层展开，表格按单元格拼接。 */
+    private void collectShapeText(org.apache.poi.xslf.usermodel.XSLFShape shape, StringBuilder text) {
+        if (shape instanceof org.apache.poi.xslf.usermodel.XSLFGroupShape group) {
+            for (var child : group) {
+                collectShapeText(child, text);
+            }
+        } else if (shape instanceof org.apache.poi.xslf.usermodel.XSLFTextShape ts) {
+            text.append(ts.getText()).append('\n');
+        } else if (shape instanceof org.apache.poi.xslf.usermodel.XSLFTable table) {
+            for (var row : table) {
+                for (var cell : row) {
+                    String v = cell.getText();
+                    if (v != null && !v.isBlank()) text.append(v.trim()).append('\n');
+                }
+            }
+        }
     }
 
     private ResumeParseResult parseImage(byte[] bytes) throws IOException {
@@ -202,11 +219,16 @@ public class ResumeParseService {
         String full = text.replaceAll("[ \\t]", "");
 
         String name = extractByLabel(cleaned, "姓名", "Name", 2, 20);
-        if (name == null && !cleaned.isEmpty()) {
-            String first = cleaned.get(0);
-            if (CHINESE_NAME.matcher(first).matches()
-                    && NAME_EXCLUDE_WORDS.stream().noneMatch(w -> first.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))) {
-                name = first;
+        if (name == null) {
+            // 无标签简历：前 3 行内寻找 2~4 汉字人名（首行常为"个人简历"类标题）
+            for (int i = 0; i < Math.min(3, cleaned.size()) && name == null; i++) {
+                String line = cleaned.get(i);
+                if (CHINESE_NAME.matcher(line).matches()
+                        && NAME_EXCLUDE_WORDS.stream().noneMatch(w -> line.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))
+                        && ORG_SUFFIXES.stream().noneMatch(line::endsWith)
+                        && DEPT_SUFFIXES.stream().noneMatch(line::endsWith)) {
+                    name = line;
+                }
             }
         }
         if (name != null) fields.put("姓名", name);
@@ -215,11 +237,16 @@ public class ResumeParseService {
         if (unit == null) {
             for (String line : cleaned) {
                 String compact = line.replace(" ", "");
-                if (compact.length() <= 40 && ORG_SUFFIXES.stream().anyMatch(compact::endsWith)
-                        && !compact.contains("简历")) {
-                    unit = compact;
-                    break;
+                if (compact.length() > 40 || compact.contains("简历")) continue;
+                // 设计稿常把职称/头衔接在单位后（"…医院院长"），按机构后缀截断
+                for (String suffix : ORG_SUFFIXES) {
+                    int idx = compact.indexOf(suffix);
+                    if (idx >= 0) {
+                        unit = compact.substring(0, idx + suffix.length());
+                        break;
+                    }
                 }
+                if (unit != null) break;
             }
         }
         if (unit != null) fields.put("单位", unit);
@@ -228,9 +255,10 @@ public class ResumeParseService {
         if (dept == null) {
             for (String line : cleaned) {
                 String compact = line.replace(" ", "");
-                if (compact.length() <= 20 && DEPT_SUFFIXES.stream().anyMatch(compact::endsWith)
-                        && (unit == null || !compact.equals(unit))
-                        && !compact.contains("简历")) {
+                if (compact.length() > 20 || compact.contains("简历")) continue;
+                if (unit != null && (compact.equals(unit) || unit.contains(compact))) continue;
+                if (DEPT_SUFFIXES.stream().anyMatch(compact::endsWith)
+                        && ORG_SUFFIXES.stream().noneMatch(compact::endsWith)) {
                     dept = compact;
                     break;
                 }
@@ -305,7 +333,8 @@ public class ResumeParseService {
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(data));
             if (img == null) return;
             int w = img.getWidth(), h = img.getHeight();
-            if (w < 80 || h < 80 || w > 1500 || h > 1500) return;
+            // 高清简历图普遍超过 1500px（如 3508×2283 设计稿），上限放宽到 4000px
+            if (w < 80 || h < 80 || w > 4000 || h > 4000) return;
             double ratio = (double) w / h;
             if (ratio < 0.5 || ratio > 1.8) return;
             candidates.add(toBase64Jpeg(img));
