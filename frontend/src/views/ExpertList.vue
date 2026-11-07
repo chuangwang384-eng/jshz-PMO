@@ -16,11 +16,6 @@
       <el-button :type="activeFilterCount ? 'primary' : 'default'" :plain="!activeFilterCount" @click="toggleFilters">
         高级筛选<el-badge v-if="activeFilterCount" :value="activeFilterCount" class="filter-badge" />
       </el-button>
-      <el-button :disabled="!activeFilterCount" @click="resetFilters">重置</el-button>
-      <!-- 外部链接：卫健委机构查询平台（新窗口打开，仅前端跳转，不依赖后端） -->
-      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener" type="primary" plain>
-        专家单位查询
-      </el-button>
       <div class="spacer" />
       <template v-if="canAddExpert">
         <el-button type="primary" @click="openAdminCreate">新增专家</el-button>
@@ -53,15 +48,21 @@
       <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
       <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
       <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
+      <el-button :disabled="!activeFilterCount" @click="resetFilters">一键重置</el-button>
     </div>
 
-    <!-- 第二层：工具行（统计 + 视图切换，两种视图共用搜索/勾选/页码） -->
+    <!-- 第二层：工具行（统计 + 外部工具 + 视图切换，两种视图共用搜索/勾选/页码） -->
     <div class="tool-row">
       <span class="total-label">专家档案 · 共 {{ total }} 人</span>
       <div class="spacer" />
+      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener" plain size="small">专家单位查询</el-button>
       <span class="view-toggle-label">显示方式</span>
-      <button type="button" class="view-btn" :class="{ active: viewMode === 'card' }" aria-label="卡片视图" @click="viewMode = 'card'"><el-icon><Grid /></el-icon></button>
-      <button type="button" class="view-btn" :class="{ active: viewMode === 'list' }" aria-label="列表视图" @click="viewMode = 'list'"><el-icon><Menu /></el-icon></button>
+      <el-tooltip content="卡片视图" placement="top">
+        <button type="button" class="view-btn" :class="{ active: viewMode === 'card' }" aria-label="卡片视图" @click="viewMode = 'card'"><el-icon><Grid /></el-icon>卡片</button>
+      </el-tooltip>
+      <el-tooltip content="列表视图" placement="top">
+        <button type="button" class="view-btn" :class="{ active: viewMode === 'list' }" aria-label="列表视图" @click="viewMode = 'list'"><el-icon><Menu /></el-icon>列表</button>
+      </el-tooltip>
     </div>
 
     <!-- 已选专家姓名展示：跨搜索/翻页保留，可逐项取消或一键清空 -->
@@ -1306,19 +1307,23 @@ watch(() => route.query.expertId, async id => {
 .view-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
+  gap: 4px;
+  padding: 5px 10px;
   border: 1px solid #dcdfe6;
   background: #fff;
   border-radius: 6px;
   cursor: pointer;
   color: #606266;
+  font-size: 12px;
+}
+.view-btn .el-icon {
+  font-size: 14px;
 }
 .view-btn.active {
   color: #409eff;
   border-color: #409eff;
   background: #ecf5ff;
+  font-weight: 600;
 }
 /* 悬浮批量操作栏 */
 .batch-bar {
@@ -1359,19 +1364,19 @@ watch(() => route.query.expertId, async id => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-auto-rows: auto;
-  column-gap: 20px;
-  row-gap: 45px;
+  column-gap: 14px;
+  row-gap: 14px;
 }
 .expert-card {
   min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   background: #fff;
   border: 1px solid #ebeef5;
   border-radius: 10px;
-  padding: 14px 14px 12px;
+  padding: 10px 12px 8px;
   text-align: left;
   cursor: pointer;
   transition: box-shadow 0.2s ease, transform 0.2s ease;
@@ -1428,14 +1433,14 @@ watch(() => route.query.expertId, async id => {
 .card-meta {
   width: 100%;
   margin-top: auto;
-  padding-top: 8px;
+  padding-top: 6px;
   border-top: 1px solid #ebeef5;
   display: flex;
   justify-content: flex-start;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 10px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 11px;
   color: #909399;
   line-height: 1.4;
   white-space: nowrap;
@@ -1460,16 +1465,16 @@ watch(() => route.query.expertId, async id => {
   box-shadow: 0 6px 18px rgba(0, 21, 41, 0.16);
   transform: translateY(-3px);
 }
-/* 紧凑卡片：头像 80px 左置，姓名/单位/科室右侧一屏可读 */
+/* 紧凑卡片：头像 72px 左置，姓名/单位/科室右侧一屏可读，整卡约 160~180px */
 .card-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 .card-photo {
-  width: 80px;
-  height: 80px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
   border-radius: 50%;
   overflow: hidden;
@@ -1486,10 +1491,10 @@ watch(() => route.query.expertId, async id => {
 .card-name {
   min-width: 0;
   max-width: 100%;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   color: #303133;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1497,9 +1502,9 @@ watch(() => route.query.expertId, async id => {
 .card-text {
   min-width: 0;
   max-width: 100%;
-  font-size: 13px;
+  font-size: 12px;
   color: #606266;
-  line-height: 1.7;
+  line-height: 1.55;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
