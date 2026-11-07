@@ -35,7 +35,16 @@
         </div>
       </div>
     </section>
-    <p v-if="data('projectRisk').unknownCompletionCount" class="unknown-note">{{ data('projectRisk').unknownCompletionCount }} 个项目的完成状态待核实，未归入正常或到期风险。仅历史明确的完成阶段可判定完成。</p>
+    <div v-if="data('projectRisk').unknownCompletionCount" class="risk-banner">
+      <el-icon class="risk-icon" aria-hidden="true"><WarningFilled /></el-icon>
+      <div class="risk-body">
+        <div class="risk-title">项目状态待核实 <el-tag size="small" type="warning">{{ data('projectRisk').unknownCompletionCount }} 个项目</el-tag>
+          <el-tooltip content="仅历史明确的完成阶段可判定完成" placement="top"><el-icon class="risk-info" aria-label="判定规则说明"><InfoFilled /></el-icon></el-tooltip>
+        </div>
+        <p class="risk-desc">{{ data('projectRisk').unknownCompletionCount === 1 ? '该项目暂不参与正常及到期风险统计。' : '这些项目暂不参与正常及到期风险统计。' }}</p>
+      </div>
+      <button type="button" class="risk-link" @click="go({ path: '/project', query: { mine: 1 } })">查看项目详情 →</button>
+    </div>
     <template v-if="editing">
       <div class="palette">
         <div class="palette-head">备选卡片（点击添加到工作台）</div>
@@ -45,7 +54,16 @@
         </div>
       </div>
     </template>
-    <footer class="muted">{{ updatedAt ? `最近刷新 ${updatedAt}` : '正在获取工作台数据' }} · 页面可见时每60秒刷新</footer>
+    <footer class="status-bar">
+      <span v-if="loading" class="status-main">正在更新数据…</span>
+      <span v-else-if="refreshFailed" role="button" tabindex="0" class="status-main status-action status-fail" @click="refreshWorkbench" @keydown.enter.prevent="refreshWorkbench">更新失败 · 点击重试</span>
+      <span v-else-if="dataStale" role="button" tabindex="0" class="status-main status-action status-stale" @click="refreshWorkbench" @keydown.enter.prevent="refreshWorkbench">数据可能不是最新，请刷新</span>
+      <span v-else class="status-main">已更新 {{ updatedAt || '--:--:--' }} · 每60秒自动刷新</span>
+      <span v-if="!loading" class="status-right" :class="refreshFailed ? 'is-fail' : dataStale ? 'is-stale' : 'is-ok'">
+        <el-icon aria-hidden="true"><component :is="refreshFailed ? CircleCloseFilled : dataStale ? WarningFilled : CircleCheckFilled" /></el-icon>
+        {{ refreshFailed ? '数据未同步' : dataStale ? '数据可能过期' : '数据已同步' }}
+      </span>
+    </footer>
   </main>
 </template>
 
@@ -59,7 +77,7 @@ import { sectionRequests, safeTarget, warningNames } from '../../utils/dashboard
 import { normalizeDashboardLayout, orderLayout, placeCard } from '../../utils/dashboardLayout'
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
 import QuickAccessBar from '../../components/QuickAccessBar.vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, WarningFilled, InfoFilled, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),searchBar=ref(null),quickBar=ref(null),seq=sectionRequests()
 // capabilities 会话级缓存：首帧立即渲染快捷入口，避免 overview 返回前整条消失再弹入
 const capabilities=ref((()=>{try{return JSON.parse(sessionStorage.getItem(`dashboard-capabilities:${auth.id}`)||'[]')}catch(e){return []}})())
@@ -269,6 +287,9 @@ function beforeUnload(event) {
 }
 onBeforeRouteLeave(() => !dirtyLayout() || window.confirm('布局尚未保存，确定离开吗？'))
 
+const refreshFailed=ref(false),lastRefreshAt=ref(0),nowTick=ref(Date.now())
+// 状态栏：刷新中(loading) > 失败(refreshFailed) > 过期(距上次成功超2个周期) > 正常；页面回前台已有自动补刷逻辑
+const dataStale=computed(()=>lastRefreshAt.value>0 && nowTick.value-lastRefreshAt.value>120000)
 const WEEK=['日','一','二','三','四','五','六']
 const weekdayLabel=computed(()=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(businessDate.value||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3]);return `${+m[2]}月${+m[3]}日，星期${WEEK[d.getDay()]}`})
 // 快捷访问候选：page.* 卡片按原固定顺序排列，经 canShow 过滤（含 capabilities 与权限）
@@ -281,7 +302,7 @@ const pendingItems=key=>key==='returned'?data('myApplications').returnedItems ||
 const SectionState=defineComponent({props:['value','loading'],emits:['retry'],setup(p,{emit}){return()=>p.loading?h('p',{class:'muted'},'正在加载…'):p.value?.status==='error'?h('p',{class:'section-error'},['加载失败，数据暂不可用。',h('button',{onClick:()=>emit('retry')},'重试')]):p.value?.status==='empty'?h('p',{class:'muted'},'暂无相关事项'):null}})
 const allSections=['myApplications','myApprovals','myProjects','projectRisk','favorites','announcements','notifications']
 const requests=new Set()
-let timer,lastFocus=0,alive=true,pending=0,capabilityVersion=0
+let timer,tickTimer,lastFocus=0,alive=true,pending=0,capabilityVersion=0
 async function refresh(keys) {
  const selected=keys || allSections
  if(!keys)for(const request of requests)request.abort()
@@ -295,11 +316,12 @@ async function refresh(keys) {
    if(response.sections[key])next[key]=response.sections[key]
    else delete next[key]
   }
-  section.value=next
-  if(id>=capabilityVersion){capabilitiesReady.value=true;capabilities.value=response.capabilities || [];capabilityVersion=id;businessDate.value=response.businessDate;updatedAt.value=new Date(response.generatedAt).toLocaleTimeString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});try{sessionStorage.setItem(`dashboard-capabilities:${auth.id}`,JSON.stringify(capabilities.value))}catch(e){}}
+   section.value=next
+   if(id>=capabilityVersion){capabilitiesReady.value=true;capabilities.value=response.capabilities || [];capabilityVersion=id;businessDate.value=response.businessDate;updatedAt.value=new Date(response.generatedAt).toLocaleTimeString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});try{sessionStorage.setItem(`dashboard-capabilities:${auth.id}`,JSON.stringify(capabilities.value))}catch(e){}}
+   refreshFailed.value=false;lastRefreshAt.value=Date.now()
  } catch(e) {
   if(alive && e.code!=='ERR_CANCELED') {
-   pageError.value=true
+   pageError.value=true;refreshFailed.value=true
    for(const key of selected)if(seq.current(key,id) && (key!=='myApprovals' || auth.hasPermission('approval:audit')))section.value[key]={status:'error',data:null}
   }
  } finally {requests.delete(controller);pending--;if(alive)loading.value=pending>0}
@@ -312,6 +334,7 @@ function commandKey(event){if((event.ctrlKey||event.metaKey)&&(event.key==='k'||
 onMounted(async()=>{
  const saved=Number(sessionStorage.getItem(`dashboard-scroll:${auth.id}`) || 0)
  timer=setInterval(()=>{if(!document.hidden)refresh()},60000)
+ tickTimer=setInterval(()=>{nowTick.value=Date.now()},15000)
  window.addEventListener('focus',focused);document.addEventListener('visibilitychange',focused)
  document.addEventListener('keydown',commandKey)
  resizeObserver = new ResizeObserver(([entry]) => { wide.value = entry.contentRect.width >= 900 })
@@ -326,7 +349,7 @@ onBeforeUnmount(()=>{
  document.removeEventListener('keydown',commandKey)
  alive=false;sessionStorage.setItem(`dashboard-scroll:${auth.id}`,String(document.querySelector('.el-main')?.scrollTop || 0))
  for(const request of requests)request.abort()
- clearInterval(timer);window.removeEventListener('focus',focused);document.removeEventListener('visibilitychange',focused)
+ clearInterval(timer);clearInterval(tickTimer);window.removeEventListener('focus',focused);document.removeEventListener('visibilitychange',focused)
 })
 </script>
 
@@ -346,7 +369,7 @@ onBeforeUnmount(()=>{
 .cell{height:100%;overflow:hidden}
 .summary{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 8px;border:1px solid #dce5f2;background:#fff;border-radius:10px;cursor:pointer;color:#334e72;text-align:center;width:100%;height:100%;box-sizing:border-box}.summary span{font-size:12px;line-height:1.25;overflow-wrap:anywhere}.summary strong{font-size:22px;color:#254f91;line-height:1.2}.summary strong i{font-size:16px;font-style:normal;color:#c7d1df}.summary small{color:#8391a4;font-size:10px;line-height:1.2}.summary.danger{background:#fff8f6;border-color:#f4dcd6}.danger strong{color:#bb5446}.summary.caution{background:#fffaf1;border-color:#f0e3c8}.caution strong{color:#a67526}
 .page-tile{flex-direction:row;gap:6px;align-items:center;justify-content:center}.page-tile-title{font-size:13px;font-weight:600;color:#254f91}.page-tile-arrow{color:#8fa2b9;font-size:14px}.page-tile:hover{border-color:#a0cfff;background:#f4f9ff}
-.panel{background:var(--c-card-bg,#fff);border:1px solid var(--c-border,#e3eaf3);border-radius:var(--r-card,10px);padding:12px 18px;margin:0;width:100%;height:100%;box-sizing:border-box;overflow-y:auto}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.item-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 0;border:0;border-top:1px solid #f0f3f8;background:white;text-align:left;cursor:pointer;color:#405475}.item-row b{font-size:13px;font-weight:500}.item-row small{display:block;font-size:11px;color:#8593a5;margin-top:5px}.project-row .relation-line{color:#a3b1c2}.project-row b .el-tag{margin-left:6px}.detail-arrow{font-size:12px;color:#8593a5;white-space:nowrap}.unknown-note{font-size:12px;color:#8f692f;background:#fff9ed;padding:10px 14px;border-radius:6px}.section-error{color:#b15d4a;font-size:13px}footer{padding:4px 0 18px}button:focus-visible,a:focus-visible{outline:2px solid #2864d8;outline-offset:3px}
+.panel{background:var(--c-card-bg,#fff);border:1px solid var(--c-border,#e3eaf3);border-radius:var(--r-card,10px);padding:12px 18px;margin:0;width:100%;height:100%;box-sizing:border-box;overflow-y:auto}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.item-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 0;border:0;border-top:1px solid #f0f3f8;background:white;text-align:left;cursor:pointer;color:#405475}.item-row b{font-size:13px;font-weight:500}.item-row small{display:block;font-size:11px;color:#8593a5;margin-top:5px}.project-row .relation-line{color:#a3b1c2}.project-row b .el-tag{margin-left:6px}.detail-arrow{font-size:12px;color:#8593a5;white-space:nowrap}.risk-banner{display:flex;align-items:center;gap:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin:0 0 16px}.risk-icon{color:#d97706;font-size:20px;flex-shrink:0}.risk-body{flex:1;min-width:0}.risk-title{font-size:13px;font-weight:600;color:var(--c-text,#0f172a);display:flex;align-items:center;gap:8px}.risk-info{color:var(--c-text-sub,#64748b);cursor:help;font-size:14px}.risk-desc{margin:4px 0 0;font-size:12px;color:var(--c-text-sub,#64748b)}.risk-link{border:1px solid var(--c-border,#e2e8f0);background:var(--c-card-bg,#fff);border-radius:8px;padding:7px 14px;font-size:12px;color:var(--c-primary,#2563eb);cursor:pointer;white-space:nowrap}.risk-link:hover{border-color:var(--c-primary,#2563eb);background:#eff6ff}.section-error{color:#b15d4a;font-size:13px}.status-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0 18px;font-size:12px;color:var(--c-text-sub,#64748b)}.status-main.status-action{cursor:pointer}.status-main.status-action:hover{color:var(--c-primary,#2563eb)}.status-main.status-fail{color:#dc2626}.status-main.status-stale{color:#d97706}.status-right{display:inline-flex;align-items:center;gap:4px}.status-right .el-icon{font-size:14px}.status-right.is-ok{color:#16a34a}.status-right.is-stale{color:#d97706}.status-right.is-fail{color:#dc2626}button:focus-visible,a:focus-visible{outline:2px solid #2864d8;outline-offset:3px}
 .edit-tip{font-size:12px;color:#758298;background:#f4f8ff;border:1px solid #dce5f2;border-radius:6px;padding:8px 12px;margin:12px 0}
 .palette{margin-top:16px;background:white;border:1px solid #e3eaf3;border-radius:10px;padding:14px}.palette-head{font-size:12px;color:#758298;margin-bottom:10px}.palette-list{display:flex;flex-wrap:wrap;gap:8px}.palette-item{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:12px;color:#334e72;background:#f5f8fd;border:1px solid #dce5f2;border-radius:14px;cursor:pointer}.palette-item:hover{border-color:#a0cfff;background:#ecf5ff}.palette-item small{color:#8fa2b9}
 .chip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.chip-dot[data-color='primary']{background:#409eff}.chip-dot[data-color='warning']{background:#e6a23c}.chip-dot[data-color='success']{background:#67c23a}
