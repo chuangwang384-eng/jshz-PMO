@@ -150,10 +150,10 @@ public class ResumeParseService {
     // ==================== 格式分发 ====================
 
     private ResumeParseResult parsePdf(byte[] bytes) throws IOException {
-        List<String> photoCandidates;
+        List<BufferedImage> images;
         String text;
         try (PDDocument doc = PDDocument.load(bytes)) {
-            photoCandidates = extractPdfImages(doc);
+            images = extractPdfImages(doc);
             text = new org.apache.pdfbox.text.PDFTextStripper().getText(doc);
             // 扫描件回退：每页平均文本过少时栅格化前 3 页 OCR
             if (text.trim().length() < Math.max(20L, doc.getNumberOfPages() * 20L)) {
@@ -169,30 +169,41 @@ public class ResumeParseService {
                 }
             }
         }
-        return buildResult(text, photoCandidates);
+        return buildResult(text, images);
     }
 
+    /**
+     * 老版 .doc：文本 HWPF 抽取；文档内所有图片（含证件照）通过 PicturesTable 抽出作为头像候选
+     * （Owner 2026-11-07：doc 内所有图片都可能是头像）。
+     */
     private ResumeParseResult parseDoc(byte[] bytes) throws IOException {
+        List<BufferedImage> images = new ArrayList<>();
         String text;
-        try (WordExtractor extractor = new WordExtractor(new ByteArrayInputStream(bytes))) {
-            text = extractor.getText();
+        org.apache.poi.hwpf.HWPFDocument doc = new org.apache.poi.hwpf.HWPFDocument(new ByteArrayInputStream(bytes));
+        try {
+            text = new WordExtractor(doc).getText();
+            for (org.apache.poi.hwpf.usermodel.Picture pic : doc.getPicturesTable().getAllPictures()) {
+                collectImage(images, pic.getContent());
+            }
+        } finally {
+            try { doc.close(); } catch (Exception ignored) {}
         }
-        return buildResult(text, List.of());
+        return buildResult(text, images);
     }
 
     private ResumeParseResult parseDocx(byte[] bytes) throws IOException {
-        List<String> photoCandidates = new ArrayList<>();
+        List<BufferedImage> images = new ArrayList<>();
         String text;
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes));
              XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
             text = extractor.getText();
-            doc.getAllPictures().forEach(pic -> addCandidate(photoCandidates, pic.getData()));
+            doc.getAllPictures().forEach(pic -> collectImage(images, pic.getData()));
         }
-        return buildResult(text, photoCandidates);
+        return buildResult(text, images);
     }
 
     private ResumeParseResult parsePpt(byte[] bytes) throws IOException {
-        List<String> photoCandidates = new ArrayList<>();
+        List<BufferedImage> images = new ArrayList<>();
         StringBuilder text = new StringBuilder();
         try (XMLSlideShow ppt = new XMLSlideShow(new ByteArrayInputStream(bytes))) {
             for (XSLFSlide slide : ppt.getSlides()) {
@@ -202,10 +213,10 @@ public class ResumeParseService {
                 }
             }
             for (XSLFPictureData pic : ppt.getPictureData()) {
-                addCandidate(photoCandidates, pic.getData());
+                collectImage(images, pic.getData());
             }
         }
-        return buildResult(text.toString(), photoCandidates);
+        return buildResult(text.toString(), images);
     }
 
     /** 递归收集形状文本：组合形状逐层展开，表格按单元格拼接。 */
@@ -231,15 +242,13 @@ public class ResumeParseService {
         if (image == null) {
             throw new BusinessException(400, "无法读取图片内容");
         }
-        List<String> photoCandidates = new ArrayList<>();
-        addCandidate(photoCandidates, bytes);
         String text = KnowledgeDocTextExtractor.ocrPage(image, false);
-        return buildResult(text, photoCandidates);
+        return buildResult(text, List.of(image));
     }
 
     // ==================== 字段解析 ====================
 
-    private ResumeParseResult buildResult(String text, List<String> photoCandidates) {
+    private ResumeParseResult buildResult(String text, List<BufferedImage> images) {
         Map<String, String> fields = new LinkedHashMap<>();
         String message = "";
         if (text == null || text.isBlank()) {
@@ -263,7 +272,40 @@ public class ResumeParseService {
                 fields.put("简介", profile);
             }
         }
+        // 头像候选：先取"头像特征"过滤结果；若全部被过滤，回退为文档内所有图片
+        //（Owner 2026-11-07：doc 等格式内所有图片都可能是头像）
+        List<String> photoCandidates = new ArrayList<>();
+        List<BufferedImage> safeImages = images == null ? List.of() : images;
+        List<BufferedImage> pool = safeImages.stream().filter(this::isAvatarLike).toList();
+        if (pool.isEmpty()) pool = safeImages;
+        for (BufferedImage img : pool) {
+            if (photoCandidates.size() >= 3) break;
+            try {
+                photoCandidates.add(toBase64Jpeg(img));
+            } catch (Exception ignored) {
+                // 单张候选失败不影响其余
+            }
+        }
         return new ResumeParseResult(fields, photoCandidates, fields.size(), message);
+    }
+
+    /** 头像特征：尺寸 80~4000px、宽高比 0.5~1.8。 */
+    private boolean isAvatarLike(BufferedImage img) {
+        if (img == null) return false;
+        int w = img.getWidth(), h = img.getHeight();
+        if (w < 80 || h < 80 || w > 4000 || h > 4000) return false;
+        double ratio = (double) w / h;
+        return ratio >= 0.5 && ratio <= 1.8;
+    }
+
+    /** 解码图片字节并收集（解码失败跳过）。 */
+    private void collectImage(List<BufferedImage> images, byte[] data) {
+        if (data == null || data.length == 0) return;
+        try {
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(data));
+            if (img != null) images.add(img);
+        } catch (Exception ignored) {
+        }
     }
 
     /**
@@ -449,18 +491,17 @@ public class ResumeParseService {
         return Base64.getEncoder().encodeToString(bos.toByteArray());
     }
 
-    private List<String> extractPdfImages(PDDocument doc) throws IOException {
-        List<String> candidates = new ArrayList<>();
+    private List<BufferedImage> extractPdfImages(PDDocument doc) throws IOException {
+        List<BufferedImage> images = new ArrayList<>();
         int pageIndex = 0;
         for (PDPage page : doc.getPages()) {
-            if (pageIndex >= 2 || candidates.size() >= 3) break;
+            if (pageIndex >= 2 || images.size() >= 10) break;
             PDResources resources = page.getResources();
             if (resources == null) continue;
             for (var name : resources.getXObjectNames()) {
                 try {
                     if (resources.getXObject(name) instanceof PDImageXObject image) {
-                        addCandidate(candidates, image.getImage() != null
-                                ? toJpegBytes(image.getImage()) : null);
+                        collectImage(images, toJpegBytes(image.getImage()));
                     }
                 } catch (Exception ignored) {
                     // 单个图片对象损坏不影响其余候选
@@ -468,7 +509,7 @@ public class ResumeParseService {
             }
             pageIndex++;
         }
-        return candidates;
+        return images;
     }
 
     private byte[] toJpegBytes(BufferedImage img) throws IOException {
