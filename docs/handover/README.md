@@ -1,6 +1,6 @@
 # 最新交接摘要
 
-- 2026-11-07 工作台信息密度优化需求与设计文档已落盘**待评审**（空面板折叠/时间格式化/头部压缩/KPI降噪/列表结构化；布局编辑逻辑明确不动；内联审批与 Ctrl+K 列为待决策项）。未施工。见 [需求文档](../requirements/2026-11-07-个人工作台信息密度优化-需求文档.md) 与 [设计文档](../design/2026-11-07-个人工作台信息密度优化-设计文档.md)。
+- 2026-11-07 工作台信息密度优化需求与设计文档已按 Owner 决策改定 v1.1**待施工**（范围：头部压缩/KPI降噪/列表结构化/时间格式化/颜色降噪；**空面板折叠不做**，内联审批与 Ctrl+K 不纳入本期）。见 [需求文档](../requirements/2026-11-07-个人工作台信息密度优化-需求文档.md) 与 [设计文档](../design/2026-11-07-个人工作台信息密度优化-设计文档.md)。
 - 2026-11-07 工作台「我的项目」列表形态改版已发布 1.0.34.1-dashboard-projectlist-20261107（纯前端，复用 item-row，无迁移）。UAC 提权走 deploy-frontend-graceful.ps1，nginx root 已切至新 release；真实页面验证通过（测试账号）。提交 7e69d89。见 [发布记录](../releases/20261107-dashboard-projectlist-1.0.34.1.md)。
 - 2026-11-06 审查缺陷 H1 修复完成（未发布）：`ApplicationService` 审批流 14 个写入口统一加 `@Transactional(rollbackFor = Exception.class)`，照片归档/旧照片删除/临时照片清理由 `TransactionSynchronization.afterCommit` 移到提交后；合同联动失败改为抛出以触发整体回滚。编译通过、后端 75 项测试 0 失败 0 错误 9 跳过；真实库全链路验证与 H2 并发双批未处理，见 [专项交接](tasks/20261106_approval_transaction_boundary.md)。
 - 2026-11-06 工作台卡片显示修复已平滑上线 1.0.31-dashboard-layout-ui-fix-20261106。1522 次切流探测零失败，发布目录制品 Edge 回归通过，生产账号验收待完成。见 [生产发布记录](../releases/20261106-dashboard-layout-production.md)。
