@@ -16,22 +16,10 @@
       <el-button :type="activeFilterCount ? 'primary' : 'default'" :plain="!activeFilterCount" @click="toggleFilters">
         高级筛选<el-badge v-if="activeFilterCount" :value="activeFilterCount" class="filter-badge" />
       </el-button>
-    </div>
-
-    <!-- 高级筛选面板：组合使用，一键重置 -->
-    <div v-if="filtersOpen" class="advanced-panel">
-      <span class="filter-field"><label>工作单位</label><el-select v-model="filters.unit" filterable clearable placeholder="选择单位" style="width: 220px"><el-option v-for="u in filterOptions.units" :key="u" :label="u" :value="u" /></el-select></span>
-      <span class="filter-field"><label>所属科室</label><el-select v-model="filters.department" filterable clearable placeholder="选择科室" style="width: 180px"><el-option v-for="d in filterOptions.departments" :key="d" :label="d" :value="d" /></el-select></span>
-      <span class="filter-field"><label>专家职称</label><el-select v-model="filters.titles" multiple filterable collapse-tags clearable placeholder="选择职称" style="width: 220px"><el-option v-for="t in filterOptions.titles" :key="t" :label="t" :value="t" /></el-select></span>
-      <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
-      <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
-      <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
-      <el-button :disabled="!activeFilterCount" @click="resetFilters">一键重置</el-button>
-    </div>
-
-    <!-- 第二层：工具行（统计 + 新增/导出 + 外部工具 + 视图切换，两种视图共用搜索/勾选/页码） -->
-    <div class="tool-row">
-      <span class="total-label">专家档案 · 共 {{ total }} 人</span>
+      <!-- 外部链接：卫健委机构查询平台（新窗口打开，仅前端跳转，不依赖后端） -->
+      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener">
+        单位查询
+      </el-button>
       <div class="spacer" />
       <template v-if="canAddExpert">
         <el-button type="primary" @click="openAdminCreate">新增专家</el-button>
@@ -54,10 +42,31 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <!-- 外部链接：卫健委机构查询平台（链接样式，区别于筛选控件） -->
-      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener" link type="primary">
-        单位查询 ↗
-      </el-button>
+    </div>
+
+    <!-- 已应用筛选 chips：逐项移除或清除全部（参考 Owner 2026-11-07 示意图） -->
+    <div v-if="activeFilterCount" class="applied-bar">
+      <span class="applied-label">已应用筛选：</span>
+      <el-tag v-for="chip in appliedFilters" :key="chip.key" closable type="primary" @close="removeFilter(chip.key)">
+        {{ chip.label }}
+      </el-tag>
+      <el-button type="danger" link size="small" @click="resetFilters">清除全部</el-button>
+    </div>
+
+    <!-- 高级筛选面板：组合使用 -->
+    <div v-if="filtersOpen" class="advanced-panel">
+      <span class="filter-field"><label>工作单位</label><el-select v-model="filters.unit" filterable clearable placeholder="选择单位" style="width: 220px"><el-option v-for="u in filterOptions.units" :key="u" :label="u" :value="u" /></el-select></span>
+      <span class="filter-field"><label>所属科室</label><el-select v-model="filters.department" filterable clearable placeholder="选择科室" style="width: 180px"><el-option v-for="d in filterOptions.departments" :key="d" :label="d" :value="d" /></el-select></span>
+      <span class="filter-field"><label>专家职称</label><el-select v-model="filters.titles" multiple filterable collapse-tags clearable placeholder="选择职称" style="width: 220px"><el-option v-for="t in filterOptions.titles" :key="t" :label="t" :value="t" /></el-select></span>
+      <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
+      <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
+      <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
+    </div>
+
+    <!-- 第二层：工具行（统计 + 视图切换，两种视图共用搜索/勾选/页码） -->
+    <div class="tool-row">
+      <span class="total-label">专家档案 · 共 {{ total }} 人</span>
+      <div class="spacer" />
       <span class="view-toggle-label">显示方式</span>
       <el-tooltip content="卡片视图" placement="top">
         <button type="button" class="view-btn" :class="{ active: viewMode === 'card' }" aria-label="卡片视图" @click="viewMode = 'card'"><el-icon><Grid /></el-icon>卡片</button>
@@ -595,6 +604,25 @@ function resetFilters() {
   filters.photo = ''
   filters.complete = ''
   filters.updatedRange = null
+}
+/** 已应用筛选 chips（参考 Owner 2026-11-07 示意图）：逐项移除或清除全部。 */
+const appliedFilters = computed(() => {
+  const chips = []
+  if (filters.unit) chips.push({ key: 'unit', label: filters.unit })
+  if (filters.department) chips.push({ key: 'department', label: filters.department })
+  for (const t of filters.titles) chips.push({ key: 'title:' + t, label: t })
+  if (filters.photo) chips.push({ key: 'photo', label: filters.photo === 'uploaded' ? '已上传照片' : '未上传照片' })
+  if (filters.complete) chips.push({ key: 'complete', label: filters.complete === 'complete' ? '档案完整' : '档案待完善' })
+  if (filters.updatedRange?.length) chips.push({ key: 'updated', label: `${filters.updatedRange[0]} ~ ${filters.updatedRange[1]}` })
+  return chips
+})
+function removeFilter(key) {
+  if (key === 'unit') filters.unit = ''
+  else if (key === 'department') filters.department = ''
+  else if (key === 'photo') filters.photo = ''
+  else if (key === 'complete') filters.complete = ''
+  else if (key === 'updated') filters.updatedRange = null
+  else if (key.startsWith('title:')) filters.titles = filters.titles.filter(t => t !== key.slice(6))
 }
 watch(filters, () => {
   page.value = 1
@@ -1371,7 +1399,6 @@ watch(() => route.query.expertId, async id => {
 }
 .expert-card {
   min-width: 0;
-  min-height: 160px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1434,7 +1461,7 @@ watch(() => route.query.expertId, async id => {
 }
 .card-meta {
   width: 100%;
-  margin-top: auto;
+  margin-top: 2px;
   padding-top: 6px;
   border-top: 1px solid #ebeef5;
   display: flex;
