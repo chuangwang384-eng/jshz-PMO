@@ -57,3 +57,13 @@ Owner 要求解析具备语义理解。GitHub 调研结论（高星方案）：o
 2. `ollama pull qwen2.5:7b`（约 4.7GB，需 ≥8GB 可用内存）；
 3. 为 NSSM 服务 `ExpertSystemBackend` 追加环境变量 `OLLAMA_URL=http://127.0.0.1:11434`（可选 `OLLAMA_MODEL`）并重启服务；
 4. 上传简历验证（字段旁出现语义模型填充即生效；模型未就绪时自动回退启发式，不报错）。
+
+
+## 追加：本机 Ollama 运行能力评估（2026-11-07，Owner 询问）
+
+实测硬件（CIM/NVIDIA-SMI）：AMD Ryzen 7 3750H（4 核 8 线程）｜RAM 13.9GB（当时空闲仅 1.2GB，WorkBuddy/Chrome/ZCode/java 后端/微信等常驻）｜GTX 1650 4GB（驱动 581.83 支持 CUDA）+ Vega 10 核显｜C 盘剩余 22.7GB。
+
+**结论：能运行，模型选型决定流畅度**：
+- **推荐 qwen2.5:3b**（约 2GB）：可完整放进 1650 的 4GB 显存，每次简历解析预计 15~40 秒，体验流畅；
+- qwen2.5:7b：权重 4.7GB 超出显存，需部分层回退 CPU（4 核笔记本 U 预计每次 1~3 分钟），且需关闭部分常驻应用缓解内存压力；
+- 磁盘/驱动/系统均满足（模型 + Ollama 约 6GB < 22.7GB 剩余）。
