@@ -1,7 +1,7 @@
 <template>
   <main class="dashboard">
-    <header class="dashboard-head"><div><p class="eyebrow">PERSONAL WORKSPACE</p><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted">先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><span>{{ businessDate }}</span><template v-if="!editing"><el-button v-if="layoutEnabled" :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">编辑布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" @click="refreshWorkbench">刷新工作台</el-button></div></header>
-    <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar :candidates="quickCandidates" /></div>
+    <header class="dashboard-head"><div><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted"><span v-if="weekdayLabel">{{ weekdayLabel }} · </span>先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><template v-if="!editing"><el-button v-if="layoutEnabled" :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">自定义布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" class="refresh-btn" aria-label="刷新工作台" @click="refreshWorkbench"><el-icon><Refresh /></el-icon></el-button></div></header>
+    <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar :candidates="quickCandidates" :editing="editing" /></div>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
     <p v-if="layoutEnabled && !wide" class="muted">请使用宽屏编辑布局。</p>
     <p v-if="editing" class="edit-tip">拖动标题移动，拖动右下角改变宽高。聚焦手柄可用方向键移动，按住 Shift 改变宽高。<span role="status">{{ layoutStatus }}</span></p>
@@ -59,6 +59,7 @@ import { sectionRequests, safeTarget, warningNames } from '../../utils/dashboard
 import { normalizeDashboardLayout, orderLayout, placeCard } from '../../utils/dashboardLayout'
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
 import QuickAccessBar from '../../components/QuickAccessBar.vue'
+import { Refresh } from '@element-plus/icons-vue'
 const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),searchBar=ref(null),seq=sectionRequests()
 // capabilities 会话级缓存：首帧立即渲染快捷入口，避免 overview 返回前整条消失再弹入
 const capabilities=ref((()=>{try{return JSON.parse(sessionStorage.getItem(`dashboard-capabilities:${auth.id}`)||'[]')}catch(e){return []}})())
@@ -266,6 +267,8 @@ function beforeUnload(event) {
 }
 onBeforeRouteLeave(() => !dirtyLayout() || window.confirm('布局尚未保存，确定离开吗？'))
 
+const WEEK=['日','一','二','三','四','五','六']
+const weekdayLabel=computed(()=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(businessDate.value||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3]);return `${+m[2]}月${+m[3]}日，星期${WEEK[d.getDay()]}`})
 // 快捷访问候选：page.* 卡片按原固定顺序排列，经 canShow 过滤（含 capabilities 与权限）
 const QUICK_ACCESS_ORDER=['page.knowledge','page.project','page.experts','page.customer','page.supplier','page.myApplications','page.announcements','page.directory','page.notifications','page.approvalManage']
 const quickCandidates=computed(()=>QUICK_ACCESS_ORDER.filter(canShow).map(id=>({id,title:CARD_CATALOG[id].title,path:CARD_CATALOG[id].path})))
@@ -326,7 +329,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <style scoped>
-.dashboard{max-width:1440px;margin:auto;color:var(--c-text,#24334d);--c-primary:#2563EB;--c-page-bg:#F8FAFC;--c-card-bg:#FFFFFF;--c-text:#0F172A;--c-text-sub:#64748B;--c-border:#E2E8F0;--r-card:12px;--r-btn:8px;--pad-page:32px;--shadow-card:0 1px 2px rgba(15,23,42,.06)}.dashboard-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.eyebrow{font-size:11px;letter-spacing:2px;color:var(--c-text-sub,#557194);margin:0 0 8px}h1{font-size:26px;margin:0}h2{font-size:16px;margin:0}h3{font-size:17px;margin:13px 0 10px}.muted{color:var(--c-text-sub,#758298);font-size:12px;margin:8px 0}.head-actions{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--c-text-sub,#64748b)}.nav-card{background:var(--c-card-bg);border:1px solid var(--c-border);border-radius:var(--r-card);box-shadow:var(--shadow-card);padding:14px 18px;margin:0 0 16px}
+.dashboard{max-width:1440px;margin:auto;color:var(--c-text,#24334d);--c-primary:#2563EB;--c-page-bg:#F8FAFC;--c-card-bg:#FFFFFF;--c-text:#0F172A;--c-text-sub:#64748B;--c-border:#E2E8F0;--r-card:12px;--r-btn:8px;--pad-page:32px;--shadow-card:0 1px 2px rgba(15,23,42,.06)}.dashboard-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:14px}h1{font-size:20px;margin:0}h2{font-size:16px;margin:0}h3{font-size:17px;margin:13px 0 10px}.muted{color:var(--c-text-sub,#758298);font-size:12px;margin:6px 0 0}.head-actions{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--c-text-sub,#64748b)}.head-actions .refresh-btn{padding:8px}.refresh-btn .el-icon{font-size:15px}.nav-card{background:var(--c-card-bg);border:1px solid var(--c-border);border-radius:var(--r-card);box-shadow:var(--shadow-card);padding:14px 18px;margin:0 0 16px}
 .layout-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:56px;margin:16px 0}
 .grid-stack{margin:16px 0;min-height:56px;background-image:linear-gradient(to right,#dce5f2 1px,transparent 1px),linear-gradient(to bottom,#dce5f2 1px,transparent 1px);background-size:calc(100% / 12) 56px}
 .layout-grid.narrow{display:flex;flex-direction:column}

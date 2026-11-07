@@ -15,7 +15,6 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <button type="button" class="qa-edit" @click="startEdit">编辑</button>
     </template>
     <template v-else>
       <div class="qa-edit-area" @dragover.prevent>
@@ -35,14 +34,13 @@
       </div>
       <div class="qa-edit-actions">
         <el-button size="small" type="primary" :loading="saving" @click="save">保存</el-button>
-        <el-button size="small" :disabled="saving" @click="cancel">取消</el-button>
         <el-button size="small" :disabled="saving" @click="resetDefault">恢复默认</el-button>
       </div>
     </template>
   </div>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, Bell, Checked, Collection, Folder, Iphone, Message, OfficeBuilding, Shop, Tickets, User } from '@element-plus/icons-vue'
@@ -50,12 +48,19 @@ import { getQuickAccess, saveQuickAccess } from '../api/dashboard'
 
 const router = useRouter()
 
-const props = defineProps({ candidates: { type: Array, required: true } })
+const props = defineProps({ candidates: { type: Array, required: true }, editing: { type: Boolean, default: false } })
+
 const ICONS = { 'page.project': Folder, 'page.experts': User, 'page.knowledge': Collection, 'page.customer': OfficeBuilding, 'page.supplier': Shop, 'page.myApplications': Tickets, 'page.announcements': Bell, 'page.directory': Iphone, 'page.notifications': Message, 'page.approvalManage': Checked }
 const iconOf = id => ICONS[id] || Folder
 
 const config = ref(null)          // 服务端已保存配置；null=未配置，用默认顺序
-const editing = ref(false), saving = ref(false), draft = ref([]), dragIndex = ref(-1)
+const saving = ref(false), draft = ref([]), dragIndex = ref(-1)
+
+// 管理态由外层「自定义布局」驱动：进入时初始化草稿，退出时丢弃未保存改动
+watch(() => props.editing, active => {
+  if (active) draft.value = enabled.value.slice()
+  else { dragIndex.value = -1; saving.value = false }
+})
 
 /** 默认顺序 = 候选集原顺序（与旧固定入口一致）。 */
 const defaultEnabled = computed(() => props.candidates.slice())
@@ -70,8 +75,6 @@ const visible = computed(() => enabled.value.slice(0, 6))
 const hidden = computed(() => enabled.value.slice(6))
 const addable = computed(() => props.candidates.filter(c => !draft.value.some(d => d.id === c.id)))
 
-function startEdit() { draft.value = enabled.value.slice(); editing.value = true }
-function cancel() { editing.value = false; dragIndex.value = -1 }
 function reorder(toIndex) {
   const from = dragIndex.value
   if (from < 0 || from === toIndex || toIndex >= draft.value.length) return
@@ -108,7 +111,7 @@ onMounted(async () => {
 .qa-item:hover{border-color:var(--c-primary,#2563eb);background:#eff6ff}
 .qa-icon{width:14px;height:14px;color:var(--c-primary,#2563eb)}
 .qa-more{font-family:inherit}
-.qa-edit{border:0;background:none;color:var(--c-text-sub,#64748b);font-size:12px;cursor:pointer;padding:5px 6px}
+
 .qa-edit:hover{color:var(--c-primary,#2563eb)}
 .qa-edit-area{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1}
 .qa-draft{cursor:grab}
