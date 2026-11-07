@@ -4,7 +4,7 @@
     <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar ref="quickBar" :candidates="quickCandidates" :editing="editing" /></div>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
     <p v-if="layoutEnabled && !wide" class="muted">请使用宽屏编辑布局。</p>
-    <p v-if="editing" class="edit-tip">拖动标题移动，拖动右下角改变宽高。聚焦手柄可用方向键移动，按住 Shift 改变宽高。<span role="status">{{ layoutStatus }}</span></p>
+    <p v-if="editing" class="edit-tip">拖动卡片左上角手柄移动位置，拖动卡片右下角调整宽高；聚焦手柄后可用方向键微调，按住 Shift 加方向键改变宽高，按 Esc 取消当前操作。快捷访问的增删与排序也会一并调整，改完点上方「保存布局」生效，「取消」放弃全部改动。<span role="status">{{ layoutStatus }}</span></p>
     <el-button v-if="editing && conflict" :disabled="savingLayout" @click="reloadLayout">重新加载最新布局</el-button>
     <p v-if="!displayLayout.length" class="muted">暂无卡片，可通过编辑布局添加模块或恢复默认。</p>
     <section :key="activeGrid ? 'editor' : 'browse'" ref="gridElement" :class="activeGrid ? 'grid-stack' : ['layout-grid', { narrow: !wide }]" aria-label="工作台卡片">
