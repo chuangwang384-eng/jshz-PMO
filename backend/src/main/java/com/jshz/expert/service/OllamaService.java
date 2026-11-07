@@ -3,6 +3,8 @@ package com.jshz.expert.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -52,7 +54,8 @@ public class OllamaService {
                     "model", model,
                     "prompt", prompt,
                     "stream", false,
-                    "format", "json"));
+                    "format", "json",
+                    "keep_alive", "60m"));
             // 冷加载模型 + 长文本预填充可能超过 60s，超时可由 OLLAMA_TIMEOUT 秒覆盖（默认 180）
             long timeoutSec = 180;
             try {
@@ -80,5 +83,37 @@ public class OllamaService {
             log.warn("Ollama 语义抽取异常：{}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 启动预热（Owner 2026-11-07）：系统上线后自动把模型加载进显存/内存，
+     * 避免首次简历解析承担冷加载耗时。异步执行，失败仅记日志。
+     * keep_alive 60m：预热后模型驻留 60 分钟，期间解析请求秒级响应。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUpOnStartup() {
+        if (!available()) return;
+        Thread warm = new Thread(() -> {
+            String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
+            String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+            try {
+                String body = json.writeValueAsString(Map.of(
+                        "model", model,
+                        "prompt", "预热",
+                        "stream", false,
+                        "keep_alive", "60m"));
+                HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
+                        .timeout(Duration.ofSeconds(180))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                log.info("Ollama 预热完成（model={}，HTTP {}）", model, response.statusCode());
+            } catch (Exception e) {
+                log.warn("Ollama 预热失败（不影响功能，首次解析将承担冷加载）：{}", e.getMessage());
+            }
+        }, "ollama-warmup");
+        warm.setDaemon(true);
+        warm.start();
     }
 }

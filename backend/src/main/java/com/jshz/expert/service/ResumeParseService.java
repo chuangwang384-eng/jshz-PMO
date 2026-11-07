@@ -69,7 +69,7 @@ public class ResumeParseService {
 
     /** 姓名启发式排除词（首行含这些词时不视为姓名）。 */
     private static final List<String> NAME_EXCLUDE_WORDS = List.of(
-            "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历");
+            "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历", "某某");
 
     private static final Pattern PHONE = Pattern.compile("1[3-9]\\d{9}");
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
@@ -92,7 +92,7 @@ public class ResumeParseService {
             throw new BusinessException(400, "简历文件超过 20MB 限制");
         }
         try {
-            return switch (ext) {
+            ResumeParseResult result = switch (ext) {
                 case "pdf" -> parsePdf(bytes);
                 case "doc" -> parseDoc(bytes);
                 case "docx" -> parseDocx(bytes);
@@ -100,12 +100,51 @@ public class ResumeParseService {
                 case "jpg", "jpeg", "png" -> parseImage(bytes);
                 default -> throw new BusinessException(400, "不支持的简历格式");
             };
+            // 兜底：内容未命中姓名，或语义层返回占位/排除词姓名（如"某某"）时，从文件名提取（Owner 2026-11-07）
+            String parsedName = result.fields().get("姓名");
+            if (parsedName != null && NAME_EXCLUDE_WORDS.stream()
+                    .anyMatch(w -> parsedName.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))) {
+                Map<String, String> cleaned = new LinkedHashMap<>(result.fields());
+                cleaned.remove("姓名");
+                result = new ResumeParseResult(cleaned, result.photoCandidates(),
+                        cleaned.size(), result.message());
+            }
+            if (!result.fields().containsKey("姓名")) {
+                String fallbackName = nameFromFileName(fileName);
+                if (fallbackName != null) {
+                    Map<String, String> withName = new LinkedHashMap<>(result.fields());
+                    withName.put("姓名", fallbackName);
+                    result = new ResumeParseResult(withName, result.photoCandidates(),
+                            result.hitCount() + 1, result.message());
+                }
+            }
+            return result;
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
             return new ResumeParseResult(Map.of(), List.of(), 0,
                     "解析失败（" + e.getClass().getSimpleName() + "），请手动填写");
         }
+    }
+
+    /**
+     * 姓名兜底（Owner 2026-11-07）：内容解析未命中姓名时，从文件名分词中提取。
+     * 兼容"1 广州荔湾中心医院 何展鹏.pptx"（序号+单位+姓名）与"何展鹏-某医院.pdf"等命名。
+     */
+    String nameFromFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) return null;
+        String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
+        // 去掉常见后缀词后再分词
+        base = base.replaceAll("(简历|的简历|专家简介|简介)+$", "").trim();
+        String[] tokens = base.split("[\\s\\-_.（）()·、，,]+");
+        for (String token : tokens) {
+            String t = token.trim();
+            if (!CHINESE_NAME.matcher(t).matches()) continue;
+            if (NAME_EXCLUDE_WORDS.stream().anyMatch(w -> t.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))) continue;
+            if (ORG_SUFFIXES.stream().anyMatch(t::endsWith) || DEPT_SUFFIXES.stream().anyMatch(t::endsWith)) continue;
+            return t;
+        }
+        return null;
     }
 
     // ==================== 格式分发 ====================

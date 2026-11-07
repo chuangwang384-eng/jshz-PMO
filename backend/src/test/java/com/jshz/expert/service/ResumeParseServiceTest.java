@@ -87,6 +87,16 @@ class ResumeParseServiceTest {
         assertTrue(profile.contains("兼任某学会委员"));
     }
 
+    @Test void nameFallbackFromFileName() {
+        assertEquals("何展鹏", service.nameFromFileName("1 广州荔湾中心医院 何展鹏.pptx"));
+        assertEquals("何展鹏", service.nameFromFileName("何展鹏-广州市荔湾中心医院.pdf"));
+        assertEquals("李测试", service.nameFromFileName("3、李测试_某某医院.docx"));
+        assertEquals("张三", service.nameFromFileName("张三简历.docx"));
+        assertNull(service.nameFromFileName("1 广州荔湾中心医院.pptx"));
+        assertNull(service.nameFromFileName("个人简历.docx"));
+        assertNull(service.nameFromFileName(null));
+    }
+
     @Test void profileTruncatesAt2000Chars() {
         StringBuilder longText = new StringBuilder();
         for (int i = 0; i < 250; i++) longText.append("这是一段很长的未归位简介内容。\n");
