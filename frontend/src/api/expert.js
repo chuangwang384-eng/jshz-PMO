@@ -73,3 +73,8 @@ export function fetchPhotoBlob(filename) {
 export function fetchTempPhotoBlob(filename) {
   return request.get(`/files-tmp/${encodeURIComponent(filename)}`, { responseType: 'blob' })
 }
+
+// 高级筛选字典：单位/科室/职称去重（登录即可）
+export function expertFilters() {
+  return request.get('/experts/filters', { silent: true })
+}

@@ -1,27 +1,24 @@
 <template>
   <div>
-    <div class="toolbar">
+    <!-- 第一层：搜索筛选区 -->
+    <div class="filter-bar">
       <el-input
         v-model="keyword"
-        placeholder="按姓名 / 单位 / 科室 / 职称 / 联系方式 / 简介检索"
+        placeholder="搜索姓名、单位、科室、职称、联系方式或简介关键词"
         clearable
-        style="width: 360px"
+        class="search-input"
         @keyup.enter="handleSearch"
       >
         <template #append>
           <el-button @click="handleSearch">搜索</el-button>
         </template>
       </el-input>
+      <el-button :type="activeFilterCount ? 'primary' : 'default'" :plain="!activeFilterCount" @click="toggleFilters">
+        高级筛选<el-badge v-if="activeFilterCount" :value="activeFilterCount" class="filter-badge" />
+      </el-button>
+      <el-button :disabled="!activeFilterCount" @click="resetFilters">重置</el-button>
       <!-- 外部链接：卫健委机构查询平台（新窗口打开，仅前端跳转，不依赖后端） -->
-      <el-button
-        tag="a"
-        href="https://zgcx.nhc.gov.cn/unit"
-        target="_blank"
-        rel="noopener"
-        type="primary"
-        plain
-        style="margin-left: 12px"
-      >
+      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener" type="primary" plain>
         专家单位查询
       </el-button>
       <div class="spacer" />
@@ -31,18 +28,40 @@
       <template v-else>
         <el-button type="primary" @click="openCreateDialog">新增专家</el-button>
       </template>
-      <template v-if="canExport">
-        <el-button type="success" @click="handleExportExcel">下载全量 Excel</el-button>
-        <el-button type="warning" @click="handleExportZip">下载含照片 ZIP</el-button>
-      </template>
-      <template v-else>
-        <el-button type="primary" :disabled="!selectedIds.size" @click="handleExportSelectedExcel">
-          下载选中 Excel{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
+      <el-dropdown trigger="click" @command="handleExportCommand">
+        <el-button type="success">
+          导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
         </el-button>
-        <el-button type="info" :disabled="!selectedIds.size" @click="handleExportSelectedZip">
-          下载选中含照片 ZIP{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
-        </el-button>
-      </template>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <template v-if="canExport">
+              <el-dropdown-item command="excel-all">全量 Excel</el-dropdown-item>
+              <el-dropdown-item command="zip-all">全量含照片 ZIP</el-dropdown-item>
+            </template>
+            <el-dropdown-item command="excel-selected" :disabled="!selectedIds.size">选中 Excel</el-dropdown-item>
+            <el-dropdown-item command="zip-selected" :disabled="!selectedIds.size">选中含照片 ZIP</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </div>
+
+    <!-- 高级筛选面板：组合使用，一键重置 -->
+    <div v-if="filtersOpen" class="advanced-panel">
+      <span class="filter-field"><label>工作单位</label><el-select v-model="filters.unit" filterable clearable placeholder="选择单位" style="width: 220px"><el-option v-for="u in filterOptions.units" :key="u" :label="u" :value="u" /></el-select></span>
+      <span class="filter-field"><label>所属科室</label><el-select v-model="filters.department" filterable clearable placeholder="选择科室" style="width: 180px"><el-option v-for="d in filterOptions.departments" :key="d" :label="d" :value="d" /></el-select></span>
+      <span class="filter-field"><label>专家职称</label><el-select v-model="filters.titles" multiple filterable collapse-tags clearable placeholder="选择职称" style="width: 220px"><el-option v-for="t in filterOptions.titles" :key="t" :label="t" :value="t" /></el-select></span>
+      <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
+      <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
+      <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
+    </div>
+
+    <!-- 第二层：工具行（统计 + 视图切换，两种视图共用搜索/勾选/页码） -->
+    <div class="tool-row">
+      <span class="total-label">专家档案 · 共 {{ total }} 人</span>
+      <div class="spacer" />
+      <span class="view-toggle-label">显示方式</span>
+      <button type="button" class="view-btn" :class="{ active: viewMode === 'card' }" aria-label="卡片视图" @click="viewMode = 'card'"><el-icon><Grid /></el-icon></button>
+      <button type="button" class="view-btn" :class="{ active: viewMode === 'list' }" aria-label="列表视图" @click="viewMode = 'list'"><el-icon><Menu /></el-icon></button>
     </div>
 
     <!-- 已选专家姓名展示：跨搜索/翻页保留，可逐项取消或一键清空 -->
@@ -60,7 +79,8 @@
       <el-button type="danger" link size="small" @click="clearSelection">清空</el-button>
     </div>
 
-    <div v-loading="loading" class="expert-cards" style="margin-top: 16px; min-height: 120px">
+    <!-- 第三层：专家内容区（卡片/列表两种视图，共用搜索条件、排序与勾选状态） -->
+    <div v-if="viewMode === 'card'" v-loading="loading" class="expert-cards" style="margin-top: 16px; min-height: 120px">
       <div
         v-for="expert in experts"
         :key="expert.id"
@@ -75,12 +95,16 @@
           @click.stop
           @change="() => toggleSelect(expert)"
         />
-        <div class="card-photo">
-          <PhotoImage :filename="expert.照片" :width="128" :height="128" />
+        <div class="card-main">
+          <div class="card-photo">
+            <PhotoImage :filename="expert.照片" :width="80" :height="80" />
+          </div>
+          <div class="card-info">
+            <div class="card-name">{{ expert.姓名 }}</div>
+            <div class="card-text">{{ expert.单位 }}</div>
+            <div class="card-text">{{ expert.科室 }}</div>
+          </div>
         </div>
-        <div class="card-name">{{ expert.姓名 }}</div>
-        <div class="card-text">{{ expert.单位 }}</div>
-        <div class="card-text">{{ expert.科室 }}</div>
         <div class="card-meta">
           <span class="card-meta-item" :title="expert['修改时间'] || '—'">
             <svg class="meta-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
@@ -112,6 +136,48 @@
         :image-size="100"
         style="grid-column: 1 / -1"
       />
+    </div>
+
+    <!-- 列表视图：高效率管理（同数据/勾选/分页） -->
+    <div v-else v-loading="loading" style="margin-top: 16px; min-height: 120px">
+      <el-table :data="experts" style="width: 100%" @row-click="openDetail">
+        <el-table-column v-if="!canExport" width="44">
+          <template #default="{ row }">
+            <el-checkbox
+              :model-value="selectedIds.has(row.id)"
+              @click.stop
+              @change="() => toggleSelect(row)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="头像" width="70">
+          <template #default="{ row }">
+            <PhotoImage :filename="row.照片" :width="44" :height="44" style="border-radius: 50%; display: block" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="姓名" label="姓名" min-width="90" />
+        <el-table-column prop="单位" label="单位" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="科室" label="科室" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="职称" label="职称" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="联系方式" label="联系方式" min-width="130" />
+        <el-table-column label="更新时间" width="100">
+          <template #default="{ row }">{{ row['修改时间'] ? formatMonthDay(row['修改时间']) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button link type="primary" @click.stop="openDetail(row)">查看详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!loading && !experts.length" description="暂无专家数据" :image-size="100" />
+    </div>
+
+    <!-- 悬浮批量操作栏：勾选后出现（导出 Excel / 含照片 ZIP） -->
+    <div v-if="selectedExperts.length" class="batch-bar">
+      <span class="batch-label">已选 {{ selectedExperts.length }} 位专家</span>
+      <el-button size="small" type="primary" @click="handleExportSelectedExcel">下载 Excel</el-button>
+      <el-button size="small" @click="handleExportSelectedZip">下载 ZIP</el-button>
+      <el-button size="small" text type="danger" @click="clearSelection">清空</el-button>
     </div>
 
     <div class="pagination-wrap">
@@ -471,11 +537,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob } from '../api/expert'
+import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
-import { CopyDocument } from '@element-plus/icons-vue'
+import { ArrowDown, Grid, Menu, CopyDocument } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -495,6 +561,42 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(20)
 const loading = ref(false)
+
+// 高级筛选（Owner 2026-11-07：组合使用+一键重置；所在地区筛选拍板去掉——数据无省/市字段）
+const filtersOpen = ref(false)
+const filters = reactive({ unit: '', department: '', titles: [], photo: '', complete: '', updatedRange: null })
+const filterOptions = ref({ units: [], departments: [], titles: [] })
+const filterOptionsLoaded = ref(false)
+const viewMode = ref('card')
+const activeFilterCount = computed(() =>
+  [filters.unit, filters.department, filters.photo, filters.complete].filter(Boolean).length +
+  (filters.titles.length ? 1 : 0) +
+  (filters.updatedRange?.length ? 1 : 0)
+)
+function toggleFilters() {
+  filtersOpen.value = !filtersOpen.value
+  if (filtersOpen.value && !filterOptionsLoaded.value) loadFilterOptions()
+}
+async function loadFilterOptions() {
+  try {
+    filterOptions.value = await expertFilters()
+    filterOptionsLoaded.value = true
+  } catch {
+    ElMessage.error('筛选字典加载失败，请重试')
+  }
+}
+function resetFilters() {
+  filters.unit = ''
+  filters.department = ''
+  filters.titles = []
+  filters.photo = ''
+  filters.complete = ''
+  filters.updatedRange = null
+}
+watch(filters, () => {
+  page.value = 1
+  fetchList()
+}, { deep: true })
 
 const detailVisible = ref(false)
 const detail = ref(null)
@@ -538,6 +640,13 @@ async function fetchList() {
   try {
     const data = await listExperts({
       keyword: keyword.value || undefined,
+      unit: filters.unit || undefined,
+      department: filters.department || undefined,
+      titles: filters.titles.length ? filters.titles.join(',') : undefined,
+      photo: filters.photo || undefined,
+      complete: filters.complete || undefined,
+      updatedFrom: filters.updatedRange?.[0] || undefined,
+      updatedTo: filters.updatedRange?.[1] || undefined,
       page: page.value,
       size: size.value
     })
@@ -699,6 +808,14 @@ function handleExportExcel() {
 
 function handleExportZip() {
   exportEmployeeZip().catch(() => {})
+}
+
+/** 导出下拉分派：全量（有 expert:export 权限）/ 选中（所有人，需先勾选）。 */
+function handleExportCommand(command) {
+  if (command === 'excel-all') handleExportExcel()
+  else if (command === 'zip-all') handleExportZip()
+  else if (command === 'excel-selected') handleExportSelectedExcel()
+  else if (command === 'zip-selected') handleExportSelectedZip()
 }
 
 function handleExportSelectedExcel() {
@@ -1137,6 +1254,93 @@ watch(() => route.query.expertId, async id => {
   display: flex;
   align-items: center;
 }
+/* 第一层：搜索筛选区 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.search-input {
+  width: 480px;
+}
+.filter-badge {
+  margin-left: 6px;
+}
+.advanced-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
+.filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-field label {
+  font-size: 12px;
+  color: #606266;
+  white-space: nowrap;
+}
+/* 第二层：工具行 */
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.total-label {
+  font-size: 13px;
+  color: #606266;
+}
+.view-toggle-label {
+  font-size: 12px;
+  color: #909399;
+}
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #dcdfe6;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #606266;
+}
+.view-btn.active {
+  color: #409eff;
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+/* 悬浮批量操作栏 */
+.batch-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 21, 41, 0.18);
+}
+.batch-label {
+  font-size: 13px;
+  color: #303133;
+  white-space: nowrap;
+}
 .spacer {
   flex: 1;
 }
@@ -1163,12 +1367,12 @@ watch(() => route.query.expertId, async id => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 10px;
   background: #fff;
   border: 1px solid #ebeef5;
   border-radius: 10px;
-  padding: 26px 16px 20px;
-  text-align: center;
+  padding: 14px 14px 12px;
+  text-align: left;
   cursor: pointer;
   transition: box-shadow 0.2s ease, transform 0.2s ease;
   position: relative;
@@ -1224,14 +1428,14 @@ watch(() => route.query.expertId, async id => {
 .card-meta {
   width: 100%;
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid #ebeef5;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   flex-wrap: nowrap;
   gap: 10px;
-  font-size: 14px;
+  font-size: 12px;
   color: #909399;
   line-height: 1.4;
   white-space: nowrap;
@@ -1256,10 +1460,17 @@ watch(() => route.query.expertId, async id => {
   box-shadow: 0 6px 18px rgba(0, 21, 41, 0.16);
   transform: translateY(-3px);
 }
+/* 紧凑卡片：头像 80px 左置，姓名/单位/科室右侧一屏可读 */
+.card-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
 .card-photo {
-  width: 128px;
-  height: 128px;
-  margin: 0 auto 14px;
+  width: 80px;
+  height: 80px;
+  flex-shrink: 0;
   border-radius: 50%;
   overflow: hidden;
   border: 2px solid #e4e7ed;
@@ -1268,13 +1479,17 @@ watch(() => route.query.expertId, async id => {
   justify-content: center;
   background: #f5f7fa;
 }
+.card-info {
+  flex: 1;
+  min-width: 0;
+}
 .card-name {
   min-width: 0;
   max-width: 100%;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
   color: #303133;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1282,9 +1497,9 @@ watch(() => route.query.expertId, async id => {
 .card-text {
   min-width: 0;
   max-width: 100%;
-  font-size: 14px;
+  font-size: 13px;
   color: #606266;
-  line-height: 1.8;
+  line-height: 1.7;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

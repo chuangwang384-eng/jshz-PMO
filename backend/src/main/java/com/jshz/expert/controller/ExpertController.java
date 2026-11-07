@@ -59,21 +59,76 @@ public class ExpertController {
     // ==================== 列表 / 详情 ====================
 
     /**
-     * 分页列表：?keyword=&page=&size=（需求1：登录用户一律返回明文，sensitive 不再作为权限门槛，保留登录鉴权）。
+     * 分页列表：?keyword=&page=&size= 及可选高级筛选（unit/department/titles/photo/complete/updatedFrom/updatedTo，
+     * 组合生效；登录用户一律返回明文，sensitive 不再作为权限门槛，保留登录鉴权）。
      */
     @GetMapping
     public ApiResponse<PageResult<Expert>> list(@RequestParam(required = false) String keyword,
+                                                @RequestParam(required = false) String unit,
+                                                @RequestParam(required = false) String department,
+                                                @RequestParam(required = false) String titles,
+                                                @RequestParam(required = false) String photo,
+                                                @RequestParam(required = false) String complete,
+                                                @RequestParam(required = false) String updatedFrom,
+                                                @RequestParam(required = false) String updatedTo,
                                                 @RequestParam(defaultValue = "1") long page,
                                                 @RequestParam(defaultValue = "20") long size,
                                                 @RequestParam(required = false) String sensitive,
                                                 @AuthenticationPrincipal AuthUser authUser) {
         boolean full = authUser != null;
-        Page<Expert> p = expertService.pageList(keyword, page, size);
+        Page<Expert> p = expertService.pageList(keyword, page, size,
+                buildFilter(unit, department, titles, photo, complete, updatedFrom, updatedTo));
         List<Expert> items = new ArrayList<>();
         for (Expert e : p.getRecords()) {
             items.add(expertService.toView(e, full));
         }
         return ApiResponse.ok(PageResult.of(p.getTotal(), items));
+    }
+
+    /**
+     * 高级筛选字典：单位/科室/职称去重（登录即可），按出现次数降序。
+     */
+    @GetMapping("/filters")
+    public ApiResponse<Map<String, List<String>>> filters() {
+        return ApiResponse.ok(expertService.filterOptions());
+    }
+
+    /** 组装筛选条件：解析职称 CSV 与日期范围，非法取值/日期/区间直接 400。 */
+    private ExpertService.ExpertFilter buildFilter(String unit, String department, String titles,
+                                                   String photo, String complete,
+                                                   String updatedFrom, String updatedTo) {
+        List<String> titleList = null;
+        if (StringUtils.hasText(titles)) {
+            titleList = new ArrayList<>();
+            for (String t : titles.split(",")) {
+                if (StringUtils.hasText(t)) {
+                    titleList.add(t.trim());
+                }
+            }
+        }
+        if (StringUtils.hasText(photo) && !"uploaded".equals(photo) && !"missing".equals(photo)) {
+            throw new BusinessException(400, "photo 取值仅支持 uploaded / missing");
+        }
+        if (StringUtils.hasText(complete) && !"complete".equals(complete) && !"incomplete".equals(complete)) {
+            throw new BusinessException(400, "complete 取值仅支持 complete / incomplete");
+        }
+        java.time.LocalDate from = parseDate(updatedFrom, "updatedFrom");
+        java.time.LocalDate to = parseDate(updatedTo, "updatedTo");
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new BusinessException(400, "更新时间范围无效");
+        }
+        return new ExpertService.ExpertFilter(unit, department, titleList, photo, complete, from, to);
+    }
+
+    private static java.time.LocalDate parseDate(String value, String name) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return java.time.LocalDate.parse(value.trim());
+        } catch (Exception e) {
+            throw new BusinessException(400, name + " 日期格式应为 yyyy-MM-dd");
+        }
     }
 
     /**
