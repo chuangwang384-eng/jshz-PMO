@@ -1,7 +1,7 @@
 # 最新交接摘要
 
 
-- 2026-11-07 简历解析语义层已发布 **1.0.37.2**（GitHub 高星方案调研后落地）：新增 OllamaService 本地 LLM 语义抽取（OLLAMA_URL/OLLAMA_MODEL 配置开关、JSON 严格抽取、失败自动回退启发式）+ open-resume 式段落清洗；**Ollama 未安装时行为不变，启用步骤见发布记录**。提交 76cb1e5。
+- 2026-11-07 简历解析语义层已上线 **1.0.37.3**：Ollama 已安装至 E:\AI助手开发（NSSM 服务 ExpertSystemOllama 自启、模型 qwen2.5:3b 走 GPU）、后端已接入（OLLAMA_URL/OLLAMA_MODEL 环境变量）；实测冷调用 71s/热调用 2.4s，启发式漏抽的科室被语义层补齐；超时 OLLAMA_TIMEOUT 可配（默认 180s）。提交 76cb1e5/d231a4e。
 
 - 2026-11-07 简历解析真实简历修复 **1.0.37.1**：何展鹏.pptx 复现解析失败（PPT 组合形状文本漏抽+图片超 1500px 上限候选 0）→ 递归展开/上限放宽 4000/机构后缀截断，复测 3 字段+3 候选命中。**过程违规在 backend/ 内 mvn package 致 NSSM jar 变瘦包，已即时用隔离构建 fat jar 恢复（业务未中断），事故已记录**。提交 19f09bf。
 
