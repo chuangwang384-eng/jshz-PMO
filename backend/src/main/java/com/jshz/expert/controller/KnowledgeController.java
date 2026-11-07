@@ -2,12 +2,14 @@ package com.jshz.expert.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jshz.expert.common.ApiResponse;
+import com.jshz.expert.common.KnowledgeParseStatus;
 import com.jshz.expert.common.PageResult;
 import com.jshz.expert.entity.KnowledgeDocVersion;
 import com.jshz.expert.entity.KnowledgeDocument;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.KnowledgeDocStorageService;
 import com.jshz.expert.service.KnowledgeDocumentService;
+import com.jshz.expert.service.KnowledgeParseTaskService;
 import com.jshz.expert.service.ComplianceService;
 import com.jshz.expert.service.KnowledgeFavoriteService;
 import com.jshz.expert.service.DownloadAuditService;
@@ -15,7 +17,9 @@ import com.jshz.expert.service.DocPreviewService;
 import com.jshz.expert.service.OperationLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +50,7 @@ import java.util.Map;
  * 管理类接口由「知识星球维护人」权限码 knowledge:maintain 控制（过滤器 + 业务层双重校验）；
  * 上传 / 更新 / 下架 / 永久删除 / 上架 / 版本历史；收藏 / 预览 / 下载 / 列表浏览保留登录即可。
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/knowledge")
 @RequiredArgsConstructor
@@ -54,7 +59,7 @@ public class KnowledgeController {
     private final KnowledgeDocumentService documentService;
     private final KnowledgeDocStorageService storageService;
     private final KnowledgeFavoriteService favoriteService;
-    private final ComplianceService complianceService;
+    private final KnowledgeParseTaskService parseTaskService;
     private final DownloadAuditService downloadAuditService;
     private final DocPreviewService docPreviewService;
     private final OperationLogService operationLogService;
@@ -72,6 +77,7 @@ public class KnowledgeController {
                                                  HttpServletRequest request) {
         requireMaintain(authUser);
         KnowledgeDocument doc = documentService.upload(category, title, file, authUser);
+        triggerParse(doc, authUser);
         operationLogService.record(authUser == null ? null : authUser.getUserId(),
                 authUser == null ? null : authUser.getUsername(),
                 OperationLogService.ACTION_CREATE_DOC, "上传知识文档《" + doc.getTitle() + "》",
@@ -112,21 +118,44 @@ public class KnowledgeController {
                                                  @AuthenticationPrincipal AuthUser authUser,
                                                  HttpServletRequest request) {
         KnowledgeDocument doc = documentService.updateVersion(id, title, file, authUser);
+        triggerParse(doc, authUser);
         operationLogService.record(authUser == null ? null : authUser.getUserId(),
                 authUser == null ? null : authUser.getUsername(),
                 OperationLogService.ACTION_UPDATE_DOC, "更新知识文档《" + doc.getTitle() + "》（新版本）",
                 "DOC", id, request);
-        // 企业合规分类：更新成功后重新解析生成新事项草稿（REQ/DES-20261102 FR6；事务外静默，不阻断更新）
-        if (complianceService != null) {
-            try {
-                String fileType = doc == null ? null : doc.getFileType();
-                complianceService.parseAndCreateDrafts(id, complianceService.latestVersionIdOf(id),
-                        file.getOriginalFilename(), fileType, file.getBytes(), null, authUser);
-            } catch (Exception ex) {
-                // 静默跳过：解析失败允许维护人手动录入
-            }
+        return ApiResponse.ok(doc);
+    }
+
+    /**
+     * P2-7：提交异步解析任务（正文抽取 + 企业合规草稿）。
+     * 线程池拒绝时同步标记 FAILED，上传本身已成功，不把异常抛回请求线程。
+     */
+    private void triggerParse(KnowledgeDocument doc, AuthUser user) {
+        if (doc == null || doc.getId() == null || doc.getVersion() == null
+                || !KnowledgeParseStatus.PENDING.equals(doc.getParseStatus())) {
+            return;
         }
-    return ApiResponse.ok(doc);
+        try {
+            parseTaskService.parseAsync(doc.getId(), doc.getVersion(), doc.getFilePath(), doc.getFileName(),
+                    doc.getFileType(), doc.getCategory(), user);
+        } catch (TaskRejectedException e) {
+            log.warn("知识文档解析任务被拒绝：docId={}, version={}", doc.getId(), doc.getVersion());
+            markFailedQuietly(doc.getId(), doc.getVersion(), "解析任务排队已满，请稍后重新上传或更新");
+        } catch (Exception e) {
+            log.warn("知识文档解析任务提交失败：docId={}, version={}, error={}",
+                    doc.getId(), doc.getVersion(), e.getClass().getSimpleName());
+            markFailedQuietly(doc.getId(), doc.getVersion(), "解析任务提交失败，请稍后重新上传或更新");
+        }
+    }
+
+    /** 标记失败不能反向影响已成功的上传/更新响应。 */
+    private void markFailedQuietly(Long docId, Integer version, String message) {
+        try {
+            parseTaskService.markFailed(docId, version, message);
+        } catch (Exception e) {
+            log.warn("知识文档解析失败状态写入异常：docId={}, version={}, error={}",
+                    docId, version, e.getClass().getSimpleName());
+        }
     }
 
     // ==================== 下架 ====================
@@ -218,6 +247,8 @@ public class KnowledgeController {
                                   @RequestParam(required = false) String preview,
                                   @AuthenticationPrincipal AuthUser authUser,
                                   HttpServletRequest request) throws IOException {
+        // P1-5：先做状态/权限校验（不存在 404、下架且非维护人 403），再返回任何文件流
+        KnowledgeDocument doc = documentService.requireDownloadable(fileName, authUser);
         Path path = storageService.resolveDocument(fileName);
         if (!Files.exists(path) || !Files.isRegularFile(path)) {
             return ResponseEntity.notFound().build();
@@ -225,9 +256,8 @@ public class KnowledgeController {
         boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
         boolean previewMode = !forceDownload && ("true".equalsIgnoreCase(preview) || "1".equals(preview));
         if (forceDownload) {
-            // 下载留痕（C4）：按存储文件名反查文档，失败不阻断下载
+            // 下载留痕（C4）：复用已授权文档，失败不阻断下载
             try {
-                KnowledgeDocument doc = documentService.findByFilePath(fileName);
                 if (doc != null) {
                     downloadAuditService.recordKnowledgeDoc(authUser, doc.getId(), doc.getTitle(), request);
                 }
@@ -240,7 +270,6 @@ public class KnowledgeController {
             // 预览模式（?preview=true）：Office 转换失败返回结构化错误码 CONVERT_FAILED，
             // 其他异常返回 PREVIEW_FAILED；成功返回 PDF / 原文件流（SUCCESS 语义）
             try {
-                KnowledgeDocument doc = documentService.findByFilePath(fileName);
                 if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
                     Path pdf = docPreviewService.getPreviewFile(
                             doc.getFilePath(), doc.getId(), doc.getVersion(), doc.getFileType());
@@ -255,7 +284,6 @@ public class KnowledgeController {
         } else if (!forceDownload) {
             // 兼容旧调用（未传 preview 参数）：维持原 inline 预览行为
             try {
-                KnowledgeDocument doc = documentService.findByFilePath(fileName);
                 if (doc != null && DocPreviewService.isOffice(doc.getFileType())) {
                     Path pdf = docPreviewService.getPreviewFile(
                             doc.getFilePath(), doc.getId(), doc.getVersion(), doc.getFileType());

@@ -9,6 +9,7 @@ import com.jshz.expert.service.DownloadAuditService;
 import com.jshz.expert.service.ExpertService;
 import com.jshz.expert.service.ExportService;
 import com.jshz.expert.service.OperationLogService;
+import com.jshz.expert.service.ResumeParseService;
 import com.jshz.expert.common.ParamUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
@@ -51,6 +53,7 @@ public class ExpertController {
     private final ExportService exportService;
     private final DownloadAuditService downloadAuditService;
     private final OperationLogService operationLogService;
+    private final ResumeParseService resumeParseService;
 
     /** Excel（.xlsx）MIME 类型 */
     private static final MediaType XLSX_MEDIA_TYPE =
@@ -91,6 +94,27 @@ public class ExpertController {
     @GetMapping("/filters")
     public ApiResponse<Map<String, List<String>>> filters() {
         return ApiResponse.ok(expertService.filterOptions());
+    }
+
+    /**
+     * 简历解析（新增专家弹窗辅助填充）：PDF/Word/PPT/图片 → 候选字段与头像候选；
+     * 简历原文不落盘不留存，审计不含内容；结果仅作候选，提交仍走审批流。
+     */
+    @PostMapping("/resume/parse")
+    public ApiResponse<ResumeParseService.ResumeParseResult> parseResume(
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal AuthUser authUser,
+            HttpServletRequest request) throws java.io.IOException {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(400, "请上传简历文件");
+        }
+        ResumeParseService.ResumeParseResult result =
+                resumeParseService.parse(file.getOriginalFilename(), file.getBytes());
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
+                "RESUME_PARSE", "简历解析「" + file.getOriginalFilename() + "」命中 "
+                        + result.hitCount() + " 个字段、候选照片 " + result.photoCandidates().size() + " 张",
+                "expert", null, request);
+        return ApiResponse.ok(result);
     }
 
     /** 组装筛选条件：解析职称 CSV 与日期范围，非法取值/日期/区间直接 400。 */

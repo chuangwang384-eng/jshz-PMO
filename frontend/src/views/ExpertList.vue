@@ -366,6 +366,27 @@
     <!-- 新增专家申请弹窗（员工：复用可编辑表单字段结构与照片选择，提交审批流） -->
     <el-dialog v-model="createVisible" title="新增专家（需审批）" width="760px" destroy-on-close>
       <el-form :model="createForm" label-width="110px" class="edit-form">
+        <!-- 简历解析：候选填充 + 人工确认（简历原文不落盘） -->
+        <div class="resume-parse">
+          <el-upload
+            :auto-upload="false"
+            :show-file-list="false"
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.png"
+            :on-change="onResumePick"
+          >
+            <el-button :loading="resumeParsing">选择简历</el-button>
+          </el-upload>
+          <el-button v-if="resumeFile" type="primary" plain :loading="resumeParsing" @click="parseResumeNow">开始解析</el-button>
+          <span class="resume-tip" :class="{ 'resume-tip-error': resumeFailed }">
+            {{ resumeMessage || '支持 PDF / Word / PPT / 图片（≤20MB）；解析结果仅供确认，扫描件约需 10~45 秒' }}
+          </span>
+          <div v-if="resumeCandidates.length" class="resume-candidates">
+            <div v-for="(candidate, index) in resumeCandidates" :key="index" class="resume-candidate">
+              <img :src="'data:image/jpeg;base64,' + candidate" alt="解析出的证件照候选" />
+              <el-button size="small" type="primary" plain @click="useResumePhoto(candidate)">使用此照片</el-button>
+            </div>
+          </div>
+        </div>
         <div class="edit-photos">
           <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
@@ -413,19 +434,24 @@
             </el-upload>
           </div>
         </div>
-        <el-form-item label="姓名">
+        <el-form-item>
+          <template #label>姓名<span v-if="resumeFilled['姓名']" class="resume-mark">来自简历</span></template>
           <el-input v-model="createForm.姓名" placeholder="请输入姓名（2-20 个汉字）" />
         </el-form-item>
-        <el-form-item label="单位">
+        <el-form-item>
+          <template #label>单位<span v-if="resumeFilled['单位']" class="resume-mark">来自简历</span></template>
           <el-input v-model="createForm.单位" placeholder="请输入单位" />
         </el-form-item>
-        <el-form-item label="科室">
+        <el-form-item>
+          <template #label>科室<span v-if="resumeFilled['科室']" class="resume-mark">来自简历</span></template>
           <el-input v-model="createForm.科室" placeholder="请输入科室" />
         </el-form-item>
-        <el-form-item label="职称">
+        <el-form-item>
+          <template #label>职称<span v-if="resumeFilled['职称']" class="resume-mark">来自简历</span></template>
           <el-input v-model="createForm.职称" placeholder="请输入职称" />
         </el-form-item>
-        <el-form-item label="联系方式">
+        <el-form-item>
+          <template #label>联系方式<span v-if="resumeFilled['联系方式']" class="resume-mark">来自简历</span></template>
           <el-input v-model="createForm.联系方式" placeholder="请输入联系方式" />
         </el-form-item>
         <el-form-item label="简介">
@@ -549,7 +575,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters } from '../api/expert'
+import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters, parseResume } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
@@ -911,6 +937,14 @@ const createPhotoChanged = reactive({ photo: false, front: false, back: false })
 const createPhotoPreview = reactive({ photo: '', front: '', back: '' })
 const createPickedFiles = reactive({ photo: null, front: null, back: null })
 
+// 简历解析（Owner 2026-11-07）：候选填充 + 人工确认；解析只填空字段，不覆盖已输入内容
+const resumeFile = ref(null)
+const resumeParsing = ref(false)
+const resumeMessage = ref('')
+const resumeFailed = ref(false)
+const resumeCandidates = ref([])
+const resumeFilled = reactive({})
+
 // 打开新增专家弹窗：表单与照片均初始为空
 function openCreateDialog() {
   for (const k of TEXT_FIELDS) {
@@ -925,7 +959,66 @@ function openCreateDialog() {
   createPickedFiles.photo = null
   createPickedFiles.front = null
   createPickedFiles.back = null
+  resetResumeState()
   createVisible.value = true
+}
+
+// ==================== 简历解析 ====================
+function resetResumeState() {
+  resumeFile.value = null
+  resumeParsing.value = false
+  resumeMessage.value = ''
+  resumeFailed.value = false
+  resumeCandidates.value = []
+  for (const k of Object.keys(resumeFilled)) delete resumeFilled[k]
+}
+
+function onResumePick(file) {
+  const raw = file?.raw || file
+  if (!raw) return
+  resumeFile.value = raw
+  resumeMessage.value = raw.name ? `已选择：${raw.name}` : ''
+  resumeFailed.value = false
+}
+
+async function parseResumeNow() {
+  if (!resumeFile.value || resumeParsing.value) return
+  resumeParsing.value = true
+  resumeFailed.value = false
+  try {
+    const data = await parseResume(resumeFile.value)
+    resumeCandidates.value = data?.photoCandidates || []
+    let filledCount = 0
+    for (const [key, value] of Object.entries(data?.fields || {})) {
+      if (!String(createForm[key] ?? '').trim()) {
+        createForm[key] = value
+        resumeFilled[key] = true
+        filledCount++
+      }
+    }
+    resumeMessage.value = data?.message
+      || (filledCount
+        ? `已解析 ${data.hitCount} 个字段（填充 ${filledCount} 个空字段），请核对后提交`
+        : '未命中可填充字段，请手动填写')
+  } catch (e) {
+    resumeFailed.value = true
+    resumeMessage.value = e?.response?.data?.message || '解析失败，请重试或手动填写'
+  } finally {
+    resumeParsing.value = false
+  }
+}
+
+function useResumePhoto(base64) {
+  try {
+    const bin = atob(base64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    const file = new File([bytes], 'resume-photo.jpg', { type: 'image/jpeg' })
+    onCreatePickPhoto('photo', { raw: file })
+    ElMessage.success('已使用解析照片作为证件照')
+  } catch {
+    ElMessage.error('照片候选处理失败，请直接手动上传')
+  }
 }
 
 // 新增弹窗选照片：本地预览 + 暂存文件（提交时再上传临时接口）
@@ -1284,6 +1377,56 @@ watch(() => route.query.expertId, async id => {
 .toolbar {
   display: flex;
   align-items: center;
+}
+
+/* 简历解析区块（新增专家弹窗顶部） */
+.resume-parse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  margin-bottom: 14px;
+}
+.resume-tip {
+  font-size: 12px;
+  color: #606266;
+  flex: 1;
+  min-width: 200px;
+}
+.resume-tip-error {
+  color: #dc2626;
+}
+.resume-candidates {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.resume-candidate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+}
+.resume-candidate img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.resume-mark {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: #67c23a;
 }
 /* 第一层：搜索筛选区 */
 .filter-bar {

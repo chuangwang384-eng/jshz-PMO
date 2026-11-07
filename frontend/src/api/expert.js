@@ -78,3 +78,10 @@ export function fetchTempPhotoBlob(filename) {
 export function expertFilters() {
   return request.get('/experts/filters', { silent: true })
 }
+
+// 简历解析（新增专家辅助填充）：OCR 场景耗时较长，超时 180s
+export function parseResume(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/experts/resume/parse', formData, { timeout: 180000 })
+}

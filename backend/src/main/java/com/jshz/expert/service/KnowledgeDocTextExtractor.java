@@ -52,12 +52,36 @@ public class KnowledgeDocTextExtractor {
         if (file == null || file.isEmpty()) {
             return null;
         }
-        String ext = extensionOf(file.getOriginalFilename());
+        try (InputStream in = file.getInputStream()) {
+            return extract(in, file.getOriginalFilename());
+        } catch (Exception e) {
+            // 抽取失败不阻断主流程：该文档仅不支持内容检索
+            return null;
+        }
+    }
+
+    /**
+     * P2-7：从磁盘路径流式抽取正文，避免 {@code MultipartFile.getBytes()} 在请求线程产生整文件副本。
+     * 文件不存在或格式不支持时返回 null，不抛异常。
+     */
+    public String extract(Path path, String fileName) {
+        if (path == null || !Files.isRegularFile(path)) {
+            return null;
+        }
+        try (InputStream in = Files.newInputStream(path)) {
+            return extract(in, fileName);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String extract(InputStream in, String fileName) {
+        String ext = extensionOf(fileName);
         try {
             String text = switch (ext) {
-                case "pdf" -> extractPdf(file.getBytes());
-                case "doc" -> extractDoc(file.getBytes());
-                case "docx" -> extractDocx(file.getBytes());
+                case "pdf" -> extractPdf(in);
+                case "doc" -> extractDoc(in);
+                case "docx" -> extractDocx(in);
                 default -> null;
             };
             if (!StringUtils.hasText(text)) {
@@ -163,7 +187,8 @@ public class KnowledgeDocTextExtractor {
     }
 
     private static String clean(String text) { return text == null ? "" : text.replaceAll("[ \\t]+", " ").trim(); }
-    private static String ocrPage(java.awt.image.BufferedImage raster, boolean coordinates) {
+    /** OCR 单页/单图（公开供简历解析复用）：chi_sim+eng，45s 超时，临时文件自动清理。 */
+    public static String ocrPage(java.awt.image.BufferedImage raster, boolean coordinates) {
         Path image = null;
         Path output = null;
         Process process = null;
@@ -201,21 +226,20 @@ public class KnowledgeDocTextExtractor {
         String value = clean(text); if (!value.isBlank()) blocks.add(new SourceBlock(anchor, value, kind));
     }
 
-    private String extractPdf(byte[] bytes) throws Exception {
-        try (PDDocument doc = PDDocument.load(bytes)) {
+    private String extractPdf(InputStream in) throws Exception {
+        try (PDDocument doc = PDDocument.load(in)) {
             return new PDFTextStripper().getText(doc);
         }
     }
 
-    private String extractDoc(byte[] bytes) throws Exception {
-        try (InputStream in = new ByteArrayInputStream(bytes);
-             WordExtractor extractor = new WordExtractor(in)) {
+    private String extractDoc(InputStream in) throws Exception {
+        try (WordExtractor extractor = new WordExtractor(in)) {
             return extractor.getText();
         }
     }
 
-    private String extractDocx(byte[] bytes) throws Exception {
-        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes));
+    private String extractDocx(InputStream in) throws Exception {
+        try (XWPFDocument doc = new XWPFDocument(in);
              XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
             return extractor.getText();
         }
