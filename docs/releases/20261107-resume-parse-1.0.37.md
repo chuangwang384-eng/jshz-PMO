@@ -112,3 +112,9 @@ Owner 提供真实 .doc 简历（丁慧鑫.doc）：文本 5 字段全命中（�
 - parseDoc 改用 HWPFDocument + PicturesTable.getAllPictures()（POI 5.4.1 API 为 Picture.getContent()），文档内全部图片解码收集。
 - 各格式统一管线：先收集解码后的 BufferedImage，再按头像特征过滤（80~4000px、比例 0.5~1.8）；**若全部被过滤则回退使用全部图片**（Owner 口径：doc 内所有图片都可能是头像），缩至 600px 取前 3 张。
 **实测**（丁慧鑫.doc）：5 字段 + 1 张头像候选（20KB JPEG，即简历照片）；简介收入协会职务等内容。
+
+
+## 追加：JPEG 编码失败修复（1.0.37.11，2026-11-07）
+
+Owner 提供第二份真实 .doc（李春芳.doc）：头像候选缩略图破损。排查链：反射隔离 parseDoc（0 候选）vs 独立探针（图片可解码 230×312）→ 定位到 **解码出的 BufferedImage type=6（4BYTE_ABGR 带 Alpha）**，Java JPEG 编码器不支持带 Alpha 颜色模型，`ImageIO.write` 静默返回 false → 空 base64 → 前端破损图标。
+**修复**：toBase64Jpeg 编码前一律重绘到 TYPE_INT_RGB 白底（同时解决透明底变黑问题）。实测：李春芳.doc 1 张候选（9244B 合法 JPEG）；丁慧鑫.doc 回归 1 候选。两份真实 doc 均通过。
