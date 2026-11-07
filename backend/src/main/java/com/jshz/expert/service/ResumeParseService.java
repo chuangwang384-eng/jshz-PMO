@@ -280,8 +280,10 @@ public class ResumeParseService {
         if (pool.isEmpty()) pool = safeImages;
         for (BufferedImage img : pool) {
             if (photoCandidates.size() >= 3) break;
+            if (img == null || img.getWidth() <= 0 || img.getHeight() <= 0) continue;
             try {
-                photoCandidates.add(toBase64Jpeg(img));
+                String candidate = toBase64Jpeg(img);
+                if (!candidate.isEmpty()) photoCandidates.add(candidate);
             } catch (Exception ignored) {
                 // 单张候选失败不影响其余
             }
@@ -298,12 +300,12 @@ public class ResumeParseService {
         return ratio >= 0.5 && ratio <= 1.8;
     }
 
-    /** 解码图片字节并收集（解码失败跳过）。 */
+    /** 解码图片字节并收集（解码失败或 0 尺寸异常图跳过）。 */
     private void collectImage(List<BufferedImage> images, byte[] data) {
         if (data == null || data.length == 0) return;
         try {
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(data));
-            if (img != null) images.add(img);
+            if (img != null && img.getWidth() > 0 && img.getHeight() > 0) images.add(img);
         } catch (Exception ignored) {
         }
     }
@@ -473,22 +475,22 @@ public class ResumeParseService {
         }
     }
 
-    /** 候选图统一缩到最长边 600px 的 JPEG base64。 */
+    /** 候选图统一重绘到 TYPE_INT_RGB 白底（JPEG 编码器不支持带 Alpha 的颜色模型）并缩到最长边 600px。 */
     private String toBase64Jpeg(BufferedImage img) throws IOException {
         int w = img.getWidth(), h = img.getHeight();
         int maxSide = Math.max(w, h);
-        BufferedImage out = img;
-        if (maxSide > 600) {
-            double scale = 600.0 / maxSide;
-            out = new BufferedImage((int) (w * scale), (int) (h * scale), BufferedImage.TYPE_INT_RGB);
-            Graphics2D g = out.createGraphics();
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(img, 0, 0, out.getWidth(), out.getHeight(), null);
-            g.dispose();
-        }
+        double scale = maxSide > 600 ? 600.0 / maxSide : 1.0;
+        BufferedImage out = new BufferedImage((int) (w * scale), (int) (h * scale), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.setColor(java.awt.Color.WHITE);
+        g.fillRect(0, 0, out.getWidth(), out.getHeight());
+        g.drawImage(img, 0, 0, out.getWidth(), out.getHeight(), null);
+        g.dispose();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ImageIO.write(out, "jpg", bos);
-        return Base64.getEncoder().encodeToString(bos.toByteArray());
+        if (!ImageIO.write(out, "jpg", bos)) return "";   // 无编码器时返回空串，由调用方过滤
+        byte[] encoded = bos.toByteArray();
+        return encoded.length == 0 ? "" : Base64.getEncoder().encodeToString(encoded);
     }
 
     private List<BufferedImage> extractPdfImages(PDDocument doc) throws IOException {
