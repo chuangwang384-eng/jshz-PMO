@@ -1,8 +1,7 @@
 <template>
   <main class="dashboard">
     <header class="dashboard-head"><div><p class="eyebrow">PERSONAL WORKSPACE</p><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted">先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><span>{{ businessDate }}</span><template v-if="!editing"><el-button v-if="layoutEnabled" :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">编辑布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" @click="refreshWorkbench">刷新工作台</el-button></div></header>
-    <GlobalSearchBar />
-    <nav class="quick-links" aria-label="快捷入口"><router-link v-for="entry in visibleEntries" :key="entry[1]" :to="entry[1]">{{ entry[0] }} <span>↗</span></router-link></nav>
+    <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar :candidates="quickCandidates" /></div>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
     <p v-if="layoutEnabled && !wide" class="muted">请使用宽屏编辑布局。</p>
     <p v-if="editing" class="edit-tip">拖动标题移动，拖动右下角改变宽高。聚焦手柄可用方向键移动，按住 Shift 改变宽高。<span role="status">{{ layoutStatus }}</span></p>
@@ -59,7 +58,8 @@ import { overview, getDashboardLayout, getLegacyDashboardLayout, saveDashboardLa
 import { sectionRequests, safeTarget, warningNames } from '../../utils/dashboard'
 import { normalizeDashboardLayout, orderLayout, placeCard } from '../../utils/dashboardLayout'
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
-const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),seq=sectionRequests()
+import QuickAccessBar from '../../components/QuickAccessBar.vue'
+const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),searchBar=ref(null),seq=sectionRequests()
 // capabilities 会话级缓存：首帧立即渲染快捷入口，避免 overview 返回前整条消失再弹入
 const capabilities=ref((()=>{try{return JSON.parse(sessionStorage.getItem(`dashboard-capabilities:${auth.id}`)||'[]')}catch(e){return []}})())
 const greeting=new Date().getHours()<12?'早上好':new Date().getHours()<18?'下午好':'晚上好'
@@ -266,9 +266,9 @@ function beforeUnload(event) {
 }
 onBeforeRouteLeave(() => !dirtyLayout() || window.confirm('布局尚未保存，确定离开吗？'))
 
-const entries=[['知识星球','/knowledge-planet/meeting-execution'],['项目管理','/project'],['专家库','/experts'],['客户信息','/knowledge-planet/customer-info'],['供应商','/supplier'],['我的申请','/profile/my-approvals'],['公告','/profile/announcements'],['通讯录','/profile/directory']]
-const entryModules=['knowledge','project','expert','customer','supplier','myApplications','announcement','directory']
-const visibleEntries=computed(()=>entries.filter((_,i)=>capabilities.value.includes(entryModules[i])))
+// 快捷访问候选：page.* 卡片按原固定顺序排列，经 canShow 过滤（含 capabilities 与权限）
+const QUICK_ACCESS_ORDER=['page.knowledge','page.project','page.experts','page.customer','page.supplier','page.myApplications','page.announcements','page.directory','page.notifications','page.approvalManage']
+const quickCandidates=computed(()=>QUICK_ACCESS_ORDER.filter(canShow).map(id=>({id,title:CARD_CATALOG[id].title,path:CARD_CATALOG[id].path})))
 const allTargets={favorites:{path:'/knowledge-planet/meeting-execution',query:{favorites:'1'}},announcements:{path:'/profile/announcements'},notifications:{path:'/profile/notifications'}}
 const data=key=>section.value[key]?.data || {}
 const count=(key,field)=>section.value[key]?.status==='error'?'暂不可用':data(key)[field] ?? '—'
@@ -302,10 +302,13 @@ async function refresh(keys) {
 function go(target){const value=safeTarget(router,target);if(value)router.push(value)}
 function scrollProjects(){(Array.isArray(projectsElement.value) ? projectsElement.value[0] : projectsElement.value)?.scrollIntoView({behavior:'smooth',block:'start'})}
 function focused(){if(!document.hidden&&Date.now()-lastFocus>1000){lastFocus=Date.now();refresh()}}
+// Ctrl K / ⌘K 仅工作台页生效：聚焦全局搜索框（输入法组合态忽略）
+function commandKey(event){if((event.ctrlKey||event.metaKey)&&(event.key==='k'||event.key==='K')&&!event.isComposing){event.preventDefault();searchBar.value?.focus()}}
 onMounted(async()=>{
  const saved=Number(sessionStorage.getItem(`dashboard-scroll:${auth.id}`) || 0)
  timer=setInterval(()=>{if(!document.hidden)refresh()},60000)
  window.addEventListener('focus',focused);document.addEventListener('visibilitychange',focused)
+ document.addEventListener('keydown',commandKey)
  resizeObserver = new ResizeObserver(([entry]) => { wide.value = entry.contentRect.width >= 900 })
  if (gridElement.value?.parentElement) resizeObserver.observe(gridElement.value.parentElement)
  window.addEventListener('beforeunload', beforeUnload)
@@ -315,6 +318,7 @@ onMounted(async()=>{
 })
 onBeforeUnmount(()=>{
  grid?.destroy();resizeObserver?.disconnect();window.removeEventListener('beforeunload', beforeUnload)
+ document.removeEventListener('keydown',commandKey)
  alive=false;sessionStorage.setItem(`dashboard-scroll:${auth.id}`,String(document.querySelector('.el-main')?.scrollTop || 0))
  for(const request of requests)request.abort()
  clearInterval(timer);window.removeEventListener('focus',focused);document.removeEventListener('visibilitychange',focused)
@@ -322,7 +326,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <style scoped>
-.dashboard{max-width:1440px;margin:auto;color:#24334d}.dashboard-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.eyebrow{font-size:11px;letter-spacing:2px;color:#557194;margin:0 0 8px}h1{font-size:26px;margin:0}h2{font-size:16px;margin:0}h3{font-size:17px;margin:13px 0 10px}.muted{color:#758298;font-size:12px;margin:8px 0}.head-actions{display:flex;align-items:center;gap:12px;font-size:13px;color:#64748b}.quick-links{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 22px}.quick-links a{padding:7px 12px;color:#4a607c;text-decoration:none;background:white;border:1px solid #e3eaf3;border-radius:6px;font-size:12px}.quick-links span{margin-left:8px;color:#8fa2b9}
+.dashboard{max-width:1440px;margin:auto;color:var(--c-text,#24334d);--c-primary:#2563EB;--c-page-bg:#F8FAFC;--c-card-bg:#FFFFFF;--c-text:#0F172A;--c-text-sub:#64748B;--c-border:#E2E8F0;--r-card:12px;--r-btn:8px;--pad-page:32px;--shadow-card:0 1px 2px rgba(15,23,42,.06)}.dashboard-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.eyebrow{font-size:11px;letter-spacing:2px;color:var(--c-text-sub,#557194);margin:0 0 8px}h1{font-size:26px;margin:0}h2{font-size:16px;margin:0}h3{font-size:17px;margin:13px 0 10px}.muted{color:var(--c-text-sub,#758298);font-size:12px;margin:8px 0}.head-actions{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--c-text-sub,#64748b)}.nav-card{background:var(--c-card-bg);border:1px solid var(--c-border);border-radius:var(--r-card);box-shadow:var(--shadow-card);padding:14px 18px;margin:0 0 16px}
 .layout-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:56px;margin:16px 0}
 .grid-stack{margin:16px 0;min-height:56px;background-image:linear-gradient(to right,#dce5f2 1px,transparent 1px),linear-gradient(to bottom,#dce5f2 1px,transparent 1px);background-size:calc(100% / 12) 56px}
 .layout-grid.narrow{display:flex;flex-direction:column}
@@ -337,7 +341,7 @@ onBeforeUnmount(()=>{
 .cell{height:100%;overflow:hidden}
 .summary{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 8px;border:1px solid #dce5f2;background:#fff;border-radius:10px;cursor:pointer;color:#334e72;text-align:center;width:100%;height:100%;box-sizing:border-box}.summary span{font-size:12px;line-height:1.25;overflow-wrap:anywhere}.summary strong{font-size:22px;color:#254f91;line-height:1.2}.summary strong i{font-size:16px;font-style:normal;color:#c7d1df}.summary small{color:#8391a4;font-size:10px;line-height:1.2}.summary.danger{background:#fff8f6;border-color:#f4dcd6}.danger strong{color:#bb5446}.summary.caution{background:#fffaf1;border-color:#f0e3c8}.caution strong{color:#a67526}
 .page-tile{flex-direction:row;gap:6px;align-items:center;justify-content:center}.page-tile-title{font-size:13px;font-weight:600;color:#254f91}.page-tile-arrow{color:#8fa2b9;font-size:14px}.page-tile:hover{border-color:#a0cfff;background:#f4f9ff}
-.panel{background:white;border:1px solid #e3eaf3;border-radius:10px;padding:12px 18px;margin:0;width:100%;height:100%;box-sizing:border-box;overflow-y:auto}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.item-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 0;border:0;border-top:1px solid #f0f3f8;background:white;text-align:left;cursor:pointer;color:#405475}.item-row b{font-size:13px;font-weight:500}.item-row small{display:block;font-size:11px;color:#8593a5;margin-top:5px}.project-row .relation-line{color:#a3b1c2}.project-row b .el-tag{margin-left:6px}.detail-arrow{font-size:12px;color:#8593a5;white-space:nowrap}.unknown-note{font-size:12px;color:#8f692f;background:#fff9ed;padding:10px 14px;border-radius:6px}.section-error{color:#b15d4a;font-size:13px}footer{padding:4px 0 18px}button:focus-visible,a:focus-visible{outline:2px solid #2864d8;outline-offset:3px}
+.panel{background:var(--c-card-bg,#fff);border:1px solid var(--c-border,#e3eaf3);border-radius:var(--r-card,10px);padding:12px 18px;margin:0;width:100%;height:100%;box-sizing:border-box;overflow-y:auto}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.item-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 0;border:0;border-top:1px solid #f0f3f8;background:white;text-align:left;cursor:pointer;color:#405475}.item-row b{font-size:13px;font-weight:500}.item-row small{display:block;font-size:11px;color:#8593a5;margin-top:5px}.project-row .relation-line{color:#a3b1c2}.project-row b .el-tag{margin-left:6px}.detail-arrow{font-size:12px;color:#8593a5;white-space:nowrap}.unknown-note{font-size:12px;color:#8f692f;background:#fff9ed;padding:10px 14px;border-radius:6px}.section-error{color:#b15d4a;font-size:13px}footer{padding:4px 0 18px}button:focus-visible,a:focus-visible{outline:2px solid #2864d8;outline-offset:3px}
 .edit-tip{font-size:12px;color:#758298;background:#f4f8ff;border:1px solid #dce5f2;border-radius:6px;padding:8px 12px;margin:12px 0}
 .palette{margin-top:16px;background:white;border:1px solid #e3eaf3;border-radius:10px;padding:14px}.palette-head{font-size:12px;color:#758298;margin-bottom:10px}.palette-list{display:flex;flex-wrap:wrap;gap:8px}.palette-item{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:12px;color:#334e72;background:#f5f8fd;border:1px solid #dce5f2;border-radius:14px;cursor:pointer}.palette-item:hover{border-color:#a0cfff;background:#ecf5ff}.palette-item small{color:#8fa2b9}
 .chip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.chip-dot[data-color='primary']{background:#409eff}.chip-dot[data-color='warning']{background:#e6a23c}.chip-dot[data-color='success']{background:#67c23a}

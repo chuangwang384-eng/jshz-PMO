@@ -1,6 +1,7 @@
 package com.jshz.expert.controller;
 
 import com.jshz.expert.common.ApiResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.*;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,8 @@ public class DashboardController {
     private final DashboardReadService reads;
     private final DashboardTasks tasks;
     private final JdbcTemplate db;
+    private final DashboardLayoutService layouts;
+    private final QuickAccessService quickAccess;
     private static final List<String> SECTIONS=List.of("myApplications","myApprovals","projectRisk","myProjects","favorites","notifications","announcements");
     private static final int LAYOUT_MAX_CHARS=20000;
 
@@ -39,6 +42,32 @@ public class DashboardController {
         try { new com.fasterxml.jackson.databind.ObjectMapper().readTree(text); } catch(Exception e) { throw new com.jshz.expert.common.BusinessException(400,"布局不是合法的 JSON"); }
         db.update("INSERT INTO user_dashboard_layout(user_id,layout) VALUES (?,?) ON DUPLICATE KEY UPDATE layout=VALUES(layout)",user.getUserId(),text);
         return ApiResponse.ok(null);
+    }
+
+    @GetMapping("/layout/v2")
+    public ApiResponse<DashboardLayoutService.Snapshot> layoutV2(@AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(layouts.load(user));
+    }
+
+    @PutMapping("/layout/v2")
+    public ApiResponse<DashboardLayoutService.Snapshot> saveLayoutV2(
+            @AuthenticationPrincipal AuthUser user, @RequestBody JsonNode body) {
+        return ApiResponse.ok(layouts.save(user, body));
+    }
+
+    /** 当前用户快捷访问配置（未保存过返回空数组，前端使用默认入口）。 */
+    @GetMapping("/quick-access")
+    public ApiResponse<Map<String,Object>> quickAccess(@AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(Map.of("items", quickAccess.load(user)));
+    }
+
+    /** 保存当前用户快捷访问配置（page.* 标识与顺序，逐项走卡片白名单校验）。 */
+    @PutMapping("/quick-access")
+    public ApiResponse<Map<String,Object>> saveQuickAccess(
+            @AuthenticationPrincipal AuthUser user, @RequestBody Map<String,Object> body) {
+        @SuppressWarnings("unchecked")
+        List<String> items = body == null ? null : (List<String>) body.get("items");
+        return ApiResponse.ok(Map.of("items", quickAccess.save(user, items)));
     }
 
     @GetMapping("/overview")
