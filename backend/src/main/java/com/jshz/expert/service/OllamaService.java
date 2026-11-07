@@ -53,8 +53,13 @@ public class OllamaService {
                     "prompt", prompt,
                     "stream", false,
                     "format", "json"));
+            // 冷加载模型 + 长文本预填充可能超过 60s，超时可由 OLLAMA_TIMEOUT 秒覆盖（默认 180）
+            long timeoutSec = 180;
+            try {
+                timeoutSec = Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", "180"));
+            } catch (Exception ignored) {}
             HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
-                    .timeout(Duration.ofSeconds(60))
+                    .timeout(Duration.ofSeconds(timeoutSec))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
