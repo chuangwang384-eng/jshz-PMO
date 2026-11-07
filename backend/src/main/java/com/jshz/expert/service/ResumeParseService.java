@@ -24,10 +24,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -215,8 +217,42 @@ public class ResumeParseService {
                 message = "已识别文本但未命中可填充字段，请手动填写";
             }
         }
+        // 未归入五个字段的简历文本统一收入简介（保留换行；仅在简介为空时填充）
+        if (!fields.containsKey("简介")) {
+            String profile = collectProfileLines(text, fields);
+            if (!profile.isEmpty()) {
+                fields.put("简介", profile);
+            }
+        }
         return new ResumeParseResult(fields, photoCandidates, fields.size(), message);
     }
+
+    /**
+     * 收集未归入 姓名/单位/科室/职称/联系方式 的文本行进简介，保留原始顺序与换行。
+     * 排除：已抽取字段的取值行、这些字段的标签行、空行。超长截断到 2000 字符。
+     */
+    String collectProfileLines(String text, Map<String, String> fields) {
+        List<String> leftover = new ArrayList<>();
+        Set<String> values = new HashSet<>();
+        for (String v : List.of("姓名", "单位", "科室", "职称", "联系方式")) {
+            String value = fields.get(v);
+            if (value != null && !value.isBlank()) values.add(value.trim());
+        }
+        for (String line : text.split("\\R")) {
+            String v = line == null ? "" : line.replaceAll("[ \\t]+", " ").trim();
+            if (v.isEmpty() || v.matches("\\d{1,3}") || v.matches("-?\\d+页?")
+                    || v.matches("第\\d+页.*共\\d+页")) continue;
+            if (values.stream().anyMatch(v::contains)) continue;
+            if (CONSUMED_LABELS.stream().anyMatch(v::contains)) continue;
+            if (!leftover.contains(v)) leftover.add(v);
+        }
+        String joined = String.join("\n", leftover);
+        return joined.length() > 2000 ? joined.substring(0, 2000) : joined;
+    }
+
+    /** 已被结构化字段消费的标签关键词（命中即视为该行信息已归位）。 */
+    private static final List<String> CONSUMED_LABELS = List.of(
+            "姓名", "单位", "科室", "职称", "联系方式", "联系电话", "电话", "手机", "邮箱", "Email", "E-mail");
 
     /** 多策略字段解析：标签行优先，词表/上下文推断次之；首个可信命中即停。 */
     void extractFields(String text, Map<String, String> fields) {

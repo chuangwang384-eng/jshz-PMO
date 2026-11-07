@@ -454,8 +454,9 @@
           <template #label>联系方式<span v-if="resumeFilled['联系方式']" class="resume-mark">来自简历</span></template>
           <el-input v-model="createForm.联系方式" placeholder="请输入联系方式" />
         </el-form-item>
-        <el-form-item label="简介">
-          <el-input v-model="createForm.简介" type="textarea" :rows="2" placeholder="请输入简介" />
+        <el-form-item>
+          <template #label>简介<span v-if="resumeFilled['简介']" class="resume-mark">来自简历</span></template>
+          <el-input v-model="createForm.简介" type="textarea" :rows="4" placeholder="未归入上述字段的简历内容会自动收入此处" />
         </el-form-item>
         <el-form-item label="身份证号">
           <el-input v-model="createForm.身份证号" placeholder="请输入身份证号（18 位）" />
