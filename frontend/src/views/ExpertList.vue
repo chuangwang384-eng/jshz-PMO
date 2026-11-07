@@ -16,6 +16,22 @@
       <el-button :type="activeFilterCount ? 'primary' : 'default'" :plain="!activeFilterCount" @click="toggleFilters">
         高级筛选<el-badge v-if="activeFilterCount" :value="activeFilterCount" class="filter-badge" />
       </el-button>
+    </div>
+
+    <!-- 高级筛选面板：组合使用，一键重置 -->
+    <div v-if="filtersOpen" class="advanced-panel">
+      <span class="filter-field"><label>工作单位</label><el-select v-model="filters.unit" filterable clearable placeholder="选择单位" style="width: 220px"><el-option v-for="u in filterOptions.units" :key="u" :label="u" :value="u" /></el-select></span>
+      <span class="filter-field"><label>所属科室</label><el-select v-model="filters.department" filterable clearable placeholder="选择科室" style="width: 180px"><el-option v-for="d in filterOptions.departments" :key="d" :label="d" :value="d" /></el-select></span>
+      <span class="filter-field"><label>专家职称</label><el-select v-model="filters.titles" multiple filterable collapse-tags clearable placeholder="选择职称" style="width: 220px"><el-option v-for="t in filterOptions.titles" :key="t" :label="t" :value="t" /></el-select></span>
+      <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
+      <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
+      <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
+      <el-button :disabled="!activeFilterCount" @click="resetFilters">一键重置</el-button>
+    </div>
+
+    <!-- 第二层：工具行（统计 + 新增/导出 + 外部工具 + 视图切换，两种视图共用搜索/勾选/页码） -->
+    <div class="tool-row">
+      <span class="total-label">专家档案 · 共 {{ total }} 人</span>
       <div class="spacer" />
       <template v-if="canAddExpert">
         <el-button type="primary" @click="openAdminCreate">新增专家</el-button>
@@ -38,24 +54,10 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-    </div>
-
-    <!-- 高级筛选面板：组合使用，一键重置 -->
-    <div v-if="filtersOpen" class="advanced-panel">
-      <span class="filter-field"><label>工作单位</label><el-select v-model="filters.unit" filterable clearable placeholder="选择单位" style="width: 220px"><el-option v-for="u in filterOptions.units" :key="u" :label="u" :value="u" /></el-select></span>
-      <span class="filter-field"><label>所属科室</label><el-select v-model="filters.department" filterable clearable placeholder="选择科室" style="width: 180px"><el-option v-for="d in filterOptions.departments" :key="d" :label="d" :value="d" /></el-select></span>
-      <span class="filter-field"><label>专家职称</label><el-select v-model="filters.titles" multiple filterable collapse-tags clearable placeholder="选择职称" style="width: 220px"><el-option v-for="t in filterOptions.titles" :key="t" :label="t" :value="t" /></el-select></span>
-      <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
-      <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
-      <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
-      <el-button :disabled="!activeFilterCount" @click="resetFilters">一键重置</el-button>
-    </div>
-
-    <!-- 第二层：工具行（统计 + 外部工具 + 视图切换，两种视图共用搜索/勾选/页码） -->
-    <div class="tool-row">
-      <span class="total-label">专家档案 · 共 {{ total }} 人</span>
-      <div class="spacer" />
-      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener" plain size="small">专家单位查询</el-button>
+      <!-- 外部链接：卫健委机构查询平台（链接样式，区别于筛选控件） -->
+      <el-button tag="a" href="https://zgcx.nhc.gov.cn/unit" target="_blank" rel="noopener" link type="primary">
+        单位查询 ↗
+      </el-button>
       <span class="view-toggle-label">显示方式</span>
       <el-tooltip content="卡片视图" placement="top">
         <button type="button" class="view-btn" :class="{ active: viewMode === 'card' }" aria-label="卡片视图" @click="viewMode = 'card'"><el-icon><Grid /></el-icon>卡片</button>
@@ -1364,22 +1366,22 @@ watch(() => route.query.expertId, async id => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-auto-rows: auto;
-  column-gap: 14px;
-  row-gap: 14px;
+  column-gap: 18px;
+  row-gap: 16px;
 }
 .expert-card {
   min-width: 0;
-  height: 100%;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   background: #fff;
-  border: 1px solid #ebeef5;
+  border: 1px solid #e5e7eb;
   border-radius: 10px;
-  padding: 10px 12px 8px;
+  padding: 14px 16px;
   text-align: left;
   cursor: pointer;
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition: box-shadow 0.2s ease;
   position: relative;
   overflow: hidden;
 }
@@ -1427,7 +1429,7 @@ watch(() => route.query.expertId, async id => {
 .card-check {
   position: absolute;
   top: 10px;
-  left: 10px;
+  right: 10px;
   z-index: 1;
 }
 .card-meta {
@@ -1462,8 +1464,7 @@ watch(() => route.query.expertId, async id => {
   font-size: 13px;
 }
 .expert-card:hover {
-  box-shadow: 0 6px 18px rgba(0, 21, 41, 0.16);
-  transform: translateY(-3px);
+  box-shadow: 0 2px 10px rgba(0, 21, 41, 0.1);
 }
 /* 紧凑卡片：头像 72px 左置，姓名/单位/科室右侧一屏可读，整卡约 160~180px */
 .card-main {
