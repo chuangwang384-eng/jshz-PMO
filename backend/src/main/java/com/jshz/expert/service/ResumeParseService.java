@@ -12,6 +12,7 @@ import org.apache.poi.xslf.usermodel.XSLFPictureData;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -38,7 +39,10 @@ import java.util.regex.Pattern;
  * 简历原文不落盘不留存，临时文件即用即删。
  */
 @Service
+@RequiredArgsConstructor
 public class ResumeParseService {
+
+    private final OllamaService ollamaService;
 
     public static final long MAX_SIZE = 20L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS = List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
@@ -200,7 +204,13 @@ public class ResumeParseService {
         if (text == null || text.isBlank()) {
             message = "未识别到有效文本（可能为扫描件或图片质量不佳），请手动填写";
         } else {
+            // 策略一：多策略本地启发式打底；策略二：本地 LLM 语义抽取（未配置 Ollama 时自动跳过）
             extractFields(text, fields);
+            Map<String, String> semantic = ollamaService.extractResumeFields(text);
+            if (semantic != null && !semantic.isEmpty()) {
+                fields.putAll(semantic);   // 语义结果优先覆盖，启发式仅补缺
+                if (!fields.isEmpty()) message = "已结合本地语义模型解析";
+            }
             if (fields.isEmpty()) {
                 message = "已识别文本但未命中可填充字段，请手动填写";
             }
@@ -214,7 +224,10 @@ public class ResumeParseService {
         List<String> cleaned = new ArrayList<>();
         for (String line : lines) {
             String v = line == null ? "" : line.replaceAll("[ \\t]+", " ").trim();
-            if (!v.isEmpty()) cleaned.add(v);
+            if (v.isEmpty()) continue;
+            // open-resume 式段落清洗：丢弃页码/页眉页脚噪声（对 OCR 文本尤其重要）
+            if (v.matches("\\d{1,3}") || v.matches("-?\\d+页?") || v.matches("第\\d+页.*共\\d+页")) continue;
+            cleaned.add(v);
         }
         String full = text.replaceAll("[ \\t]", "");
 
