@@ -16,7 +16,8 @@ import java.util.List;
 
 /**
  * JWT 工具（正式版 V1.001，RBAC 阶段1）。
- * 签发与校验登录令牌，claims 携带 userId / username / isAdmin / mustChangePassword / roles。
+ * 签发与校验登录令牌，claims 携带 userId / username / isAdmin / mustChangePassword / roles / tv。
+ * tv（tokenVersion）与 sys_user.token_version 比对，用于停用/删除/改密/改角色后立即吊销旧 Token。
  */
 @Component
 public class JwtTokenProvider {
@@ -30,8 +31,13 @@ public class JwtTokenProvider {
         this.expireMillis = expireHours * 3600_000L;
     }
 
+    /**
+     * 签发 Token。
+     *
+     * @param tokenVersion 用户当前 token_version；停用/删除/改密/改角色后自增，旧 Token 失效
+     */
     public String createToken(Long userId, String username, boolean isAdmin, boolean mustChangePassword,
-                              List<String> roles) {
+                              List<String> roles, long tokenVersion) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expireMillis);
         return Jwts.builder()
@@ -40,10 +46,33 @@ public class JwtTokenProvider {
                 .claim("isAdmin", isAdmin)
                 .claim("mustChangePassword", mustChangePassword)
                 .claim("roles", roles == null ? new ArrayList<>() : roles)
+                .claim("tv", tokenVersion)
                 .setIssuedAt(now)
                 .setExpiration(expiry)
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    /**
+     * 读取 Token 版本号；缺失（本次升级前签发的存量 Token）返回 null。
+     * 调用方应将 null 视为不可信旧 Token，不建立认证。
+     */
+    public Long extractTokenVersion(Jws<Claims> jws) {
+        if (jws == null) {
+            return null;
+        }
+        Object value = jws.getBody().get("tv");
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**

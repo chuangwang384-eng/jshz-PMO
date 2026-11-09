@@ -148,9 +148,11 @@ public class PhotoStorageService {
     }
 
     /**
-     * 临时照片归档到正式照片库：按命名规则生成正式文件名，归档后删除临时文件。
+     * 计算归档目标文件名（只做校验与命名，不做文件拷贝）。
+     * 供审批流在事务内把文件名落库，物理归档由 {@link #archiveTempPhoto} 在事务提交后执行，
+     * 避免文件 IO 占用数据库事务与连接。
      */
-    public String moveTempPhoto(String tempName, Long expertId, String type) {
+    public String buildArchivedName(String tempName, Long expertId, String type) {
         if (expertId == null) {
             throw new BusinessException("缺少专家 id，无法按命名规则保存照片");
         }
@@ -167,13 +169,40 @@ public class PhotoStorageService {
             case "idcard_back" -> "idcard_back";
             default -> "avatar";
         };
-        String fileName = prefix + "_" + expertId + "_" + Instant.now().toEpochMilli() + "." + ext;
+        return prefix + "_" + expertId + "_" + Instant.now().toEpochMilli() + "." + ext;
+    }
+
+    /**
+     * 物理归档：把临时文件拷贝为指定正式文件名后删除临时文件。
+     * 由 {@link #buildArchivedName} 预先算好目标名，事务提交后调用。
+     */
+    public void archiveTempPhoto(String tempName, String archivedName) {
+        if (!StringUtils.hasText(tempName) || !StringUtils.hasText(archivedName)) {
+            throw new BusinessException("照片归档参数为空");
+        }
+        Path src = this.tempDir.resolve(safeName(tempName)).normalize();
+        if (!src.startsWith(this.tempDir) || !Files.exists(src)) {
+            throw new BusinessException("临时照片不存在或非法");
+        }
+        Path target = this.storageDir.resolve(safeName(archivedName)).normalize();
+        if (!target.startsWith(this.storageDir)) {
+            throw new BusinessException("非法的目标照片文件名");
+        }
         try {
-            Files.copy(src, this.storageDir.resolve(fileName));
+            Files.copy(src, target);
             Files.deleteIfExists(src);
         } catch (IOException e) {
             throw new BusinessException("临时照片归档失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 临时照片归档到正式照片库（命名 + 拷贝一次完成）。
+     * 保留给事务外场景使用；审批流内部走 buildArchivedName + archiveTempPhoto 两段式。
+     */
+    public String moveTempPhoto(String tempName, Long expertId, String type) {
+        String fileName = buildArchivedName(tempName, expertId, type);
+        archiveTempPhoto(tempName, fileName);
         return fileName;
     }
 

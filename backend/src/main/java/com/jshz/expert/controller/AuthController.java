@@ -50,14 +50,7 @@ public class AuthController {
                                             HttpServletRequest httpRequest,
                                             HttpServletResponse response) {
         LoginResponse loginResponse = authService.login(request);
-        ResponseCookie cookie = ResponseCookie.from("expert_token", loginResponse.getToken())
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(jwtTokenProvider.getExpireSeconds())
-                .build();
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, authCookie(loginResponse.getToken()).toString());
         // token 已写入 cookie，响应体不再回传，避免前端落入 localStorage
         loginResponse.setToken(null);
         // 敏感操作日志：登录成功
@@ -103,13 +96,30 @@ public class AuthController {
     @PostMapping("/change-password")
     public ApiResponse<Void> changePassword(@AuthenticationPrincipal AuthUser authUser,
                                             @RequestBody ChangePasswordRequest request,
-                                            HttpServletRequest httpRequest) {
-        authService.changePassword(authUser, request);
+                                            HttpServletRequest httpRequest,
+                                            HttpServletResponse response) {
+        LoginResponse refreshed = authService.changePassword(authUser, request);
+        // P1-2：改密后 token_version 自增，旧 Token 失效；为当前会话写回新 Cookie，避免立即被踢下线
+        if (refreshed != null && refreshed.getToken() != null) {
+            response.addHeader(HttpHeaders.SET_COOKIE, authCookie(refreshed.getToken()).toString());
+            refreshed.setToken(null);
+        }
         // 敏感操作日志：修改本人密码
         operationLogService.record(authUser.getUserId(), authUser.getUsername(),
                 OperationLogService.ACTION_CHANGE_PASSWORD, "修改本人密码", "USER", authUser.getUsername(),
                 httpRequest);
         return ApiResponse.ok(null);
+    }
+
+    /** 统一登录 Cookie 属性：httpOnly + SameSite=Lax；内网 http 不设 Secure。 */
+    private ResponseCookie authCookie(String token) {
+        return ResponseCookie.from("expert_token", token)
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(jwtTokenProvider.getExpireSeconds())
+                .build();
     }
 
     /**

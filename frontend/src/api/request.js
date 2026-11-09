@@ -43,7 +43,7 @@ request.interceptors.response.use(
       if (!isLoginReq && !silent) {
         ElMessage.error(res.message || '请求失败')
       }
-      return Promise.reject(new Error(res.message || '请求失败'))
+      return Promise.reject(Object.assign(new Error(res.message || '请求失败'), { code: res.code }))
     }
     return res
   },

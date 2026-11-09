@@ -44,6 +44,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final PermissionService permissionService;
+    private final UserAuthStateService userAuthStateService;
     private final UserService userService;
     private final WecomProperties wecomProperties;
 
@@ -154,6 +155,7 @@ public class AuthService {
         user.setIsAdmin(false);
         user.setMustChangePassword(true);
         user.setStatus(1);
+        user.setTokenVersion(0);
         try {
             sysUserMapper.insert(user);
         } catch (DuplicateKeyException e) {
@@ -179,8 +181,9 @@ public class AuthService {
         boolean mustChange = Boolean.TRUE.equals(user.getMustChangePassword());
         Long userId = user.getId();
         List<String> roles = new ArrayList<>(permissionService.getUserRoles(userId));
+        long tokenVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion().longValue();
         String token = jwtTokenProvider.createToken(userId, user.getUsername(),
-                Boolean.TRUE.equals(user.getIsAdmin()), mustChange, roles);
+                Boolean.TRUE.equals(user.getIsAdmin()), mustChange, roles, tokenVersion);
         return new LoginResponse(token, user.getUsername(), user.getIsAdmin(), mustChange, roles,
                 new ArrayList<>(permissionService.getUserPermissions(userId)),
                 user.getId(), user.getCreateTime(), toRoleNames(roles));
@@ -204,8 +207,14 @@ public class AuthService {
 
     /**
      * 修改密码：校验旧密码，更新新密码并清除强制改密标记。
+     *
+     * <p>P1-2：修改成功后自增 token_version，使其他会话的旧 Token 立即失效；
+     * 返回携带新版本号的新登录响应，由控制器写回 Cookie，当前会话无需重新登录。</p>
+     *
+     * <p>密码更新与版本自增放在同一事务，避免只改密码未吊销旧 Token。</p>
      */
-    public void changePassword(AuthUser authUser, ChangePasswordRequest request) {
+    @Transactional(rollbackFor = Exception.class)
+    public LoginResponse changePassword(AuthUser authUser, ChangePasswordRequest request) {
         if (request == null || !StringUtils.hasText(request.getOldPassword()) || !StringUtils.hasText(request.getNewPassword())) {
             throw new BusinessException("旧密码和新密码不能为空");
         }
@@ -222,6 +231,9 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
         sysUserMapper.updateById(user);
+        userAuthStateService.bumpAndEvict(user.getId());
+        SysUser fresh = sysUserMapper.selectById(user.getId());
+        return buildLoginResponse(fresh == null ? user : fresh);
     }
 
     /**

@@ -27,9 +27,11 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.Set;
 
 /**
@@ -206,6 +208,23 @@ public class ComplianceService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> parseAndCreateDrafts(Long documentId, Long documentVersionId, String fileName,
                                                     String fileType, byte[] bytes, String textContent, AuthUser user) {
+        return parseAndCreateDrafts(documentId, documentVersionId, fileName, fileType, textContent, user,
+                () -> parseService.parse(fileName, fileType, bytes, textContent));
+    }
+
+    /**
+     * P2-7：从磁盘路径解析（异步线程调用），xlsx/xls 不再整文件读入调用方 byte[]。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> parseAndCreateDrafts(Long documentId, Long documentVersionId, String fileName,
+                                                    String fileType, Path path, String textContent, AuthUser user) {
+        return parseAndCreateDrafts(documentId, documentVersionId, fileName, fileType, textContent, user,
+                () -> parseService.parse(fileName, fileType, path, textContent));
+    }
+
+    private Map<String, Object> parseAndCreateDrafts(Long documentId, Long documentVersionId, String fileName,
+                                                     String fileType, String textContent, AuthUser user,
+                                                     Supplier<ComplianceParseService.ParseResult> parser) {
         if (documentId == null) {
             log.warn("合规解析跳过：documentId 为空（fileName={}）", fileName);
             Map<String, Object> empty = new LinkedHashMap<>();
@@ -213,7 +232,7 @@ public class ComplianceService {
             empty.put("message", "documentId 为空，解析跳过");
             return empty;
         }
-        ComplianceParseService.ParseResult pr = parseService.parse(fileName, fileType, bytes, textContent);
+        ComplianceParseService.ParseResult pr = parser.get();
         List<ComplianceItem> parsed = pr.items();
         List<ComplianceItem> oldPublished = itemMapper.selectList(new LambdaQueryWrapper<ComplianceItem>()
                 .eq(ComplianceItem::getDocumentId, documentId).eq(ComplianceItem::getIsDraft, 0));

@@ -11,11 +11,15 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 /**
  * 企业合规文档解析服务（REQ/DES-20261102 v1.0 保留）。
@@ -42,12 +46,27 @@ public class ComplianceParseService {
     public record ParseResult(List<ComplianceItem> items, String message) {
     }
 
-    /** 按文件类型分发解析（fileType 形如 xlsx/docx/pdf） */
+    /** 按文件类型分发解析（fileType 形如 xlsx/docx/pdf）；byte[] 入口保留兼容。 */
     public ParseResult parse(String fileName, String fileType, byte[] bytes, String textContent) {
+        return parse(fileName, fileType, textContent, () -> parseExcel(new ByteArrayInputStream(bytes)));
+    }
+
+    /**
+     * P2-7：从磁盘路径解析，xlsx/xls 直接从文件流读取，避免请求线程/调用方持有整文件 byte[]。
+     */
+    public ParseResult parse(String fileName, String fileType, Path path, String textContent) {
+        return parse(fileName, fileType, textContent, () -> {
+            try (InputStream in = Files.newInputStream(path)) {
+                return parseExcel(in);
+            }
+        });
+    }
+
+    private ParseResult parse(String fileName, String fileType, String textContent, Callable<ParseResult> excelParser) {
         try {
             String ft = fileType == null ? "" : fileType.toLowerCase();
             if (ft.equals("xlsx") || ft.equals("xls")) {
-                return parseExcel(bytes);
+                return excelParser.call();
             }
             // PDF/DOCX：优先使用已抽取的正文文本（knowledge_document.content 已有正文抽取链路）
             String text = textContent;
@@ -62,9 +81,9 @@ public class ComplianceParseService {
     }
 
     /** xlsx/xls 表头映射解析：时间节点→timeNote、项目→title、内容→content、备注→remark */
-    private ParseResult parseExcel(byte[] bytes) {
+    private ParseResult parseExcel(InputStream in) {
         List<ComplianceItem> items = new ArrayList<>();
-        try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+        try (XSSFWorkbook wb = new XSSFWorkbook(in)) {
             Sheet sheet = wb.getSheetAt(0);
             Row header = sheet.getRow(sheet.getFirstRowNum());
             if (header == null) {

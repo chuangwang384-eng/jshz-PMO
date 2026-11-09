@@ -13,6 +13,7 @@
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetQuery">重置</el-button>
         <el-switch
+          v-if="canManage"
           v-model="showDeleted"
           class="deleted-switch"
           active-text="已删除视图"
@@ -25,47 +26,56 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="rows" border stripe @row-click="openDrawer">
-        <el-table-column label="客户姓名" width="160" fixed="left">
+      <!-- 列宽按 20% / 38% / 17% / 15% / 10% 比例分配：全部用 min-width 让 el-table 按比例吃满容器 -->
+      <el-table
+        ref="tableRef"
+        v-loading="loading"
+        :data="rows"
+        highlight-current-row
+        class="customer-table"
+        @row-click="openDrawer"
+      >
+        <el-table-column label="客户姓名" min-width="200">
           <template #default="{ row }">
             <span class="customer-avatar">{{ (row.name || '?').slice(0, 1) }}</span>
             <span class="customer-name">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="工作单位 / 职务" min-width="240">
+        <el-table-column label="工作单位 / 职务" min-width="380">
           <template #default="{ row }">
             <div v-if="row.workUnit || row.workLevel" class="unit-cell">
-              <div class="unit-main">{{ row.workUnit || '未填写' }}</div>
-              <div class="unit-sub">{{ row.workLevel || '未填写' }}</div>
+              <div class="unit-main" :title="row.workUnit || '未填写'">{{ row.workUnit || '未填写' }}</div>
+              <div class="unit-sub" :title="row.workLevel || '未填写'">{{ row.workLevel || '未填写' }}</div>
             </div>
             <span v-else class="unit-empty">未填写</span>
           </template>
         </el-table-column>
-        <el-table-column label="关系" width="160">
+        <el-table-column label="关系" min-width="170">
           <template #default="{ row }">
-            <el-button
+            <el-tooltip
               v-if="row.relationCount > 0"
-              link
-              type="primary"
-              class="relation-link"
-              @click.stop="openDrawer(row)"
+              content="查看关联客户"
+              placement="top"
+              :show-after="200"
             >
-              <el-icon class="relation-icon"><Avatar /></el-icon>
-              {{ row.relationCount }} 条关联
-            </el-button>
+              <el-button link type="primary" class="relation-link" @click.stop="openRelationGraph(row)">
+                <el-icon class="relation-icon"><Connection /></el-icon>
+                {{ row.relationCount }} 条关联
+              </el-button>
+            </el-tooltip>
             <span v-else class="unit-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="更新时间" width="130">
+        <el-table-column label="更新时间" min-width="150">
           <template #default="{ row }">
             {{ formatDay(row.updateTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" min-width="100">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click.stop="openDrawer(row)">查看</el-button>
             <el-dropdown
-              v-if="canManage || showDeleted"
+              v-if="canManage"
               trigger="click"
               @command="(cmd) => handleRowCommand(cmd, row)"
             >
@@ -96,7 +106,7 @@
     </el-card>
 
     <!-- 详情抽屉：查看 + 快速编辑 + 关联人物（打开完整档案入口保留） -->
-    <el-drawer v-model="drawerVisible" size="520px" :title="drawerCustomer.name || '客户档案'">
+    <el-drawer v-model="drawerVisible" size="520px" :title="drawerCustomer.name || '客户档案'" @closed="clearCurrentRow">
       <div class="drawer-head">
         <span class="customer-avatar drawer-avatar">{{ (drawerCustomer.name || '?').slice(0, 1) }}</span>
         <div>
@@ -230,9 +240,9 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, getCurrentInstance } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Avatar } from '@element-plus/icons-vue'
+import { Connection } from '@element-plus/icons-vue'
 import {
   listCustomers,
   createCustomer,
@@ -246,16 +256,60 @@ import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 import { useAuthStore } from '../store/auth'
 
 const router = useRouter()
+const route = useRoute()
 const { proxy } = getCurrentInstance()
+const tableRef = ref(null)
+
+/** 抽屉关闭后取消行选中高亮 */
+function clearCurrentRow() {
+  tableRef.value?.setCurrentRow()
+}
+
+const PAGE_SIZES = [10, 20, 50]
+
+/** 从 URL query 安全取值（非法值回落默认，避免分享/刷新后状态漂移） */
+function queryParam(name) {
+  const v = route.query[name]
+  const s = Array.isArray(v) ? v[0] : v
+  return typeof s === 'string' ? s : ''
+}
+
+function initListQuery() {
+  const page = Number(queryParam('page'))
+  const size = Number(queryParam('pageSize'))
+  return {
+    keyword: queryParam('keyword'),
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: PAGE_SIZES.includes(size) ? size : 10
+  }
+}
+
+const authStore = useAuthStore()
+// 客户模块管理权限（customer:manage）= ADMIN / 知识星球维护人（KNOWLEDGE_MAINTAINER）
+const canManage = computed(() => authStore.hasPermission('customer:manage'))
 
 const loading = ref(false)
 const rows = ref([])
 const total = ref(0)
-const showDeleted = ref(false)
-const query = reactive({ keyword: '', deleted: 0, page: 1, pageSize: 10 })
+// 已删除视图仅 canManage 可见；无权限账号即使 URL 带 deleted=1 也忽略，避免触发 403
+const showDeleted = ref(canManage.value && queryParam('deleted') === '1')
+const query = reactive({ ...initListQuery(), deleted: 0 })
 
-const authStore = useAuthStore()
-const canManage = computed(() => authStore.hasPermission('customer:manage'))
+/** 列表查询状态写回 URL：只 replace 不 push，返回列表时可还原搜索词/页码/视图 */
+function syncRouteQuery() {
+  const next = {
+    keyword: query.keyword || undefined,
+    page: query.page > 1 ? String(query.page) : undefined,
+    pageSize: query.pageSize !== 10 ? String(query.pageSize) : undefined,
+    deleted: canManage.value && showDeleted.value ? '1' : undefined
+  }
+  const same = ['keyword', 'page', 'pageSize', 'deleted'].every((k) => {
+    const cur = route.query[k]
+    const curStr = Array.isArray(cur) ? cur[0] || '' : cur || ''
+    return String(curStr) === String(next[k] || '')
+  })
+  if (!same) router.replace({ query: next })
+}
 
 // 详情抽屉（Owner 2026-11-09）：查看 + 快速编辑 + 关联人物；打开完整档案入口保留
 const drawerVisible = ref(false)
@@ -276,6 +330,8 @@ function openDrawer(row) {
   drawerRelations.value = []
   drawerEditing.value = false
   drawerVisible.value = true
+  // 行点击即视为选中：表格给该行蓝色高亮
+  tableRef.value?.setCurrentRow(row)
   getCenterGraph(row.id).then((graph) => {
     const nodeNames = {}
     for (const n of graph?.nodes || []) nodeNames[n.id] = n.name
@@ -411,11 +467,12 @@ function onTargetSelect(customer) {
 }
 
 async function loadList() {
+  syncRouteQuery()
   loading.value = true
   try {
     const res = await listCustomers({
       keyword: query.keyword || undefined,
-      deleted: showDeleted.value ? 1 : 0,
+      deleted: canManage.value && showDeleted.value ? 1 : 0,
       page: query.page,
       pageSize: query.pageSize
     })
@@ -440,6 +497,11 @@ function resetQuery() {
 }
 
 function handleSwitchDeleted() {
+  // 无 customer:manage 时不允许进入已删除视图（后端同样返回 403）
+  if (!canManage.value) {
+    showDeleted.value = false
+    return
+  }
   query.page = 1
   loadList()
 }
@@ -525,12 +587,23 @@ function goRelationGraph() {
   router.push('/knowledge-planet/customer-relation-graph')
 }
 
-/** 抽屉入口：只看当前客户的关系圈（Owner 2026-11-09） */
-function openDrawerRelationGraph() {
+/** 进入指定客户的关系网络中心视图（列表关系列 / 抽屉共用入口） */
+function goCustomerRelationGraph(customer) {
+  if (!customer?.id) return
   router.push({
     path: '/knowledge-planet/customer-relation-graph',
-    query: { customerId: String(drawerCustomer.value.id || ''), customerName: drawerCustomer.value.name || '' }
+    query: { customerId: String(customer.id), customerName: customer.name || '' }
   })
+}
+
+/** 列表「关系」列点击：直接跳该客户自己的关系网络视图 */
+function openRelationGraph(row) {
+  goCustomerRelationGraph(row)
+}
+
+/** 抽屉入口：只看当前客户的关系圈（Owner 2026-11-09） */
+function openDrawerRelationGraph() {
+  goCustomerRelationGraph(drawerCustomer.value)
 }
 
 function goRelationTypeManage() {
@@ -564,6 +637,40 @@ onMounted(() => {
 }
 .customer-name {
   vertical-align: middle;
+  font-weight: 600;
+  color: #303133;
+}
+
+/* 列表视觉（Owner 2026-11-09）：白底 + 浅横向分隔线，去掉斑马纹与纵向边框 */
+.customer-table {
+  --el-table-border-color: #eef1f5;
+  --el-table-tr-bg-color: #ffffff;
+  --el-table-row-hover-bg-color: #f4f7fc;
+  --el-table-header-bg-color: #fafbfc;
+  --el-table-header-text-color: #6b7280;
+}
+.customer-table :deep(th.el-table__cell) {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px 0;
+  background-color: #fafbfc;
+}
+/* 行高压缩：两行文字 38px + 上下 11px ≈ 60–62px（原方案约 80px） */
+.customer-table :deep(td.el-table__cell) {
+  padding: 11px 0;
+  border-bottom: 1px solid #eef1f5;
+  color: #4b5563;
+}
+.customer-table :deep(.el-table__body tr:hover > td.el-table__cell) {
+  background-color: #f4f7fc;
+}
+/* 选中行（点开抽屉的那一行）才给明显的蓝色高亮 */
+.customer-table :deep(.el-table__body tr.current-row > td.el-table__cell) {
+  background-color: var(--el-color-primary-light-8);
+}
+/* 链接按钮收紧内边距，保证 10% 宽的「操作」列（查看 + ···）不换行撑高行高 */
+.customer-table :deep(.cell .el-button.is-link) {
+  padding: 0 4px;
 }
 .drawer-head {
   display: flex;
@@ -666,6 +773,7 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: #303133;
+  line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -673,6 +781,7 @@ onMounted(() => {
 .unit-sub {
   font-size: 12px;
   color: #909399;
+  line-height: 16px;
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -26,7 +26,7 @@
 - 回滚：保持当前生产入口；上线前保存当前完整可启动JAR、Nginx配置及前端root，使用既有蓝绿/不可变前端root回退，不删除业务数据。
 
 ## 文档与下一步
-- 已同步architecture.md、deployment-compliance-v4.md、deployment.md和最新交接摘要。
+- 已同步architecture.md、2026-11-03-企业合规V4隔离验收灰度切换与回滚-部署说明.md、deployment.md和最新交接摘要。
 - 下一位先核实分支/差异、生产服务环境和目标元数据；补并发生成护栏及失败场景，再在管理员环境配置服务OCR模型，复验后使用deploy-backend.ps1 -GracefulSwitch及deploy-frontend-graceful.ps1发布，记录切流连续性与回滚基线。
 - 用户此前已授权验收通过后蓝绿发布；不要重复索要相同授权。不得绕过管理员要求、改认证权限或运行生产破坏性SQL。
 

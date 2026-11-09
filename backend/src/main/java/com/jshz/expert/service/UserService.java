@@ -47,6 +47,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
     private final PermissionService permissionService;
+    private final UserAuthStateService userAuthStateService;
     private final NotificationService notificationService;
     private final WecomUserDepartmentMapper wecomUserDepartmentMapper;
     private final WecomDepartmentMapper wecomDepartmentMapper;
@@ -91,6 +92,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         user.setIsAdmin(Boolean.TRUE.equals(request.getIsAdmin()));
         user.setMustChangePassword(true);
         user.setStatus(request.getStatus() == null ? 1 : request.getStatus());
+        user.setTokenVersion(0);
         this.save(user);
         // 默认角色：未分配角色用户一律绑定普通员工(EMPLOYEE)，与创建同一事务
         bindDefaultEmployeeRole(user.getId());
@@ -178,6 +180,9 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             user.setStatus(request.getStatus());
         }
         this.updateById(user);
+        // P1-2：账号信息（含停用/启用/管理员标记/姓名）变更后使已签发 Token 立即失效
+        userAuthStateService.bumpAndEvict(id);
+        permissionService.clearCaches();
         return user;
     }
 
@@ -192,6 +197,8 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         user.setPassword(passwordEncoder.encode(DEFAULT_PASSWORD));
         user.setMustChangePassword(true);
         this.updateById(user);
+        // P1-2：重置密码后旧 Token 立即失效
+        userAuthStateService.bumpAndEvict(id);
         notificationService.notify(user.getId(), NotificationService.TYPE_PASSWORD_RESET,
                 "密码已重置",
                 "您的登录密码已被管理员重置为初始密码 " + DEFAULT_PASSWORD + "，请登录后立即修改",
@@ -206,6 +213,9 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             throw new BusinessException("用户不存在");
         }
         this.removeById(id);
+        // P1-2：删除后清状态缓存；行不存在，后续请求按未登录处理
+        userAuthStateService.evict(id);
+        permissionService.clearCaches();
     }
 
     /**
@@ -235,6 +245,8 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             ur.setRoleId(roleId);
             userRoleMapper.insert(ur);
         }
+        // P1-2：角色变更后旧 Token 立即失效，用户需重新登录以获取新权限
+        userAuthStateService.bumpAndEvict(userId);
         permissionService.clearCaches();
         notificationService.notify(userId, NotificationService.TYPE_ROLE_CHANGED,
                 "角色已调整",

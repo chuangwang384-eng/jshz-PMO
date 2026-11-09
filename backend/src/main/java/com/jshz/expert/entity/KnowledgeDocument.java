@@ -54,6 +54,16 @@ public class KnowledgeDocument {
     /** 1上架 0下架 */
     private Integer status;
 
+    /** P2-7：异步解析状态 PENDING/RUNNING/SUCCESS/FAILED；NULL=历史数据或不适用 */
+    private String parseStatus;
+
+    /** P2-7：解析结果说明（成功摘要或失败原因，最长 500 字符） */
+    private String parseMessage;
+
+    /** P2-7：最近一次解析完成时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime parseTime;
+
     /** 创建时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;

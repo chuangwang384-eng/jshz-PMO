@@ -4,7 +4,7 @@
   R-1 后端蓝绿不停机发布脚本（jshz-PMO 专家库系统）
 
 .DESCRIPTION
-  按 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.1 实现 11 阶段蓝绿发布：
+  按 docs/design/2026-10-24-发布运维体系与侧边栏菜单偏移修复-设计文档.md §4.1 实现 11 阶段蓝绿发布：
     1 预检 -> 2 影子启动8081 -> 3 健康+业务探测 -> 4 备份conf -> 5 改proxy_pass ->
     6 nginx -t -> 7 Restart-Service ExpertSystemNginx -> 8 蓝验证 -> 9 稳态化NSSM ->
     10 切回8080 -> 11 清理+归档
@@ -49,6 +49,10 @@ param(
 # ==================== 常量区（按环境调整） ====================
 . (Join-Path $PSScriptRoot 'deployment-http.ps1')
 . (Join-Path $PSScriptRoot 'deployment-artifact.ps1')
+. (Join-Path $PSScriptRoot 'logging.ps1')
+. (Join-Path $PSScriptRoot 'build-paths.ps1')
+# 标准输出切到 UTF-8(无 BOM)：本脚本经 cmd 重定向落盘的日志文件即为 UTF-8，不再产生 GBK 乱码
+Enable-Utf8Console
 $BackendDir      = 'D:\jshz-PMO\backend'
 $TargetJarName   = 'expert-system.jar'   # NSSM AppParameters 固定的正式 jar 名（替换方式保持此名）
 $ReleasesDir     = 'D:\jshz-PMO\backend\releases'
@@ -132,6 +136,60 @@ function Wait-Healthy([string]$url, [int]$retries, [int]$delaySec, [string]$name
     return $false
 }
 
+# ==================== 停服确认（进程退出 + 文件解锁） ====================
+# 历史问题：Stop-Service 返回后 JVM 的 SpringApplicationShutdownHook 仍在运行，此时替换 jar 会产生
+# NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy（进程即将退出，不影响业务但污染日志）。
+# 因此停止服务后必须轮询确认「监听进程消失 + jar 文件可独占打开」，再归档与替换制品。
+function Get-PortListenerPids([int]$port) {
+    $pids = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique)
+    return @($pids | Where-Object { $_ -gt 0 })
+}
+
+function Test-FileExclusivelyOpenable([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $true }
+    try {
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $fs.Dispose()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Wait-BackendProcessExit([string]$jarPath, [int]$timeoutSec = 90) {
+    <#
+      轮询直到：8080 无监听进程 且 jar 文件可独占打开。
+      超时返回 $false，由调用方决定中止（不得在锁未释放时替换制品）。
+    #>
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    $round = 0
+    while ($true) {
+        $round++
+        $pids = Get-PortListenerPids $GreenPort
+        $jarFree = Test-FileExclusivelyOpenable $jarPath
+        if ($pids.Count -eq 0 -and $jarFree) {
+            Write-Ok "旧进程已退出且制品已解锁（轮询 ${round} 次）"
+            return $true
+        }
+        if ((Get-Date) -ge $deadline) {
+            $state = @()
+            if ($pids.Count -gt 0) { $state += "端口 ${GreenPort} 仍被 PID $($pids -join ',') 占用" }
+            if (-not $jarFree) { $state += 'jar 文件仍被占用' }
+            Write-Fail "等待旧进程退出超时（${timeoutSec}s）：$($state -join '；')"
+            return $false
+        }
+        if ($round -eq 1 -or $round % 5 -eq 0) {
+            $state = @()
+            if ($pids.Count -gt 0) { $state += "PID $($pids -join ',')" }
+            if (-not $jarFree) { $state += 'jar 锁定中' }
+            Write-Info "等待旧进程退出（${round}）: $($state -join ' / ')"
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+}
+
 # -GracefulSwitch is the reviewed no-Nginx-restart path; legacy default remains unchanged.
 function Invoke-NginxSwitch {
     [CmdletBinding()] param()
@@ -163,9 +221,17 @@ function Step1-Preflight {
     }
     Write-Step '1/11 预检（新 jar 存在 + 绿服务健康）'
     if (-not $JarPath) {
-        $jar = Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File |
+        # 构建产物统一在 builds\ 下；排除 archive（历史快照不可作为候选包）。仅在找不到时才回退到 backend\target
+        $jar = Get-ChildItem -Path (Get-BuildsRoot) -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'archive' } |
+            ForEach-Object { Get-ChildItem -Path $_.FullName -Filter 'expert-system.jar' -File -ErrorAction SilentlyContinue } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $jar) { throw '未找到新 jar，请用 -JarPath 显式指定' }
+        if (-not $jar) {
+            Write-Info 'builds\ 下无候选包，回退到 backend\target（不推荐，建议先用 build-all.ps1 构建）'
+            $jar = Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        }
+        if (-not $jar) { throw '未找到新 jar：请先执行 scripts\build-all.ps1，或用 -JarPath 显式指定' }
         $script:NewJar = $jar.FullName
     } else {
         if (-not (Test-Path $JarPath)) { throw "新 jar 不存在: $JarPath" }
@@ -218,6 +284,23 @@ function Step1-Preflight {
         }
     }
     Write-Info "发布版本: $script:NewVersion"
+
+    # 日志轮转 + JVM 输出编码（UTF-8）幂等就绪。失败不阻断发布：日志配置问题不应阻塞业务上线。
+    if ($DryRun) {
+        Write-Info '[DRYRUN] 将确保 NSSM 日志轮转（10MB）与 JVM stdout/stderr UTF-8 编码'
+    } else {
+        try {
+            $cfgScript = Join-Path $PSScriptRoot 'configure-backend-logging.ps1'
+            if (Test-Path -LiteralPath $cfgScript) {
+                & $cfgScript -ServiceName $BackendSvc -Quiet | Out-Null
+                Write-Ok '后端日志：NSSM 轮转已启用，JVM 输出编码 UTF-8（下次服务启动生效）'
+            } else {
+                Write-Info '未找到 configure-backend-logging.ps1，跳过日志轮转配置'
+            }
+        } catch {
+            Write-Info "日志轮转配置未应用（非致命，不影响发布）: $($_.Exception.Message)"
+        }
+    }
 
     $ok = Invoke-Check "GET http://127.0.0.1:${GreenPort}/health 应 200（绿在线）" {
         if (-not (Test-HttpOk "http://127.0.0.1:${GreenPort}/health")) { throw '绿服务不健康，中止发布' }
@@ -341,9 +424,14 @@ function Step9-StabilizeNssm {
 
     # 9a 先停服务，释放 target/*.jar 进程锁（历史踩坑：不先停会导致替换失败）
     Invoke-Action "9a 停止 NSSM 服务 $BackendSvc（释放 $targetJar 进程锁）" {
+        $beforePids = Get-PortListenerPids $GreenPort
+        if ($beforePids.Count -gt 0) { Write-Info "停服前 ${GreenPort} 监听进程: $($beforePids -join ',')" }
         Stop-Service -Name $BackendSvc -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
         if ((Get-Service -Name $BackendSvc).Status -ne 'Stopped') { throw "服务停止失败: $((Get-Service -Name $BackendSvc).Status)" }
+        # 关键护栏：服务状态为 Stopped ≠ JVM 已退出，必须等进程消失且 jar 解锁后再动文件
+        if (-not (Wait-BackendProcessExit $targetJar)) {
+            throw '旧进程未在超时内退出或制品仍被占用：已中止，未替换任何文件，线上仍是旧版本'
+        }
     }
 
     # 9b 归档当前旧 jar 到 backend/releases/<版本>-<时间戳>/
@@ -451,6 +539,10 @@ function Step10-SwitchBack {
 }
 
 # ==================== 阶段 11: 清理 + 归档 ====================
+# 发布记录以表格行追加（实现见 scripts\release-record.ps1，可独立单测），
+# 避免每次发布新增一个重复的二级标题（历史遗留了多个同名「## R-1 发布记录」）。
+. (Join-Path $PSScriptRoot 'release-record.ps1')
+
 function Step11-Cleanup {
     Wait-PortDrained $BluePort
     Write-Step '11/11 清理 + 归档'
@@ -476,9 +568,18 @@ function Step11-Cleanup {
         } else { Write-Ok "当前 $($dirs.Count) 个版本目录，未超上限" }
     }
 
-    Invoke-Action '记录发布到 docs/deployment.md' {
-        $line = "- $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') R-1 发布 $script:NewVersion 成功（jar: $([IO.Path]::GetFileName($script:NewJar))）"
-        Add-Content -Path $DeployDoc -Value "`n## R-1 发布记录`n$line" -Encoding UTF8
+    Invoke-Action '日志保留: 清理 NSSM 轮转产物与历史发布日志（按个数保留）' {
+        $pruneScript = Join-Path $PSScriptRoot 'prune-logs.ps1'
+        if (Test-Path -LiteralPath $pruneScript) {
+            & $pruneScript -LogDir (Join-Path $RepoRoot 'logs')
+        } else {
+            Write-Info '未找到 prune-logs.ps1，跳过日志保留'
+        }
+    }
+
+    Invoke-Action '记录发布到 docs/deployment.md（表格行）' {
+        Add-ReleaseTableRow -path $DeployDoc -version $script:NewVersion `
+            -jarName ([IO.Path]::GetFileName($script:NewJar)) -result '成功'
     }
 }
 
@@ -506,7 +607,7 @@ try {
     exit 0
 } catch {
     Write-Fail "发布中止: $_"
-    Write-Info '回滚指引：见 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.1.4（后端回滚预案）'
+    Write-Info '回滚指引：见 docs/design/2026-10-24-发布运维体系与侧边栏菜单偏移修复-设计文档.md §4.1.4（后端回滚预案）'
     if ($DryRun) { Write-Host 'DRYRUN 中止：未产生任何副作用' -ForegroundColor Yellow }
     exit 1
 }

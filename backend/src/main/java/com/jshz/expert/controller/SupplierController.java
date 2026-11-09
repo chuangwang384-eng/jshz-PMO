@@ -117,15 +117,18 @@ public class SupplierController {
     // ==================== 供应商档案 ====================
 
     /**
-     * 分页列表：GET /api/supplier/list?keyword=&typeId=&cityId=&page=&size=（登录即可）。
+     * 分页列表：GET /api/supplier/list?keyword=&typeId=&cityId=&onlyReviewed=&sort=&page=&size=（登录即可）。
+     * onlyReviewed=true 只返回已有评价的供应商；sort=name（默认，按名称升序）/ updated（按更新时间倒序）。
      */
     @GetMapping("/list")
     public ApiResponse<PageResult<Supplier>> list(@RequestParam(required = false) String keyword,
                                                   @RequestParam(required = false) Long typeId,
                                                   @RequestParam(required = false) Long cityId,
+                                                  @RequestParam(required = false, defaultValue = "false") boolean onlyReviewed,
+                                                  @RequestParam(required = false, defaultValue = "name") String sort,
                                                   @RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "12") long size) {
-        Page<Supplier> p = supplierService.pageSuppliers(keyword, typeId, cityId, page, size);
+        Page<Supplier> p = supplierService.pageSuppliers(keyword, typeId, cityId, onlyReviewed, sort, page, size);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
     }
 

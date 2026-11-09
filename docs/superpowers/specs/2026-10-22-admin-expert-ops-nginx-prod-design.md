@@ -87,7 +87,7 @@ AIGC:
 **发布/回滚流程**
 - 首次发布：装 Nginx → 写配置 → `deploy-frontend.ps1` → 验证 `http://<IP>` 登录、`/api/experts`、照片展示
 - 增量发布：跑 `deploy-frontend.ps1` 即可
-- 回滚：`rollback-frontend.ps1`（后端不动，后端回滚见 `docs/release-notes-v1.0.2.md` 三线回滚方案）
+- 回滚：`rollback-frontend.ps1`（后端不动，后端回滚见 `docs/releases/2026-10-22-v1.0.2-发布说明.md` 三线回滚方案）
 
 **动态 IP 注意事项**
 - 同事访问地址随 DHCP 变化；手册写明查看当前 IP 的命令（`ipconfig` / 内网工具），建议对主机做 DHCP 地址保留（可选）

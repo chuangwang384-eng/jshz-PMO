@@ -1,14 +1,22 @@
+﻿param([switch]$DashboardLayout)
 # One-process isolated MySQL + service + real Edge acceptance. All credentials are synthetic,
 # generated here, passed only through child-process environments, and never written to disk.
 $ErrorActionPreference = 'Stop'
 $oldOutputEncoding = $OutputEncoding
+$oldDashboardLayout = $env:VITE_DASHBOARD_LAYOUT_V2
 $OutputEncoding = New-Object Text.UTF8Encoding($false)
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$sandbox = Join-Path $repo '.build-compliance-v4-acceptance'
+. (Join-Path $PSScriptRoot 'build-paths.ps1')
+# 沙箱统一收敛到 builds\（不再在仓库根生成 .build-*）；目录名保留以维持 datadir 隔离护栏正则
+$sandbox = Join-Path (Get-BuildsRoot) '.build-compliance-v4-acceptance'
+$revision = Get-ProjectRevision
 $mysqlExe = 'C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe'
 $mysqldExe = 'C:\Program Files\MySQL\MySQL Server 26.7\bin\mysqld.exe'
 $baseDir = 'C:/Program Files/MySQL/MySQL Server 26.7'
 $port = 13316
+if ($DashboardLayout -and (Get-NetTCPConnection -State Listen -LocalPort 18086,5173 -ErrorAction SilentlyContinue)) {
+    throw 'Dashboard acceptance ports 18086 and 5173 must be free'
+}
 # Remove only stale processes whose full command line proves they belong to
 # this ignored acceptance workspace. Never touch the shared MySQL service.
 $stale = Get-CimInstance Win32_Process | Where-Object {
@@ -53,20 +61,26 @@ try {
     $env:V4_ACCEPTANCE_DB = 'acceptance_v4'; $env:V4_DB_PASSWORD = $rootPassword; $env:V4_TEST_PASSWORD = $testPassword; $env:MYSQL_PWD = $rootPassword
     Get-Content -LiteralPath (Join-Path $sandbox 'schema-only.sql') -Raw -Encoding UTF8 | & $mysqlExe --no-defaults --host=127.0.0.1 --port=$port --user=root acceptance_v4
     if ($LASTEXITCODE -ne 0) { throw 'Import of schema-only fixture failed' }
-    & (Join-Path $PSScriptRoot 'test-compliance-v4.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'Real MySQL acceptance suite failed' }
-    # Acceptance test methods intentionally mutate shared fixture tables.
-    # Re-run only the deterministic seed before the browser uses those accounts.
-    & mvn -q -f (Join-Path $repo 'backend/pom.xml') '-Dtest=ComplianceV4AcceptanceIT#browserFixture' test
-    if ($LASTEXITCODE -ne 0) { throw 'Browser fixture reseed failed' }
-
+    if ($DashboardLayout) {
+        foreach ($name in @('20261105_user_dashboard_layout.sql', '20261106_dashboard_layout_v2.sql', '20261106_dashboard_layout_v2.sql', '20261106_add_user_token_version.sql', '20261106_add_knowledge_parse_status.sql')) {
+            Get-Content -LiteralPath (Join-Path $repo "database/migration/$name") -Raw -Encoding UTF8 | & $mysqlExe --no-defaults --host=127.0.0.1 --port=$port --user=root acceptance_v4
+            if ($LASTEXITCODE -ne 0) { throw "Dashboard acceptance migration failed: $name" }
+        }
+    }
+    & (Join-Path $PSScriptRoot 'test-compliance-v4.ps1') -MigrationsOnly:$DashboardLayout
+    if (-not $DashboardLayout -and $LASTEXITCODE -ne 0) { throw 'Real MySQL acceptance suite failed' }
     $candidate = Join-Path $sandbox "candidate-$stamp"
     $candidateBackend = Join-Path $candidate 'backend'
     New-Item -ItemType Directory -Path $candidateBackend | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo 'backend/pom.xml') -Destination $candidateBackend
     Copy-Item -LiteralPath (Join-Path $repo 'backend/src') -Destination $candidateBackend -Recurse
     Copy-Item -LiteralPath (Join-Path $repo 'version.txt') -Destination $candidate
-    & mvn -q -f (Join-Path $candidateBackend 'pom.xml') -DskipTests package
+    # Acceptance test methods intentionally mutate shared fixture tables.
+    # Re-run only the deterministic seed before the browser uses those accounts.
+    & mvn -q -f (Join-Path $candidateBackend 'pom.xml') '-Dtest=ComplianceV4AcceptanceIT#browserFixture' "-Drevision=$revision" test
+    if ($LASTEXITCODE -ne 0) { throw 'Browser fixture reseed failed' }
+
+    & mvn -q -f (Join-Path $candidateBackend 'pom.xml') -DskipTests "-Drevision=$revision" package
     if ($LASTEXITCODE -ne 0) { throw 'Isolated candidate package failed' }
     $jar = Join-Path $candidateBackend 'target/expert-system.jar'
     $appLog = Join-Path $sandbox "candidate-$stamp.log"
@@ -92,7 +106,15 @@ try {
     $nodeExe=(Get-Command node.exe).Source
     $viteEntry=Join-Path $repo 'frontend/node_modules/vite/bin/vite.js'
     $viteStdout=Join-Path $sandbox "vite-$stamp.stdout.log"; $viteStderr=Join-Path $sandbox "vite-$stamp.stderr.log"
-    $viteProc=Start-Process -FilePath $nodeExe -ArgumentList @("`"$viteEntry`"",'--host','127.0.0.1','--port','5173') -WorkingDirectory (Join-Path $repo 'frontend') -WindowStyle Hidden -PassThru -RedirectStandardOutput $viteStdout -RedirectStandardError $viteStderr
+    $viteArgs=@("`"$viteEntry`"",'--host','127.0.0.1','--port','5173','--strictPort')
+    if ($DashboardLayout) {
+        $dist = Join-Path $candidate 'frontend-dist'
+        $env:VITE_DASHBOARD_LAYOUT_V2='true'
+        & node $viteEntry build --outDir $dist --config (Join-Path $repo 'frontend/vite.config.js') (Join-Path $repo 'frontend')
+        if ($LASTEXITCODE -ne 0) { throw 'Dashboard candidate build failed' }
+        $viteArgs=@("`"$viteEntry`"",'preview','--outDir',"`"$dist`"",'--host','127.0.0.1','--port','5173','--strictPort')
+    }
+    $viteProc=Start-Process -FilePath $nodeExe -ArgumentList $viteArgs -WorkingDirectory (Join-Path $repo 'frontend') -WindowStyle Hidden -PassThru -RedirectStandardOutput $viteStdout -RedirectStandardError $viteStderr
     $viteUntil=(Get-Date).AddSeconds(45); $viteReady=$false
     do { Start-Sleep 1; try { $viteReady=(Invoke-WebRequest 'http://localhost:5173/login' -UseBasicParsing).StatusCode -eq 200 } catch {} } while (-not $viteReady -and (Get-Date)-lt $viteUntil)
     if (-not $viteReady) { Get-Content $viteStderr -Tail 30 -ErrorAction SilentlyContinue; Get-Content $viteStdout -Tail 30 -ErrorAction SilentlyContinue; throw 'Vite candidate did not become ready' }
@@ -101,12 +123,13 @@ try {
     $env:LIVE_V4_ACCEPTANCE='acceptance_v4'; $env:PLAYWRIGHT_MODULE=([Uri](Join-Path $playwrightRoot 'node_modules/playwright/index.mjs')).AbsoluteUri; $env:V4_SAMPLE_PDF='E:\王创\2026-11-4\北京融和医学发展基金会合规要求.pdf'
     if ($env:V4_DATABASE_ONLY -eq 'true') { 'PASS: database-only acceptance'; return }
     Push-Location (Join-Path $repo 'frontend')
-    try { $browserScript=if($env:V4_VISUAL_EDITOR -eq 'true'){'tests/compliance-visual-live.mjs'}else{'tests/compliance-v4-live.mjs'}; & node $browserScript; if ($LASTEXITCODE -ne 0) { throw 'Real Edge browser acceptance failed' } } finally { Pop-Location }
+    try { $browserScript=if($DashboardLayout){'tests/dashboard-layout-live.mjs'}elseif($env:V4_VISUAL_EDITOR -eq 'true'){'tests/compliance-visual-live.mjs'}else{'tests/compliance-v4-live.mjs'}; & node $browserScript; if ($LASTEXITCODE -ne 0) { throw 'Real Edge browser acceptance failed' } } finally { Pop-Location }
     'PASS: isolated MySQL migrations/acceptance and real Edge -> Vite -> Spring -> MySQL browser flow.'
 } finally {
     Remove-Item -LiteralPath $initFile -Force -ErrorAction SilentlyContinue
     $env:MYSQL_PWD=$null; $env:V4_DB_PASSWORD=$null; $env:V4_TEST_PASSWORD=$null; $env:JWT_SECRET=$null
     $OutputEncoding = $oldOutputEncoding
+    $env:VITE_DASHBOARD_LAYOUT_V2 = $oldDashboardLayout
     if ($viteProc -and -not $viteProc.HasExited) { Stop-Process -Id $viteProc.Id -Force }
     if ($candidateProc -and -not $candidateProc.HasExited) { Stop-Process -Id $candidateProc.Id -Force }
     # Kill the listener and any MySQL child process for this exact config only.

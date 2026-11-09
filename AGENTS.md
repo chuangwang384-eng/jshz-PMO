@@ -41,6 +41,50 @@
 
 ---
 
+### 0.4 目录、产物与日志约定（禁止散落）
+
+> 2026-11-06 新增。背景：仓库根目录曾散落 7 个发布日志、`frontend/` 下堆了 44 个 `dist_old.*`，均因约定未成文。
+
+| 类别 | 唯一归属地 | 禁止 |
+| --- | --- | --- |
+| 日志 | `logs/`（应用日志 / 发布日志 / NSSM 重定向 / `logs/legacy/` 历史归档） | 根目录、`scripts/`、`backend/`、`frontend/` 下出现 `*.log` |
+| 构建产物 | `builds/<版本>-build-<时间戳>/`，历史快照进 `builds/archive/` | 根目录 `.build-*`；在 `backend/` 原地 `mvn clean package`（生产进程占用 jar，必失败） |
+| 前端快照 | `frontend/releases/<ReleaseId>/`，切换靠 Nginx root 指针 | 用 `deploy-frontend.ps1` 替换 `dist` 冒充发布（线上 root 不在 dist，替换无效） |
+| 临时文件 | `temp/`（已 gitignore） | 散落在仓库根目录 |
+
+- 日志保留策略：NSSM 轮转产物各留 10 个、发布日志留 20 个，由 `scripts/prune-logs.ps1` 执行，`deploy-backend.ps1` 阶段 11 自动调用。
+- `.gitignore` 覆盖 `*.log` / `logs/` / `temp/` **不等于允许散落**：被忽略的文件照样污染目录、误导后续排查。
+
+### 0.5 数量类事实必须现查（禁止沿用旧基线）
+
+文档中的 Controller 数、Service 数、页面/路由数、表数、版本号等易变信息，写之前必须现查，并注明核实日期与命令：
+
+```bash
+ls backend/src/main/java/com/jshz/expert/controller/*.java | wc -l     # Controller
+ls backend/src/main/java/com/jshz/expert/service/*.java    | wc -l     # Service
+grep -rl '@TableName' backend/src/main/java/com/jshz/expert/entity/*.java | wc -l  # 实体/Mapper
+find frontend/src -name '*.vue' -path '*views*' | wc -l                # 页面
+grep -c 'path:' frontend/src/router/index.js                           # 路由
+cat version.txt                                                        # 版本唯一真源
+grep '"version"' frontend/package.json                                 # 工程元数据，须与 version.txt 一致
+# 数据库表数（必须连库现查，不能数 SQL 脚本行数）
+mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
+  WHERE table_schema='expert_system' AND table_type='BASE TABLE';"
+```
+
+**2026-11-06 核实基线**：Controller 26、Service 47、实体/Mapper 57、页面 41、路由 35、数据库 **74 张表**（68 业务 + 6 历史备份）、`version.txt=revision=1.0.34`、`frontend/package.json=1.0.34`。
+
+**⚠️ 表数是最容易写错的一项**：`database/` 下 51 个 SQL 脚本定义的 distinct 表名恰为 **74** 个，与库中一致（含 6 张备份表）；但 `init.sql` 只建 **6 张表**，其余 68 张全靠 `migration/` 增量脚本。历史上 README 写 39、`docs/architecture.md` 写 26、`docs/deployment.md` 写 13，三处互相矛盾长达数周。**只认 `information_schema` 实测值。**
+
+### 0.6 环境与运行时配置属于事实源，文档必须服从现实
+
+出现「脚本说改了、文档说生效、实际未生效」时，先查运行时真实状态再改文档：
+
+- Nginx 站点根：`grep -n '^\s*root' D:\nginx\conf\conf.d\jshz-pmo.conf`（不能假设是 `frontend/dist`）
+- 后端实际版本：`curl -s http://127.0.0.1:8080/health`（`version` / `buildTime` / `gitShort`）
+- 前端线上版本：读 Nginx root 指向目录的 `index.html` 引用的主 bundle，搜 `v1.0.xx`
+- NSSM 参数：读 `HKLM\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters`
+
 ## 1. Agent 工作原则
 
 1. 开始工作前先检查项目目录、技术栈、当前分支、未提交改动、相关代码调用链、配置和现有文档。

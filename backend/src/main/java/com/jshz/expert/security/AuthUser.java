@@ -25,15 +25,24 @@ public class AuthUser implements UserDetails {
     private final boolean mustChangePassword;
     private final Set<String> roles;
     private final Set<String> permissions;
+    /** 账号是否启用；由 JwtAuthenticationFilter 在每次请求校验后传入真实状态 */
+    private final boolean enabled;
 
+    /** 兼容构造：内部服务与测试默认视为启用（过滤器校验通过后才构建正式主体） */
     public AuthUser(Long userId, String username, boolean isAdmin, boolean mustChangePassword,
                     Set<String> roles, Set<String> permissions) {
+        this(userId, username, isAdmin, mustChangePassword, roles, permissions, true);
+    }
+
+    public AuthUser(Long userId, String username, boolean isAdmin, boolean mustChangePassword,
+                    Set<String> roles, Set<String> permissions, boolean enabled) {
         this.userId = userId;
         this.username = username;
         this.isAdmin = isAdmin;
         this.mustChangePassword = mustChangePassword;
         this.roles = roles == null ? Set.of() : roles;
         this.permissions = permissions == null ? Set.of() : permissions;
+        this.enabled = enabled;
     }
 
     public Long getUserId() {
@@ -94,7 +103,7 @@ public class AuthUser implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        return enabled;
     }
 
     @Override
@@ -104,6 +113,6 @@ public class AuthUser implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return enabled;
     }
 }

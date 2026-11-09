@@ -10,7 +10,7 @@
 - 证据：Controller 不接收 AuthUser，直接调用 timeline(id)；Service 直接查询 target_type=PROJECT/target_id，无 requireProjectReadable。其他读取接口先调用 requireProjectReadable（1601），检查 project:view-all 或负责人/执行人。
 - 触发：非项目负责人/执行人且无全量查看权限的已登录用户请求 GET /api/project/{他人项目ID}/timeline。
 - 影响：读取他人项目操作日志、项目名称、操作人、关联专家/供应商等上下文。数据库规则即使限制普通权限，也不能取代该接口缺失的项目级授权。
-- 标准：AGENTS.md §4.10/§5.1/§5.2，资源权限应由后端校验；docs/2026-10-28-项目权限变更设计.md:10 约定普通员工只见本人负责/执行项目。
+- 标准：AGENTS.md §4.10/§5.1/§5.2，资源权限应由后端校验；docs/design/2026-10-28-项目管理权限变更-设计文档.md:10 约定普通员工只见本人负责/执行项目。
 - 建议验证：隔离测试中验证非成员403、成员200、全量查看用户200。
 
 ## 2. [P2] 删除供应商后项目名单、预算与移出逻辑不一致

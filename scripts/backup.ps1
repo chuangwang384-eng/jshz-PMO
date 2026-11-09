@@ -8,7 +8,7 @@
                          + 每产物 .sha256 + manifest.txt 汇总；保留最近 -Keep 份（超出的移入回收站）
   -Mode Verify：对最新（或 -From 指定）备份做 SHA256 复核 + zip 全量读取完整性校验
   -Mode Drill ：恢复演练——先校验，再重建测试库 expert_system_restore_test（仅此库！严禁触碰生产库），
-                导入备份 SQL，与生产库对比表数量与每表行数，结论自动追加 docs\恢复演练文档.md
+                导入备份 SQL，与生产库对比表数量与每表行数，结论自动追加 docs\guides\2026-10-26-备份与恢复-演练文档.md
   日志：控制台输出 + logs\backup.log 追加（-NoLog 关闭文件日志）
   凭据：优先取环境变量 MYSQL_PASSWORD；未设置时从本地 start-backend.bat（gitignored）运行时解析，不落盘明文
   编码注意：本脚本含中文，必须以 UTF-8 with BOM 保存（PS5.1 约束）
@@ -48,7 +48,7 @@ $ErrorActionPreference = 'Stop'
 # ==================== 常量区 ====================
 $ProjectRoot   = 'D:\jshz-PMO'
 $LogFile       = Join-Path $ProjectRoot 'logs\backup.log'
-$DrillDoc      = Join-Path $ProjectRoot 'docs\恢复演练文档.md'
+$DrillDoc      = Join-Path $ProjectRoot 'docs\guides\2026-10-26-备份与恢复-演练文档.md'
 $StartBat      = Join-Path $ProjectRoot 'start-backend.bat'
 
 $DbHost   = '127.0.0.1'
@@ -202,7 +202,7 @@ try {
 }
 Log 'MySQL 连接预检通过'
 
-$global:RESULT = 1
+$global:RESULT = 0  # 成功默认 0；Fail 直接 exit 1，Drill 有差异时显式置 1
 try {
     switch ($Mode) {
         'Backup' {
@@ -329,17 +329,50 @@ try {
             $onlyTest = Compare-Object $prodTables $testTables | Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object { $_.InputObject }
             foreach ($t in $onlyProd) { $diffs += "表 $t 仅存在于生产库" }
             foreach ($t in $onlyTest) { $diffs += "表 $t 仅存在于测试库" }
-            $totalRowsProd = 0; $totalRowsTest = 0
+            # 单条 UNION ALL 查询一次性取回全部表行数，避免逐表启动 mysql 进程和累计误差。
+            $prodSelects = @()
+            foreach ($t in $prodTables) {
+                $literal = $t.Replace("'", "''")
+                $ident = '`' + $t.Replace('`', '``') + '`'
+                $prodSelects += "SELECT '$literal' AS table_name, COUNT(*) AS row_count FROM ``$DbName``.$ident"
+            }
+            if (-not $prodSelects.Count) { Fail '生产库未读取到任何基础表' }
+            $prodSql = ($prodSelects -join ' UNION ALL ') + ' ORDER BY table_name;'
+            $prodCountLines = @(Invoke-MySqlQuery @('-h', $DbHost, '-P', $DbPort, '-u', $DbUser, '--default-character-set=utf8mb4', '-N', '-B', '-e', $prodSql))
+            $prodCounts = @{}
+            foreach ($line in $prodCountLines) {
+                $p = $line -split "`t"
+                if ($p.Count -ge 2) { $prodCounts[$p[0]] = [long]$p[1] }
+            }
+
+            $testSelects = @()
+            foreach ($t in $testTables) {
+                $literal = $t.Replace("'", "''")
+                $ident = '`' + $t.Replace('`', '``') + '`'
+                $testSelects += "SELECT '$literal' AS table_name, COUNT(*) AS row_count FROM ``$TestDb``.$ident"
+            }
+            if (-not $testSelects.Count) { Fail '测试库未读取到任何基础表' }
+            $testSql = ($testSelects -join ' UNION ALL ') + ' ORDER BY table_name;'
+            $testCountLines = @(Invoke-MySqlQuery @('-h', $DbHost, '-P', $DbPort, '-u', $DbUser, '--default-character-set=utf8mb4', '-N', '-B', '-e', $testSql))
+            $testCounts = @{}
+            foreach ($line in $testCountLines) {
+                $p = $line -split "`t"
+                if ($p.Count -ge 2) { $testCounts[$p[0]] = [long]$p[1] }
+            }
+
+            if ($prodCounts.Count -ne $prodTables.Count) { $diffs += "生产库行数结果不完整: 表=$($prodTables.Count) 结果=$($prodCounts.Count)" }
+            if ($testCounts.Count -ne $testTables.Count) { $diffs += "测试库行数结果不完整: 表=$($testTables.Count) 结果=$($testCounts.Count)" }
+            $totalRowsProd = [long](($prodCounts.Values | Measure-Object -Sum).Sum)
+            $totalRowsTest = [long](($testCounts.Values | Measure-Object -Sum).Sum)
             foreach ($t in $prodTables) {
                 if ($onlyTest -contains $t) { continue }
-                $cp = [long]( (Invoke-MySqlQuery @('-h', $DbHost, '-P', $DbPort, '-u', $DbUser, '--default-character-set=utf8mb4', '-N', '-e', "SELECT COUNT(*) FROM $DbName.$t;"))[0] )
-                $ct = [long]( (Invoke-MySqlQuery @('-h', $DbHost, '-P', $DbPort, '-u', $DbUser, '--default-character-set=utf8mb4', '-N', '-e', "SELECT COUNT(*) FROM $TestDb.$t;"))[0] )
-                $totalRowsProd += $cp; $totalRowsTest += $ct
+                $cp = if ($prodCounts.ContainsKey($t)) { [long]$prodCounts[$t] } else { 0 }
+                $ct = if ($testCounts.ContainsKey($t)) { [long]$testCounts[$t] } else { 0 }
                 if ($cp -ne $ct) { $diffs += "表 $t 行数不一致: 生产=$cp 测试=$ct" }
             }
             $sw.Stop()
 
-            # 5) 结论 + 自动落档 docs\恢复演练文档.md
+            # 5) 结论 + 自动落档 docs\guides\2026-10-26-备份与恢复-演练文档.md
             $pass = ($diffs.Count -eq 0)
             $verdict = '失败'
             if ($pass) { $verdict = '通过' }
@@ -358,7 +391,7 @@ try {
             Add-Content -Path $DrillDoc -Value ($record -join "`r`n") -Encoding UTF8
             Log "演练结论已追加至 $DrillDoc"
 
-            if ($pass) { Log '==== Drill 演练通过 ====' } else { $global:RESULT = 0; Log '==== Drill 演练失败（差异见上），请人工核查 ====' }
+            if ($pass) { Log '==== Drill 演练通过 ====' } else { $global:RESULT = 1; Log '==== Drill 演练失败（差异见上），请人工核查 ====' }
         }
     }
 } catch {

@@ -1,6 +1,6 @@
 -- =============================================================
 -- 审批「申请前后变化」对比：application.biz_data.oldData 旧值快照回填（一次性）
--- 设计依据：docs/2026-10-26-审批变更前后对比-design.md（需求 V1.0）
+-- 设计依据：docs/design/2026-10-26-审批界面申请前后变化对比-设计文档.md（需求 V1.0）
 -- 幂等：可重复执行（oldData 已存在的行不再回填；无 DDL，仅 UPDATE 补 JSON 子键）
 -- 适用数据库：MySQL 8.x；执行方式：cmd 字节级重定向 + --default-character-set=utf8mb4（禁 PowerShell 管道，见 docs/deployment.md 运维警告 2）
 -- 背景：新提交的修改申请由后端 ApplicationService.submitRequest 写入 biz_data.oldData 全量快照；

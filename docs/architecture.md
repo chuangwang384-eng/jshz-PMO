@@ -20,7 +20,7 @@ AIGC:
     ReservedCode2: 7KZhQW6RdkOa2yxFwTSCW6rIs1belFXgwferFD5EHeeW5SKe8eEQ0lo6/Fc0X4ZWQfHmizHabzzoui31JIcVw8DCEF6z0WeOVbC503RMX7jpAvN2AXyVZvfKFyfk047AB/pwYAxjoPo52ZjiAZ5vvaYc6HUX9hLiUd3I+E8TMngZ0rZIQao1Hgp58zY=
 ---
 
-# 架构说明
+# jshz-PMO 系统架构说明
 
 ## 1. 总体架构
 
@@ -36,7 +36,7 @@ AIGC:
 
 - 前端为 SPA 应用，构建产物由 Nginx 托管，通过反向代理将 `/api` 请求转发至后端。
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
-- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、用户操作日志（operation_log，B2）、审批流配置（approval_config）、通用申请主表（application，「我的申请」改版）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、文档收藏（knowledge_favorite，C3）、消息通知（notification）、供应商管理（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel，2026-10-26）、企微通讯录同步（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **26 张表**（expert_change_request 为历史备份表：存量 31 条已迁移至 application，新写入全部走 application，旧表保留不动）。
+- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、用户操作日志（operation_log，B2）、审批流配置（approval_config）、通用申请主表（application，「我的申请」改版）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、文档收藏（knowledge_favorite，C3）、消息通知（notification）、供应商管理（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel，2026-10-26）、企微通讯录同步（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **74 张表**（**68 张业务表 + 6 张历史备份表**，2026-11-06 由 `information_schema` 实测）。6 张备份表为 `approval_config_bak_20261102` / `download_log_customer_backup_20261029` / `knowledge_doc_version_customer_backup_20261029` / `knowledge_document_customer_backup_20261029` / `knowledge_favorite_customer_backup_20261029` / `wecom_migration_uk_username_backup`。`expert_change_request` 虽为历史表但仍参与读取，计入业务表（存量 31 条已迁移至 application，新写入全部走 application，旧表保留不动）。
 
 ## 2. 后端分层
 
@@ -45,8 +45,8 @@ AIGC:
 | Controller | 接收请求、参数校验、返回结果 | `AuthController` / `ExpertController` / `ApplicationController`（通用申请全套，URL 沿用 /api/approval/*：配置、修改/新增申请、照片上传、审批、转办/加签/可转办用户列表、my-applications 我的申请、my-requests 旧路径兼容） / `UploadController` / `ExportCompatController` / `UserController` / `AuditController`（下载留痕 + 通用用户操作日志） / `HealthController` / `SupplierController`（供应商管理：档案/行价/评价/图片全员登录即可，类型/城市字典管理 supplier:dict，酒店-打印店多对多绑定） / `RoleController`（RBAC 角色 CRUD/启停） / `PermissionController`（RBAC 权限点查询） / `KnowledgeController`（知识星球：文档上传/分页检索（category 可选=全分类、按权限过滤下架文档）/版本更新/下架/永久删除/版本历史/文件下载预览） / `NotificationController`（消息中心：本人列表（isRead/type 组合筛选）/ 未读数 / 单条已读 / 批量已读 / 全部已读 / 单条删除 / 批量删除，全部仅作用于本人消息） / `ApprovalTemplateController`（R-B4 审批申请字段模板：启用列表登录可用 / 全部列表+增删改启停 approval:config / 字段清单） / `WecomContactController`（企微通讯录同步管理：触发同步（dryRun 试算）/同步状态/最近记录/部门树/未绑定清单/人工指认绑定，权限 wecom:sync，2026-10-27） / `WecomDirectoryController`（普通员工个人通讯录：GET /api/wecom/directory/mine 返回本人根到本部门链路+本部门成员，登录即可，不暴露全量架构，2026-10-27）（共 **16 个**） |
 | Service | 业务逻辑、事务控制 | `AuthService` / `ExpertService` / `ApplicationService`（通用申请核心：类型枚举分发、biz_data JSON 读写（含 oldData 旧值快照写入与按查看者脱敏返回）、白名单字段校验、TMP 临时照片通道、修改/新增分支审批、转办/加签与 assignee 审批权校验、审批/提交通知埋点） / `ExportService` / `PhotoStorageService` / `DownloadAuditService`（下载留痕，双写 operation_log） / `OperationLogService`（B2 通用敏感操作日志：统一写入（try-catch 降级）+ 分页查询，2026-10-27 新增 WECOM_SYNC / WECOM_BIND 审计类型） / `UserService`（含角色调整/密码重置通知埋点） / `KnowledgeDocumentService`（知识星球业务，含下架/永久删除通知埋点） / `KnowledgeDocStorageService`（文档落盘与校验，含物理删除） / `NotificationService`（通用消息通知：写入事件、本人列表/未读数/已读标记） / `ContactSyncService`（企微通讯录同步核心：DryRun 试算不写业务数据、diff 绑定/新建/停用、并发护栏 409、部门树/未绑定清单/人工指认绑定/个人通讯录 getMyDirectory，2026-10-27） / `WecomSyncScheduler`（@Scheduled 每日 02:30，受 sync-cron-enabled 开关控制，首次引入定时任务） / `WecomSyncTrigger`（手动/定时同步统一入口，异步执行） |
 | Security | 认证鉴权 | `JwtTokenProvider` / `JwtAuthenticationFilter` / `AuthUser` |
-| Mapper | 数据访问（MyBatis-Plus，共 25 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `OperationLogMapper`（B2）/ `ApprovalConfigMapper` / `ApplicationMapper`（通用申请）/ `ApprovalRecordMapper` / `ApprovalTemplateMapper`（R-B4） / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` / `KnowledgeFavoriteMapper`（C3） / `NotificationMapper` / `SupplierMapper` / `SupplierTypeMapper` / `SupplierCityMapper` / `SupplierPriceItemMapper` / `SupplierReviewMapper` / `SupplierHotelPrintRelMapper` / `WecomDepartmentMapper` / `WecomUserDepartmentMapper` / `WecomSyncLogMapper`（企微三表，2026-10-27） |
-| Entity | 数据库实体映射（共 25 个） | `Expert` / `SysUser` / `DownloadLog`（含 docId）/ `OperationLog`（B2）/ `ApprovalConfig` / `Application`（通用申请，含 biz_data 解析展示字段 currentAssignee/extraApprover/records/oldData/photoChanges 等）/ `ApprovalRecord`（含 applicationId）/ `ApprovalTemplate`（R-B4，含 fields 解析展示）/ `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument`（含 content 正文/downloadCount/isFavorite）/ `KnowledgeDocVersion` / `KnowledgeFavorite`（C3）/ `Notification` / `Supplier`（含类型/城市/评分展示字段）/ `SupplierType`（含 bizKey）/ `SupplierCity` / `SupplierPriceItem` / `SupplierReview` / `SupplierHotelPrintRel` / `WecomDepartment` / `WecomUserDepartment` / `WecomSyncLog`（企微三表，2026-10-27） |
+| Mapper | 数据访问（MyBatis-Plus，共 57 个） | `ExpertMapper` / `SysUserMapper` / `DownloadLogMapper` / `OperationLogMapper`（B2）/ `ApprovalConfigMapper` / `ApplicationMapper`（通用申请）/ `ApprovalRecordMapper` / `ApprovalTemplateMapper`（R-B4） / `RoleMapper` / `PermissionMapper` / `RolePermissionMapper` / `UserRoleMapper` / `KnowledgeDocumentMapper` / `KnowledgeDocVersionMapper` / `KnowledgeFavoriteMapper`（C3） / `NotificationMapper` / `SupplierMapper` / `SupplierTypeMapper` / `SupplierCityMapper` / `SupplierPriceItemMapper` / `SupplierReviewMapper` / `SupplierHotelPrintRelMapper` / `WecomDepartmentMapper` / `WecomUserDepartmentMapper` / `WecomSyncLogMapper`（企微三表，2026-10-27）等（此处仅列早期核心 Mapper，合规 17 表与项目 16 表的 Mapper 见源码目录） |
+| Entity | 数据库实体映射（共 57 个，与 Mapper 一一对应） | `Expert` / `SysUser` / `DownloadLog`（含 docId）/ `OperationLog`（B2）/ `ApprovalConfig` / `Application`（通用申请，含 biz_data 解析展示字段 currentAssignee/extraApprover/records/oldData/photoChanges 等）/ `ApprovalRecord`（含 applicationId）/ `ApprovalTemplate`（R-B4，含 fields 解析展示）/ `Role` / `Permission` / `RolePermission` / `UserRole` / `KnowledgeDocument`（含 content 正文/downloadCount/isFavorite）/ `KnowledgeDocVersion` / `KnowledgeFavorite`（C3）/ `Notification` / `Supplier`（含类型/城市/评分展示字段）/ `SupplierType`（含 bizKey）/ `SupplierCity` / `SupplierPriceItem` / `SupplierReview` / `SupplierHotelPrintRel` / `WecomDepartment` / `WecomUserDepartment` / `WecomSyncLog`（企微三表，2026-10-27）等 |
 | Config | 安全、跨域、全局配置 | `SecurityConfig` / `WebConfig`（/api/files/** 正式照片库、/api/files-tmp/** 审批临时照片库，均登录可读）/ `GlobalExceptionHandler` / `MybatisPlusConfig` / `WecomProperties`（企微配置绑定，2026-10-27）/ `WecomAsyncConfig`（异步同步线程池，2026-10-27） |
 
 ## 3. 前端结构
@@ -54,19 +54,21 @@ AIGC:
 | 目录 | 职责 |
 | --- | --- |
 | `src/api` | Axios 请求封装（request/auth/expert/user/audit/approval/knowledge/notification/supplier/wecom，withCredentials=true，401 拦截跳登录；wecom 于 2026-10-27 新增：triggerSync/getSyncStatus/getRecentSyncLogs/getDepartments/getUnbound/bindWecom/getWecomConfig/getMyDirectory） |
-| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理（SupplierList 卡片列表 + /supplier/:id 详情页，menu:false 不进菜单）/项目管理/管理员设置等；知识星球父路由 /knowledge-planet 挂父页组件（KnowledgePlanetHome 内含 <router-view/> 渲染四个分类子页；父路由显示上传中心+全分类总览，子路由仅渲染本分类列表），点击标题跳父路由、点击箭头展开二级菜单；个人中心 /profile 父路由挂 ProfileHome（内含 <router-view/>，父路径 /profile 渲染 ProfileCard 信息卡主页；2026-10-30 修复入口回归：cda0d27 改造曾删除主页信息卡与修改密码入口）；子路由：overview（我的主页，ProfileCard 信息卡：用户名/角色（roleNames 中文优先回退编码）/账号ID/注册时间 + 修改密码按钮复用 ChangePasswordDialog）、my-approvals（我的申请，「我的申请」改版由「我的审批」更名，路由路径保留供通知跳转）、notifications（消息中心，登录即可）、approval/manage（审批管理，permissions: approval:audit——已从管理员设置迁移至此，普通员工不可见）、directory（通讯录，登录即可，个人通讯录页）、announcements / announcements/manage（公告与公告管理，权限码 announcement:manage；announcement-detail menu:false 不进菜单）；管理员设置父路由 /admin（redirect /admin/experts/manage，meta.permissions 为 5 码并集：expert:manage/audit:view/approval:config/user:manage/role:manage），7 个子路由：experts/manage（专家管理）、audit/downloads（用户操作日志）、approval/config（审批流配置）、approval/templates（审批模板管理，permissions: approval:config）、users（用户管理）、roles/manage（角色管理）、wecom（企微通讯录同步，permissions: wecom:sync）） |
+| `src/router` | 路由配置与守卫（未登录跳登录、meta.permissions 权限码控制路由访问与菜单过滤；一级菜单：专家库/知识星球/个人中心/供应商管理（SupplierList 列表/卡片双视图 + 名称联系人搜索 + 类型/城市/仅看已评价筛选 + 按名称/更新时间排序，2026-11-09；/supplier/:id 详情页，menu:false 不进菜单）/项目管理/管理员设置等；知识星球父路由 /knowledge-planet 挂父页组件（KnowledgePlanetHome 内含 <router-view/> 渲染四个分类子页；父路由显示上传中心+全分类总览，子路由仅渲染本分类列表），点击标题跳父路由、点击箭头展开二级菜单；个人中心 /profile 父路由挂 ProfileHome（内含 <router-view/>，父路径 /profile 渲染 ProfileCard 信息卡主页；2026-10-30 修复入口回归：cda0d27 改造曾删除主页信息卡与修改密码入口）；子路由：overview（我的主页，ProfileCard 信息卡：用户名/角色（roleNames 中文优先回退编码）/账号ID/注册时间 + 修改密码按钮复用 ChangePasswordDialog）、my-approvals（我的申请，「我的申请」改版由「我的审批」更名，路由路径保留供通知跳转）、notifications（消息中心，登录即可）、approval/manage（审批管理，permissions: approval:audit——已从管理员设置迁移至此，普通员工不可见）、directory（通讯录，登录即可，个人通讯录页）、announcements / announcements/manage（公告与公告管理，权限码 announcement:manage；announcement-detail menu:false 不进菜单）；管理员设置父路由 /admin（redirect /admin/experts/manage，meta.permissions 为 5 码并集：expert:manage/audit:view/approval:config/user:manage/role:manage），7 个子路由：experts/manage（专家管理）、audit/downloads（用户操作日志）、approval/config（审批流配置）、approval/templates（审批模板管理，permissions: approval:config）、users（用户管理）、roles/manage（角色管理）、wecom（企微通讯录同步，permissions: wecom:sync）） |
 | `src/views` | 页面组件（Login（2026-10-27 起按 /api/auth/wecom/config 的 loginMode 自适应姓名/姓名或手机号/手机号文案）/ExpertList/ExpertManage/DownloadAudit（B2 改造为通用用户操作日志页：用户名模糊/操作类型/时间范围筛选，含历史下载记录）/UserManage（2026-10-27 增手机号/部门/企微绑定列与绑定操作）/MyApproval（「我的申请」：调 /api/approval/my-applications 仅本人数据，含审批人/审批时间列，30s 轮询刷新）/ApprovalManage（含转办/加签按钮与选人弹窗，读写 application 主表）/MessageCenter（消息中心：Tab 全部/未读/已读 + 10 类类型筛选组合、复选框批量已读/批量删除、单条删除、点击已读+按 jump_path 跳转、分页）/ApprovalConfig/ApprovalTemplateManage（R-B4 审批模板管理）/KnowledgePlanetHome（知识星球父页：上传中心+全分类总览，管理员含永久删除）/MeetingExecution/AssociationCompliance/EnterpriseCompliance/CustomerPreferences/WecomSyncManage（企微通讯录同步管理：立即同步+DryRun 试算变更清单+确认实跑、同步结果卡片、最近记录表、组织架构树 el-tree、未绑定清单+人工绑定，2026-10-27）/profile/ProfileHome（个人中心父页：<router-view/> + 父路径渲染 ProfileCard 信息卡主页，2026-10-30 修复入口回归）/profile/ProfileCard（个人中心信息卡：用户名/角色/账号ID/注册时间 + 修改密码弹窗，2026-10-30 新增，由 ProfileHome 与 /profile/overview 子路由复用）/profile/Directory（个人中心通讯录：根到本部门链路+本部门成员，手机号脱敏，2026-10-27）等） |
 | `src/stores` | Pinia 状态管理（auth、notification（30 秒轮询未读数+新消息轻提示）） |
 | `src/components` | 通用组件（ChangePasswordDialog（普通模式可关闭、force-mode 强制改密警示）/PhotoImage/SideMenuItem/KnowledgeDocList（知识文档列表，allowUpload=false 隐藏上传按钮供子页复用，管理员含永久删除）/NotificationBell（顶栏铃铛+未读红点+消息列表）） |
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **26 张表**，含 RBAC 四表、供应商六表（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel）（role / permission / role_permission / user_role）、企微通讯录同步三表（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）、知识文档收藏表（knowledge_favorite，C3）、用户操作日志表（operation_log，B2）与通用申请主表（application，「我的申请」改版）：
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **74 张表**（68 业务表 + 6 历史备份表），含 RBAC 四表（role / permission / role_permission / user_role）、供应商七表（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel / supplier_image）、企微通讯录同步三表（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）、合规 17 表、项目 16 表、客户 4 表、知识 3 表、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）、知识文档收藏表（knowledge_favorite，C3）、用户操作日志表（operation_log，B2）与通用申请主表（application，「我的申请」改版）。
+
+下表仅详列**早期核心表**（25 张）的字段说明；合规 / 项目 / 供应商扩展 / 客户等后续模块请直接查看 `backend/src/main/java/com/jshz/expert/entity/` 与 `database/migration/` 对应脚本。
 
 | 表 | 说明 | 关键字段 |
 | --- | --- | --- |
 | `expert_info` | 专家主表（18 字段） | id、name、unit、department、title、research_direction、expertise_area、contact、profile、id_card、bank_card、photo、bank_branch、id_card_front、id_card_back、create_time、update_time、update_by |
-| `sys_user` | 登录账号 | username=姓名、password（BCrypt）、is_admin（管理员名单兼容标记）、must_change_password（强制改密）、wecom_userid（企微唯一身份锚点）、mobile（手机号登录标识，2026-10-27 新增）、position（职务，2026-10-27 新增）、status；唯一索引 uk_wecom_userid（wecom_userid）/ uk_mobile（mobile）/ uk_username（已于 2026-10-27 删除，改由应用层保证未绑定通道内姓名唯一，企微同步可产生重名用户） |
+| `sys_user` | 登录账号 | username=姓名、password（BCrypt）、is_admin（管理员名单兼容标记）、must_change_password（强制改密）、wecom_userid（企微唯一身份锚点）、mobile（手机号登录标识，2026-10-27 新增）、position（职务，2026-10-27 新增）、status、token_version（Token 版本号，2026-11-06 新增，停用/删除/改密/改角色时自增）；唯一索引 uk_wecom_userid（wecom_userid）/ uk_mobile（mobile）/ uk_username（已于 2026-10-27 删除，改由应用层保证未绑定通道内姓名唯一，企微同步可产生重名用户） |
 | `download_log` | 下载审计 | 下载人、专家、时间、类型、IP；selected 导出逐专家一条、全量/md 单条；C4 起知识文档下载（download_type=knowledge_doc）记 doc_id 与文档标题；B2 起每次写入同时双写 operation_log（download_log 保留，下载次数统计仍依赖本表） |
 | `approval_config` | 审批流配置 | flow_key（UNIQUE，EXPERT_MODIFY）、flow_name、enabled、approver_role |
 | `application` | 通用申请主表（「我的申请」改版） | applicant_id、applicant、application_type（EXPERT_MODIFY/EXPERT_CREATE，代码枚举可扩展）、status（0待审/1通过/2驳回/3撤回，四态通用）、biz_data（JSON 业务详情：专家申请 {expertId, expertName, changes, reason, templateId, oldData?}，照片 TMP: 语义保留；oldData 为修改申请提交时的专家旧值快照，审批前后对比用）、approve_by、approve_comment、approve_time、current_assignee（B2）、extra_approver（B2）；索引 idx_applicant/idx_applicant_id/idx_status/idx_application_type |
@@ -77,7 +79,7 @@ AIGC:
 | `permission` | RBAC 权限点表 | id、code（可重复，一码多路径）、name、type（1菜单/2接口）、method、path、parent_code；UNIQUE(method,path) |
 | `role_permission` | 角色-权限关联表 | id、role_id、permission_code；UNIQUE(role_id,permission_code) |
 | `user_role` | 用户-角色关联表 | id、user_id、role_id；UNIQUE(user_id,role_id) |
-| `knowledge_document` | 知识星球文档主表 | id、title、category、file_name、file_path、file_type、file_size、content（C1 正文，抽取截断存储）、version、upload_by、status（1上架/0下架）、create_time、update_time |
+| `knowledge_document` | 知识星球文档主表 | id、title、category、file_name、file_path、file_type、file_size、content（C1 正文，抽取截断存储）、version、upload_by、status（1上架/0下架）、parse_status（PENDING/RUNNING/SUCCESS/FAILED，NULL=历史数据）、parse_message、parse_time（P2-7 异步解析状态，2026-11-06 新增）、create_time、update_time |
 | `knowledge_doc_version` | 知识星球文档版本历史 | id、doc_id、version、file_name、file_path、file_type、file_size、upload_by、create_time |
 | `knowledge_favorite` | 知识文档收藏（C3） | id、doc_id、user_id、create_time；UNIQUE(doc_id,user_id) |
 | `notification` | 消息通知中心 | id、user_id（接收人）、type（approval_result / approval_todo / approval_withdrawn / approval_transferred / approval_assigned / role_changed / password_reset / doc_off_shelf / doc_deleted / doc_updated）、title、content、jump_path（点击跳转前端路由，可为空）、is_read（0未读/1已读）、create_time |
@@ -88,9 +90,11 @@ AIGC:
 
 > `expert_info.update_by` 写入语义：直接编辑（ExpertService.update，由超管/具备 expert:edit 权限用户调用）记操作者本人；审批通过（ApplicationService.approveModify / approveCreate）记申请单申请人 `application.applicant`（发起修改/新增的人），审批人仅记录于 `approve_by`。`update_time` 由数据库 `ON UPDATE CURRENT_TIMESTAMP` 自动维护。
 
-> RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:manage`（ADMIN/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:manage`（已绑定 ADMIN），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
+> RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码），但文件流端点会按存储文件名反查文档并校验状态：文档不存在/已永久删除返回业务码 404，已下架且非 `knowledge:maintain` 返回业务码 403，避免下架后旧链接继续可下载（P1-5）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:maintain`（知识星球维护人/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:maintain`（已绑定 KNOWLEDGE_MAINTAINER），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
 
-> 知识星球增强（2026-10-26，C1/C3/C4）：① C1 内容检索——knowledge_document.content 存上传/更新时抽取的正文（PDFBox/POI，截断 200k 字符），GET /api/knowledge/docs 的 keyword 扩展为 title/file_name/content 三列 LIKE；前端 placeholder「按标题 / 内容关键字检索」。② C3 收藏——knowledge_favorite 表（UNIQUE(doc_id,user_id)），接口 POST/DELETE/GET /api/knowledge/favorites[/{docId}]（登录即可，userId 取当前用户防越权；路径避开 permission 表 DELETE /api/knowledge/docs/** 通配规则），PUT /api/knowledge/docs/{id} 更新成功后向全部收藏者（排除操作人）写 doc_updated 通知；前端列表/总览操作列收藏按钮即时切换，知识星球父页「全部文档/我的收藏」切换。③ C4 下载次数——download_log 加 doc_id 列，附件下载（download=1，预览不计）写 download_type=knowledge_doc 记录，列表接口单次 GROUP BY 聚合返回 downloadCount，前端「下载次数」列仅上传人本人与管理员（knowledge:manage）可见数值，他人显示 —。
+> 知识文档异步解析（2026-11-06，P2-7）：上传/更新请求只流式落盘并写入 `parse_status=PENDING`，随后提交 `knowledgeParseExecutor` 异步任务；正文抽取（PDFBox/POI）与企业合规 Excel 草稿解析均在线程池内完成，状态/正文更新带 `id+version` 条件，旧任务不会覆盖新版本。解析失败只记录 `FAILED` 与原因，不回滚已上传文件；PDF/DOC/DOCX 抽取为空按失败处理（可能损坏、加密或为扫描件），其余不支持正文的格式标记成功但不参与正文检索；线程池拒绝时同步标记失败，上传本身仍成功。线程池参数见 `expert.knowledge.parse.*`，队列满时采用 AbortPolicy。历史数据 `parse_status=NULL`（接口原样返回，不做批量回填）。
+
+> 知识星球增强（2026-10-26，C1/C3/C4）：① C1 内容检索——knowledge_document.content 存上传/更新时抽取的正文（PDFBox/POI，截断 200k 字符），GET /api/knowledge/docs 的 keyword 扩展为 title/file_name/content 三列 LIKE；前端 placeholder「按标题 / 内容关键字检索」。② C3 收藏——knowledge_favorite 表（UNIQUE(doc_id,user_id)），接口 POST/DELETE/GET /api/knowledge/favorites[/{docId}]（登录即可，userId 取当前用户防越权；路径避开 permission 表 DELETE /api/knowledge/docs/** 通配规则），PUT /api/knowledge/docs/{id} 更新成功后向全部收藏者（排除操作人）写 doc_updated 通知；前端列表/总览操作列收藏按钮即时切换，知识星球父页「全部文档/我的收藏」切换。③ C4 下载次数——download_log 加 doc_id 列，附件下载（download=1，预览不计）写 download_type=knowledge_doc 记录，列表接口单次 GROUP BY 聚合返回 downloadCount，前端「下载次数」列仅维护人（`knowledge:maintain`）可见数值，他人显示 —。
 
 > R-B4 审批申请字段模板说明：表 `approval_template`（template_name 唯一、fields 为中文键 JSON 数组、enabled 启停）；员工端 GET /api/approval/templates 返回启用模板（登录即可），管理端 GET /api/approval/templates/all 与 POST/PUT/DELETE /api/approval/templates[/{id}] 复用权限码 `approval:config`（permission 表一码多路径）；提交申请（POST /api/approval/requests、/api/approval/create-request）带可选 templateId：传入时校验 changes 字段集合 ⊆ 模板字段且模板启用，并落库 application.biz_data.template_id；不传走原逻辑，历史申请兼容。模板字段必须 ⊆ ApplicationService.WHITELIST_FIELDS + PHOTO_FIELDS（服务端校验）；「专家新增」种子模板覆盖 CREATE_REQUIRED_FIELDS 全部必填项；前端 ExpertList 修改/新增弹窗提供模板下拉，选择后仅渲染并提交模板字段，新增弹窗仅展示覆盖必填项的模板；管理员设置菜单新增「审批模板管理」页（/admin/approval/templates）。
 
@@ -110,6 +114,7 @@ AIGC:
 
 - 系统仅监听内网地址，通过 Nginx 限制来源 IP 与访问路径。
 - 认证鉴权已实现：Spring Security + JWT（jjwt 0.11.5），Token 存 httpOnly cookie（SameSite=Lax、无 Secure，适配内网 http），登录写入、登出清除；密码 BCrypt 哈希，初始密码强制改密。
+- Token 吊销（P1-2，2026-11-06）：JWT 增加 `tv` claim，与 `sys_user.token_version` 比对；过滤器每次请求校验用户存在、`status=1`、版本一致，任一不满足不建立认证。停用/删除/改密/改角色时自增版本并失效本地缓存，单实例下一次请求即生效、多实例最迟一个 TTL（`expert.auth.state-cache-seconds`，默认 60 秒）。升级前签发、不含 `tv` 的存量 Token 一律拒绝，用户需重新登录一次；查库异常按 fail-closed 处理。
 - 无凭证访问受保护接口返回 401（配置 AuthenticationEntryPoint）；CORS 白名单 `http://<PRIVATE_IP>:5173` / `http://localhost:5173`，allowCredentials=true。
 - 敏感字段脱敏：身份证号/银行卡号查看页默认前 3 后 4；下载行为写入 download_log 审计。
 - 企微通讯录同步（2026-10-27）：CorpID / 通讯录同步助手只读 secret 仅由环境变量 `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` 注入（start-backend.bat + NSSM 服务环境，文档与日志只用占位符，禁止提交真实值）；系统只读企微、不回写；手机号展示与日志一律脱敏（138****1234）；个人通讯录接口仅返回本人部门链路与本部门成员，不暴露全量架构；管理接口全部走 wecom:sync 权限码。
@@ -149,24 +154,24 @@ AIGC:
 
 页面使用 `/api/compliance/v4` 模板草稿/版本发布、个人清单创建/显式开始/再次使用与任务 PATCH；个人答案、日期、优先级和备注不写回模板。任务更新以 `id + row_version` 条件更新，冲突返回业务 409；列表超末页返回空集，分页限制见 [施工交接第6节](handover/tasks/20261103_compliance_v4_takeover.md)。本轮强化 V4 资源授权，公共账号/JWT/Cookie 语义不变。
 
-完整规格见 [需求](20261103-企业合规可复用清单-需求文档.md) 与 [技术设计](20261103-企业合规可复用清单-技术设计.md)。已补资源权限、个人提醒、逐节点事务与旧版切换；14 项真实 MySQL、22 项服务回归及真实浏览器通过，见 [发布阻断闭环](handover/tasks/20261103_compliance_v4_release_blockers.md)。首期生产上线与技术只读验收已完成，员工业务体验待复核。
+完整规格见 [需求](requirements/2026-11-03-企业合规可复用规范与个人执行清单-需求文档.md) 与 [技术设计](design/2026-11-03-企业合规可复用清单-设计文档.md)。已补资源权限、个人提醒、逐节点事务与旧版切换；14 项真实 MySQL、22 项服务回归及真实浏览器通过，见 [发布阻断闭环](handover/tasks/20261103_compliance_v4_release_blockers.md)。首期生产上线与技术只读验收已完成，员工业务体验待复核。
 
 V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `compliance_user_mode` 表（user_id 主键、mode、legacy_snapshot JSON、switched_at、updated_at）。缺行仍是 V3；切换锁定用户并保存个人旧进度快照，新版与旧个人写/到期发送互斥。关闭 V4 不清除个人切换标记，不恢复旧写入/旧提醒。七表迁移及用户开关迁移先经独立库验证，再核实生产元数据并按本次授权执行；不得据此跳过后续环境核查。
 
-资源策略在 V4 内实施：本人执行/事件必须再检来源和项目，维护人不豁免个人隐私；模板由上传者/维护人维护、维护人发布。提醒使用 READ_COMMITTED、每节点 REQUIRES_NEW 与用户/执行/任务/提醒行锁；站内通知和 SENT 原子提交，失败回滚后独立计次，3 次上限。CORS 仅补 PATCH 方法，不改变允许来源。接口、权限、数据字典和发布/回滚限制见 [部署说明](deployment-compliance-v4.md)。
+资源策略在 V4 内实施：本人执行/事件必须再检来源和项目，维护人不豁免个人隐私；模板由上传者/维护人维护、维护人发布。提醒使用 READ_COMMITTED、每节点 REQUIRES_NEW 与用户/执行/任务/提醒行锁；站内通知和 SENT 原子提交，失败回滚后独立计次，3 次上限。CORS 仅补 PATCH 方法，不改变允许来源。接口、权限、数据字典和发布/回滚限制见 [部署说明](deployment/2026-11-03-企业合规V4隔离验收灰度切换与回滚-部署说明.md)。
 
 2026-11-03 21:44生产更新：八张v4相关表已核实，用户切换表新增；两个V4开关均已开启，个人mode行数0，保持员工显式切换。正式8080 Java进程18436，Nginx主进程39504未重启，前端root为 `frontend/releases/1.0.22-compliance-v4-c24add5-20261103`；运行JAR SHA256 DDB6D4EB914747EEE322AD8465BA4EE6D0EC1F65A63ECC63AF6C2D58C1F0E301。前述“未经本轮核实/尚未执行”是开发阶段历史基线，当前事实见 [生产记录](releases/20261103-compliance-v4-production.md)，后续应重新实测，不把PID当常量。
 
 ### 规范文件生成模板草稿
 
-2026-11-05 在知识文档提取层保留 PDF 页、Word 段落/表格行、演示文稿页和电子表格行的来源锚点；短文本 PDF 页触发扫描页提示，并可调用本机 Tesseract 简体中文/英文 OCR。V4 新增生成待确认模板草稿接口，候选节点保留页/段/行锚点、原文摘录和需人工复核标记；前端逐项展示引用，草稿不会自动发布。权限沿用文档上传者/维护人和模板发布权限，不新增表或权限。扫描文件可能漏识别或错误识别，人工核对原件是发布前置条件。Windows 服务账号必须能读取 `chi_sim.traineddata`；当前测试模型在交互用户 LocalAppData，正式后端以 LocalSystem 运行且尚无 `TESSDATA_DIR`，生产 OCR 可用性尚未就绪。接口和隔离验收步骤见 [企业合规 V4 部署说明](deployment-compliance-v4.md)。
+2026-11-05 在知识文档提取层保留 PDF 页、Word 段落/表格行、演示文稿页和电子表格行的来源锚点；短文本 PDF 页触发扫描页提示，并可调用本机 Tesseract 简体中文/英文 OCR。V4 新增生成待确认模板草稿接口，候选节点保留页/段/行锚点、原文摘录和需人工复核标记；前端逐项展示引用，草稿不会自动发布。权限沿用文档上传者/维护人和模板发布权限，不新增表或权限。扫描文件可能漏识别或错误识别，人工核对原件是发布前置条件。Windows 服务账号必须能读取 `chi_sim.traineddata`；当前测试模型在交互用户 LocalAppData，正式后端以 LocalSystem 运行且尚无 `TESSDATA_DIR`，生产 OCR 可用性尚未就绪。接口和隔离验收步骤见 [企业合规 V4 部署说明](deployment/2026-11-03-企业合规V4隔离验收灰度切换与回滚-部署说明.md)。
 
 
 ## 项目配置 v3（PC-20261104，2026-11-04 已完成开发待业务验收，尚未部署）
 
 新增配置聚合服务、不可变类型版本和项目运行快照。项目详情/列表名称、阶段推进回退、资料阶段校验与导出使用项目快照；三种要求模式先解析再判断必填。配置写操作共同锁定 project_config_state，类型展示位置为唯一连续 1～N。项目创建在 READ_COMMITTED 事务中解析配置并冻结，公共字典维护不回写旧项目。
 
-新增表 project_config_state / project_type_config_revision / project_config_snapshot / project_config_request，project_type 增加 active_config_revision_id 与唯一 sort。数据字典、接口、权限和迁移步骤见 [项目配置 v3 实施说明](deployment-project-config-v3.md)。旧分步类型写入适配为完整配置版本，仅拒绝含义不明确的空流程/空专属绑定；现有页面已收口新版向导，兼容细则见该说明。新增管理 API 服务内显式验证 project:manage；项目快照读取保留原项目级可读校验。原项目权限范围不扩大。
+新增表 project_config_state / project_type_config_revision / project_config_snapshot / project_config_request，project_type 增加 active_config_revision_id 与唯一 sort。数据字典、接口、权限和迁移步骤见 [项目配置 v3 实施说明](deployment/2026-11-04-项目配置V3接口数据字典与发布步骤-部署说明.md)。旧分步类型写入适配为完整配置版本，仅拒绝含义不明确的空流程/空专属绑定；现有页面已收口新版向导，兼容细则见该说明。新增管理 API 服务内显式验证 project:manage；项目快照读取保留原项目级可读校验。原项目权限范围不扩大。
 
 本节为本地施工增量，生产仍以已发布版本和目标库实际元数据为准，不能据此认定表或接口已上线。
 
@@ -178,7 +183,7 @@ V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `
 
 完成判定仅复用已批准的历史LEGACY_BASELINE快照中的唯一“已完成”阶段；新类型及无法确认的流程为UNKNOWN，不修改生命周期或数据。退回申请可在原页面编辑文本并重提，原bodyless调用兼容；本人/status=4校验保持，变更/状态/指派清理/记录/通知同事务。
 
-无新增业务表、权限码、生产环境变量或外部服务；新增测试schema仅供隔离验证，不能当作迁移。接口/权限矩阵、目标路径、故障与验证边界见[工作台说明](deployment-dashboard-v11.md)，原需求与设计已同步为V1.1.1。生产快照前置条件及实际部署状态本次未验证。
+无新增业务表、权限码、生产环境变量或外部服务；新增测试schema仅供隔离验证，不能当作迁移。接口/权限矩阵、目标路径、故障与验证边界见[工作台说明](deployment/2026-11-04-个人工作台V1.1.1接口与隔离验证-部署说明.md)，原需求与设计已同步为V1.1.1。生产快照前置条件及实际部署状态本次未验证。
 
 工作台生产状态更新（2026-11-04）：1.0.24已部署，业务源码1980a66，API只读验证通过；严格切流连续性有1次连接重置，后续稳态复核通过，保留为待排查问题，不作全程无故障或业务验收结论。见[发布记录](releases/20261104-dashboard-production.md)。
 
@@ -195,3 +200,15 @@ V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `
 ### OCR 事项分组、收藏筛选与历史入口
 
 模板维护优先按 PDF 表格线与 OCR 词坐标归并三列表格，提取同一行的事项标题和多行操作要求，保留页码、行号和人工核对。普通编号条款按条款边界合并折行。企业合规规范文档库的 `GET /api/knowledge/docs` 支持可选 `favoritesOnly=true`，按登录用户收藏记录过滤后分页，可与格式和关键词一起使用。V4 页面移除旧版只读历史入口，底层历史记录保留。验证记录见 [可视化维护施工交接](handover/tasks/20261105_compliance_visual_editor_implementation.md)。
+
+### 工作台二维布局
+
+静态工作台保留现有业务查询和跳转。编辑器按需加载 GridStack 14.1.0，Vue 保留卡片内容渲染，宽屏静态视图用相同的 12 列坐标展示，窄屏按坐标顺序单列阅读。布局通过认证账号隔离。旧 layout 与可空 layout_v2 并行存储，旧版回退读取原列，迁移和并发语义见 [接口与部署说明](deployment/2026-11-06-工作台二维布局-接口部署与验收.md)。本轮生产未发布。
+
+## 审批流事务边界（2026-11-06，开发完成未发布）
+
+`ApplicationService` 的审批流写入口统一声明 `@Transactional(rollbackFor = Exception.class)`：`updateConfig` / `submitRequest` / `submitCreateRequest` / `submitContractApproval` / `approve`（其内部 `approveContract`、`approveCreate`、`approveModify` 分支共享该事务）/ `approveModify` / `reject` / `returnRequest` / `resubmit`（两个重载）/ `withdraw` / `transfer` / `addApprover` / `saveConfigUsers`。单次操作中的申请单写入、合同 status 与 approval_ref、项目专家合同快照、审批记录、操作日志在同一事务内原子提交，任一失败整体回滚。
+
+文件 IO 与事务解耦：`PhotoStorageService.buildArchivedName` 只校验临时文件并计算归档文件名（事务内调用），`archiveTempPhoto` 负责实际拷贝与删除；两者由 `ApplicationService.afterCommit`（`TransactionSynchronization.afterCommit`）在事务提交后执行。驳回/撤回的临时照片清理、修改审批的旧照片物理删除、兼容历史单的旧照片删除同样延后到提交后。数据库与文件系统不共享事务，提交后 IO 失败只记录 error 日志（含专家 ID、临时文件、目标文件名），不回滚已提交的审批结果，需按日志人工补偿。
+
+审批联动 `syncContractByApproval` 取消整体吞异常：合同 status 写入失败向上抛出以触发回滚；`syncProjectExpertSnapshot`（项目-专家合同状态派生快照）失败仍降级，但改为 warn 日志留痕。并发重复审批（状态条件更新/行锁缺失）本次未处理，仍为已知风险。验证：`ApplicationTransactionBoundaryTest`（注解与归档两段式）+ 后端全量测试 75 项 0 失败 0 错误 9 跳过。

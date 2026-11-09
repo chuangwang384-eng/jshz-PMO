@@ -66,6 +66,7 @@ public class ContactSyncService {
     private final WecomUserDepartmentMapper wecomUserDepartmentMapper;
     private final WecomSyncLogMapper wecomSyncLogMapper;
     private final SysUserMapper sysUserMapper;
+    private final UserAuthStateService userAuthStateService;
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
@@ -140,6 +141,8 @@ public class ContactSyncService {
                         if (existing.getStatus() != null && existing.getStatus() == 1) {
                             existing.setStatus(0);
                             sysUserMapper.updateById(existing);
+                            // P1-2：企微离职/禁用 → 已登录会话立即失效
+                            userAuthStateService.bumpAndEvict(existing.getId());
                             disabled++;
                             changes.add(item("DISABLE", detail, "企微成员已离职/禁用，停用账号"));
                         } else {
@@ -184,6 +187,8 @@ public class ContactSyncService {
                 if (!allUserIds.contains(u.getWecomUserId()) && u.getStatus() != null && u.getStatus() == 1) {
                     u.setStatus(0);
                     sysUserMapper.updateById(u);
+                    // P1-2：本轮未出现视为离职 → 已登录会话立即失效
+                    userAuthStateService.bumpAndEvict(u.getId());
                     disabled++;
                     changes.add(item("DISABLE", u.getWecomUserId(), u.getUsername(),
                             WecomApiClient.maskMobile(u.getMobile()), "本轮企微全量未出现，视为离职停用"));
@@ -251,6 +256,7 @@ public class ContactSyncService {
     /** 更新已绑定用户姓名/手机号/状态；返回是否发生变更 */
     private boolean applyUserUpdate(SysUser user, WecomApiClient.MemberDetail detail, List<ChangeItem> changes) {
         boolean changed = false;
+        boolean statusReenabled = false;
         StringBuilder reason = new StringBuilder("更新：");
         if (StringUtils.hasText(detail.name) && !detail.name.equals(user.getUsername())) {
             // 姓名冲突（重名用户已存在）时保留现有姓名，避免破坏
@@ -281,9 +287,14 @@ public class ContactSyncService {
             user.setStatus(1);
             reason.append("恢复启用; ");
             changed = true;
+            statusReenabled = true;
         }
         if (changed) {
             sysUserMapper.updateById(user);
+            if (statusReenabled) {
+                // P1-2：重新启用时自增版本，避免停用期间签发的旧 Token 复活
+                userAuthStateService.bumpAndEvict(user.getId());
+            }
             changes.add(item("UPDATE", detail, reason.toString()));
         }
         return changed;
@@ -291,6 +302,7 @@ public class ContactSyncService {
 
     /** 自动绑定存量账号（双方唯一匹配） */
     private void bindExisting(SysUser user, WecomApiClient.MemberDetail detail, Map<String, List<Long>> userDeptMap) {
+        boolean reenabled = false;
         user.setWecomUserId(detail.userId);
         if (StringUtils.hasText(detail.mobile)) {
             Long conflict = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>()
@@ -302,8 +314,13 @@ public class ContactSyncService {
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
             user.setStatus(1);
+            reenabled = true;
         }
         sysUserMapper.updateById(user);
+        if (reenabled) {
+            // P1-2：重新启用时自增版本，旧 Token 失效
+            userAuthStateService.bumpAndEvict(user.getId());
+        }
     }
 
     /** 新建企微成员账号（实跑）：username=姓名（允许重名），默认密码+强制改密+EMPLOYEE */
@@ -323,6 +340,7 @@ public class ContactSyncService {
         user.setIsAdmin(false);
         user.setMustChangePassword(true);
         user.setStatus(1);
+        user.setTokenVersion(0);
         sysUserMapper.insert(user);
         userService.bindDefaultEmployeeRole(user.getId());
         return user;

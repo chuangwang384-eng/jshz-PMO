@@ -1,7 +1,10 @@
-param([string]$MysqlExe='C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe')
+﻿param([string]$MysqlExe='C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe')
 $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$buildRoot=Join-Path $repoRoot '.build-project-config-acceptance'
+. (Join-Path $PSScriptRoot 'build-paths.ps1')
+# 构建目录统一收敛到 builds\（不再在仓库根生成 .build-*）；目录名保留以维持 datadir 隔离护栏正则
+$buildRoot=Join-Path (Get-BuildsRoot) '.build-project-config-acceptance'
+$revision=Get-ProjectRevision
 if($env:PC_ACCEPTANCE_DB -ne 'pc_acceptance' -or -not $env:PC_DB_PASSWORD){throw 'Set PC_ACCEPTANCE_DB=pc_acceptance and PC_DB_PASSWORD for the disposable instance.'}
 $previousMysqlPassword=$env:MYSQL_PWD
 $previousEncoding=$OutputEncoding
@@ -25,7 +28,7 @@ try {
   Copy-Item "$repoRoot/backend/src" "$buildRoot/backend/" -Recurse -Force
   Push-Location "$buildRoot/backend"
   try {
-    & mvn -q '-Dtest=ProjectConfigurationAcceptanceIT,ProjectAccessRegressionTest,ProjectStorageRegressionTest,SupplierDeletionRegressionTest' test
+    & mvn -q '-Dtest=ProjectConfigurationAcceptanceIT,ProjectAccessRegressionTest,ProjectStorageRegressionTest,SupplierDeletionRegressionTest' "-Drevision=$revision" test
     if($LASTEXITCODE -ne 0){throw 'Project configuration regression failed.'}
   } finally {Pop-Location}
 } finally {$env:MYSQL_PWD=$previousMysqlPassword;$OutputEncoding=$previousEncoding}

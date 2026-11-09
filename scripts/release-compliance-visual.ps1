@@ -9,7 +9,7 @@ param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$
 $ErrorActionPreference='Stop'
 $root='D:\jshz-PMO'
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
-if(-not $stage.StartsWith($root+'\.build-compliance-visual-production-',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected stage directory'}
+if(-not $stage.StartsWith((Join-Path $root 'builds'),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected stage directory: stage must live under builds\'}
 $expectedVersion=if($Hotfix){$HotfixVersion}else{'1.0.25'}
 $release=if($Hotfix){"$HotfixVersion-compliance-visual-hotfix-20261105"}else{'1.0.25-compliance-visual-20261105'}
 $jar=Join-Path $stage 'backend\target\expert-system.jar'
@@ -47,7 +47,7 @@ function Save-State{[IO.File]::WriteAllText((Join-Path $stage 'release-state.jso
 Save-State
 try {
  Add-Type -AssemblyName System.Security
- $protected=[IO.File]::ReadAllBytes('D:\jshz-PMO\.build-project-config-production-20261104\smoke-password.dpapi')
+ $protected=[IO.File]::ReadAllBytes((Join-Path $root 'builds\archive\.build-project-config-production-20261104\smoke-password.dpapi'))
  $env:PC_SMOKE_PASSWORD=[Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect($protected,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))
  $env:PC_SMOKE_USER='测试'
  $started=Get-Date

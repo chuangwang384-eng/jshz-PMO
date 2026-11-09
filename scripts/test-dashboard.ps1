@@ -1,7 +1,10 @@
-param([string]$MysqlExe='C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe')
+﻿param([string]$MysqlExe='C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe')
 $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$buildRoot=Join-Path $repoRoot '.build-dashboard-acceptance'
+. (Join-Path $PSScriptRoot 'build-paths.ps1')
+# 构建目录统一收敛到 builds\（不再在仓库根生成 .build-*）；目录名保留以维持 datadir 隔离护栏正则
+$buildRoot=Join-Path (Get-BuildsRoot) '.build-dashboard-acceptance'
+$revision=Get-ProjectRevision
 if($env:DASHBOARD_ACCEPTANCE_DB -ne 'dashboard_acceptance' -or -not $env:DASHBOARD_DB_PASSWORD){throw 'Set DASHBOARD_ACCEPTANCE_DB=dashboard_acceptance and DASHBOARD_DB_PASSWORD for the disposable loopback instance.'}
 $previousPassword=$env:MYSQL_PWD
 $previousEncoding=$OutputEncoding
@@ -21,7 +24,7 @@ try {
   Copy-Item -LiteralPath "$repoRoot/backend/src" -Destination "$buildRoot/backend" -Recurse -Force
   Push-Location "$buildRoot/backend"
   try {
-    & mvn -q '-Dtest=DashboardRulesTest,DashboardReadIntegrationTest,DashboardResubmitIntegrationTest,ProjectAccessRegressionTest' package
+    & mvn -q '-Dtest=DashboardRulesTest,DashboardReadIntegrationTest,DashboardResubmitIntegrationTest,ProjectAccessRegressionTest' "-Drevision=$revision" package
     if($LASTEXITCODE -ne 0){throw 'Dashboard backend verification failed.'}
   } finally {Pop-Location}
   Push-Location (Join-Path $repoRoot 'frontend')

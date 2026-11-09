@@ -73,8 +73,12 @@ import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
-// 中心模式：从客户详情抽屉跳入，仅展示该客户的关系圈（Owner 2026-11-09）
-const centerMode = computed(() => !!route.query.customerId)
+// 中心模式：从客户列表/客户详情跳入，仅展示该客户的关系圈（Owner 2026-11-09）
+const centerId = computed(() => {
+  const v = Number(route.query.customerId)
+  return Number.isInteger(v) && v > 0 ? v : null
+})
+const centerMode = computed(() => centerId.value !== null)
 const centerName = computed(() => String(route.query.customerName || '').trim())
 const { proxy } = getCurrentInstance()
 const authStore = useAuthStore()
@@ -298,7 +302,7 @@ async function loadGraph() {
   loading.value = true
   try {
     const res = centerMode.value
-      ? await getCenterGraph(Number(route.query.customerId))
+      ? await getCenterGraph(centerId.value)
       : await getNetworkGraph()
     const data = res || { nodes: [], links: [] }
     nodes.value = data.nodes || []
@@ -323,6 +327,12 @@ function handleResize() {
 }
 
 function goBack() {
+  // 优先回退到上一页（保留列表的 URL 查询状态：搜索词/页码/已删除视图）
+  const hasBack = window.history.state && window.history.state.back
+  if (hasBack) {
+    router.back()
+    return
+  }
   router.push('/knowledge-planet/customer-info')
 }
 
@@ -335,6 +345,13 @@ onMounted(async () => {
 // 兜底：若类型列表异步晚到且图已渲染，重绘一次确保箭头按方向展示
 watch(relationTypes, () => {
   if (nodes.value.length) loadGraph()
+})
+
+// 同一页面内切换中心客户（列表/详情再次跳入）时重新加载，避免残留上一位客户的关系图
+watch(centerId, () => {
+  exitLinkMode()
+  linkDialogVisible.value = false
+  loadGraph()
 })
 
 onBeforeUnmount(() => {

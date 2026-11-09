@@ -1,10 +1,10 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$true)][string]$ExpectedJarSha256,[Parameter(Mandatory=$true)][string]$ExpectedIndexSha256,[switch]$Apply)
 $ErrorActionPreference='Stop'
 $root='D:\jshz-PMO'
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
-if(-not $stage.StartsWith($root+'\.build-compliance-template-production-',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected dashboard stage directory'}
+if(-not $stage.StartsWith((Join-Path $root 'builds'),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected stage directory: stage must live under builds\'}
 $release='1.0.24-compliance-template-20261105-r2'
 if($Apply -and (Test-Path -LiteralPath (Join-Path $stage 'release-state.json'))){throw 'Release already attempted. Inspect release-state.json and final-state.json; do not repeat production switches.'}
 $jar=Join-Path $stage 'backend\target\expert-system.jar'
@@ -30,7 +30,7 @@ function Save-State{[IO.File]::WriteAllText((Join-Path $stage 'release-state.jso
 Save-State
 try {
  Add-Type -AssemblyName System.Security
- $protected=[IO.File]::ReadAllBytes('D:\jshz-PMO\.build-project-config-production-20261104\smoke-password.dpapi')
+ $protected=[IO.File]::ReadAllBytes((Join-Path $root 'builds\archive\.build-project-config-production-20261104\smoke-password.dpapi'))
  $env:PC_SMOKE_PASSWORD=[Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect($protected,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))
  $env:PC_SMOKE_USER='测试'
  $started=Get-Date

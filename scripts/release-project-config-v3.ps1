@@ -12,7 +12,7 @@ $OutputEncoding=New-Object Text.UTF8Encoding($false)
 try{[Console]::OutputEncoding=$OutputEncoding}catch{}
 $root='D:\jshz-PMO'
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
-if(-not $stage.StartsWith('D:\jshz-PMO\.build-project-config-production-',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected private stage directory'}
+if(-not $stage.StartsWith((Join-Path $root 'builds'),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected private stage directory: stage must live under builds\'}
 $jar=Join-Path $stage 'backend\target\expert-system.jar'
 $dist=Join-Path $stage 'frontend-dist'
 $conf='D:\nginx\conf\conf.d\jshz-pmo.conf'
