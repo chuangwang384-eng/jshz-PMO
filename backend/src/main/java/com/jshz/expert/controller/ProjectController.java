@@ -418,6 +418,25 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    /**
+     * 批量简历建档（库外专家入档）：多份简历解析→建档（姓名/单位/职称/简介，缺省补「待补充」）
+     * →自动关联项目专家名单→按姓名回绑本项目参会专家。单份失败不影响其余，逐条返回结果。
+     */
+    @PostMapping("/{id}/speakers/archive-resumes")
+    public ApiResponse<List<Map<String, Object>>> archiveResumes(@PathVariable Long id,
+                                                                 @RequestParam("files") MultipartFile[] files,
+                                                                 @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.archiveByResumes(id, List.of(files), user));
+    }
+
+    /** 手动建档单条（成员级；与批量同一条建档路径，只收姓名/单位/职称/简介/联系方式）。 */
+    @PostMapping("/{id}/speakers/archive-manual")
+    public ApiResponse<Map<String, Object>> archiveManual(@PathVariable Long id,
+                                                          @RequestBody Map<String, Object> body,
+                                                          @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.archiveManual(id, body, user));
+    }
+
     @PutMapping("/{id}/experts/{expertId}/fee")
     public ApiResponse<Void> saveExpertFee(@PathVariable Long id, @PathVariable Long expertId,
                                            @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {

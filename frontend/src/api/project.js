@@ -198,3 +198,15 @@ export function addSpeaker(id, data) {
 export function deleteSpeaker(id, speakerId) {
   return request.delete(`/project/${id}/speakers/${speakerId}`)
 }
+
+// 批量简历建档（库外专家入档）：多份简历解析→建档→按姓名回绑参会专家，逐条返回结果
+export function archiveResumes(id, files) {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  return request.post(`/project/${id}/speakers/archive-resumes`, fd)
+}
+
+// 手动建档单条（成员级）：建档并按姓名回绑参会专家
+export function archiveManual(id, data) {
+  return request.post(`/project/${id}/speakers/archive-manual`, data)
+}

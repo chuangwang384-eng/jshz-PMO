@@ -216,7 +216,7 @@
             <el-table-column label="档案关联" min-width="140">
               <template #default="{ row }">
                 <span v-if="row.expertId" class="doc-name">{{ row.expertName }}（{{ row.expertUnit || '已关联' }}）</span>
-                <el-tag v-else size="small" type="warning">库外专家</el-tag>
+                <el-tag v-else size="small" type="warning" class="link-tag" @click="openArchiveDialog(row)">库外专家·去建档</el-tag>
               </template>
             </el-table-column>
             <el-table-column v-if="canOperate" label="操作" width="80" fixed="right">
@@ -542,6 +542,13 @@
               <el-button link type="primary" size="small" @click="resolveMissing(m)">{{ resolveLabel(m) }} →</el-button>
             </div>
           </template>
+          <template v-else-if="outArchiveCount > 0">
+            <div class="todo-item">
+              <span class="todo-name">库外专家待入档 {{ outArchiveCount }} 人</span>
+              <el-button link type="warning" size="small" @click="openArchiveDialog(null)">批量建档 →</el-button>
+            </div>
+            <div class="hint-text" style="margin-top: 4px">可上传多份简历批量建档并自动回绑参会专家</div>
+          </template>
           <div v-else class="side-done">当前阶段必填配置已完成</div>
         </div>
 
@@ -725,6 +732,57 @@
       </template>
     </el-dialog>
 
+    <!-- 库外专家建档（手动 / 批量简历解析，Owner 2026-11-09） -->
+    <el-dialog v-model="archiveVisible" title="库外专家建档" width="640px" destroy-on-close @closed="resetArchive">
+      <el-alert type="info" :closable="false" style="margin-bottom: 10px"
+        title="方式一：上传简历文件（可多选，系统解析姓名/单位/职称后建档并自动回绑参会专家）；方式二：手动填写建档。建档后专家同时进入下方「专家名单」。" />
+      <div class="archive-upload-row">
+        <el-upload :show-file-list="false" :auto-upload="false" multiple
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+          :on-change="onArchiveFilePick">
+          <el-button type="primary" plain>选择简历文件（可多选）</el-button>
+        </el-upload>
+        <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png，单份 ≤20MB，一次 ≤10 份</span>
+      </div>
+      <div v-if="archiveFiles.length" class="archive-file-list">
+        <div v-for="(f, i) in archiveFiles" :key="i" class="archive-file-row">
+          <span class="doc-name">{{ f.name }}</span>
+          <span class="doc-meta">{{ (f.size / 1024 / 1024).toFixed(1) }}MB</span>
+          <el-button link type="danger" size="small" @click="archiveFiles.splice(i, 1)">移除</el-button>
+        </div>
+        <el-button type="primary" size="small" :loading="archiveRunning" style="margin-top: 6px" @click="doArchiveResumes">
+          批量建档（{{ archiveFiles.length }} 份）
+        </el-button>
+      </div>
+      <div v-if="archiveResults.length" class="archive-result">
+        <div v-for="(r, i) in archiveResults" :key="'r' + i" class="archive-result-row">
+          <template v-if="r.ok">
+            <el-tag size="small" type="success">成功</el-tag>
+            <span>{{ r.expertName }}（{{ r.fileName }}）</span>
+            <span class="hint-text">回绑参会专家 {{ r.boundSpeakers }} 行</span>
+          </template>
+          <template v-else>
+            <el-tag size="small" type="danger">失败</el-tag>
+            <span>{{ r.fileName }}</span>
+            <span class="hint-text">{{ r.error }}</span>
+          </template>
+        </div>
+      </div>
+      <el-divider content-position="left">手动建档单条</el-divider>
+      <el-form label-width="70px" size="small">
+        <el-row :gutter="8">
+          <el-col :span="8"><el-form-item label="姓名"><el-input v-model="archiveForm.name" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="单位"><el-input v-model="archiveForm.unit" placeholder="待补充" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="职称"><el-input v-model="archiveForm.title" placeholder="待补充" /></el-form-item></el-col>
+        </el-row>
+        <el-form-item label="简介"><el-input v-model="archiveForm.profile" type="textarea" :rows="2" placeholder="待补充" /></el-form-item>
+        <el-button size="small" plain :loading="archiveRunning" @click="doArchiveManual">手动建档并回绑</el-button>
+      </el-form>
+      <template #footer>
+        <el-button @click="archiveVisible = false">完成</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 预算登记 -->
     <el-dialog v-model="budgetVisible" title="登记预算金额" width="420px" destroy-on-close>
       <el-input-number v-model="budgetDraft" :min="0" :precision="2" style="width: 100%" />
@@ -753,7 +811,8 @@ import {
   createProjectContract, uploadContractFile, submitContractApproval, updateContractSensitive,
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
-  uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker
+  uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
+  archiveResumes, archiveManual
 } from '../../api/project'
 
 const route = useRoute()
@@ -965,6 +1024,82 @@ async function doAddSpeaker() {
   manualName.value = ''
   manualRole.value = null
   fetchSchedule()
+}
+
+// ---- 库外专家建档（手动 / 批量简历，Owner 2026-11-09） ----
+const outArchiveCount = computed(() => speakers.value.filter((sp) => !sp.expertId).length)
+const archiveVisible = ref(false)
+const archiveFiles = ref([])
+const archiveResults = ref([])
+const archiveRunning = ref(false)
+const archiveForm = reactive({ name: '', unit: '', title: '', profile: '' })
+let archiveTargetName = ''
+
+function openArchiveDialog(row) {
+  archiveTargetName = row ? row.expertName || '' : ''
+  // 首次打开也必须重置/预填（@closed 只在关闭后触发，不能依赖它）
+  archiveFiles.value = []
+  archiveResults.value = []
+  archiveForm.name = archiveTargetName
+  archiveForm.unit = ''
+  archiveForm.title = ''
+  archiveForm.profile = ''
+  archiveVisible.value = true
+}
+function resetArchive() {
+  archiveFiles.value = []
+  archiveResults.value = []
+  archiveForm.name = archiveTargetName || ''
+  archiveForm.unit = ''
+  archiveForm.title = ''
+  archiveForm.profile = ''
+}
+function onArchiveFilePick(file) {
+  if (!file || !file.raw) return
+  if (archiveFiles.value.some((f) => f.name === file.name && f.size === file.size)) return
+  archiveFiles.value.push(file.raw)
+}
+async function doArchiveResumes() {
+  if (!archiveFiles.value.length) {
+    ElMessage.warning('请先选择简历文件')
+    return
+  }
+  archiveRunning.value = true
+  try {
+    archiveResults.value = await archiveResumes(projectId, archiveFiles.value)
+    const okCnt = archiveResults.value.filter((r) => r.ok).length
+    ElMessage.success(`批量建档完成：成功 ${okCnt} / ${archiveResults.value.length}`)
+    archiveFiles.value = []
+    await fetchSchedule()
+    fetchDetail()
+  } catch (e) {
+    // 错误提示由 request 层统一给出
+  } finally {
+    archiveRunning.value = false
+  }
+}
+async function doArchiveManual() {
+  if (!archiveForm.name.trim()) {
+    ElMessage.warning('姓名必填')
+    return
+  }
+  archiveRunning.value = true
+  try {
+    const r = await archiveManual(projectId, {
+      name: archiveForm.name.trim(),
+      unit: archiveForm.unit.trim(),
+      title: archiveForm.title.trim(),
+      profile: archiveForm.profile.trim()
+    })
+    archiveResults.value = [r]
+    ElMessage.success('建档成功，已自动关联项目专家名单')
+    await fetchSchedule()
+    fetchDetail()
+  } catch (e) {
+    // 错误提示由 request 层统一给出
+  } finally {
+    archiveRunning.value = false
+  }
 }
 
 async function removeSpeaker(row) {
@@ -1483,6 +1618,14 @@ onMounted(async () => {
 .avatar-more { background: var(--ui-info); }
 .executor-names { color: var(--ui-text-muted); font-size: 12px; }
 .remark-text { margin-top: 4px; color: var(--ui-text-muted, #909399); font-size: 13px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; }
+
+/* 库外专家建档 */
+.link-tag { cursor: pointer; }
+.archive-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.archive-file-list { margin-top: 8px; }
+.archive-file-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.archive-result { margin-top: 8px; border-top: 1px dashed var(--ui-border-weak); padding-top: 8px; }
+.archive-result-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
 
 /* ④.5 日程与参会专家 */
 .schedule-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

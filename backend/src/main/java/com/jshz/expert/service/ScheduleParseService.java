@@ -55,6 +55,8 @@ public class ScheduleParseService {
     private final ProjectService projectService;
     private final ExpertService expertService;
     private final OllamaService ollamaService;
+    private final ResumeParseService resumeParseService;
+    private final com.jshz.expert.mapper.ProjectExpertMapper expertRelMapper;
     private final com.fasterxml.jackson.databind.ObjectMapper json;
 
     public static final long MAX_SIZE = 20L * 1024 * 1024;
@@ -403,6 +405,134 @@ public class ScheduleParseService {
         for (ProjectSpeaker sp : speakers) {
             sp.setExpertId(byName.get(normalizeName(sp.getExpertName())));
         }
+    }
+
+    /**
+     * 批量简历建档（Owner 2026-11-09 需求：库外专家随批入档）：
+     * 多份简历 → 复用 ResumeParseService 提取 姓名/单位/职称/简介 → 复用 ProjectService.createExpertCard
+     * 建档并自动关联项目专家名单 → 按解析姓名回绑本项目参会专家（含候选）中未关联的同名行。
+     * 单文件失败不影响其余；每文件结果逐条返回。
+     */
+    public List<Map<String, Object>> archiveByResumes(Long projectId, List<org.springframework.web.multipart.MultipartFile> files, AuthUser user) {
+        Project project = projectService.requireProject(projectId);
+        projectService.requireOperable(project, user);
+        if (files == null || files.isEmpty()) {
+            throw new BusinessException("请选择至少一份简历文件");
+        }
+        if (files.size() > 10) {
+            throw new BusinessException("单次最多 10 份简历");
+        }
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (org.springframework.web.multipart.MultipartFile file : files) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            String fileName = file.getOriginalFilename();
+            r.put("fileName", fileName);
+            try {
+                byte[] bytes = file.getBytes();
+                ResumeParseService.ResumeParseResult parsed =
+                        resumeParseService.parse(fileName == null ? "" : fileName, bytes);
+                Map<String, String> fields = parsed.fields();
+                String name = fields.get("姓名");
+                if (name == null || name.isBlank()) {
+                    r.put("ok", false);
+                    r.put("error", "未能从简历识别出姓名，请手动建档");
+                    results.add(r);
+                    continue;
+                }
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("name", name);
+                body.put("unit", orDefault(fields.get("单位"), "待补充"));
+                body.put("title", orDefault(fields.get("职称"), "待补充"));
+                body.put("profile", orDefault(fields.get("简介"), "来自项目日程批量简历建档"));
+                body.put("contact", fields.get("联系方式"));
+                Expert saved = createExpertForProject(project, body, user);
+                r.put("ok", true);
+                r.put("expertId", saved.getId());
+                r.put("expertName", saved.getName());
+                r.put("boundSpeakers", bindSpeakersByNativeName(projectId, saved.getId(), saved.getName()));
+            } catch (Exception e) {
+                r.put("ok", false);
+                r.put("error", "建档失败：" + e.getMessage());
+            }
+            results.add(r);
+        }
+        return results;
+    }
+
+    /**
+     * 项目内建档（成员级，Owner 2026-11-09「库外专家随时建档」口径）：
+     * 与 ProjectService.createExpertCard 的区别——权限为项目成员而非 project:manage，
+     * 且**只接受 姓名/单位/职称/简介/联系方式**，不接受身份证/银行卡等敏感字段
+     * （敏感字段仍须在专家库模块按既有管控维护）。
+     */
+    private Expert createExpertForProject(Project project, Map<String, Object> body, AuthUser user) {
+        String name = body.get("name") == null ? "" : String.valueOf(body.get("name")).trim();
+        if (name.isEmpty()) {
+            throw new BusinessException("姓名不能为空");
+        }
+        Expert expert = new Expert();
+        expert.setName(name);
+        expert.setUnit(strOf(body.get("unit")));
+        expert.setTitle(strOf(body.get("title")));
+        expert.setProfile(strOf(body.get("profile")));
+        expert.setContact(strOf(body.get("contact")));
+        Expert saved = expertService.create(expert, user);
+
+        com.jshz.expert.entity.ProjectExpert rel = new com.jshz.expert.entity.ProjectExpert();
+        rel.setProjectId(project.getId());
+        rel.setExpertId(saved.getId());
+        rel.setRole("嘉宾");
+        rel.setCreateBy(com.jshz.expert.common.ParamUtils.usernameOf(user));
+        expertRelMapper.insert(rel);
+
+        projectService.operationRecord(user, "项目「" + project.getName() + "」新建专家卡「" + saved.getName() + "」（日程库外专家建档）",
+                "PROJECT", project.getId());
+        return saved;
+    }
+
+    private String strOf(Object v) {
+        return v == null ? "" : String.valueOf(v).trim();
+    }
+
+    /** 手动建档单条（成员级）：建档 + 按姓名回绑参会专家（含候选）。 */
+    public Map<String, Object> archiveManual(Long projectId, Map<String, Object> body, AuthUser user) {
+        Project project = projectService.requireProject(projectId);
+        projectService.requireOperable(project, user);
+        String name = body == null || body.get("name") == null ? "" : String.valueOf(body.get("name")).trim();
+        if (name.isEmpty()) {
+            throw new BusinessException("姓名不能为空");
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("name", name);
+        normalized.put("unit", strOf(body.get("unit")).isEmpty() ? "待补充" : strOf(body.get("unit")));
+        normalized.put("title", strOf(body.get("title")).isEmpty() ? "待补充" : strOf(body.get("title")));
+        normalized.put("profile", strOf(body.get("profile")).isEmpty() ? "来自项目日程建档" : strOf(body.get("profile")));
+        normalized.put("contact", strOf(body.get("contact")));
+        Expert saved = createExpertForProject(project, normalized, user);
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("ok", true);
+        r.put("fileName", "手动录入");
+        r.put("expertId", saved.getId());
+        r.put("expertName", saved.getName());
+        r.put("boundSpeakers", bindSpeakersByNativeName(projectId, saved.getId(), saved.getName()));
+        return r;
+    }
+
+    /** 按姓名回绑本项目参会专家（候选与正式，expert_id IS NULL），返回绑定行数。 */
+    private int bindSpeakersByNativeName(Long projectId, Long expertId, String expertName) {
+        List<ProjectSpeaker> targets = speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
+                .eq(ProjectSpeaker::getProjectId, projectId)
+                .isNull(ProjectSpeaker::getExpertId)
+                .eq(ProjectSpeaker::getExpertName, expertName));
+        for (ProjectSpeaker sp : targets) {
+            sp.setExpertId(expertId);
+            speakerMapper.updateById(sp);
+        }
+        return targets.size();
+    }
+
+    private String orDefault(String v, String def) {
+        return v == null || v.isBlank() ? def : v;
     }
 
     // ==================== 确认 / 手动补录 / 删除 ====================
