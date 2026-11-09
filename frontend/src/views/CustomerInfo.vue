@@ -120,7 +120,7 @@
         </template>
       </div>
       <div class="drawer-section">
-        <div class="drawer-section-title">关联人物 <el-button link type="primary" size="small" @click="goRelationGraph">查看关系网络</el-button></div>
+        <div class="drawer-section-title">关联人物 <el-button link type="primary" size="small" @click="openDrawerRelationGraph">查看关系网络</el-button></div>
         <div v-if="drawerRelations.length" class="drawer-relations">
           <div v-for="rel in drawerRelations" :key="rel.id" class="drawer-relation-row">
             <span>{{ rel.otherName }}</span>
@@ -491,6 +491,14 @@ function goDetail(row) {
 
 function goRelationGraph() {
   router.push('/knowledge-planet/customer-relation-graph')
+}
+
+/** 抽屉入口：只看当前客户的关系圈（Owner 2026-11-09） */
+function openDrawerRelationGraph() {
+  router.push({
+    path: '/knowledge-planet/customer-relation-graph',
+    query: { customerId: String(drawerCustomer.value.id || ''), customerName: drawerCustomer.value.name || '' }
+  })
 }
 
 function goRelationTypeManage() {

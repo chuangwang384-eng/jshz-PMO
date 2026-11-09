@@ -5,7 +5,7 @@
         <div class="card-header">
           <div class="header-left">
             <el-button @click="goBack">返回列表</el-button>
-            <span class="title">全局客户关系网络</span>
+            <span class="title">{{ centerMode ? (centerName ? `「${centerName}」的客户关系网络` : "客户关系网络") : "全局客户关系网络" }}</span>
             <el-tag v-if="truncated" type="warning" effect="plain">客户数较多，仅展示前 {{ nodes.length }} 位客户的关系</el-tag>
           </div>
           <div class="header-right">
@@ -63,15 +63,19 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, getCurrentInstance } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { useAuthStore } from '../store/auth'
-import { getNetworkGraph, listRelationTypes, createRelation, deleteRelation } from '../api/customer'
+import { getCenterGraph, getNetworkGraph, listRelationTypes, createRelation, deleteRelation } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
+// 中心模式：从客户详情抽屉跳入，仅展示该客户的关系圈（Owner 2026-11-09）
+const centerMode = computed(() => !!route.query.customerId)
+const centerName = computed(() => String(route.query.customerName || '').trim())
 const { proxy } = getCurrentInstance()
 const authStore = useAuthStore()
 const canManage = computed(() => authStore.hasPermission('customer:manage'))
@@ -122,8 +126,9 @@ function renderGraph(data) {
     id: String(n.id),
     name: n.name || '未命名',
     workUnit: n.workUnit || '',
-    symbolSize: 46,
-    itemStyle: { color: '#409eff' }
+    isCenter: !!n.isCenter,
+    symbolSize: n.isCenter ? 64 : 46,
+    itemStyle: { color: n.isCenter ? '#e6a23c' : '#409eff' }
   }))
   const linkData = (data.links || []).map((l) => ({
     id: String(l.id),
@@ -292,7 +297,9 @@ async function confirmCreateRelation() {
 async function loadGraph() {
   loading.value = true
   try {
-    const res = await getNetworkGraph()
+    const res = centerMode.value
+      ? await getCenterGraph(Number(route.query.customerId))
+      : await getNetworkGraph()
     const data = res || { nodes: [], links: [] }
     nodes.value = data.nodes || []
     truncated.value = !!data.truncated
