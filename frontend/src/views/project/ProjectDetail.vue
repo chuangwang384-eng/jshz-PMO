@@ -43,8 +43,8 @@
     <div v-if="detail.id" class="pd-grid">
       <!-- 主内容列 -->
       <div class="pd-main">
-        <!-- ② 核心数据卡 -->
-        <div class="pd-stats">
+        <!-- ② 核心数据卡（日程上传阶段隐藏，Owner 2026-11-09） -->
+        <div v-if="!isAgendaStage" class="pd-stats">
           <div class="pd-stat ui-card">
             <div class="pd-stat-label">项目预算总额</div>
             <div class="pd-stat-value">¥ {{ fmt(budgetAmount) }}</div>
@@ -135,29 +135,14 @@
           </div>
         </div>
 
-        <!-- ④.5 日程与参会专家（2026-11-09 流程重塑第一阶段：日程上传 → 解析 → 人工确认） -->
+        <!-- ④.5 参会专家（2026-11-09 流程重塑：日程在「阶段资料」上传后自动解析） -->
         <div class="ui-card pd-block pd-schedule">
           <div class="pd-sec-title-row">
-            <span class="pd-sec-title">日程与参会专家（阶段一）</span>
+            <span class="pd-sec-title">参会专家</span>
             <span :class="'ui-badge ' + scheduleBadgeClass">{{ scheduleBadgeText }}</span>
           </div>
-
-          <!-- 上传区 -->
-          <div class="schedule-upload-row">
-            <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png">
-              <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程' : '上传日程文件' }}</el-button>
-            </el-upload>
-            <span v-if="schedule" class="schedule-file">
-              当前日程：{{ schedule.fileName }}
-              <span class="hint-text">（{{ schedule.createTime }}）</span>
-            </span>
-            <span v-else class="hint-text">尚未上传日程（支持 pdf/doc/docx/ppt/pptx/jpg/png，≤20MB）</span>
-            <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
-              {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
-            </el-button>
-          </div>
-          <div v-if="schedule && schedule.parseStatus === 'PARSING'" class="hint-text" style="margin-top: 6px">解析中，请稍候（本地大模型首次冷加载可能需要 1-2 分钟）…</div>
-          <div v-if="schedule && schedule.parseStatus === 'FAILED'" class="pd-block-tip" style="margin-top: 6px">解析失败：{{ schedule.parseMessage }}；可重试或手动补录参会专家。</div>
+          <div v-if="schedule && schedule.parseStatus === 'PARSING'" class="hint-text">解析中，请稍候（本地大模型首次冷加载可能需要 1-2 分钟）…</div>
+          <div v-if="schedule && schedule.parseStatus === 'FAILED'" class="pd-block-tip" style="margin-bottom: 8px">解析失败：{{ schedule.parseMessage }}；可在「阶段资料」重新上传，或手动补录参会专家。</div>
 
           <!-- 候选专家（AI 解析结果=候选，须人工确认） -->
           <template v-if="candidates.length">
@@ -245,7 +230,30 @@
             <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
           </div>
 
-          <template v-if="phaseState(viewPhaseObj) === 'future'">
+          <!-- 日程上传阶段：上传即自动挂载本阶段资料并自动解析参会专家 -->
+          <template v-if="isAgendaStage && isViewingCurrent">
+            <div class="schedule-upload-row">
+              <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png">
+                <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程' : '上传日程文件' }}</el-button>
+              </el-upload>
+              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；上传后自动挂载到本阶段资料并自动解析参会专家</span>
+              <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
+                {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
+              </el-button>
+            </div>
+            <div v-if="schedule" class="schedule-file" style="margin-top: 8px">
+              当前日程：{{ schedule.fileName }}
+              <span class="hint-text">（{{ schedule.createTime }}）</span>
+            </div>
+            <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
+              <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
+                <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
+                <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
+              </div>
+            </template>
+            <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
+          </template>
+          <template v-else-if="phaseState(viewPhaseObj) === 'future'">
             <el-empty description="该阶段尚未开始" :image-size="80" />
           </template>
           <template v-else-if="viewPhaseObj && viewPhaseObj.templates && viewPhaseObj.templates.length">
@@ -303,8 +311,8 @@
           </template>
         </div>
 
-        <!-- ⑥ 基本信息（4 分组卡） -->
-        <div class="pd-info-grid">
+        <!-- ⑥ 基本信息（4 分组卡；日程上传阶段隐藏） -->
+        <div v-if="!isAgendaStage" class="pd-info-grid">
           <div class="ui-card pd-info-card">
             <div class="pd-sec-title">项目属性</div>
             <div class="info-row"><span class="info-k">会议名称</span><span class="info-v">{{ detail.name }}</span></div>
@@ -340,13 +348,13 @@
         </div>
 
         <!-- ⑥.1 备注 -->
-        <div v-if="detail.remark" class="ui-card pd-info-card" style="margin-top: 10px">
+        <div v-if="!isAgendaStage && detail.remark" class="ui-card pd-info-card" style="margin-top: 10px">
           <div class="pd-sec-title">备注</div>
           <div class="remark-text">{{ detail.remark }}</div>
         </div>
 
-        <!-- ⑧ 预算与实际支出 -->
-        <div class="ui-card pd-budget">
+        <!-- ⑧ 预算与实际支出（日程上传阶段隐藏） -->
+        <div v-if="!isAgendaStage" class="ui-card pd-budget">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">预算与实际支出</span>
             <el-button v-if="canOperate" link type="primary" @click="openBudget">登记预算金额</el-button>
@@ -371,7 +379,8 @@
           </template>
         </div>
 
-        <!-- ⑨ 业务明细：专家名单 -->
+        <!-- ⑨ 业务明细（日程上传阶段隐藏） -->
+        <template v-if="!isAgendaStage">
         <div class="ui-card pd-block">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">专家名单（全局一份）</span>
@@ -521,11 +530,12 @@
           </el-timeline>
           <el-empty v-else description="暂无操作记录" :image-size="60" />
         </div>
+        </template>
       </div>
 
-      <!-- ⑦ 右侧辅助栏 -->
+      <!-- ⑦ 右侧辅助栏（日程上传阶段隐藏，Owner 2026-11-09） -->
       <div class="pd-side">
-        <div class="ui-card side-card">
+        <div v-if="!isAgendaStage" class="ui-card side-card">
           <div class="pd-sec-title">项目成员</div>
           <div class="member-row"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}<span class="ui-badge ui-badge-primary" style="margin-left: auto">负责人</span></div>
           <div v-for="(n, i) in assistantList" :key="'s' + i" class="member-row">
@@ -552,7 +562,7 @@
           <div v-else class="side-done">当前阶段必填配置已完成</div>
         </div>
 
-        <div class="ui-card side-card">
+        <div v-if="!isAgendaStage" class="ui-card side-card">
           <div class="pd-sec-title">相关附件（{{ allDocs.length }}）</div>
           <template v-if="allDocs.length">
             <div v-for="d in allDocs.slice(0, 10)" :key="d.id" class="side-doc">
@@ -564,7 +574,7 @@
           <div v-else class="hint-text">暂无附件资料</div>
         </div>
 
-        <div class="ui-card side-card">
+        <div v-if="!isAgendaStage" class="ui-card side-card">
           <div class="pd-sec-title">项目动态</div>
           <template v-if="detail.timeline && detail.timeline.length">
             <div v-for="(log, i) in detail.timeline.slice(0, 6)" :key="i" class="side-log">
@@ -1116,6 +1126,12 @@ async function removeSpeaker(row) {
 const currentPhase = computed(() => (detail.value.phases || []).find((p) => Number(p.id) === Number(detail.value.phaseId)) || null)
 const viewPhaseObj = computed(() => (detail.value.phases || []).find((p) => String(p.id) === String(viewPhaseId.value)) || currentPhase.value)
 const isViewingCurrent = computed(() => viewPhaseObj.value && Number(viewPhaseObj.value.id) === Number(detail.value.phaseId))
+// 2026-11-09 Owner 口径：日程上传阶段只展示 生命周期/阶段任务/阶段资料/参会专家，其余模块待阶段推进后再展示
+const AGENDA_PHASE_NAME = '日程上传'
+const isAgendaStage = computed(() => {
+  const name = currentPhase.value?.name || detail.value.phaseName || ''
+  return name === AGENDA_PHASE_NAME
+})
 // 非当前阶段只读（隐藏编辑/上传/删除入口）；2026-11-09 起资料/预算/合同操作=项目成员级（负责人/创建人/协助人）
 const authStoreForDetail = useAuthStore()
 const isMember = computed(() => {

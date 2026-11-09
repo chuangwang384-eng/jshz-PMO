@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ScheduleParseServiceTest {
 
     private final ScheduleParseService service = new ScheduleParseService(
-            null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null);
 
     private ScheduleParseService.Extracted sampleSchedule() {
         List<List<String>> rows = new ArrayList<>();

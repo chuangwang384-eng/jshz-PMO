@@ -57,6 +57,7 @@ public class ScheduleParseService {
     private final OllamaService ollamaService;
     private final ResumeParseService resumeParseService;
     private final com.jshz.expert.mapper.ProjectExpertMapper expertRelMapper;
+    private final com.jshz.expert.mapper.ProjectDocMapper docMapper;
     private final com.fasterxml.jackson.databind.ObjectMapper json;
 
     public static final long MAX_SIZE = 20L * 1024 * 1024;
@@ -115,7 +116,32 @@ public class ScheduleParseService {
         s.setIsCurrent(1);
         s.setUploadedBy(user == null ? null : user.getUserId());
         scheduleMapper.insert(s);
-        return s;
+
+        // 自动挂载到当前阶段资料（Owner 2026-11-09：上传日程即完成「阶段资料」+ 自动解析）
+        attachToPhaseDoc(projectId, project.getPhaseId(), s, user);
+
+        // 自动解析（失败不阻断上传，仅记录 FAILED 供人工重试/补录）
+        try {
+            parse(projectId, s.getId(), user);
+        } catch (Exception e) {
+            log.warn("日程上传后自动解析未成功 project={} file={}：{}", projectId, s.getFileName(), e.getMessage());
+        }
+        return scheduleMapper.selectById(s.getId());
+    }
+
+    /** 把日程文件挂到指定阶段的资料区（项目资料库同一份文件，不重复落盘）。 */
+    private void attachToPhaseDoc(Long projectId, Long phaseId, ProjectSchedule s, AuthUser user) {
+        if (phaseId == null || docMapper == null) {
+            return;
+        }
+        com.jshz.expert.entity.ProjectDoc doc = new com.jshz.expert.entity.ProjectDoc();
+        doc.setProjectId(projectId);
+        doc.setPhaseId(phaseId);
+        doc.setFileName(s.getFileName());
+        doc.setFilePath(s.getFilePath());
+        doc.setUploadBy(user == null ? null : user.getUsername());
+        doc.setIsDeleted(0);
+        docMapper.insert(doc);
     }
 
     /** 当前生效日程（无则 null）。 */
