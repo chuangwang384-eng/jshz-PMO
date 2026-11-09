@@ -752,7 +752,8 @@ import {
   registerBudget,
   createProjectContract, uploadContractFile, submitContractApproval, updateContractSensitive,
   saveExpertFee, saveSupplierFee,
-  listProjectTypes, listProjectPhases, listProjectOwners, listProjectExecutors
+  listProjectOwners, listProjectUsers,
+  uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker
 } from '../../api/project'
 
 const route = useRoute()

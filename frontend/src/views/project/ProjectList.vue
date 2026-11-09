@@ -152,7 +152,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectEdit from './ProjectEdit.vue'
 import {
   listProjects, exportProjects, deleteProject, cancelProject,
-  listProjectTypes, listProjectPhases, listProjectExecutors
+  listPhaseOptions, listProjectUsers
 } from '../../api/project'
 import { listSupplierCities } from '../../api/supplier'
 
