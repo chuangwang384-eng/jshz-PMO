@@ -32,37 +32,50 @@
             <span class="customer-name">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="workUnit" label="工作单位" min-width="240" show-overflow-tooltip />
-        <el-table-column prop="currentDuty" label="现任职务" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="workLevel" label="工作职级" min-width="120" show-overflow-tooltip />
-        <el-table-column label="关联关系" width="160">
+        <el-table-column label="工作单位 / 职务" min-width="240">
           <template #default="{ row }">
-            {{ row.relationCount > 0 ? `${row.relationCount} 条关联` : '—' }}
+            <div v-if="row.workUnit || row.workLevel" class="unit-cell">
+              <div class="unit-main">{{ row.workUnit || '未填写' }}</div>
+              <div class="unit-sub">{{ row.workLevel || '未填写' }}</div>
+            </div>
+            <span v-else class="unit-empty">未填写</span>
           </template>
         </el-table-column>
-        <el-table-column label="最近更新" width="130">
+        <el-table-column label="关系" width="160">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.relationCount > 0"
+              link
+              type="primary"
+              class="relation-link"
+              @click.stop="openDrawer(row)"
+            >
+              <el-icon class="relation-icon"><Avatar /></el-icon>
+              {{ row.relationCount }} 条关联
+            </el-button>
+            <span v-else class="unit-empty">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" width="130">
           <template #default="{ row }">
             {{ formatDay(row.updateTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click.stop="openDrawer(row)">详情</el-button>
-            <el-dropdown v-if="!showDeleted" trigger="click" @command="(cmd) => handleRowCommand(cmd, row)">
-              <el-button link type="primary" size="small" @click.stop>更多</el-button>
+            <el-button link type="primary" size="small" @click.stop="openDrawer(row)">查看</el-button>
+            <el-dropdown
+              v-if="canManage || showDeleted"
+              trigger="click"
+              @command="(cmd) => handleRowCommand(cmd, row)"
+            >
+              <el-button link type="primary" size="small" class="more-btn" @click.stop>···</el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item v-if="canManage" command="edit">编辑</el-dropdown-item>
-                  <el-popconfirm
-                    title="确认删除该客户档案？删除后默认隐藏，可恢复。"
-                    confirm-button-text="确认删除"
-                    cancel-button-text="取消"
-                    @confirm="handleDelete(row)"
-                  >
-                    <template #reference>
-                      <el-dropdown-item v-permission="'customer:manage'" command="delete">删除</el-dropdown-item>
-                    </template>
-                  </el-popconfirm>
+                  <el-dropdown-item v-if="canManage && !showDeleted" command="edit">编辑</el-dropdown-item>
+                  <el-dropdown-item v-if="canManage && !showDeleted" command="delete" divided>删除</el-dropdown-item>
+                  <el-dropdown-item v-if="showDeleted" command="archive">打开完整档案</el-dropdown-item>
+                  <el-dropdown-item v-if="showDeleted && canManage" command="restore" divided>恢复</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -218,7 +231,8 @@
 <script setup>
 import { ref, reactive, computed, onMounted, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Avatar } from '@element-plus/icons-vue'
 import {
   listCustomers,
   createCustomer,
@@ -320,6 +334,24 @@ function handleRowCommand(cmd, row) {
   if (cmd === 'edit') {
     openDrawer(row)
     startDrawerEdit()
+    return
+  }
+  if (cmd === 'archive') {
+    goDetail(row)
+    return
+  }
+  if (cmd === 'restore') {
+    handleRestore(row)
+    return
+  }
+  if (cmd === 'delete') {
+    ElMessageBox.confirm(
+      `确认删除客户「${row.name}」的档案？删除后默认隐藏，可在已删除视图恢复。`,
+      '删除客户',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' }
+    )
+      .then(() => handleDelete(row))
+      .catch(() => {})
   }
 }
 
@@ -626,7 +658,43 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
 }
+/* 列表新方案（Owner 2026-11-09） */
+.unit-cell {
+  min-width: 0;
+}
+.unit-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unit-sub {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unit-empty {
+  color: #c0c4cc;
+  font-size: 12px;
+}
+.relation-link {
+  font-size: 13px;
+}
+.relation-icon {
+  margin-right: 4px;
+  font-size: 14px;
+}
+.more-btn {
+  font-size: 16px;
+  letter-spacing: 1px;
+}
 .toolbar {
+
 
   display: flex;
   align-items: center;
