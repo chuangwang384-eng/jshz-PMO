@@ -1,6 +1,21 @@
 # 最新交接摘要
 
 
+- 2026-11-09 「项目管理模块」**基本信息改版 + 测试数据清理已发布并核验 1.0.37.23**（迁移+后端蓝绿+前端 graceful）：发布后核验全过——`/health`=1.0.37.23 UP(buildTime 11:26:57)、root 已切、index/入口/ProjectList chunk 三处 sha256 线上=磁盘、Edit/Detail 懒加载 chunk 200、无 token `/api/project` 401、旧 chunk 兜底 200、库中 7 新列+`project_assistant` 表+project 行数 0+清理标记表在。**业务真机验收待 Owner**。见 [发布记录 §4](../releases/20261109-project-fields-1.0.37.23.md)。原发布链路 `temp\deploy-13723.cmd`：新字段=会议名称(复用 name)/会议类型(复用 category)/团队(DEPT1-3 固定枚举必填)/会议城市(复用 `supplier_city` 349 市字典，非必填)/项目起止时间(改必填)/会议举办时间(单日或多日，非必填)/总负责人(默认创建人，**全员可选**不再限 PROJECT_OWNER)/协助人(新表 `project_assistant` 多选)/客户单位/客户姓名/备注；列表/表单/详情按新字段重做，查询状态入 URL。**测试数据已清理**（project 9+子表+合规挂接 4+项目日志 82 行，全量备份 `*_bak_20261109`，标记表防重跑）；类型/阶段/模板字典保留。**保留子功能**：阶段推进/专家供应商关联/文档合同/预算/导出/合规挂接。注意：**1.0.37.22（评价权限）未单独发布，其前端改动已并入 1.0.37.23 包、其后端重启目的由本次蓝绿一并达成**，无需再跑 deploy-13722。见 [需求](../requirements/2026-11-09-项目基本信息改版-需求文档.md) / [设计](../design/2026-11-09-项目基本信息改版-设计文档.md) / [发布记录](../releases/20261109-project-fields-1.0.37.23.md)。
+
+- 2026-11-09 「供应商服务评价」**权限放开至全员**：迁移已执行（`supplier:review` 绑全部非超管角色），前端 `canReview` 响应式入口 + 空态「写第一条评价」已并入 **1.0.37.23** 待发布（原 1.0.37.22 被取代，`temp\deploy-13722.cmd` 作废）。见 [发布记录](../releases/20261109-supplier-review-open-1.0.37.22.md)。
+
+- 2026-11-09 「供应商详情页」**改版已发布 1.0.37.21**（迁移+后端蓝绿+前端 graceful，`MIGRATION_OK`/`DEPLOY_EXIT=0`）：详情页改为 **Tab 结构**（基本资料/图片管理/历史价格/服务评价，酒店/打印店多一个绑定 Tab）；基本资料分三组（基础资料、联系信息含电话/微信复制、业务介绍、档案信息默认折叠）；图片独立 Tab + **4:3 缩略图** + 悬停「预览/设主图/重命名/删除」，顶部「图片命名」输入框移除、命名并入单图重命名弹窗；历史价格表增 **报价日期/有效期至/状态**（`supplier_price_item` 新增 `quote_date`/`valid_until`，幂等迁移已执行确认）；评价改为「综合评分+星级分布+历史列表」为主、新增评价走弹窗；同城侧栏改 **单类型下拉**、名称不截断、排除当前档案、切换保留 Tab 与筛选；`SupplierList` 查询状态入 URL，返回可还原筛选/页码/视图。发布后校验：`/health`=1.0.37.21（直连+经 Nginx）、两列已在库、root 已切、`index` 与 `SupplierDetail-DRWl5_DD.js` 哈希线上=磁盘、旧 chunk 兜底 200、四路由 200。**真机验收待 Owner**。见 [需求文档](../requirements/2026-11-09-供应商详情页改版-需求文档.md) / [设计文档](../design/2026-11-09-供应商详情页改版-设计文档.md) / [发布记录](../releases/20261109-supplier-detail-1.0.37.21.md)。
+
+- 2026-11-09 供应商列表**移除状态徽标**已发布 **1.0.37.20**（纯前端 graceful）：列表行右侧只留「查看详情」，卡片封面右上角角标同步移除，`statusOf()` 与 `.status-pill` 系列样式一并清理；评分行保留。
+- 2026-11-09 「供应商管理」列表改造已发布 **1.0.37.19**（前后端同版本；后端蓝绿 + 前端 graceful）：列表/卡片双视图（localStorage 记忆）、名称+联系人搜索（400ms 防抖，去掉搜索按钮）、类型/城市/仅看已评价筛选、按名称/更新时间排序、行内类型图标与评分（无评价显示「尚无评价」）。后端 `GET /api/supplier/list` 新增可选 `onlyReviewed`/`sort`（默认 name），用 `IN (SELECT supplier_id FROM supplier_review)` 子查询保证分页 count 正确。发布后校验：`/health`=1.0.37.19、root 已切、index 与 chunk 哈希一致、`/supplier` 200；数据实测 11 家供应商仅 1 家有评价。**接口带参与视觉验收待 Owner 真机确认**。见 [发布记录](../releases/20261109-supplier-list-1.0.37.19.md)。
+
+- 2026-11-09 客户列表**视觉改造**已发布 **1.0.37.17**（前端 graceful，master 7696 不变）：列宽按 20/38/17/15/10 重分配（200/380/170/150/100，去掉左右 fixed）、行高 80→60px、去斑马纹与纵向边框（分隔线 `#eef1f5`、hover `#f4f7fc`、仅选中行蓝色）、关系列加 `Connection` 图标 + tooltip。发布后校验：index 哈希 `0a2f5cac…` 与服务端一致、`CustomerInfo-n7iSf9ZC.js` 线上=磁盘、三路由 200、后端仍 1.0.37.12 UP。
+
+- 2026-11-09 「已删除视图」**权限隔离**已发布 **1.0.37.16**（前端）：根因=后端 `deleted=1` 本就要求 `customer:manage`，前端开关无权限判断。`CustomerInfo.vue` 开关加 `v-if="canManage"`、`showDeleted` 初值绑定 `canManage`、三处状态与 URL 写入补校验、操作列 `···` 条件收紧为 `canManage`。**无权限账号真机确认待 Owner 复核**。
+
+- 2026-11-09 客户列表「关系」列**点击直达该客户的关系网络中心视图** + **列表查询状态入 URL** 已发布 **1.0.37.15**（前端 graceful，master PID 7696 不变，后端零改动）：关系列 `@click.stop` → `goCustomerRelationGraph`（与抽屉「查看关系网络」同入口，query 带 `customerId`/`customerName`）；`CustomerInfo.vue` 从 URL 读 `keyword/page/pageSize/deleted` 并 `router.replace` 写回（不 push），返回可还原搜索词与页码；`CustomerRelationGraph.vue` 用 `centerId` 校验正整数、新增 `watch(centerId)` 重载、`goBack` 优先 `router.back()`。发布后校验：root 已切、服务端 index 哈希匹配、SPA 三路由 200、新 chunk 哈希一致、旧 chunk 兜底 200、后端仍 1.0.37.12 UP。**真实账号点选验收待 Owner 真机确认**。见 [发布记录](../releases/20261109-customer-drawer-1.0.37.12.md) 追加章节。
+
 - 2026-11-09 客户列表新方案与删除修复已发布 **1.0.37.14**：单位/职务合并列、关系列蓝色链接、操作=查看+···；删除失效根因=popconfirm 嵌 dropdown 冲突，改 MessageBox 确认；员工可见删除根因=权限挂载层级，上移到菜单级（员工已验证不可见）。**canManage 账号删除链路待 Owner 复核**。
 
 - 2026-11-09 抽屉「查看关系网络」中心模式已发布 **1.0.37.13**：仅展示当前客户关系圈（centerGraph，中心节点高亮），全局网络入口不变。真机验证通过。
