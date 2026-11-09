@@ -25,33 +25,47 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="rows" border stripe>
-        <el-table-column prop="name" label="客户姓名" min-width="120" fixed="left" show-overflow-tooltip />
-        <el-table-column prop="workUnit" label="工作单位" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="workPosition" label="工作职位" min-width="110" show-overflow-tooltip />
-        <el-table-column prop="workLevel" label="工作职级" min-width="100" show-overflow-tooltip />
-        <el-table-column prop="currentDuty" label="现任职务" min-width="130" show-overflow-tooltip />
-        <el-table-column prop="preferences" label="客户喜好" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="createBy" label="创建人" width="100" />
-        <el-table-column prop="createTime" label="创建时间" width="165" />
-        <el-table-column label="操作" width="190" fixed="right">
+      <el-table v-loading="loading" :data="rows" border stripe @row-click="openDrawer">
+        <el-table-column label="客户姓名" width="160" fixed="left">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="goDetail(row)">详情</el-button>
-            <template v-if="!showDeleted">
-              <el-button v-permission="'customer:manage'" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-              <el-popconfirm
-                title="确认删除该客户档案？删除后默认隐藏，可恢复。"
-                confirm-button-text="确认删除"
-                cancel-button-text="取消"
-                @confirm="handleDelete(row)"
-              >
-                <template #reference>
-                  <el-button v-permission="'customer:manage'" link type="danger" size="small">删除</el-button>
-                </template>
-              </el-popconfirm>
-            </template>
-            <el-button v-if="showDeleted" v-permission="'customer:manage'" link type="success" size="small" @click="handleRestore(row)">恢复</el-button>
+            <span class="customer-avatar">{{ (row.name || '?').slice(0, 1) }}</span>
+            <span class="customer-name">{{ row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="workUnit" label="工作单位" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="currentDuty" label="现任职务" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="workLevel" label="工作职级" min-width="120" show-overflow-tooltip />
+        <el-table-column label="关联关系" width="160">
+          <template #default="{ row }">
+            {{ row.relationCount > 0 ? `${row.relationCount} 条关联` : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="最近更新" width="130">
+          <template #default="{ row }">
+            {{ formatDay(row.updateTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click.stop="openDrawer(row)">详情</el-button>
+            <el-dropdown v-if="!showDeleted" trigger="click" @command="(cmd) => handleRowCommand(cmd, row)">
+              <el-button link type="primary" size="small" @click.stop>更多</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-if="canManage" command="edit">编辑</el-dropdown-item>
+                  <el-popconfirm
+                    title="确认删除该客户档案？删除后默认隐藏，可恢复。"
+                    confirm-button-text="确认删除"
+                    cancel-button-text="取消"
+                    @confirm="handleDelete(row)"
+                  >
+                    <template #reference>
+                      <el-dropdown-item v-permission="'customer:manage'" command="delete">删除</el-dropdown-item>
+                    </template>
+                  </el-popconfirm>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -67,6 +81,62 @@
         @current-change="loadList"
       />
     </el-card>
+
+    <!-- 详情抽屉：查看 + 快速编辑 + 关联人物（打开完整档案入口保留） -->
+    <el-drawer v-model="drawerVisible" size="520px" :title="drawerCustomer.name || '客户档案'">
+      <div class="drawer-head">
+        <span class="customer-avatar drawer-avatar">{{ (drawerCustomer.name || '?').slice(0, 1) }}</span>
+        <div>
+          <div class="drawer-name">{{ drawerCustomer.name }}</div>
+          <div class="drawer-sub">{{ drawerCustomer.workUnit || '—' }}<template v-if="drawerCustomer.currentDuty"> · {{ drawerCustomer.currentDuty }}</template></div>
+        </div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">基本资料 <el-button v-if="canManage && !drawerEditing && !showDeleted" link type="primary" size="small" @click="startDrawerEdit">快速编辑</el-button></div>
+        <template v-if="!drawerEditing">
+          <div class="drawer-grid">
+            <div class="drawer-field"><label>工作单位</label><span>{{ drawerCustomer.workUnit || '—' }}</span></div>
+            <div class="drawer-field"><label>工作职位</label><span>{{ drawerCustomer.workPosition || '—' }}</span></div>
+            <div class="drawer-field"><label>现任职务</label><span>{{ drawerCustomer.currentDuty || '—' }}</span></div>
+            <div class="drawer-field"><label>工作职级</label><span>{{ drawerCustomer.workLevel || '—' }}</span></div>
+            <div class="drawer-field"><label>客户喜好</label><span>{{ drawerCustomer.preferences || '—' }}</span></div>
+            <div class="drawer-field drawer-field-wide"><label>备注</label><span class="pre-wrap">{{ drawerCustomer.remark || '—' }}</span></div>
+          </div>
+        </template>
+        <template v-else>
+          <el-form :model="drawerForm" label-width="80px" class="drawer-form">
+            <el-form-item label="姓名"><el-input v-model="drawerForm.name" maxlength="50" /></el-form-item>
+            <el-form-item label="工作单位"><el-input v-model="drawerForm.workUnit" maxlength="100" /></el-form-item>
+            <el-form-item label="工作职位"><el-input v-model="drawerForm.workPosition" maxlength="50" /></el-form-item>
+            <el-form-item label="现任职务"><el-input v-model="drawerForm.currentDuty" maxlength="50" /></el-form-item>
+            <el-form-item label="工作职级"><el-input v-model="drawerForm.workLevel" maxlength="50" /></el-form-item>
+            <el-form-item label="客户喜好"><el-input v-model="drawerForm.preferences" type="textarea" :rows="2" maxlength="500" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="drawerForm.remark" type="textarea" :rows="2" maxlength="500" /></el-form-item>
+            <div class="drawer-edit-actions">
+              <el-button size="small" type="primary" :loading="drawerSaving" @click="saveDrawer">保存</el-button>
+              <el-button size="small" :disabled="drawerSaving" @click="drawerEditing = false">取消</el-button>
+            </div>
+          </el-form>
+        </template>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">关联人物 <el-button link type="primary" size="small" @click="goRelationGraph">查看关系网络</el-button></div>
+        <div v-if="drawerRelations.length" class="drawer-relations">
+          <div v-for="rel in drawerRelations" :key="rel.id" class="drawer-relation-row">
+            <span>{{ rel.otherName }}</span>
+            <el-tag size="small" type="info">{{ rel.relationTypeName }}</el-tag>
+          </div>
+        </div>
+        <div v-else class="drawer-relations-empty">暂无关联人物</div>
+      </div>
+      <div class="drawer-meta">
+        创建人 {{ drawerCustomer.createBy || '—' }} · 创建于 {{ formatDay(drawerCustomer.createTime) }}<template v-if="drawerCustomer.updateTime"> · 更新于 {{ formatDay(drawerCustomer.updateTime) }}</template>
+      </div>
+      <div class="drawer-footer">
+        <el-button @click="goDetail(drawerCustomer)">打开完整档案</el-button>
+        <el-button v-if="showDeleted && canManage" type="success" @click="handleRestore(drawerCustomer); drawerVisible = false">恢复</el-button>
+      </div>
+    </el-drawer>
 
     <el-dialog v-model="formVisible" :title="form.id ? '编辑客户档案' : '新增客户档案'" width="600px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
@@ -155,9 +225,11 @@ import {
   updateCustomer,
   deleteCustomer,
   restoreCustomer,
-  listRelationTypes
+  listRelationTypes,
+  getCenterGraph
 } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
+import { useAuthStore } from '../store/auth'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -167,6 +239,89 @@ const rows = ref([])
 const total = ref(0)
 const showDeleted = ref(false)
 const query = reactive({ keyword: '', deleted: 0, page: 1, pageSize: 10 })
+
+const authStore = useAuthStore()
+const canManage = computed(() => authStore.hasPermission('customer:manage'))
+
+// 详情抽屉（Owner 2026-11-09）：查看 + 快速编辑 + 关联人物；打开完整档案入口保留
+const drawerVisible = ref(false)
+const drawerCustomer = ref({})
+const drawerRelations = ref([])
+const drawerEditing = ref(false)
+const drawerSaving = ref(false)
+const drawerForm = reactive({ name: '', workUnit: '', workPosition: '', currentDuty: '', workLevel: '', preferences: '', remark: '' })
+
+function formatDay(value) {
+  if (!value) return '—'
+  const m = String(value).match(/(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : String(value).slice(0, 10)
+}
+
+function openDrawer(row) {
+  drawerCustomer.value = { ...row }
+  drawerRelations.value = []
+  drawerEditing.value = false
+  drawerVisible.value = true
+  getCenterGraph(row.id).then((graph) => {
+    const nodeNames = {}
+    for (const n of graph?.nodes || []) nodeNames[n.id] = n.name
+    drawerRelations.value = (graph?.links || []).map((link) => ({
+      id: link.id,
+      otherName: nodeNames[link.source] === drawerCustomer.value.name || link.source === drawerCustomer.value.id
+        ? (nodeNames[link.target] || '—')
+        : (nodeNames[link.source] || '—'),
+      relationTypeName: link.relationTypeName || '—'
+    }))
+  }).catch(() => {})
+}
+
+function startDrawerEdit() {
+  Object.assign(drawerForm, {
+    name: drawerCustomer.value.name || '',
+    workUnit: drawerCustomer.value.workUnit || '',
+    workPosition: drawerCustomer.value.workPosition || '',
+    currentDuty: drawerCustomer.value.currentDuty || '',
+    workLevel: drawerCustomer.value.workLevel || '',
+    preferences: drawerCustomer.value.preferences || '',
+    remark: drawerCustomer.value.remark || ''
+  })
+  drawerEditing.value = true
+}
+
+async function saveDrawer() {
+  if (!String(drawerForm.name || '').trim()) {
+    ElMessage.warning('客户姓名不能为空')
+    return
+  }
+  drawerSaving.value = true
+  try {
+    const payload = {
+      name: drawerForm.name.trim(),
+      workUnit: drawerForm.workUnit?.trim() || '',
+      workPosition: drawerForm.workPosition?.trim() || '',
+      currentDuty: drawerForm.currentDuty?.trim() || '',
+      workLevel: drawerForm.workLevel?.trim() || '',
+      preferences: drawerForm.preferences?.trim() || '',
+      remark: drawerForm.remark?.trim() || ''
+    }
+    await updateCustomer(drawerCustomer.value.id, payload)
+    ElMessage.success('保存成功')
+    drawerCustomer.value = { ...drawerCustomer.value, ...payload }
+    drawerEditing.value = false
+    loadList()
+  } catch (e) {
+    proxy.$message.error(e?.message || '保存失败')
+  } finally {
+    drawerSaving.value = false
+  }
+}
+
+function handleRowCommand(cmd, row) {
+  if (cmd === 'edit') {
+    openDrawer(row)
+    startDrawerEdit()
+  }
+}
 
 const formVisible = ref(false)
 const saving = ref(false)
@@ -263,20 +418,6 @@ function openCreate() {
   formVisible.value = true
 }
 
-function openEdit(row) {
-  Object.assign(form, emptyForm, {
-    id: row.id,
-    name: row.name,
-    workUnit: row.workUnit,
-    workPosition: row.workPosition,
-    workLevel: row.workLevel,
-    currentDuty: row.currentDuty,
-    preferences: row.preferences,
-    remark: row.remark
-  })
-  formVisible.value = true
-}
-
 async function handleSave() {
   try {
     await formRef.value.validate()
@@ -367,7 +508,118 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 详情抽屉（Owner 2026-11-09 规范） */
+.customer-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 13px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.customer-name {
+  vertical-align: middle;
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #ebeef5;
+}
+.drawer-avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+.drawer-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+.drawer-sub {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+}
+.drawer-section {
+  margin-top: 16px;
+  padding-bottom: 6px;
+}
+.drawer-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.drawer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+.drawer-field label {
+  display: block;
+  font-size: 11px;
+  color: #909399;
+  margin-bottom: 2px;
+}
+.drawer-field span {
+  font-size: 13px;
+  color: #303133;
+  overflow-wrap: anywhere;
+}
+.drawer-field-wide {
+  grid-column: 1 / -1;
+}
+.pre-wrap {
+  white-space: pre-wrap;
+}
+.drawer-form {
+  margin-top: 4px;
+}
+.drawer-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+.drawer-relations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.drawer-relation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #303133;
+}
+.drawer-relations-empty {
+  font-size: 12px;
+  color: #909399;
+}
+.drawer-meta {
+  margin-top: 16px;
+  font-size: 11px;
+  color: #909399;
+}
+.drawer-footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
 .toolbar {
+
   display: flex;
   align-items: center;
   gap: 10px;
