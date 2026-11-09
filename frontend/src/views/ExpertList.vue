@@ -1362,6 +1362,12 @@ async function submitAdminCreate() {
 
 onMounted(() => {
   fetchList()
+  // 日程解析「库外专家去建档」预填（2026-11-09 项目流程重塑）：query 带 presetName 时自动打开管理员新增并预填姓名
+  const presetName = route.query.presetName
+  if (typeof presetName === 'string' && presetName.trim()) {
+    openAdminCreate()
+    adminCreateForm['姓名'] = presetName.trim()
+  }
 })
 watch(() => route.query.expertId, async id => {
   if(id===undefined)return

@@ -180,12 +180,7 @@ const routes = [
         component: () => import('../views/ExpertManage.vue'),
         meta: { title: '专家管理', permissions: ['expert:manage'] }
       },
-      {
-        path: 'project/config',
-        name: 'project-config',
-        component: () => import('../views/project/ProjectConfig.vue'),
-        meta: { title: '项目配置', permissions: ['project:manage'] }
-      },
+      // 项目配置页已随项目类型概念停用（2026-11-09 项目流程重塑，后端配置接口 410）。
       {
         path: 'audit/downloads',
         name: 'audit-downloads',

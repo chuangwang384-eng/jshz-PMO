@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 本地 LLM 语义抽取（Ollama，数据不出内网）——简历解析的语义理解策略。
@@ -81,6 +82,70 @@ public class OllamaService {
             return fields;
         } catch (Exception e) {
             log.warn("Ollama 语义抽取异常：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 从日程文本中抽取参会专家与角色（2026-11-09 流程重塑）：规则打底过薄时的语义兜底。
+     * 输出受限枚举 role：CHAIR 大会主席/HOST 大会主持/SPEAKER 大会讲者/DISCUSSANT 讨论嘉宾。
+     * 不可用/失败/超时返回 null（调用方保留规则结果并提示手动录入）。
+     */
+    public java.util.List<com.jshz.expert.entity.ProjectSpeaker> extractScheduleSpeakers(String text) {
+        if (!available() || text == null || text.isBlank()) return null;
+        String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
+        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+        String prompt = """
+                你是会议日程解析助手。从以下会议日程文本中抽取参会专家，严格输出 JSON 对象（不要输出任何其他文字）：
+                {"speakers":[{"name":"","role":"","segmentTitle":"","segmentTime":""}]}
+                规则：role 只能取 CHAIR(大会主席)/HOST(大会主持)/SPEAKER(大会讲者)/DISCUSSANT(讨论嘉宾)；
+                讨论嘉宾=同一段落/议题下多人共同发言；同一个人有多个角色时取最高的一个
+                （主席>主持>讲者>讨论嘉宾）；姓名为 2-4 个汉字人名，去掉"教授"等头衔；不要编造。
+                日程文本：
+                """.replaceAll("\\n{3,}", "\n\n") + text.substring(0, Math.min(text.length(), 4000));
+        try {
+            String body = json.writeValueAsString(Map.of(
+                    "model", model,
+                    "prompt", prompt,
+                    "stream", false,
+                    "format", "json",
+                    "keep_alive", "60m"));
+            long timeoutSec = 180;
+            try {
+                timeoutSec = Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", "180"));
+            } catch (Exception ignored) {}
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
+                    .timeout(Duration.ofSeconds(timeoutSec))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("Ollama 日程抽取失败：HTTP {}", response.statusCode());
+                return null;
+            }
+            JsonNode node = json.readTree(response.body());
+            JsonNode speakers = json.readTree(node.path("response").asText("{}")).path("speakers");
+            List<com.jshz.expert.entity.ProjectSpeaker> result = new java.util.ArrayList<>();
+            Set<String> seen = new java.util.LinkedHashSet<>();
+            for (JsonNode s : speakers) {
+                String name = s.path("name").asText("").replaceAll("[\\s\\u3000\\u00a0]", "");
+                String role = s.path("role").asText("");
+                if (name.length() < 2 || name.length() > 4) continue;
+                if (!Set.of("CHAIR", "HOST", "SPEAKER", "DISCUSSANT").contains(role)) continue;
+                if (!seen.add(name)) continue;
+                com.jshz.expert.entity.ProjectSpeaker sp = new com.jshz.expert.entity.ProjectSpeaker();
+                sp.setExpertName(name);
+                sp.setRole(role);
+                String title = s.path("segmentTitle").asText("");
+                String time = s.path("segmentTime").asText("");
+                sp.setSegmentTitle(title.isBlank() ? null : title);
+                sp.setSegmentTime(time.isBlank() ? null : time);
+                result.add(sp);
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Ollama 日程抽取异常：{}", e.getMessage());
             return null;
         }
     }

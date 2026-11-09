@@ -10,6 +10,7 @@ import com.jshz.expert.entity.Application;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.entity.OperationLog;
 import com.jshz.expert.entity.Project;
+import com.jshz.expert.entity.ProjectAssistant;
 import com.jshz.expert.entity.ProjectContract;
 import com.jshz.expert.entity.ProjectDoc;
 import com.jshz.expert.entity.ProjectExecutor;
@@ -23,10 +24,12 @@ import com.jshz.expert.entity.ProjectTypePhaseRel;
 import com.jshz.expert.entity.ProjectPhaseHistory;
 import com.jshz.expert.entity.Role;
 import com.jshz.expert.entity.Supplier;
+import com.jshz.expert.entity.SupplierCity;
 import com.jshz.expert.entity.SupplierType;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.OperationLogMapper;
+import com.jshz.expert.mapper.ProjectAssistantMapper;
 import com.jshz.expert.mapper.ProjectContractMapper;
 import com.jshz.expert.mapper.ProjectDocMapper;
 import com.jshz.expert.mapper.ProjectExecutorMapper;
@@ -34,12 +37,17 @@ import com.jshz.expert.mapper.ProjectExpertMapper;
 import com.jshz.expert.mapper.ProjectMapper;
 import com.jshz.expert.mapper.ProjectPhaseMapper;
 import com.jshz.expert.mapper.ProjectPhaseTemplateRelMapper;
+import com.jshz.expert.entity.ProjectSchedule;
+import com.jshz.expert.entity.ProjectSpeaker;
+import com.jshz.expert.mapper.ProjectScheduleMapper;
+import com.jshz.expert.mapper.ProjectSpeakerMapper;
 import com.jshz.expert.mapper.ProjectSupplierMapper;
 import com.jshz.expert.mapper.ProjectTemplateMapper;
 import com.jshz.expert.mapper.ProjectTypeMapper;
 import com.jshz.expert.mapper.ProjectTypePhaseRelMapper;
 import com.jshz.expert.mapper.ProjectPhaseHistoryMapper;
 import com.jshz.expert.mapper.RoleMapper;
+import com.jshz.expert.mapper.SupplierCityMapper;
 import com.jshz.expert.mapper.SupplierMapper;
 import com.jshz.expert.mapper.SupplierTypeMapper;
 import com.jshz.expert.mapper.SysUserMapper;
@@ -56,6 +64,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -86,6 +95,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /** 团队字典（2026-11-09 项目基本信息改版，固定三个部） */
+    private static final Map<String, String> TEAM_LABELS = Map.of(
+            "DEPT1", "项目一部",
+            "DEPT2", "项目二部",
+            "DEPT3", "项目三部");
+
     private final ProjectTypeMapper typeMapper;
     private final ProjectTypePhaseRelMapper typePhaseRelMapper;
     private final ProjectPhaseHistoryMapper phaseHistoryMapper;
@@ -93,6 +108,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private final ProjectTemplateMapper templateMapper;
     private final ProjectPhaseTemplateRelMapper relMapper;
     private final ProjectExecutorMapper executorMapper;
+    private final ProjectAssistantMapper assistantMapper;
+    private final SupplierCityMapper supplierCityMapper;
     private final ProjectExpertMapper expertRelMapper;
     private final ProjectSupplierMapper supplierRelMapper;
     private final ProjectDocMapper docMapper;
@@ -109,19 +126,45 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private final UserRoleMapper userRoleMapper;
     private final ObjectMapper objectMapper;
     private final ProjectConfigurationService configuration;
+    private final ProjectScheduleMapper scheduleMapper;
+    private final ProjectSpeakerMapper speakerMapper;
 
     // ==================== 项目 CRUD ====================
 
     /**
-     * 分页列表：状态(当前阶段)/开始时间范围/结束时间范围/负责人/大类/类型/执行人 筛选。
+     * 分页列表：关键字(会议名称/客户单位/客户姓名)/状态(当前阶段)/起止时间范围/负责人/大类/类型/执行人/
+     * 团队/会议城市/协助人 筛选。
      */
-    public Page<Map<String, Object>> pageProjects(String status, String startBegin, String startEnd,
+    public Page<Map<String, Object>> pageProjects(String keyword, String status, String startBegin, String startEnd,
                                                   String endBegin, String endEnd, Long ownerId,
-                                                  String category, Long typeId, Long executorId,
+                                                  String category,
+                                                  String team, Long cityId, Long assistantId,
                                                   long page, long size, AuthUser user) {
         // 软删隐藏：仅过滤 status != DELETED
         LambdaQueryWrapper<Project> qw = new LambdaQueryWrapper<Project>()
                 .ne(Project::getStatus, STATUS_DELETED);
+        if (StringUtils.hasText(keyword)) {
+            String kw = keyword.trim();
+            qw.and(w -> w.like(Project::getName, kw)
+                    .or().like(Project::getClientCompany, kw)
+                    .or().like(Project::getClientName, kw));
+        }
+        if (StringUtils.hasText(team)) {
+            qw.eq(Project::getTeam, team);
+        }
+        if (cityId != null) {
+            qw.eq(Project::getCityId, cityId);
+        }
+        if (assistantId != null) {
+            List<Long> projectIds = assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
+                            .eq(ProjectAssistant::getUserId, assistantId))
+                    .stream().map(ProjectAssistant::getProjectId).distinct().collect(Collectors.toList());
+            if (projectIds.isEmpty()) {
+                qw.eq(Project::getId, -1L);
+            } else {
+                qw.in(Project::getId, projectIds);
+            }
+        }
         if (StringUtils.hasText(status)) {
             if ("CANCELED".equals(status)) {
                 qw.eq(Project::getStatus, STATUS_CANCELED);
@@ -152,19 +195,6 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (StringUtils.hasText(category)) {
             qw.eq(Project::getCategory, category);
         }
-        if (typeId != null) {
-            qw.eq(Project::getTypeId, typeId);
-        }
-        if (executorId != null) {
-            List<Long> projectIds = executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
-                            .eq(ProjectExecutor::getUserId, executorId))
-                    .stream().map(ProjectExecutor::getProjectId).distinct().collect(Collectors.toList());
-            if (projectIds.isEmpty()) {
-                qw.eq(Project::getId, -1L);
-            } else {
-                qw.in(Project::getId, projectIds);
-            }
-        }
         // 行级数据权限：非豁免用户仅见本人负责或执行的项目
         if (!canViewAllProjects(user)) {
             appendRowLevelCondition(qw, user);
@@ -175,21 +205,67 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .map(project -> {
                     Map<String, Object> m = toBriefMap(project);
                     // 项目级操作授权（与详情页 canAdvance 同义：负责人/执行人/超管），供列表"取消项目"按钮显隐
-                    m.put("canAdvance", isOwnerOrExecutor(project, user));
+                    m.put("canAdvance", isOwnerOrCreator(project, user));
                     return m;
                 }).collect(Collectors.toList());
         return new Page<Map<String, Object>>(p.getCurrent(), p.getSize(), p.getTotal()).setRecords(items);
     }
 
+    /** 新项目（无配置快照）判定：2026-11-09 流程重塑后创建的项目不再绑定类型/快照。 */
+    private Map<String, Object> snapshotOrNull(Project project) {
+        try {
+            return configuration.snapshot(project.getId());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 阶段名：快照项目走快照口径，新项目直接查阶段字典。 */
+    private String phaseNameOf(Project project) {
+        if (project.getPhaseId() == null) {
+            return "";
+        }
+        Map<String, Object> rules = snapshotOrNull(project);
+        if (rules != null) {
+            try {
+                return configuration.phase(rules, project.getPhaseId()).getName();
+            } catch (Exception ignored) {
+            }
+        }
+        ProjectPhase p = phaseMapper.selectById(project.getPhaseId());
+        return p == null ? "" : p.getName();
+    }
+
+    /** 第一阶段「日程上传」（迁移种子阶段；找不到回退为激活阶段中 sort 最大者）。 */
+    private ProjectPhase agendaUploadPhase() {
+        List<ProjectPhase> phases = phaseMapper.selectList(new LambdaQueryWrapper<ProjectPhase>()
+                .eq(ProjectPhase::getName, "日程上传").orderByAsc(ProjectPhase::getId).last("LIMIT 1"));
+        if (!phases.isEmpty()) {
+            return phases.get(0);
+        }
+        throw new BusinessException("内置阶段「日程上传」缺失，请先执行迁移 20261109_project_schedule_stage.sql");
+    }
+
     private Map<String, Object> toBriefMap(Project project) {
         Map<String, Object> m = toMap(project);
-        Map<String, Object> rules = configuration.snapshot(project.getId());
-        m.put("typeName", rules.get("name"));
-        m.put("phaseName", configuration.phase(rules, project.getPhaseId()).getName());
+        m.put("phaseName", phaseNameOf(project));
         m.put("ownerName", usernameOf(project.getOwnerId()));
         m.put("creatorName", usernameOf(project.getCreatorId()));
-        m.put("executorNames", executorNamesOf(project.getId()));
-        m.put("executorIds", executorIdsOf(project.getId()));
+        // 2026-11-09 流程重塑：类型/执行人概念删除，改为日程上传阶段状态
+        ProjectSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ProjectSchedule>()
+                .eq(ProjectSchedule::getProjectId, project.getId())
+                .eq(ProjectSchedule::getIsCurrent, 1)
+                .orderByDesc(ProjectSchedule::getId)
+                .last("LIMIT 1"));
+        m.put("scheduleStatus", schedule == null ? "NONE" : schedule.getParseStatus());
+        Long confirmedCnt = speakerMapper.selectCount(new LambdaQueryWrapper<ProjectSpeaker>()
+                .eq(ProjectSpeaker::getProjectId, project.getId())
+                .eq(ProjectSpeaker::getConfirmed, 1));
+        m.put("speakerConfirmedCnt", confirmedCnt == null ? 0 : confirmedCnt);
+        m.put("teamLabel", teamLabelOf(project.getTeam()));
+        m.put("cityName", cityNameOf(project.getCityId()));
+        m.put("assistantNames", assistantNamesOf(project.getId()));
+        m.put("assistantIds", assistantIdsOf(project.getId()));
         return m;
     }
 
@@ -200,25 +276,44 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Project project = requireProject(id);
         requireProjectReadable(project, user);
         Map<String, Object> m = toBriefMap(project);
-        boolean fullSensitive = isOwnerOrExecutor(project, user);
+        boolean fullSensitive = isProjectMember(project, user);
         m.put("experts", listExperts(id, user));
         m.put("suppliers", listSuppliers(id, user));
         m.put("docs", listDocs(id, null, user));
         m.put("contracts", listContracts(id, user));
         m.put("budget", budgetOf(project));
-        m.put("phases", configuration.display(configuration.snapshot(id)));
+        Map<String, Object> rules = snapshotOrNull(project);
+        if (rules != null) {
+            m.put("phases", configuration.display(rules));
+        } else {
+            // 2026-11-09 流程重塑：新项目无快照，阶段=激活阶段字典（本期仅「日程上传」），无模板要求
+            List<Map<String, Object>> phaseList = new ArrayList<>();
+            for (ProjectPhase p : phaseMapper.selectList(new LambdaQueryWrapper<ProjectPhase>()
+                    .eq(ProjectPhase::getIsActive, 1).orderByAsc(ProjectPhase::getSort).orderByAsc(ProjectPhase::getId))) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("phaseId", p.getId());
+                item.put("id", p.getId());
+                item.put("name", p.getName());
+                item.put("sort", p.getSort());
+                item.put("isActive", p.getIsActive());
+                item.put("templates", List.of());
+                phaseList.add(item);
+            }
+            m.put("phases", phaseList);
+        }
         m.put("timeline", timeline(id, user));
         m.put("canManage", user != null && (user.isAdmin() || user.hasPermission("project:manage")));
-        m.put("canAdvance", fullSensitive);
-        // REQ-20261102 需求三：回退权限独立字段（负责人/执行人/admin），与推进语义解耦
-        m.put("canRollback", fullSensitive);
+        m.put("canAdvance", isOwnerOrCreator(project, user));
+        // REQ-20261102 需求三：回退权限独立字段（2026-11-09 起与推进一致=负责人+创建人）
+        m.put("canRollback", isOwnerOrCreator(project, user));
         // 阶段变更历史（最近 20 条，倒序）
         List<ProjectPhaseHistory> hists = phaseHistoryMapper.selectList(new LambdaQueryWrapper<ProjectPhaseHistory>()
                 .eq(ProjectPhaseHistory::getProjectId, id)
                 .orderByDesc(ProjectPhaseHistory::getCreateTime)
                 .last("LIMIT 20"));
         m.put("phaseHistory", hists);
-        m.put("missingRequiredTemplates", missingRequiredTemplates(project, project.getPhaseId()));
+        m.put("missingRequiredTemplates", snapshotOrNull(project) == null
+                ? List.of() : missingRequiredTemplates(project, project.getPhaseId()));
         return m;
     }
 
@@ -232,31 +327,59 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         requireCreate(user);
         String name = str(body.get("name"));
         if (!StringUtils.hasText(name)) {
-            throw new BusinessException("项目名称不能为空");
+            throw new BusinessException("会议名称不能为空");
         }
         String category = str(body.get("category"));
         if (!"ONLINE".equals(category) && !"OFFLINE".equals(category)) {
-            throw new BusinessException("项目大类必须为线上(ONLINE)或线下(OFFLINE)");
+            throw new BusinessException("会议类型必须为线上(ONLINE)或线下(OFFLINE)");
         }
-        Long typeId = toLong(body.get("typeId"));
-        if (typeId == null || typeMapper.selectById(typeId) == null) {
-            throw new BusinessException("项目类型不能为空或不存在");
+        // 团队（2026-11-09 新增，必填，固定三个部）
+        String team = str(body.get("team"));
+        if (!StringUtils.hasText(team)) {
+            throw new BusinessException("团队不能为空（项目一部/项目二部/项目三部）");
         }
+        validateTeam(team);
+        // 会议城市（非必填；校验存在于供应商城市字典）
+        Long cityId = toLong(body.get("cityId"));
+        validateCity(cityId);
+        // 项目起止时间（必填）
         LocalDate startDate = parseDateNullable(str(body.get("startDate")));
         LocalDate endDate = parseDateNullable(str(body.get("endDate")));
+        if (startDate == null || endDate == null) {
+            throw new BusinessException("项目起止时间必填");
+        }
+        if (endDate.isBefore(startDate)) {
+            throw new BusinessException("项目结束时间不能早于开始时间");
+        }
+        // 会议举办时间（非必填；单日=起止同日）
+        LocalDate meetingStart = parseDateNullable(str(body.get("meetingStartDate")));
+        LocalDate meetingEnd = parseDateNullable(str(body.get("meetingEndDate")));
+        validateMeetingRange(meetingStart, meetingEnd);
+        // 总负责人：默认创建人（2026-11-09 起全员可选，不再限定 PROJECT_OWNER 角色）
         Long ownerId = toLong(body.get("ownerId"));
         if (ownerId == null) {
-            throw new BusinessException("负责人不能为空（立项必填）");
+            ownerId = user == null ? null : user.getUserId();
         }
-        Map<String, Object> rules = configuration.creation(typeId);
-        Long reqPhaseId = toLong(body.get("phaseId"));
-        if (reqPhaseId == null) reqPhaseId = ProjectConfigurationService.number(ProjectConfigurationService.rows(rules.get("phases")).get(0).get("phaseId"));
-        ProjectPhase phase = configuration.phase(rules, reqPhaseId);
+        if (ownerId == null) {
+            throw new BusinessException("总负责人不能为空（默认创建人）");
+        }
+        // 2026-11-09 流程重塑：项目类型概念删除；新建不可选阶段，固定落第一阶段「日程上传」
+        ProjectPhase phase = agendaUploadPhase();
 
         Project project = new Project();
         project.setName(name.trim());
         project.setCategory(category);
-        project.setTypeId(typeId);
+        project.setTeam(team);
+        project.setCityId(cityId);
+        project.setMeetingStartDate(meetingStart);
+        project.setMeetingEndDate(meetingEnd);
+        String clientCompany = str(body.get("clientCompany"));
+        project.setClientCompany(clientCompany == null ? null : clientCompany.trim());
+        String clientName = str(body.get("clientName"));
+        project.setClientName(clientName == null ? null : clientName.trim());
+        String remark = str(body.get("remark"));
+        project.setRemark(remark == null ? null : remark.trim());
+        project.setTypeId(null);   // 类型已删除概念，列保留停用
         project.setStartDate(startDate);
         project.setEndDate(endDate);
         project.setOwnerId(ownerId);
@@ -264,22 +387,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         project.setPhaseId(phase.getId());
         project.setStatus(STATUS_ACTIVE);
         this.save(project);
-        configuration.freeze(project.getId(), typeId, rules);
 
-        // 执行人（默认创建人；可传多人 userIds）
-        List<Long> executors = toLongList(body.get("executorIds"));
-        if (executors.isEmpty()) {
-            executors.add(user == null ? ownerId : user.getUserId());
-        }
-        if (!executors.contains(ownerId)) {
-            executors.add(0, ownerId);
-        }
-        for (Long uid : executors) {
-            ProjectExecutor pe = new ProjectExecutor();
-            pe.setProjectId(project.getId());
-            pe.setUserId(uid);
-            executorMapper.insert(pe);
-        }
+        // 协助人（多选，全员可选，非必填）；执行人概念已删除，不再写入
+        saveAssistants(project.getId(), toLongList(body.get("assistantIds")));
 
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_CREATE_PROJECT, "创建项目「" + project.getName() + "」",
@@ -297,17 +407,50 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         String category = str(body.get("category"));
         if (StringUtils.hasText(category)) {
             if (!"ONLINE".equals(category) && !"OFFLINE".equals(category)) {
-                throw new BusinessException("项目大类必须为线上(ONLINE)或线下(OFFLINE)");
+                throw new BusinessException("会议类型必须为线上(ONLINE)或线下(OFFLINE)");
             }
             project.setCategory(category);
         }
-        Long typeId = toLong(body.get("typeId"));
-        if (typeId != null) {
-            if (!typeId.equals(project.getTypeId())) throw new BusinessException("已有项目保留原类型与流程，暂不支持换型");
-            if (typeMapper.selectById(typeId) == null) {
-                throw new BusinessException("项目类型不存在");
-            }
-            project.setTypeId(typeId);
+        String team = str(body.get("team"));
+        if (StringUtils.hasText(team)) {
+            validateTeam(team);
+            project.setTeam(team);
+        }
+        Long cityId = toLong(body.get("cityId"));
+        if (body.containsKey("cityId")) {
+            validateCity(cityId);
+            project.setCityId(cityId);
+        }
+        if (str(body.get("meetingStartDate")) != null) {
+            LocalDate ms = parseDateNullable(str(body.get("meetingStartDate")));
+            LocalDate me = body.containsKey("meetingEndDate") && str(body.get("meetingEndDate")) != null
+                    ? parseDateNullable(str(body.get("meetingEndDate"))) : project.getMeetingEndDate();
+            validateMeetingRange(ms, me);
+            project.setMeetingStartDate(ms);
+        }
+        if (str(body.get("meetingEndDate")) != null) {
+            LocalDate me = parseDateNullable(str(body.get("meetingEndDate")));
+            LocalDate ms = body.containsKey("meetingStartDate") && str(body.get("meetingStartDate")) != null
+                    ? parseDateNullable(str(body.get("meetingStartDate"))) : project.getMeetingStartDate();
+            validateMeetingRange(ms, me);
+            project.setMeetingEndDate(me);
+        }
+        if (body.containsKey("clientCompany")) {
+            String v = str(body.get("clientCompany"));
+            project.setClientCompany(v == null ? null : v.trim());
+        }
+        if (body.containsKey("clientName")) {
+            String v = str(body.get("clientName"));
+            project.setClientName(v == null ? null : v.trim());
+        }
+        if (body.containsKey("remark")) {
+            String v = str(body.get("remark"));
+            project.setRemark(v == null ? null : v.trim());
+        }
+        // 2026-11-09 流程重塑：类型/阶段/执行人均不可通过编辑修改（阶段只能走推进接口）
+        if (toLong(body.get("phaseId")) != null
+                && !toLong(body.get("phaseId")).equals(project.getPhaseId())) {
+            throw new BusinessException("请通过阶段推进或回退操作修改项目阶段");
         }
         if (str(body.get("startDate")) != null) {
             project.setStartDate(parseDateNullable(str(body.get("startDate"))));
@@ -318,29 +461,11 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (toLong(body.get("ownerId")) != null) {
             project.setOwnerId(toLong(body.get("ownerId")));
         }
-        if (toLong(body.get("phaseId")) != null) {
-            ProjectPhase phase = configuration.phase(configuration.snapshot(id), toLong(body.get("phaseId")));
-            if (phase == null) {
-                throw new BusinessException("当前阶段不存在");
-            }
-            // 切换类型/阶段时按（可能更新后的）类型流程二次校验
-            if (!phase.getId().equals(project.getPhaseId())) throw new BusinessException("请通过阶段推进或回退操作修改项目阶段");
-            project.setPhaseId(phase.getId());
-        } else if (typeId != null) {
-            // 仅切类型未传阶段：校验现有阶段是否仍属于新类型流程
-            configuration.phase(configuration.snapshot(id), project.getPhaseId());
-        }
         this.updateById(project);
 
-        List<Long> executors = toLongList(body.get("executorIds"));
-        if (!executors.isEmpty()) {
-            executorMapper.delete(new LambdaQueryWrapper<ProjectExecutor>().eq(ProjectExecutor::getProjectId, id));
-            for (Long uid : executors) {
-                ProjectExecutor pe = new ProjectExecutor();
-                pe.setProjectId(id);
-                pe.setUserId(uid);
-                executorMapper.insert(pe);
-            }
+        // 协助人：显式携带 assistantIds（数组可为空=清空协助人）时全量替换；执行人概念已删除，传入忽略
+        if (body.containsKey("assistantIds")) {
+            saveAssistants(id, toLongList(body.get("assistantIds")));
         }
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_UPDATE_PROJECT, "修改项目「" + project.getName() + "」",
@@ -372,18 +497,32 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void changePhase(Long id, Long phaseId, String reason, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可推进/回退阶段");
+        if (!isOwnerOrCreator(project, user)) {
+            throw new BusinessException("仅项目总负责人或创建人可推进/回退阶段");
         }
-        Map<String, Object> rules = configuration.snapshot(id);
-        ProjectPhase target = phaseId == null ? null : configuration.phase(rules, phaseId);
-        if (target == null) {
-            throw new BusinessException("目标阶段不存在");
+        Map<String, Object> rules = snapshotOrNull(project);
+        ProjectPhase target;
+        ProjectPhase current;
+        if (rules == null) {
+            // 2026-11-09 流程重塑：新项目不绑定类型/快照，阶段直接以字典为准（当前仅「日程上传」）
+            target = phaseId == null ? null : phaseMapper.selectById(phaseId);
+            current = project.getPhaseId() == null ? null : phaseMapper.selectById(project.getPhaseId());
+            if (target == null) {
+                throw new BusinessException("目标阶段不存在");
+            }
+            if (target.getIsActive() != null && target.getIsActive() == 0) {
+                throw new BusinessException("目标阶段已停用");
+            }
+        } else {
+            target = phaseId == null ? null : configuration.phase(rules, phaseId);
+            if (target == null) {
+                throw new BusinessException("目标阶段不存在");
+            }
+            if (target.getIsActive() != null && target.getIsActive() == 0) {
+                throw new BusinessException("目标阶段已停用");
+            }
+            current = configuration.phase(rules, project.getPhaseId());
         }
-        if (target.getIsActive() != null && target.getIsActive() == 0) {
-            throw new BusinessException("目标阶段已停用");
-        }
-        ProjectPhase current = configuration.phase(rules, project.getPhaseId());
         if (current == null) {
             throw new BusinessException("当前阶段不存在");
         }
@@ -437,8 +576,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void cancel(Long id, String reason, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可取消项目");
+        if (!isOwnerOrCreator(project, user)) {
+            throw new BusinessException("仅项目总负责人或创建人可取消项目");
         }
         if (!StringUtils.hasText(reason)) {
             throw new BusinessException("取消原因不能为空");
@@ -468,7 +607,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         requireProjectReadable(requireProject(id), user);
         List<ProjectExpert> rels = expertRelMapper.selectList(new LambdaQueryWrapper<ProjectExpert>()
                 .eq(ProjectExpert::getProjectId, id).orderByAsc(ProjectExpert::getId));
-        boolean full = user != null && (isOwnerOrExecutor(requireProject(id), user));
+        boolean full = user != null && (isProjectMember(requireProject(id), user));
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectExpert rel : rels) {
             Expert expert = expertService.getById(rel.getExpertId());
@@ -673,7 +812,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectDoc doc : docs) {
             Map<String, Object> m = toMap(doc);
-            m.put("phaseName", configuration.phase(configuration.snapshot(id), doc.getPhaseId()).getName());
+            m.put("phaseName", docPhaseName(id, doc.getPhaseId()));
             m.put("isRichText", doc.getFilePath() != null && doc.getFilePath().startsWith("_richtext/"));
             if (m.get("isRichText") == Boolean.TRUE) {
                 m.put("content", storageService.readRichText(doc.getFilePath()));
@@ -687,13 +826,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public ProjectDoc uploadDoc(Long id, Long phaseId, MultipartFile file, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可上传资料");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可上传资料");
         }
         if (phaseId == null) {
             throw new BusinessException("阶段不存在");
         }
-        configuration.phase(configuration.snapshot(id), phaseId);
+        validatePhaseForProject(project, phaseId);
         String fileName = storageService.saveFile(file);
         ProjectDoc doc = new ProjectDoc();
         doc.setProjectId(id);
@@ -705,7 +844,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         docMapper.insert(doc);
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_UPLOAD_DOC,
-                "项目「" + project.getName() + "」上传资料《" + doc.getFileName() + "》（阶段：" + configuration.phase(configuration.snapshot(id),phaseId).getName() + "）",
+                "项目「" + project.getName() + "」上传资料《" + doc.getFileName() + "》（阶段：" + phaseNameOf(requireProject(id)) + "）",
                 "PROJECT", id, null);
         return doc;
     }
@@ -714,8 +853,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void deleteDoc(Long id, Long docId, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可删除资料");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可删除资料");
         }
         ProjectDoc doc = docMapper.selectById(docId);
         if (doc == null || !doc.getProjectId().equals(id)) {
@@ -748,13 +887,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void saveRichText(Long id, Long phaseId, Long templateId, String content, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可维护阶段内容");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可维护阶段内容");
         }
         if (phaseId == null) {
             throw new BusinessException("阶段不存在");
         }
-        configuration.phase(configuration.snapshot(id), phaseId);
+        validatePhaseForProject(project, phaseId);
+        if (snapshotOrNull(project) == null) {
+            // 2026-11-09 流程重塑：新流程项目无模板体系，不支持富文本阶段内容
+            throw new BusinessException("当前项目未配置富文本资料要求");
+        }
         Map<String,Object> requirement = configuration.requirements(id,phaseId).stream()
                 .filter(r -> java.util.Objects.equals(ProjectConfigurationService.number(r.get("templateId")),templateId) && "RICH_TEXT".equals(r.get("templateType")))
                 .findFirst().orElseThrow(() -> new BusinessException("此阶段未配置该富文本资料要求"));
@@ -770,7 +913,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         docMapper.insert(doc);
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_UPLOAD_DOC,
-                "项目「" + project.getName() + "」保存阶段内容《" + template.getName() + "》（阶段：" + configuration.phase(configuration.snapshot(id),phaseId).getName() + "）",
+                "项目「" + project.getName() + "」保存阶段内容《" + template.getName() + "》（阶段：" + phaseNameOf(requireProject(id)) + "）",
                 "PROJECT", id, null);
     }
 
@@ -780,8 +923,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void registerBudget(Long id, BigDecimal amount, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可登记预算");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可登记预算");
         }
         if (amount == null || amount.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException("预算金额不能为空且不能为负");
@@ -817,7 +960,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         requireProjectReadable(requireProject(id), user);
         List<ProjectContract> contracts = contractMapper.selectList(new LambdaQueryWrapper<ProjectContract>()
                 .eq(ProjectContract::getProjectId, id).orderByDesc(ProjectContract::getId));
-        boolean full = user != null && isOwnerOrExecutor(requireProject(id), user);
+        boolean full = user != null && isProjectMember(requireProject(id), user);
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectContract c : contracts) {
             Map<String, Object> m = toMap(c);
@@ -840,8 +983,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public ProjectContract createContract(Long id, Long expertId, BigDecimal fee, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可登记合同");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可登记合同");
         }
         ProjectExpert rel = expertRelMapper.selectOne(new LambdaQueryWrapper<ProjectExpert>()
                 .eq(ProjectExpert::getProjectId, id).eq(ProjectExpert::getExpertId, expertId));
@@ -882,8 +1025,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void uploadContractFile(Long id, Long contractId, MultipartFile file, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可上传合同文件");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可上传合同文件");
         }
         ProjectContract contract = contractMapper.selectById(contractId);
         if (contract == null || !contract.getProjectId().equals(id)) {
@@ -907,8 +1050,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void updateContractSensitive(Long id, Long contractId, Map<String, Object> changes, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可修改合同敏感字段");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可修改合同敏感字段");
         }
         ProjectContract contract = contractMapper.selectById(contractId);
         if (contract == null || !contract.getProjectId().equals(id)) {
@@ -956,8 +1099,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 发起合同审批（复用现有审批流；通过后合同生效）。 */
     public Application submitContractApproval(Long id, Long contractId, AuthUser user) {
         Project project = requireProject(id);
-        if (!isOwnerOrExecutor(project, user)) {
-            throw new BusinessException("仅项目负责人或执行人可发起合同审批");
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException("仅项目成员（负责人/创建人/协助人）可发起合同审批");
         }
         ProjectContract contract = contractMapper.selectById(contractId);
         if (contract == null || !contract.getProjectId().equals(id)) {
@@ -981,13 +1124,14 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /**
      * 导出项目列表 xlsx（含专家/供应商明细，三 sheet）；写 DOWNLOAD 留痕。
      */
-    public Workbook buildExportWorkbook(String status, String startBegin, String startEnd,
+    public Workbook buildExportWorkbook(String keyword, String status, String startBegin, String startEnd,
                                         String endBegin, String endEnd, Long ownerId,
-                                        String category, Long typeId, Long executorId, AuthUser user) {
-        List<Project> projects = collectProjects(status, startBegin, startEnd, endBegin, endEnd, ownerId, category, typeId, executorId, user);
+                                        String category,
+                                        String team, Long cityId, Long assistantId, AuthUser user) {
+        List<Project> projects = collectProjects(keyword, status, startBegin, startEnd, endBegin, endEnd, ownerId, category, team, cityId, assistantId, user);
         Workbook wb = new XSSFWorkbook();
         Sheet sheet = wb.createSheet("项目列表");
-        String[] headers = {"项目ID", "名称", "大类", "类型", "开始时间", "结束时间", "负责人", "执行人", "当前阶段", "状态", "预算金额", "创建时间"};
+        String[] headers = {"项目ID", "会议名称", "会议类型", "团队", "会议城市", "项目开始时间", "项目结束时间", "举办开始", "举办结束", "总负责人", "协助人", "客户单位", "客户姓名", "当前阶段", "状态", "预算金额", "备注", "创建时间"};
         Row head = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {
             head.createCell(i).setCellValue(headers[i]);
@@ -998,15 +1142,21 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             row.createCell(0).setCellValue(p.getId() == null ? "" : String.valueOf(p.getId()));
             row.createCell(1).setCellValue(p.getName() == null ? "" : p.getName());
             row.createCell(2).setCellValue("ONLINE".equals(p.getCategory()) ? "线上" : ("OFFLINE".equals(p.getCategory()) ? "线下" : ""));
-            row.createCell(3).setCellValue(nameOfType(p.getTypeId()));
-            row.createCell(4).setCellValue(p.getStartDate() == null ? "" : p.getStartDate().format(DATE_FMT));
-            row.createCell(5).setCellValue(p.getEndDate() == null ? "" : p.getEndDate().format(DATE_FMT));
-            row.createCell(6).setCellValue(usernameOf(p.getOwnerId()));
-            row.createCell(7).setCellValue(String.join("、", executorNamesOf(p.getId())));
-            row.createCell(8).setCellValue(configuration.phase(configuration.snapshot(p.getId()),p.getPhaseId()).getName());
-            row.createCell(9).setCellValue(statusText(p));
-            row.createCell(10).setCellValue(p.getBudgetAmount() == null ? "" : p.getBudgetAmount().toPlainString());
-            row.createCell(11).setCellValue(p.getCreateTime() == null ? "" : p.getCreateTime().format(DT_FMT));
+            row.createCell(3).setCellValue(teamLabelOf(p.getTeam()));
+            row.createCell(4).setCellValue(cityNameOf(p.getCityId()));
+            row.createCell(5).setCellValue(p.getStartDate() == null ? "" : p.getStartDate().format(DATE_FMT));
+            row.createCell(6).setCellValue(p.getEndDate() == null ? "" : p.getEndDate().format(DATE_FMT));
+            row.createCell(7).setCellValue(p.getMeetingStartDate() == null ? "" : p.getMeetingStartDate().format(DATE_FMT));
+            row.createCell(8).setCellValue(p.getMeetingEndDate() == null ? "" : p.getMeetingEndDate().format(DATE_FMT));
+            row.createCell(9).setCellValue(usernameOf(p.getOwnerId()));
+            row.createCell(10).setCellValue(String.join("、", assistantNamesOf(p.getId())));
+            row.createCell(11).setCellValue(p.getClientCompany() == null ? "" : p.getClientCompany());
+            row.createCell(12).setCellValue(p.getClientName() == null ? "" : p.getClientName());
+            row.createCell(13).setCellValue(phaseNameOf(p));
+            row.createCell(14).setCellValue(statusText(p));
+            row.createCell(15).setCellValue(p.getBudgetAmount() == null ? "" : p.getBudgetAmount().toPlainString());
+            row.createCell(16).setCellValue(p.getRemark() == null ? "" : p.getRemark());
+            row.createCell(17).setCellValue(p.getCreateTime() == null ? "" : p.getCreateTime().format(DT_FMT));
         }
 
         Sheet expertSheet = wb.createSheet("项目专家明细");
@@ -1073,10 +1223,33 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return wb;
     }
 
-    private List<Project> collectProjects(String status, String startBegin, String startEnd,
+    private List<Project> collectProjects(String keyword, String status, String startBegin, String startEnd,
                                           String endBegin, String endEnd, Long ownerId,
-                                          String category, Long typeId, Long executorId, AuthUser user) {
+                                          String category,
+                                          String team, Long cityId, Long assistantId, AuthUser user) {
         LambdaQueryWrapper<Project> qw = new LambdaQueryWrapper<Project>().ne(Project::getStatus, STATUS_DELETED);
+        if (StringUtils.hasText(keyword)) {
+            String kw = keyword.trim();
+            qw.and(w -> w.like(Project::getName, kw)
+                    .or().like(Project::getClientCompany, kw)
+                    .or().like(Project::getClientName, kw));
+        }
+        if (StringUtils.hasText(team)) {
+            qw.eq(Project::getTeam, team);
+        }
+        if (cityId != null) {
+            qw.eq(Project::getCityId, cityId);
+        }
+        if (assistantId != null) {
+            List<Long> projectIds = assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
+                            .eq(ProjectAssistant::getUserId, assistantId))
+                    .stream().map(ProjectAssistant::getProjectId).distinct().collect(Collectors.toList());
+            if (projectIds.isEmpty()) {
+                qw.eq(Project::getId, -1L);
+            } else {
+                qw.in(Project::getId, projectIds);
+            }
+        }
         if (StringUtils.hasText(status)) {
             if ("CANCELED".equals(status)) {
                 qw.eq(Project::getStatus, STATUS_CANCELED);
@@ -1104,19 +1277,6 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         if (StringUtils.hasText(category)) {
             qw.eq(Project::getCategory, category);
-        }
-        if (typeId != null) {
-            qw.eq(Project::getTypeId, typeId);
-        }
-        if (executorId != null) {
-            List<Long> projectIds = executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
-                            .eq(ProjectExecutor::getUserId, executorId))
-                    .stream().map(ProjectExecutor::getProjectId).distinct().collect(Collectors.toList());
-            if (projectIds.isEmpty()) {
-                qw.eq(Project::getId, -1L);
-            } else {
-                qw.in(Project::getId, projectIds);
-            }
         }
         // 行级数据权限：非豁免用户仅见本人负责或执行的项目
         if (!canViewAllProjects(user)) {
@@ -1506,8 +1666,16 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return result;
     }
 
-    /** 执行人候选（全部在职用户，仅 id/姓名，登录即可访问，供项目页执行人筛选与选择）。 */
-    public List<Map<String, Object>> listProjectExecutors() {
+    // 执行人候选接口已随执行人概念删除（2026-11-09 流程重塑）。
+
+    /** 激活阶段字典（阶段筛选/详情展示用；非配置管理）。 */
+    public List<ProjectPhase> listActivePhases() {
+        return phaseMapper.selectList(new LambdaQueryWrapper<ProjectPhase>()
+                .eq(ProjectPhase::getIsActive, 1).orderByAsc(ProjectPhase::getSort).orderByAsc(ProjectPhase::getId));
+    }
+
+    /** 用户选项：全部在职用户（仅 id/姓名；负责人/协助人筛选与选择）。 */
+    public List<Map<String, Object>> listUserOptions() {
         List<SysUser> users = sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getStatus, 1).orderByAsc(SysUser::getUsername));
         List<Map<String, Object>> result = new ArrayList<>(users.size());
@@ -1522,7 +1690,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     // ==================== 私有辅助 ====================
 
-    private Project requireProject(Long id) {
+    /** 项目存在且未删除（2026-11-09 改 public：日程解析等协作服务复用）。 */
+    public Project requireProject(Long id) {
         Project p = id == null ? null : this.getById(id);
         if (p == null || STATUS_DELETED.equals(p.getStatus())) {
             throw new BusinessException("项目不存在");
@@ -1530,20 +1699,70 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return p;
     }
 
-    /** 项目级授权：负责人/执行人；超级管理员全权。 */
-    private boolean isOwnerOrExecutor(Project project, AuthUser user) {
+    /** 项目成员级授权（2026-11-09 执行人概念删除后）：负责人/创建人/协助人；超级管理员全权。 */
+    private boolean isProjectMember(Project project, AuthUser user) {
         if (user == null) {
             return false;
         }
         if (user.isAdmin()) {
             return true;
         }
-        if (project.getOwnerId() != null && project.getOwnerId().equals(user.getUserId())) {
+        Long uid = user.getUserId();
+        if ((project.getOwnerId() != null && project.getOwnerId().equals(uid))
+                || (project.getCreatorId() != null && project.getCreatorId().equals(uid))) {
             return true;
         }
+        // 兼容历史项目的执行人授权（执行人表已停用写入，老数据仍生效）
         Long cnt = executorMapper.selectCount(new LambdaQueryWrapper<ProjectExecutor>()
-                .eq(ProjectExecutor::getProjectId, project.getId()).eq(ProjectExecutor::getUserId, user.getUserId()));
-        return cnt != null && cnt > 0;
+                .eq(ProjectExecutor::getProjectId, project.getId()).eq(ProjectExecutor::getUserId, uid));
+        if (cnt != null && cnt > 0) {
+            return true;
+        }
+        Long acnt = assistantMapper.selectCount(new LambdaQueryWrapper<ProjectAssistant>()
+                .eq(ProjectAssistant::getProjectId, project.getId()).eq(ProjectAssistant::getUserId, uid));
+        return acnt != null && acnt > 0;
+    }
+
+    /** 推进/回退/取消级授权（2026-11-09 Owner 口径）：仅负责人+创建人（执行人概念已删除）。 */
+    private boolean isOwnerOrCreator(Project project, AuthUser user) {
+        if (user == null) {
+            return false;
+        }
+        if (user.isAdmin()) {
+            return true;
+        }
+        Long uid = user.getUserId();
+        return (project.getOwnerId() != null && project.getOwnerId().equals(uid))
+                || (project.getCreatorId() != null && project.getCreatorId().equals(uid));
+    }
+
+    /** 供日程解析等协作服务复用：校验当前用户可操作该项目（成员级）。 */
+    public void requireOperable(Project project, AuthUser user) {
+        if (!isProjectMember(project, user)) {
+            throw new BusinessException(403, "仅项目成员（负责人/创建人/协助人）可执行该操作");
+        }
+    }
+
+    /** 供日程解析等协作服务复用：文件存入项目资料库（调用方负责格式/大小校验）。 */
+    public String storageSave(org.springframework.web.multipart.MultipartFile file) {
+        return storageService.saveFile(file);
+    }
+
+    /** 供日程解析等协作服务复用：按存储相对路径读取文件字节（防穿越；不存在返回 null）。 */
+    public byte[] storageRead(String filePath) {
+        java.nio.file.Path p = storageService.resolveFile(filePath);
+        if (p == null) return null;
+        try {
+            return java.nio.file.Files.readAllBytes(p);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** 供日程解析等协作服务复用：统一操作留痕入口。 */
+    public void operationRecord(AuthUser user, String desc, String targetType, Long targetId) {
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPDATE_PROJECT, desc, targetType, targetId, null);
     }
 
     private void requireManage(AuthUser user) {
@@ -1566,7 +1785,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     /** 项目可读：豁免用户全量可见；否则仅负责人/执行人。 */
     private boolean canViewProject(Project project, AuthUser user) {
-        return canViewAllProjects(user) || isOwnerOrExecutor(project, user);
+        return canViewAllProjects(user) || isProjectMember(project, user);
     }
 
     /** 读出口校验：非豁免用户越权访问返回 403。 */
@@ -1594,9 +1813,41 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
     }
 
+    /** 校验项目下阶段合法性：快照项目走配置口径，新项目（无快照）要求阶段存在且启用。 */
+    private void validatePhaseForProject(Project project, Long phaseId) {
+        Map<String, Object> rules = snapshotOrNull(project);
+        if (rules != null) {
+            configuration.phase(rules, phaseId);
+            return;
+        }
+        ProjectPhase p = phaseMapper.selectById(phaseId);
+        if (p == null || (p.getIsActive() != null && p.getIsActive() == 0)) {
+            throw new BusinessException("阶段不存在或已停用");
+        }
+    }
+
+    /** 资料所属阶段名（新项目直接查字典，快照项目走配置口径）。 */
+    private String docPhaseName(Long projectId, Long phaseId) {
+        if (phaseId == null) return "";
+        Project project = requireProject(projectId);
+        Map<String, Object> rules = snapshotOrNull(project);
+        if (rules != null) {
+            try {
+                return configuration.phase(rules, phaseId).getName();
+            } catch (Exception ignored) {
+            }
+        }
+        ProjectPhase p = phaseMapper.selectById(phaseId);
+        return p == null ? "" : p.getName();
+    }
+
     /** 校验目标阶段必填模板是否配齐；返回缺失模板类型中文列表。 */
     private List<String> missingRequiredTemplates(Project project, Long phaseId) {
         List<String> missing = new ArrayList<>();
+        // 2026-11-09 流程重塑：新流程项目无模板体系，无必填校验
+        if (snapshotOrNull(project) == null) {
+            return missing;
+        }
         // 类型专属绑定优先，无专属回退全局兜底（type_id=0）
         List<Map<String,Object>> rels = configuration.requirements(project.getId(),phaseId).stream()
                 .filter(r -> ProjectConfigurationService.number(r.get("required")) == 1).toList();
@@ -1644,6 +1895,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("id", project.getId());
         m.put("name", project.getName());
         m.put("category", project.getCategory());
+        m.put("team", project.getTeam());
+        m.put("cityId", project.getCityId());
+        m.put("meetingStartDate", project.getMeetingStartDate() == null ? null : project.getMeetingStartDate().toString());
+        m.put("meetingEndDate", project.getMeetingEndDate() == null ? null : project.getMeetingEndDate().toString());
+        m.put("clientCompany", project.getClientCompany());
+        m.put("clientName", project.getClientName());
+        m.put("remark", project.getRemark());
         m.put("typeId", project.getTypeId());
         m.put("startDate", project.getStartDate() == null ? null : project.getStartDate().toString());
         m.put("endDate", project.getEndDate() == null ? null : project.getEndDate().toString());
@@ -1688,25 +1946,62 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return m;
     }
 
-    private List<String> executorNamesOf(Long projectId) {
-        List<ProjectExecutor> rels = executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
-                .eq(ProjectExecutor::getProjectId, projectId));
-        return rels.stream().map(ProjectExecutor::getUserId).map(this::usernameOf).collect(Collectors.toList());
+    // ==================== 团队 / 会议城市 / 协助人（2026-11-09 基本信息改版） ====================
+
+    private void validateTeam(String team) {
+        if (!TEAM_LABELS.containsKey(team)) {
+            throw new BusinessException("团队必须为项目一部(DEPT1)/项目二部(DEPT2)/项目三部(DEPT3)");
+        }
     }
 
-    /** 项目执行人 userIds（编辑回显/提交用）。 */
-    private List<Long> executorIdsOf(Long projectId) {
-        return executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
-                .eq(ProjectExecutor::getProjectId, projectId))
-                .stream().map(ProjectExecutor::getUserId).collect(Collectors.toList());
+    private String teamLabelOf(String team) {
+        return team == null ? "" : TEAM_LABELS.getOrDefault(team, team);
     }
 
-    private String nameOfType(Long typeId) {
-        if (typeId == null) {
+    private void validateCity(Long cityId) {
+        if (cityId != null && supplierCityMapper.selectById(cityId) == null) {
+            throw new BusinessException("会议城市不存在（请从城市字典中选择）");
+        }
+    }
+
+    private String cityNameOf(Long cityId) {
+        if (cityId == null) {
             return "";
         }
-        ProjectType t = typeMapper.selectById(typeId);
-        return t == null ? "" : t.getName();
+        SupplierCity c = supplierCityMapper.selectById(cityId);
+        if (c == null) {
+            return "";
+        }
+        return "北京市天津市上海市重庆市".contains(c.getName()) ? c.getName() : c.getProvince() + c.getName();
+    }
+
+    private void validateMeetingRange(LocalDate meetingStart, LocalDate meetingEnd) {
+        if (meetingStart != null && meetingEnd != null && meetingEnd.isBefore(meetingStart)) {
+            throw new BusinessException("会议举办结束日期不能早于开始日期");
+        }
+    }
+
+    /** 全量替换协助人（可传空=清空）。 */
+    private void saveAssistants(Long projectId, List<Long> userIds) {
+        assistantMapper.delete(new LambdaQueryWrapper<ProjectAssistant>().eq(ProjectAssistant::getProjectId, projectId));
+        for (Long uid : userIds) {
+            ProjectAssistant pa = new ProjectAssistant();
+            pa.setProjectId(projectId);
+            pa.setUserId(uid);
+            assistantMapper.insert(pa);
+        }
+    }
+
+    private List<String> assistantNamesOf(Long projectId) {
+        return assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
+                        .eq(ProjectAssistant::getProjectId, projectId).orderByAsc(ProjectAssistant::getId))
+                .stream().map(ProjectAssistant::getUserId).map(this::usernameOf).collect(Collectors.toList());
+    }
+
+    private List<Long> assistantIdsOf(Long projectId) {
+        return assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
+                        .eq(ProjectAssistant::getProjectId, projectId).orderByAsc(ProjectAssistant::getId))
+                .stream().map(ProjectAssistant::getUserId).collect(Collectors.toList());
     }
 
     private String nameOfPhase(Long phaseId) {
@@ -1746,7 +2041,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (STATUS_CANCELED.equals(p.getStatus())) {
             return "已取消";
         }
-        String phase = configuration.phase(configuration.snapshot(p.getId()),p.getPhaseId()).getName();
+        String phase = phaseNameOf(p);
         return StringUtils.hasText(phase) ? phase : p.getStatus();
     }
 

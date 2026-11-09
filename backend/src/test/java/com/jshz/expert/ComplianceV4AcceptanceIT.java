@@ -152,7 +152,7 @@ class ComplianceV4AcceptanceIT {
         assertEquals(3, n("sys_user"));
         assertEquals(1, n("project"));
         assertEquals("隔离项目", db.queryForObject("SELECT name FROM project WHERE id=1",String.class));
-        assertEquals(1, projects.pageProjects(null,null,null,null,null,null,null,null,null,1,100,owner()).getTotal());
+        assertEquals(1, projects.pageProjects(null,null,null,null,null,null,null,null,null,null,null,1,100,owner()).getTotal());
     }
     long dueNode(long e) {
         long t=task(e); v4.startExecution(e,Map.of(),owner());

@@ -213,7 +213,7 @@ import {
   confirmComplianceDrafts, confirmComplianceMatch, complianceItemHistory,
   assigneeProgress
 } from '../../api/compliance'
-import { listProjectExecutors } from '../../api/project'
+import { listProjectUsers } from '../../api/project'
 
 const STAGE_TEXT = {
   INITIATION: '立项', FINANCE: '财务流程', EXECUTION: '执行',

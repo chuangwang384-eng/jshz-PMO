@@ -18,6 +18,7 @@ class ProjectAccessRegressionTest {
     @InjectMocks ProjectService service;
     @Mock ProjectMapper projects;
     @Mock ProjectExecutorMapper executors;
+    @Mock ProjectAssistantMapper assistants;
     @Mock OperationLogMapper logs;
     @Mock ProjectDocMapper docs;
     @Mock ProjectStorageService storage;

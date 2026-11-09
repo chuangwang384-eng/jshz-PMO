@@ -1,10 +1,11 @@
 import request, { downloadFile } from './request'
 
 // 项目管理接口（对应后端 /api/project/*）
-// 写操作（创建/编辑/软删/关联专家供应商/资料/合同/配置）需 project:manage；
-// 列表/详情/时间线/导出为只读，登录即可（project:view 全员默认）；阶段推进为项目级授权（负责人+执行人）
+// 写操作（创建/编辑/软删/关联专家供应商/资料/合同/日程/参会专家）需 project:manage；
+// 列表/详情/时间线/导出为只读，登录即可（project:view 全员默认）；阶段推进为项目级授权（负责人+创建人）
+// 2026-11-09 项目流程重塑：项目类型/执行人概念删除，类型流程配置接口后端已 410，相关方法一并移除
 
-// 分页列表（筛选：status/startBegin/startEnd/endBegin/endEnd/ownerId/category/typeId/executorId）
+// 分页列表（筛选：status/startBegin/startEnd/endBegin/endEnd/ownerId/category/team/cityId/assistantId）
 export function listProjects(params) {
   return request.get('/project', { params })
 }
@@ -154,97 +155,46 @@ export function listProjectOwners() {
   return request.get('/project/owners')
 }
 
-// 执行人候选（全部在职用户，仅 id/姓名，登录即可；勿直接调 /users——那需要 user:manage 权限）
-export function listProjectExecutors() {
-  return request.get('/project/executors')
+// 用户选项（全部在职用户，仅 id/姓名，登录即可；负责人/协助人筛选与选择，替代已删的 /executors）
+export function listProjectUsers() {
+  return request.get('/project/user-options')
 }
 
-// ==================== 配置管理（project:manage） ====================
-
-export function listProjectTypes() {
-  return request.get('/project/config/types')
+// 阶段选项（激活阶段字典，登录即可；阶段筛选/展示用）
+export function listPhaseOptions() {
+  return request.get('/project/phase-options')
 }
 
-export function createProjectType(data) {
-  return request.post('/project/config/types', data)
+// ==================== 日程上传（2026-11-09 流程重塑第一阶段） ====================
+
+// 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；覆盖当前生效份）
+export function uploadSchedule(id, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return request.post(`/project/${id}/schedule`, fd)
 }
 
-export function updateProjectType(id, data) {
-  return request.put(`/project/config/types/${id}`, data)
+// 日程与参会专家汇总（当前日程 + 候选 + 正式记录）
+export function getScheduleOverview(id) {
+  return request.get(`/project/${id}/schedule`)
 }
 
-export function deleteProjectType(id) {
-  return request.delete(`/project/config/types/${id}`)
+// 触发解析（规则打底 + 本地大模型兜底，结果为候选，须人工确认）
+export function parseSchedule(id, scheduleId) {
+  return request.post(`/project/${id}/schedule/${scheduleId}/parse`)
 }
 
-export function listProjectPhases() {
-  return request.get('/project/config/phases')
+// 人工确认保存参会专家（整表覆盖式提交正式记录）
+export function confirmSpeakers(id, speakers) {
+  return request.put(`/project/${id}/speakers`, { speakers })
 }
 
-export function createProjectPhase(data) {
-  return request.post('/project/config/phases', data)
+// 手动补录一条参会专家（解析失败/遗漏兜底）
+export function addSpeaker(id, data) {
+  return request.post(`/project/${id}/speakers`, data)
 }
 
-export function updateProjectPhase(id, data) {
-  return request.put(`/project/config/phases/${id}`, data)
+// 删除一条参会专家记录（候选或正式）
+export function deleteSpeaker(id, speakerId) {
+  return request.delete(`/project/${id}/speakers/${speakerId}`)
 }
-
-export function deleteProjectPhase(id) {
-  return request.delete(`/project/config/phases/${id}`)
-}
-
-export function listProjectTemplates() {
-  return request.get('/project/config/templates')
-}
-
-export function createProjectTemplate(data) {
-  return request.post('/project/config/templates', data)
-}
-
-export function listPhaseTemplates(phaseId) {
-  return request.get(`/project/config/phases/${phaseId}/templates`)
-}
-
-export function savePhaseTemplates(phaseId, binds) {
-  return request.put(`/project/config/phases/${phaseId}/templates`, binds)
-}
-
-// ==================== 配置 v2（20261102）：类型流程 + 类型专属绑定 + 模板编辑删除 ====================
-
-// 类型阶段序列（按 sort 升序）
-export function listTypePhases(typeId) {
-  return request.get(`/project/config/types/${typeId}/phases`)
-}
-
-// 全量保存类型阶段序列（入参为排序后的 phaseId 数组）
-export function saveTypePhases(typeId, phaseIds) {
-  return request.put(`/project/config/types/${typeId}/phases`, phaseIds)
-}
-
-// 类型专属阶段模板绑定（无专属时回退全局兜底，行内 fallback=true 标识）
-export function listTypePhaseTemplates(typeId, phaseId) {
-  return request.get(`/project/config/types/${typeId}/phases/${phaseId}/templates`)
-}
-
-// 全量保存类型专属阶段模板绑定
-export function saveTypePhaseTemplates(typeId, phaseId, binds) {
-  return request.put(`/project/config/types/${typeId}/phases/${phaseId}/templates`, binds)
-}
-
-// 修改模板（名称/模板类型）
-export function updateProjectTemplate(id, data) {
-  return request.put(`/project/config/templates/${id}`, data)
-}
-
-// 删除模板（被绑定引用时后端拦截）
-export function deleteProjectTemplate(id) {
-  return request.delete(`/project/config/templates/${id}`)
-}
-
-// PC-20261104: atomic project configuration definitions.
-export const getDefinitionContext = () => request.get('/project/config/definition-context')
-export const getTypeDefinition = (id) => request.get(`/project/config/types/${id}/definition`)
-export const previewDefinition = (data) => request.post('/project/config/definitions/preview', data)
-export const saveTypeDefinition = (id, data) => id ? request.put(`/project/config/types/${id}/definition`, data) : request.post('/project/config/definitions', data)
-export const orderProjectTypes = (data) => request.put('/project/config/types/order', data)
-export const getProjectConfiguration = (id) => request.get(`/project/${id}/configuration`)

@@ -11,9 +11,11 @@ import com.jshz.expert.entity.ProjectContract;
 import com.jshz.expert.entity.ProjectDoc;
 import com.jshz.expert.entity.ProjectPhase;
 import com.jshz.expert.entity.ProjectTemplate;
-import com.jshz.expert.entity.ProjectType;
+import com.jshz.expert.entity.ProjectSchedule;
+import com.jshz.expert.entity.ProjectSpeaker;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ProjectService;
+import com.jshz.expert.service.ScheduleParseService;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -47,22 +49,24 @@ public class ProjectController {
 
     private final ProjectService projectService;
 
-    /** 分页列表（筛选：status/startBegin/startEnd/endBegin/endEnd/ownerId/category/typeId/executorId）。 */
+    /** 分页列表（筛选：keyword/status/startBegin/startEnd/endBegin/endEnd/ownerId/category/team/cityId/assistantId；类型/执行人筛选已随概念删除）。 */
     @GetMapping
-    public ApiResponse<Page<Map<String, Object>>> page(@RequestParam(required = false) String status,
+    public ApiResponse<Page<Map<String, Object>>> page(@RequestParam(required = false) String keyword,
+                                                       @RequestParam(required = false) String status,
                                                        @RequestParam(required = false) String startBegin,
                                                        @RequestParam(required = false) String startEnd,
                                                        @RequestParam(required = false) String endBegin,
                                                        @RequestParam(required = false) String endEnd,
                                                        @RequestParam(required = false) Long ownerId,
                                                        @RequestParam(required = false) String category,
-                                                       @RequestParam(required = false) Long typeId,
-                                                       @RequestParam(required = false) Long executorId,
+                                                       @RequestParam(required = false) String team,
+                                                       @RequestParam(required = false) Long cityId,
+                                                       @RequestParam(required = false) Long assistantId,
                                                        @RequestParam(defaultValue = "1") long page,
                                                        @RequestParam(defaultValue = "10") long size,
                                                        @AuthenticationPrincipal AuthUser user) {
-        return ApiResponse.ok(projectService.pageProjects(status, startBegin, startEnd, endBegin, endEnd,
-                ownerId, category, typeId, executorId, page, size, user));
+        return ApiResponse.ok(projectService.pageProjects(keyword, status, startBegin, startEnd, endBegin, endEnd,
+                ownerId, category, team, cityId, assistantId, page, size, user));
     }
 
     /** 创建项目。 */
@@ -257,21 +261,23 @@ public class ProjectController {
         return ApiResponse.ok(projectService.submitContractApproval(id, contractId, user));
     }
 
-    /** 导出 xlsx（含专家/供应商明细；DOWNLOAD 留痕）。 */
+    /** 导出 xlsx（含专家/供应商明细；DOWNLOAD 留痕；类型/执行人列已随概念删除）。 */
     @GetMapping("/export")
-    public void export(@RequestParam(required = false) String status,
+    public void export(@RequestParam(required = false) String keyword,
+                       @RequestParam(required = false) String status,
                        @RequestParam(required = false) String startBegin,
                        @RequestParam(required = false) String startEnd,
                        @RequestParam(required = false) String endBegin,
                        @RequestParam(required = false) String endEnd,
                        @RequestParam(required = false) Long ownerId,
                        @RequestParam(required = false) String category,
-                       @RequestParam(required = false) Long typeId,
-                       @RequestParam(required = false) Long executorId,
+                       @RequestParam(required = false) String team,
+                       @RequestParam(required = false) Long cityId,
+                       @RequestParam(required = false) Long assistantId,
                        HttpServletResponse response,
                        @AuthenticationPrincipal AuthUser user) throws Exception {
-        Workbook wb = projectService.buildExportWorkbook(status, startBegin, startEnd, endBegin, endEnd,
-                ownerId, category, typeId, executorId, user);
+        Workbook wb = projectService.buildExportWorkbook(keyword, status, startBegin, startEnd, endBegin, endEnd,
+                ownerId, category, team, cityId, assistantId, user);
         String fileName = "项目列表_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()) + ".xlsx";
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename=\"" + java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20") + "\"");
@@ -285,136 +291,130 @@ public class ProjectController {
         return ApiResponse.ok(projectService.listProjectOwners());
     }
 
-    /** 执行人候选（全部在职用户，仅 id/姓名；登录即可，供执行人筛选/选择，替代需 user:manage 的 /api/users）。 */
-    @GetMapping("/executors")
-    public ApiResponse<List<Map<String, Object>>> executors() {
-        return ApiResponse.ok(projectService.listProjectExecutors());
+    // 执行人候选接口已随执行人概念删除（2026-11-09 流程重塑）。
+
+    /** 阶段选项（激活阶段字典，登录即可；阶段筛选/展示用，非配置管理）。 */
+    @GetMapping("/phase-options")
+    public ApiResponse<List<ProjectPhase>> phaseOptions() {
+        return ApiResponse.ok(projectService.listActivePhases());
     }
 
-    // ==================== 配置管理（project:manage） ====================
+    /** 用户选项（全部在职用户，仅 id/姓名，登录即可；负责人/协助人筛选与选择用，替代已删的 /executors）。 */
+    @GetMapping("/user-options")
+    public ApiResponse<List<Map<String, Object>>> userOptions() {
+        return ApiResponse.ok(projectService.listUserOptions());
+    }
+
+    // ==================== 配置管理：已随项目类型概念停用（2026-11-09 流程重塑） ====================
+    // 类型决定阶段流程的配置体系整体下线（表保留观察，下版删除）；前端配置页同步移除。
+
+    /** 410：项目类型/阶段流程配置已停用。 */
+    private ApiResponse<Object> configRetired() {
+        throw new BusinessException(410, "项目类型/阶段流程配置已停用（2026-11-09 项目流程重塑）：类型概念已删除，项目固定走新流程");
+    }
 
     @GetMapping("/config/types")
-    public ApiResponse<List<ProjectType>> listTypes() {
-        return ApiResponse.ok(projectService.listTypes());
-    }
+    public ApiResponse<Object> listTypes() { return configRetired(); }
 
     @PostMapping("/config/types")
-    public ApiResponse<ProjectType> createType(@RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object name = body == null ? null : body.get("name");
-        Object sort = body == null ? null : body.get("sort");
-        return ApiResponse.ok(projectService.createType(name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort)), user));
-    }
+    public ApiResponse<Object> createType() { return configRetired(); }
 
     @PutMapping("/config/types/{id}")
-    public ApiResponse<ProjectType> updateType(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object name = body == null ? null : body.get("name");
-        Object sort = body == null ? null : body.get("sort");
-        return ApiResponse.ok(projectService.updateType(id, name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort)), user));
-    }
+    public ApiResponse<Object> updateType(@PathVariable Long id) { return configRetired(); }
 
     @DeleteMapping("/config/types/{id}")
-    public ApiResponse<Void> deleteType(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
-        projectService.deleteType(id, user);
-        return ApiResponse.ok(null);
-    }
+    public ApiResponse<Object> deleteType(@PathVariable Long id) { return configRetired(); }
 
     @GetMapping("/config/phases")
-    public ApiResponse<List<ProjectPhase>> listPhases() {
-        return ApiResponse.ok(projectService.listPhases());
-    }
+    public ApiResponse<Object> listPhases() { return configRetired(); }
 
     @PostMapping("/config/phases")
-    public ApiResponse<ProjectPhase> createPhase(@RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object name = body == null ? null : body.get("name");
-        Object sort = body == null ? null : body.get("sort");
-        return ApiResponse.ok(projectService.createPhase(name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort)), user));
-    }
+    public ApiResponse<Object> createPhase() { return configRetired(); }
 
     @PutMapping("/config/phases/{id}")
-    public ApiResponse<ProjectPhase> updatePhase(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object name = body == null ? null : body.get("name");
-        Object sort = body == null ? null : body.get("sort");
-        Object isActive = body == null ? null : body.get("isActive");
-        return ApiResponse.ok(projectService.updatePhase(id, name == null ? null : String.valueOf(name),
-                sort == null ? null : Integer.valueOf(String.valueOf(sort)),
-                isActive == null ? null : Integer.valueOf(String.valueOf(isActive)), user));
-    }
+    public ApiResponse<Object> updatePhase(@PathVariable Long id) { return configRetired(); }
 
     @DeleteMapping("/config/phases/{id}")
-    public ApiResponse<Void> deletePhase(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
-        projectService.deletePhase(id, user);
-        return ApiResponse.ok(null);
-    }
+    public ApiResponse<Object> deletePhase(@PathVariable Long id) { return configRetired(); }
 
     @GetMapping("/config/templates")
-    public ApiResponse<List<Map<String, Object>>> listTemplates() {
-        return ApiResponse.ok(projectService.listTemplates());
-    }
+    public ApiResponse<Object> listTemplates() { return configRetired(); }
 
     @PostMapping("/config/templates")
-    public ApiResponse<ProjectTemplate> createTemplate(@RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object name = body == null ? null : body.get("name");
-        Object type = body == null ? null : body.get("templateType");
-        return ApiResponse.ok(projectService.createTemplate(name == null ? null : String.valueOf(name),
-                type == null ? null : String.valueOf(type), user));
-    }
+    public ApiResponse<Object> createTemplate() { return configRetired(); }
+
+    @PutMapping("/config/templates/{id}")
+    public ApiResponse<Object> updateTemplate(@PathVariable Long id) { return configRetired(); }
+
+    @DeleteMapping("/config/templates/{id}")
+    public ApiResponse<Object> deleteTemplate(@PathVariable Long id) { return configRetired(); }
 
     @GetMapping("/config/phases/{phaseId}/templates")
-    public ApiResponse<List<Map<String, Object>>> listPhaseTemplates(@PathVariable Long phaseId) {
-        return ApiResponse.ok(projectService.listPhaseTemplates(phaseId));
-    }
+    public ApiResponse<Object> listPhaseTemplates(@PathVariable Long phaseId) { return configRetired(); }
 
     @PutMapping("/config/phases/{phaseId}/templates")
-    public ApiResponse<Void> savePhaseTemplates(@PathVariable Long phaseId, @RequestBody List<Map<String, Object>> binds, @AuthenticationPrincipal AuthUser user) {
-        projectService.savePhaseTemplates(phaseId, binds, user);
-        return ApiResponse.ok(null);
-    }
+    public ApiResponse<Object> savePhaseTemplates(@PathVariable Long phaseId) { return configRetired(); }
 
-    // ==================== 配置 v2（20261102）：类型流程 + 类型专属绑定 + 模板编辑删除 ====================
-
-    /** 类型阶段序列（按 sort 升序）。 */
     @GetMapping("/config/types/{typeId}/phases")
-    public ApiResponse<List<Map<String, Object>>> listTypePhases(@PathVariable Long typeId) {
-        return ApiResponse.ok(projectService.listTypePhases(typeId));
-    }
+    public ApiResponse<Object> listTypePhases(@PathVariable Long typeId) { return configRetired(); }
 
-    /** 全量保存类型阶段序列（入参为排序后的 phaseId 数组）。 */
     @PutMapping("/config/types/{typeId}/phases")
-    public ApiResponse<Void> saveTypePhases(@PathVariable Long typeId, @RequestBody List<Long> phaseIds, @AuthenticationPrincipal AuthUser user) {
-        projectService.saveTypePhases(typeId, phaseIds, user);
-        return ApiResponse.ok(null);
-    }
+    public ApiResponse<Object> saveTypePhases(@PathVariable Long typeId) { return configRetired(); }
 
-    /** 类型专属阶段模板绑定（无专属时回退全局兜底，fallback=true 标识）。 */
     @GetMapping("/config/types/{typeId}/phases/{phaseId}/templates")
-    public ApiResponse<List<Map<String, Object>>> listTypePhaseTemplates(@PathVariable Long typeId, @PathVariable Long phaseId) {
-        return ApiResponse.ok(projectService.listTypePhaseTemplates(typeId, phaseId));
-    }
+    public ApiResponse<Object> listTypePhaseTemplates(@PathVariable Long typeId, @PathVariable Long phaseId) { return configRetired(); }
 
-    /** 全量保存类型专属阶段模板绑定（type_id=类型ID）。 */
     @PutMapping("/config/types/{typeId}/phases/{phaseId}/templates")
-    public ApiResponse<Void> saveTypePhaseTemplates(@PathVariable Long typeId, @PathVariable Long phaseId,
-                                                    @RequestBody List<Map<String, Object>> binds, @AuthenticationPrincipal AuthUser user) {
-        projectService.saveTypePhaseTemplates(typeId, phaseId, binds, user);
-        return ApiResponse.ok(null);
+    public ApiResponse<Object> saveTypePhaseTemplates(@PathVariable Long typeId, @PathVariable Long phaseId) { return configRetired(); }
+
+    // ==================== 日程上传（2026-11-09 流程重塑第一阶段） ====================
+
+    private final ScheduleParseService scheduleParseService;
+
+    /** 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；覆盖当前生效份）。 */
+    @PostMapping("/{id}/schedule")
+    public ApiResponse<ProjectSchedule> uploadSchedule(@PathVariable Long id,
+                                                       @RequestParam("file") MultipartFile file,
+                                                       @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.upload(id, file, user));
     }
 
-    /** 修改模板（名称/模板类型）。 */
-    @PutMapping("/config/templates/{id}")
-    public ApiResponse<ProjectTemplate> updateTemplate(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
-        Object name = body == null ? null : body.get("name");
-        Object type = body == null ? null : body.get("templateType");
-        return ApiResponse.ok(projectService.updateTemplate(id, name == null ? null : String.valueOf(name),
-                type == null ? null : String.valueOf(type), user));
+    /** 日程与参会专家汇总（当前日程 + 候选 + 正式记录）。 */
+    @GetMapping("/{id}/schedule")
+    public ApiResponse<Map<String, Object>> scheduleOverview(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.overview(id, user));
     }
 
-    /** 删除模板（被绑定引用时拦截）。 */
-    @DeleteMapping("/config/templates/{id}")
-    public ApiResponse<Void> deleteTemplate(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
-        projectService.deleteTemplate(id, user);
+    /** 触发解析（规则打底 + 本地大模型兜底，结果为候选，须人工确认）。 */
+    @PostMapping("/{id}/schedule/{scheduleId}/parse")
+    public ApiResponse<List<ProjectSpeaker>> parseSchedule(@PathVariable Long id, @PathVariable Long scheduleId,
+                                                           @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.parse(id, scheduleId, user));
+    }
+
+    /** 人工确认保存参会专家（整表覆盖式提交正式记录）。 */
+    @PutMapping("/{id}/speakers")
+    public ApiResponse<List<ProjectSpeaker>> confirmSpeakers(@PathVariable Long id, @RequestBody Map<String, Object> body,
+                                                             @AuthenticationPrincipal AuthUser user) {
+        Object items = body == null ? null : body.get("speakers");
+        List<Map<String, Object>> list = items instanceof List<?> l
+                ? l.stream().filter(o -> o instanceof Map).map(o -> (Map<String, Object>) o).collect(java.util.stream.Collectors.toList())
+                : List.of();
+        return ApiResponse.ok(scheduleParseService.confirm(id, list, user));
+    }
+
+    /** 手动补录一条参会专家（解析失败/遗漏兜底）。 */
+    @PostMapping("/{id}/speakers")
+    public ApiResponse<ProjectSpeaker> addSpeaker(@PathVariable Long id, @RequestBody Map<String, Object> body,
+                                                  @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.addSpeaker(id, body, user));
+    }
+
+    /** 删除一条参会专家记录（候选或正式）。 */
+    @DeleteMapping("/{id}/speakers/{speakerId}")
+    public ApiResponse<Void> deleteSpeaker(@PathVariable Long id, @PathVariable Long speakerId,
+                                           @AuthenticationPrincipal AuthUser user) {
+        scheduleParseService.deleteSpeaker(id, speakerId, user);
         return ApiResponse.ok(null);
     }
 

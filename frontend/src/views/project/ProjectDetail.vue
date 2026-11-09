@@ -12,10 +12,11 @@
           <span v-else class="ui-badge ui-badge-success">有效</span>
         </div>
         <div class="pd-meta">
-          <span>大类：{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span>
-          <span>类型：{{ detail.typeName || '-' }}</span>
-          <span>负责人：{{ detail.ownerName || '-' }}</span>
-          <span>计划时间：{{ detail.startDate || '-' }} ~ {{ detail.endDate || '-' }}</span>
+          <span>会议类型：{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span>
+          <span>团队：{{ detail.teamLabel || '-' }}</span>
+          <span v-if="detail.cityName">会议城市：{{ detail.cityName }}</span>
+          <span>总负责人：{{ detail.ownerName || '-' }}</span>
+          <span>项目起止：{{ detail.startDate || '-' }} ~ {{ detail.endDate || '-' }}</span>
         </div>
         <div v-if="detail.status === 'CANCELED'" class="pd-cancel-tip">
           已取消：{{ detail.cancelReason }}<template v-if="detail.cancelTime">（{{ detail.cancelTime }}）</template>
@@ -113,7 +114,7 @@
             </div>
             <div class="task-cell">
               <div class="task-label">阶段负责人</div>
-              <div class="task-value">{{ detail.ownerName || '-' }}<span class="task-scope">（项目级：负责人 + 执行人）</span></div>
+              <div class="task-value">{{ detail.ownerName || '-' }}<span class="task-scope">（项目级：负责人 + 创建人）</span></div>
             </div>
           </div>
           <template v-if="isViewingCurrent">
@@ -131,6 +132,109 @@
           <div class="task-ops">
             <el-button v-if="detail.canAdvance && hasNextPhase && isViewingCurrent" type="primary" size="small" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
             <el-button v-if="detail.canRollback" size="small" @click="openRollback">回退阶段</el-button>
+          </div>
+        </div>
+
+        <!-- ④.5 日程与参会专家（2026-11-09 流程重塑第一阶段：日程上传 → 解析 → 人工确认） -->
+        <div class="ui-card pd-block pd-schedule">
+          <div class="pd-sec-title-row">
+            <span class="pd-sec-title">日程与参会专家（阶段一）</span>
+            <span :class="'ui-badge ' + scheduleBadgeClass">{{ scheduleBadgeText }}</span>
+          </div>
+
+          <!-- 上传区 -->
+          <div class="schedule-upload-row">
+            <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png">
+              <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程' : '上传日程文件' }}</el-button>
+            </el-upload>
+            <span v-if="schedule" class="schedule-file">
+              当前日程：{{ schedule.fileName }}
+              <span class="hint-text">（{{ schedule.createTime }}）</span>
+            </span>
+            <span v-else class="hint-text">尚未上传日程（支持 pdf/doc/docx/ppt/pptx/jpg/png，≤20MB）</span>
+            <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
+              {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
+            </el-button>
+          </div>
+          <div v-if="schedule && schedule.parseStatus === 'PARSING'" class="hint-text" style="margin-top: 6px">解析中，请稍候（本地大模型首次冷加载可能需要 1-2 分钟）…</div>
+          <div v-if="schedule && schedule.parseStatus === 'FAILED'" class="pd-block-tip" style="margin-top: 6px">解析失败：{{ schedule.parseMessage }}；可重试或手动补录参会专家。</div>
+
+          <!-- 候选专家（AI 解析结果=候选，须人工确认） -->
+          <template v-if="candidates.length">
+            <div class="schedule-sub-title">解析候选（请逐条确认后保存）</div>
+            <el-table :data="candidateDraft" size="small">
+              <el-table-column label="姓名" width="140">
+                <template #default="{ row }"><el-input v-model="row.expertName" size="small" /></template>
+              </el-table-column>
+              <el-table-column label="会议角色" width="140">
+                <template #default="{ row }">
+                  <el-select v-model="row.role" size="small">
+                    <el-option v-for="r in roleOptions" :key="r.value" :label="r.label" :value="r.value" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="议题/段落" min-width="150">
+                <template #default="{ row }"><el-input v-model="row.segmentTitle" size="small" placeholder="可空" /></template>
+              </el-table-column>
+              <el-table-column label="时间" width="150">
+                <template #default="{ row }"><el-input v-model="row.segmentTime" size="small" placeholder="可空" /></template>
+              </el-table-column>
+              <el-table-column label="专家库匹配" min-width="160">
+                <template #default="{ row }">
+                  <el-select v-model="row.expertId" size="small" clearable filterable remote :remote-method="searchExpertOptions" :loading="expertSearchLoading" placeholder="搜索专家库绑定">
+                    <el-option v-for="e in expertOptions" :key="e.id" :label="e.name + (e.unit ? '·' + e.unit : '')" :value="e.id" />
+                  </el-select>
+                  <el-tag v-if="!row.expertId" size="small" type="warning">库外</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="130" fixed="right">
+                <template #default="{ row }">
+                  <el-button v-if="!row.expertId" link type="primary" size="small" @click="goCreateExpert(row.expertName)">去建档</el-button>
+                  <el-button link type="danger" size="small" @click="removeCandidateRow(row)">移除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="task-ops">
+              <el-button type="primary" :disabled="!candidateDraft.length" @click="doConfirm">确认保存参会专家（{{ candidateDraft.length }} 人）</el-button>
+              <el-button @click="resetCandidateDraft">还原为解析结果</el-button>
+            </div>
+          </template>
+
+          <!-- 正式参会专家 -->
+          <div class="schedule-sub-title">参会专家（已确认 {{ speakers.length }} 人）</div>
+          <el-table v-if="speakers.length" :data="speakers" size="small" stripe>
+            <el-table-column prop="expertName" label="姓名" width="120" />
+            <el-table-column label="会议角色" width="110">
+              <template #default="{ row }">{{ roleLabel(row.role) }}</template>
+            </el-table-column>
+            <el-table-column prop="segmentTitle" label="议题/段落" min-width="160">
+              <template #default="{ row }">{{ row.segmentTitle || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="segmentTime" label="时间" width="150">
+              <template #default="{ row }">{{ row.segmentTime || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="档案关联" min-width="140">
+              <template #default="{ row }">
+                <span v-if="row.expertId" class="doc-name">{{ row.expertName }}（{{ row.expertUnit || '已关联' }}）</span>
+                <el-tag v-else size="small" type="warning">库外专家</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column v-if="canOperate" label="操作" width="80" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="danger" size="small" @click="removeSpeaker(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="尚未确认参会专家" :image-size="60" />
+
+          <!-- 手动补录 -->
+          <div v-if="canOperate" class="manual-add-row">
+            <el-input v-model="manualName" size="small" placeholder="姓名" style="width: 140px" />
+            <el-select v-model="manualRole" size="small" placeholder="角色" style="width: 130px">
+              <el-option v-for="r in roleOptions" :key="r.value" :label="r.label" :value="r.value" />
+            </el-select>
+            <el-button size="small" plain :disabled="!manualName.trim() || !manualRole" @click="doAddSpeaker">手动补录</el-button>
+            <span class="hint-text">解析失败/遗漏时可直接补录；库外专家仅作项目内记录。</span>
           </div>
         </div>
 
@@ -203,40 +307,49 @@
         <div class="pd-info-grid">
           <div class="ui-card pd-info-card">
             <div class="pd-sec-title">项目属性</div>
-            <div class="info-row"><span class="info-k">项目名称</span><span class="info-v">{{ detail.name }}</span></div>
-            <div class="info-row"><span class="info-k">大类</span><span class="info-v">{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span></div>
-            <div class="info-row"><span class="info-k">类型</span><span class="info-v">{{ detail.typeName || '-' }}</span></div>
+            <div class="info-row"><span class="info-k">会议名称</span><span class="info-v">{{ detail.name }}</span></div>
+            <div class="info-row"><span class="info-k">会议类型</span><span class="info-v">{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span></div>
+            <div class="info-row"><span class="info-k">团队</span><span class="info-v">{{ detail.teamLabel || '-' }}</span></div>
+            <div class="info-row"><span class="info-k">会议城市</span><span class="info-v">{{ detail.cityName || '-' }}</span></div>
           </div>
           <div class="ui-card pd-info-card">
             <div class="pd-sec-title">项目人员</div>
-            <div class="info-row"><span class="info-k">负责人</span><span class="info-v"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}</span></div>
-            <div class="info-row"><span class="info-k">执行人</span><span class="info-v">
-              <template v-if="executorList.length">
-                <span v-for="(n, i) in executorList.slice(0, 4)" :key="i" class="avatar" :style="avatarStyle(n)">{{ firstChar(n) }}</span>
-                <span v-if="executorList.length > 4" class="avatar avatar-more">+{{ executorList.length - 4 }}</span>
+            <div class="info-row"><span class="info-k">总负责人</span><span class="info-v"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}</span></div>
+            <div class="info-row"><span class="info-k">协助人</span><span class="info-v">
+              <template v-if="assistantList.length">
+                <span v-for="(n, i) in assistantList.slice(0, 4)" :key="'a' + i" class="avatar" :style="avatarStyle(n)">{{ firstChar(n) }}</span>
+                <span v-if="assistantList.length > 4" class="avatar avatar-more">+{{ assistantList.length - 4 }}</span>
+                <span class="executor-names">{{ assistantList.join('、') }}</span>
               </template>
               <template v-else>-</template>
-              <span class="executor-names">{{ detail.executorNames || '' }}</span>
             </span></div>
           </div>
           <div class="ui-card pd-info-card">
             <div class="pd-sec-title">项目时间</div>
-            <div class="info-row"><span class="info-k">计划开始</span><span class="info-v">{{ detail.startDate || '-' }}</span></div>
-            <div class="info-row"><span class="info-k">计划结束</span><span class="info-v">{{ detail.endDate || '-' }}</span></div>
+            <div class="info-row"><span class="info-k">项目起止</span><span class="info-v">{{ detail.startDate || '-' }} ~ {{ detail.endDate || '-' }}</span></div>
+            <div class="info-row"><span class="info-k">举办时间</span><span class="info-v">{{ meetingText }}</span></div>
           </div>
           <div class="ui-card pd-info-card">
-            <div class="pd-sec-title">项目状态</div>
+            <div class="pd-sec-title">客户与状态</div>
+            <div class="info-row"><span class="info-k">客户单位</span><span class="info-v">{{ detail.clientCompany || '-' }}</span></div>
+            <div class="info-row"><span class="info-k">客户姓名</span><span class="info-v">{{ detail.clientName || '-' }}</span></div>
             <div class="info-row"><span class="info-k">当前阶段</span><span class="info-v"><span class="ui-badge ui-badge-primary">{{ detail.phaseName || '-' }}</span></span></div>
             <div class="info-row"><span class="info-k">生命周期</span><span class="info-v"><span :class="detail.status === 'CANCELED' ? 'ui-badge ui-badge-danger' : 'ui-badge ui-badge-success'">{{ detail.status === 'CANCELED' ? '已取消' : '有效' }}</span></span></div>
             <div class="info-row"><span class="info-k">创建人</span><span class="info-v">{{ detail.creatorName || '-' }}</span></div>
           </div>
         </div>
 
+        <!-- ⑥.1 备注 -->
+        <div v-if="detail.remark" class="ui-card pd-info-card" style="margin-top: 10px">
+          <div class="pd-sec-title">备注</div>
+          <div class="remark-text">{{ detail.remark }}</div>
+        </div>
+
         <!-- ⑧ 预算与实际支出 -->
         <div class="ui-card pd-budget">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">预算与实际支出</span>
-            <el-button v-if="detail.canAdvance" link type="primary" @click="openBudget">登记预算金额</el-button>
+            <el-button v-if="canOperate" link type="primary" @click="openBudget">登记预算金额</el-button>
           </div>
           <template v-if="Number(budgetAmount) > 0">
             <el-row :gutter="16">
@@ -253,7 +366,7 @@
           </template>
           <template v-else>
             <el-empty description="尚未登记预算" :image-size="60">
-              <el-button v-if="detail.canAdvance" type="primary" plain @click="openBudget">登记预算金额</el-button>
+              <el-button v-if="canOperate" type="primary" plain @click="openBudget">登记预算金额</el-button>
             </el-empty>
           </template>
         </div>
@@ -281,7 +394,7 @@
             <el-table-column label="身份证/银行卡" min-width="180">
               <template #default="{ row }">
                 <span class="sensitive">{{ row.idCard || '-' }} / {{ row.bankCard || '-' }}</span>
-                <span v-if="!detail.canAdvance" class="mask-tip">（负责人/执行人可见明文）</span>
+                <span v-if="!detail.canAdvance" class="mask-tip">（负责人/创建人/协助人可见明文）</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="160" fixed="right">
@@ -346,7 +459,7 @@
         <div class="ui-card pd-block">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">结算合同</span>
-            <el-button v-if="detail.canAdvance" link type="primary" @click="openContract">登记合同</el-button>
+            <el-button v-if="canOperate" link type="primary" @click="openContract">登记合同</el-button>
           </div>
           <el-table :data="detail.contracts" stripe>
             <el-table-column prop="expertName" label="专家" width="90" />
@@ -371,7 +484,7 @@
             </el-table-column>
             <el-table-column label="操作" width="210" fixed="right">
               <template #default="{ row }">
-                <template v-if="detail.canAdvance">
+                <template v-if="canOperate">
                   <el-upload
                     v-if="!row.filePath"
                     :show-file-list="false"
@@ -415,10 +528,10 @@
         <div class="ui-card side-card">
           <div class="pd-sec-title">项目成员</div>
           <div class="member-row"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}<span class="ui-badge ui-badge-primary" style="margin-left: auto">负责人</span></div>
-          <div v-for="(n, i) in executorList" :key="i" class="member-row">
-            <span class="avatar" :style="avatarStyle(n)">{{ firstChar(n) }}</span>{{ n }}<span class="ui-badge ui-badge-info" style="margin-left: auto">执行人</span>
+          <div v-for="(n, i) in assistantList" :key="'s' + i" class="member-row">
+            <span class="avatar" :style="avatarStyle(n)">{{ firstChar(n) }}</span>{{ n }}<span class="ui-badge ui-badge-info" style="margin-left: auto">协助人</span>
           </div>
-          <div v-if="!executorList.length" class="hint-text" style="padding-left: 34px">暂无其他执行人</div>
+          <div v-if="!assistantList.length" class="hint-text" style="padding-left: 34px">暂无协助人</div>
         </div>
 
         <div class="ui-card side-card">
@@ -463,8 +576,6 @@
       v-model="editVisible"
       :project="editRow"
       :owners="ownerOptions"
-      :types="typeOptions"
-      :phases="detail.phases"
       :users="userOptions"
       @saved="fetchDetail"
     />
@@ -627,7 +738,8 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../../store/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
@@ -644,6 +756,7 @@ import {
 } from '../../api/project'
 
 const route = useRoute()
+const router4schedule = useRouter()
 const projectId = route.params.id
 const loading = ref(false)
 const detail = ref({})
@@ -653,7 +766,6 @@ const viewPhaseId = ref('')
 const editVisible = ref(false)
 const editRow = ref(null)
 const ownerOptions = ref([])
-const typeOptions = ref([])
 const userOptions = ref([])
 
 const cancelVisible = ref(false)
@@ -719,17 +831,166 @@ async function fetchDetail() {
       }
     }
     richOfPhase.value = rich
+    fetchSchedule().catch(() => {})
   } finally {
     loading.value = false
   }
+}
+
+// ---- 日程与参会专家（2026-11-09 流程重塑第一阶段） ----
+const schedule = ref(null)
+const candidates = ref([])
+const candidateDraft = ref([])
+const speakers = ref([])
+const roleOptions = [
+  { value: 'CHAIR', label: '大会主席' },
+  { value: 'HOST', label: '大会主持' },
+  { value: 'SPEAKER', label: '大会讲者' },
+  { value: 'DISCUSSANT', label: '讨论嘉宾' }
+]
+function roleLabel(v) {
+  return roleOptions.find((r) => r.value === v)?.label || v
+}
+const scheduleBadgeText = computed(() => {
+  if (!schedule.value) return '待上传'
+  if (schedule.value.parseStatus === 'PARSING') return '解析中'
+  if (schedule.value.parseStatus === 'FAILED') return '解析失败'
+  if (speakers.value.length) return '已完成'
+  if (schedule.value.parseStatus === 'DONE') return '待确认'
+  return '待解析'
+})
+const scheduleBadgeClass = computed(() => {
+  const map = { 待上传: 'ui-badge-info', 解析中: 'ui-badge-info', 解析失败: 'ui-badge-danger', 待确认: 'ui-badge-primary', 已完成: 'ui-badge-success' }
+  return map[scheduleBadgeText.value] || 'ui-badge-info'
+})
+
+async function fetchSchedule() {
+  const data = await getScheduleOverview(projectId)
+  schedule.value = data?.schedule || null
+  candidates.value = data?.candidates || []
+  speakers.value = data?.speakers || []
+  resetCandidateDraft()
+}
+function resetCandidateDraft() {
+  candidateDraft.value = candidates.value.map((c) => ({
+    id: c.id,
+    scheduleId: c.scheduleId,
+    expertName: c.expertName,
+    role: c.role,
+    segmentTitle: c.segmentTitle || '',
+    segmentTime: c.segmentTime || '',
+    expertId: c.expertId || null
+  }))
+  for (const c of candidates.value) {
+    if (c.expertId && !expertOptions.value.some((e) => e.id === c.expertId)) {
+      expertOptions.value.push({ id: c.expertId, name: c.expertName, unit: c.expertUnit || '' })
+    }
+  }
+}
+
+async function onScheduleFile(file) {
+  if (!file || !file.raw) return
+  try {
+    await uploadSchedule(projectId, file.raw)
+    ElMessage.success('日程已上传，点击「开始解析」识别参会专家')
+    fetchSchedule()
+  } catch (e) {
+    // 校验失败提示
+  }
+}
+
+const parsing = ref(false)
+async function doParse() {
+  if (!schedule.value) return
+  parsing.value = true
+  try {
+    await parseSchedule(projectId, schedule.value.id)
+    await fetchSchedule()
+    ElMessage.success('解析完成，请在候选列表中确认')
+  } catch (e) {
+    await fetchSchedule()
+  } finally {
+    parsing.value = false
+  }
+}
+
+// 专家库搜索（改绑/确认用）
+const expertOptions = ref([])
+const expertSearchLoading = ref(false)
+async function searchExpertOptions(kw) {
+  if (!kw || !kw.trim()) return
+  expertSearchLoading.value = true
+  try {
+    const data = await request.get('/experts', { params: { keyword: kw.trim(), page: 1, size: 20 } })
+    expertOptions.value = data?.items || []
+  } finally {
+    expertSearchLoading.value = false
+  }
+}
+
+function removeCandidateRow(row) {
+  candidateDraft.value = candidateDraft.value.filter((r) => r !== row)
+}
+
+function goCreateExpert(name) {
+  // 库外专家去建档：预填姓名跳转专家库（管理员新增免审批；新窗口打开，本项目详情保留上下文便于回绑）
+  const { href } = router4schedule.resolve({ path: '/experts', query: { presetName: name } })
+  window.open(href, '_blank')
+}
+
+async function doConfirm() {
+  const payload = candidateDraft.value.map((r) => ({
+    scheduleId: r.scheduleId,
+    expertName: String(r.expertName || '').trim(),
+    role: r.role,
+    expertId: r.expertId || null,
+    segmentTitle: r.segmentTitle || null,
+    segmentTime: r.segmentTime || null
+  }))
+  if (payload.some((p) => !p.expertName)) {
+    ElMessage.warning('存在姓名为空的候选行，请补齐或移除')
+    return
+  }
+  speakers.value = await confirmSpeakers(projectId, payload)
+  ElMessage.success('参会专家已确认保存')
+  fetchSchedule()
+}
+
+const manualName = ref('')
+const manualRole = ref(null)
+async function doAddSpeaker() {
+  await addSpeaker(projectId, { expertName: manualName.value.trim(), role: manualRole.value })
+  ElMessage.success('已补录')
+  manualName.value = ''
+  manualRole.value = null
+  fetchSchedule()
+}
+
+async function removeSpeaker(row) {
+  try {
+    await ElMessageBox.confirm('确认删除参会专家「' + row.expertName + '」？', '删除', { type: 'warning' })
+  } catch (e) {
+    return
+  }
+  await deleteSpeaker(projectId, row.id)
+  fetchSchedule()
 }
 
 // ---- 生命周期 Stepper：三态与查看阶段 ----
 const currentPhase = computed(() => (detail.value.phases || []).find((p) => Number(p.id) === Number(detail.value.phaseId)) || null)
 const viewPhaseObj = computed(() => (detail.value.phases || []).find((p) => String(p.id) === String(viewPhaseId.value)) || currentPhase.value)
 const isViewingCurrent = computed(() => viewPhaseObj.value && Number(viewPhaseObj.value.id) === Number(detail.value.phaseId))
-// 非当前阶段只读（隐藏编辑/上传/删除入口）
-const canOperatePhase = computed(() => detail.value.canAdvance && isViewingCurrent.value)
+// 非当前阶段只读（隐藏编辑/上传/删除入口）；2026-11-09 起资料/预算/合同操作=项目成员级（负责人/创建人/协助人）
+const authStoreForDetail = useAuthStore()
+const isMember = computed(() => {
+  const d = detail.value
+  if (!d || !d.id) return false
+  if (d.canManage || d.canAdvance) return true
+  const uid = authStoreForDetail.id
+  return Array.isArray(d.assistantIds) && d.assistantIds.includes(uid)
+})
+const canOperate = computed(() => isMember.value)
+const canOperatePhase = computed(() => canOperate.value && isViewingCurrent.value)
 
 function phaseState(p) {
   if (!p || !currentPhase.value) return 'future'
@@ -752,10 +1013,20 @@ function setViewPhase(p) {
   viewPhaseId.value = String(p.id)
 }
 
-const executorList = computed(() => {
-  const n = detail.value.executorNames
+// 协助人（2026-11-09 基本信息改版新增，多选）
+const assistantList = computed(() => {
+  const n = detail.value.assistantNames
   if (Array.isArray(n)) return n.filter(Boolean)
   return String(n || '').split(/[,，、;；\s]+/).filter(Boolean)
+})
+
+// 举办时间展示：单日只显示一天，多日显示区间，未填显示 -
+const meetingText = computed(() => {
+  const s = detail.value.meetingStartDate
+  const e = detail.value.meetingEndDate
+  if (!s && !e) return '-'
+  if (s === e) return s
+  return `${s || '-'} ~ ${e || '-'}`
 })
 
 function firstChar(n) {
@@ -1105,9 +1376,8 @@ async function doUpdateSensitive() {
 
 onMounted(async () => {
   fetchDetail()
-  typeOptions.value = await listProjectTypes()
   ownerOptions.value = await listProjectOwners()
-  const userData = await listProjectExecutors()
+  const userData = await listProjectUsers()
   userOptions.value = userData || []
 })
 </script>
@@ -1211,6 +1481,13 @@ onMounted(async () => {
 }
 .avatar-more { background: var(--ui-info); }
 .executor-names { color: var(--ui-text-muted); font-size: 12px; }
+.remark-text { margin-top: 4px; color: var(--ui-text-muted, #909399); font-size: 13px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; }
+
+/* ④.5 日程与参会专家 */
+.schedule-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.schedule-file { color: var(--ui-text-main); font-size: 13px; }
+.schedule-sub-title { font-size: 13px; font-weight: 600; color: var(--ui-text-sub); margin: 12px 0 6px; }
+.manual-add-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ⑧ 预算 */
 .pd-budget { padding: 16px 20px; }
