@@ -135,6 +135,97 @@
           </div>
         </div>
 
+        <!-- ⑤ 阶段资料区（随查看阶段切换） -->
+        <div class="pd-phase ui-card">
+          <div class="pd-sec-title-row">
+            <span class="pd-sec-title">阶段资料 · {{ viewPhaseObj?.name || '-' }}</span>
+            <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
+          </div>
+
+          <!-- 日程上传阶段：上传即替换当前日程（不做历史版本）并自动解析参会专家 -->
+          <template v-if="isAgendaStage && isViewingCurrent">
+            <div class="schedule-upload-row">
+              <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png">
+                <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程（替换当前份）' : '上传日程文件' }}</el-button>
+              </el-upload>
+              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png，≤50MB；重新上传将替换当前日程并自动重新解析</span>
+              <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
+                {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
+              </el-button>
+            </div>
+            <div v-if="schedule" class="schedule-file" style="margin-top: 8px">
+              当前生效日程（参与解析）：{{ schedule.fileName }}
+              <span class="hint-text">（{{ schedule.createTime }} · {{ scheduleStatusText(schedule.parseStatus) }}）</span>
+            </div>
+            <div v-else class="hint-text" style="margin-top: 8px">尚未上传日程文件</div>
+            <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
+              <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
+                <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
+                <el-tag v-if="isCurrentScheduleDoc(d)" size="small" type="success" style="margin-left: 6px">生效日程</el-tag>
+                <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
+                <el-button v-if="canOperate" link type="danger" style="margin-left: 12px" @click="removeScheduleDoc(d)">删除</el-button>
+              </div>
+            </template>
+            <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
+          </template>
+          <template v-else-if="phaseState(viewPhaseObj) === 'future'">
+            <el-empty description="该阶段尚未开始" :image-size="80" />
+          </template>
+          <template v-else-if="viewPhaseObj && viewPhaseObj.templates && viewPhaseObj.templates.length">
+            <div v-for="t in viewPhaseObj.templates" :key="t.templateId" class="template-block">
+              <div class="template-title">
+                {{ t.templateName }}
+                <el-tag v-if="t.required === 1" size="small" type="danger">必填</el-tag>
+                <el-tag v-else size="small" type="info">选填</el-tag>
+                <span v-if="isViewingCurrent && t.required === 1 && isTemplateFulfilled(t) === false" class="unfilled-tip">未配置内容，阶段推进将受限</span>
+              </div>
+
+              <!-- 资料附件模板 -->
+              <div v-if="t.templateType === 'FILE'">
+                <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row">
+                  <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
+                  <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
+                  <el-button v-if="canOperatePhase" link type="danger" @click="removeDoc(d)">删除</el-button>
+                </div>
+                <div v-if="canOperatePhase" class="upload-area">
+                  <el-upload
+                    :show-file-list="false"
+                    :auto-upload="false"
+                    :on-change="(f) => uploadDoc(viewPhaseObj.id, f)"
+                  >
+                    <el-button size="small" type="primary" plain>上传资料到本阶段</el-button>
+                  </el-upload>
+                </div>
+                <div v-if="!docsOfPhase(viewPhaseObj.id, 'FILE').length" class="hint-text">本阶段暂无附件资料</div>
+              </div>
+
+              <!-- 自定义文本模板 -->
+              <div v-else-if="t.templateType === 'RICH_TEXT'">
+                <div v-if="!editingRich[viewPhaseObj.id]" class="rich-view">{{ richTextOf(viewPhaseObj.id) || '（尚未填写内容）' }}</div>
+                <el-input v-if="canOperatePhase && editingRich[viewPhaseObj.id]" v-model="richDrafts[viewPhaseObj.id]" type="textarea" :rows="4" />
+                <el-button v-if="canOperatePhase" size="small" type="primary" plain style="margin-top: 6px" @click="editRich(viewPhaseObj.id, t.templateId)">{{ editingRich[viewPhaseObj.id] ? '保存文本' : '编辑文本' }}</el-button>
+              </div>
+
+              <!-- 预算模板 -->
+              <div v-else-if="t.templateType === 'BUDGET'">
+                <div class="hint-text">预算金额：¥ {{ fmt(budgetAmount) }}（点击「登记预算金额」维护）</div>
+                <el-button v-if="canOperatePhase" size="small" plain style="margin-top: 6px" @click="openBudget">登记预算金额</el-button>
+              </div>
+
+              <!-- 专家/供应商模板 -->
+              <div v-else>
+                <div class="hint-text">{{ t.templateType === 'EXPERT' ? '项目专家名单（全局一份）见下方“专家名单”卡' : '项目供应商名单（全局一份）见下方“供应商名单”卡' }}</div>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <el-empty description="本阶段无需提交材料，向后推进没有材料拦截" :image-size="60" />
+            <el-upload v-if="canOperatePhase" :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
+              <el-button size="small" plain>按需补充本阶段附件</el-button>
+            </el-upload>
+          </template>
+        </div>
+
         <!-- ④.5 参会专家（2026-11-09 流程重塑：日程在「阶段资料」上传后自动解析） -->
         <div class="ui-card pd-block pd-schedule">
           <div class="pd-sec-title-row">
@@ -221,94 +312,6 @@
             <el-button size="small" plain :disabled="!manualName.trim() || !manualRole" @click="doAddSpeaker">手动补录</el-button>
             <span class="hint-text">解析失败/遗漏时可直接补录；库外专家仅作项目内记录。</span>
           </div>
-        </div>
-
-        <!-- ⑤ 阶段资料区（随查看阶段切换） -->
-        <div class="pd-phase ui-card">
-          <div class="pd-sec-title-row">
-            <span class="pd-sec-title">阶段资料 · {{ viewPhaseObj?.name || '-' }}</span>
-            <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
-          </div>
-
-          <!-- 日程上传阶段：上传即自动挂载本阶段资料并自动解析参会专家 -->
-          <template v-if="isAgendaStage && isViewingCurrent">
-            <div class="schedule-upload-row">
-              <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png">
-                <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程' : '上传日程文件' }}</el-button>
-              </el-upload>
-              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；上传后自动挂载到本阶段资料并自动解析参会专家</span>
-              <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
-                {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
-              </el-button>
-            </div>
-            <div v-if="schedule" class="schedule-file" style="margin-top: 8px">
-              当前日程：{{ schedule.fileName }}
-              <span class="hint-text">（{{ schedule.createTime }}）</span>
-            </div>
-            <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
-              <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
-                <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
-                <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
-              </div>
-            </template>
-            <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
-          </template>
-          <template v-else-if="phaseState(viewPhaseObj) === 'future'">
-            <el-empty description="该阶段尚未开始" :image-size="80" />
-          </template>
-          <template v-else-if="viewPhaseObj && viewPhaseObj.templates && viewPhaseObj.templates.length">
-            <div v-for="t in viewPhaseObj.templates" :key="t.templateId" class="template-block">
-              <div class="template-title">
-                {{ t.templateName }}
-                <el-tag v-if="t.required === 1" size="small" type="danger">必填</el-tag>
-                <el-tag v-else size="small" type="info">选填</el-tag>
-                <span v-if="isViewingCurrent && t.required === 1 && isTemplateFulfilled(t) === false" class="unfilled-tip">未配置内容，阶段推进将受限</span>
-              </div>
-
-              <!-- 资料附件模板 -->
-              <div v-if="t.templateType === 'FILE'">
-                <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row">
-                  <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
-                  <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
-                  <el-button v-if="canOperatePhase" link type="danger" @click="removeDoc(d)">删除</el-button>
-                </div>
-                <div v-if="canOperatePhase" class="upload-area">
-                  <el-upload
-                    :show-file-list="false"
-                    :auto-upload="false"
-                    :on-change="(f) => uploadDoc(viewPhaseObj.id, f)"
-                  >
-                    <el-button size="small" type="primary" plain>上传资料到本阶段</el-button>
-                  </el-upload>
-                </div>
-                <div v-if="!docsOfPhase(viewPhaseObj.id, 'FILE').length" class="hint-text">本阶段暂无附件资料</div>
-              </div>
-
-              <!-- 自定义文本模板 -->
-              <div v-else-if="t.templateType === 'RICH_TEXT'">
-                <div v-if="!editingRich[viewPhaseObj.id]" class="rich-view">{{ richTextOf(viewPhaseObj.id) || '（尚未填写内容）' }}</div>
-                <el-input v-if="canOperatePhase && editingRich[viewPhaseObj.id]" v-model="richDrafts[viewPhaseObj.id]" type="textarea" :rows="4" />
-                <el-button v-if="canOperatePhase" size="small" type="primary" plain style="margin-top: 6px" @click="editRich(viewPhaseObj.id, t.templateId)">{{ editingRich[viewPhaseObj.id] ? '保存文本' : '编辑文本' }}</el-button>
-              </div>
-
-              <!-- 预算模板 -->
-              <div v-else-if="t.templateType === 'BUDGET'">
-                <div class="hint-text">预算金额：¥ {{ fmt(budgetAmount) }}（点击「登记预算金额」维护）</div>
-                <el-button v-if="canOperatePhase" size="small" plain style="margin-top: 6px" @click="openBudget">登记预算金额</el-button>
-              </div>
-
-              <!-- 专家/供应商模板 -->
-              <div v-else>
-                <div class="hint-text">{{ t.templateType === 'EXPERT' ? '项目专家名单（全局一份）见下方“专家名单”卡' : '项目供应商名单（全局一份）见下方“供应商名单”卡' }}</div>
-              </div>
-            </div>
-          </template>
-          <template v-else>
-            <el-empty description="本阶段无需提交材料，向后推进没有材料拦截" :image-size="60" />
-            <el-upload v-if="canOperatePhase" :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
-              <el-button size="small" plain>按需补充本阶段附件</el-button>
-            </el-upload>
-          </template>
         </div>
 
         <!-- ⑥ 基本信息（4 分组卡；日程上传阶段隐藏） -->
@@ -822,7 +825,7 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveResumes, archiveManual
+  archiveResumes, archiveManual, deleteScheduleDoc
 } from '../../api/project'
 
 const route = useRoute()
@@ -960,16 +963,42 @@ function resetCandidateDraft() {
 
 async function onScheduleFile(file) {
   if (!file || !file.raw) return
+  // 前端预检：超限给明确提示，不再让 Nginx 413 弹英文报错（日程上限 50MB，2026-11-10）
+  if (file.raw.size > 50 * 1024 * 1024) {
+    ElMessage.warning('日程文件超过 50MB 限制，请压缩后再上传')
+    return
+  }
   try {
     await uploadSchedule(projectId, file.raw)
-    ElMessage.success('日程已上传，点击「开始解析」识别参会专家')
-    fetchSchedule()
+    ElMessage.success('日程已上传并自动解析中，结果为候选，请在列表中确认')
+    await fetchDetail()
   } catch (e) {
     // 校验失败提示
   }
 }
 
 const parsing = ref(false)
+
+// 日程阶段附件辅助（Owner 2026-11-10：附件可删 + 不做历史版本）
+function scheduleStatusText(s) {
+  return { PENDING: '待解析', PARSING: '解析中', DONE: '解析完成', FAILED: '解析失败' }[s] || s
+}
+function isCurrentScheduleDoc(d) {
+  return !!schedule.value && d.filePath === schedule.value.filePath
+}
+async function removeScheduleDoc(d) {
+  const isCurrent = isCurrentScheduleDoc(d)
+  await ElMessageBox.confirm(
+    isCurrent
+      ? '「' + d.fileName + '」是当前生效日程：删除将同时清除该日程的解析候选（已确认的参会专家保留）。确认删除？'
+      : '确认删除附件「' + d.fileName + '」？',
+    '删除附件',
+    { type: 'warning' }
+  )
+  await deleteScheduleDoc(projectId, d.id)
+  ElMessage.success(isCurrent ? '已删除生效日程并清除解析候选' : '附件已删除')
+  await fetchDetail()
+}
 async function doParse() {
   if (!schedule.value) return
   parsing.value = true

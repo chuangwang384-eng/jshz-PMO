@@ -167,7 +167,7 @@ export function listPhaseOptions() {
 
 // ==================== 日程上传（2026-11-09 流程重塑第一阶段） ====================
 
-// 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；覆盖当前生效份）
+// 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤50MB；覆盖当前生效份）
 export function uploadSchedule(id, file) {
   const fd = new FormData()
   fd.append('file', file)
@@ -182,6 +182,11 @@ export function getScheduleOverview(id) {
 // 触发解析（规则打底 + 本地大模型兜底，结果为候选，须人工确认）
 export function parseSchedule(id, scheduleId) {
   return request.post(`/project/${id}/schedule/${scheduleId}/parse`)
+}
+
+// 删除日程阶段附件（软删留痕；删生效日程联动清日程记录与候选）
+export function deleteScheduleDoc(id, docId) {
+  return request.delete(`/project/${id}/schedule/docs/${docId}`)
 }
 
 // 人工确认保存参会专家（整表覆盖式提交正式记录）

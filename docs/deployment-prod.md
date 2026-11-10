@@ -115,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File <LOCAL_PATH>
 | 1 | 站点可访问 | 浏览器访问 `http://<本机IP>/` | 登录页正常，控制台无报错 |
 | 2 | 登录 | 员工/管理员账号登录 | 成功进入主页，`expert_token` cookie 写入 |
 | 3 | 专家列表 | 主页查看专家列表 | 数据来自 8080（经 Nginx 反代），刷新前端路由不 404 |
-| 4 | 照片 | 查看/上传专家照片 | 图片可显示；上传不超 20m 限制 |
+| 4 | 照片 | 查看/上传专家照片 | 图片可显示；上传不超 60m 限制（单接口另有业务级限制，如日程 50MB、照片 5MB） |
 | 5 | 导出 | 执行导出操作（ZIP/报表） | 长耗时请求不中断（反代已放宽 read 超时） |
 | 6 | 管理员增改删 | 管理员免审批新增/编辑（含照片）/详情弹窗删除 | 与阶段 A 验收一致，均走 `/api/experts/**` |
 | 7 | 静态资源缓存 | DevTools 观察 `assets/*-hash.*` 响应头 | `Cache-Control: public, max-age=2592000, immutable` |
@@ -193,7 +193,7 @@ server {
         proxy_connect_timeout 60s;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
-        client_max_body_size 20m;
+        client_max_body_size 60m;
     }
 
     gzip on;
@@ -245,7 +245,7 @@ server {
 | 访问 80 端口无响应 | 确认 Nginx 已启动（任务管理器/`netstat -ano | findstr :80`）；确认防火墙放行 80 |
 | 页面能开但 `/api` 报 502 | 后端 `ExpertSystemBackend` 未运行；`proxy_pass` 目标是否 8080 |
 | 刷新子路由 404 | `location /` 缺少 `try_files $uri $uri/ /index.html;` |
-| 上传大文件失败 | `client_max_body_size` 是否足够（模板 20m）；后端 multipart 限制 |
+| 上传大文件失败 | `client_max_body_size` 是否足够（模板 60m）；后端 multipart 限制 |
 | 发布后页面还是旧的 | `index.html` 是否被缓存（应 no-cache）；`nginx -s reload` 后强刷（Ctrl+F5） |
 
 ---

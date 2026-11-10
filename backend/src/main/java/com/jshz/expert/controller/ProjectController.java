@@ -385,6 +385,17 @@ public class ProjectController {
         return ApiResponse.ok(scheduleParseService.overview(id, user));
     }
 
+    /**
+     * 删除日程阶段附件：软删留痕；若删的是当前生效日程文件，联动硬删日程记录与未确认候选
+     * （人工确认成果保留），文件无其他引用时物理删（Owner 2026-11-10：附件可删 + 不做历史版本）。
+     */
+    @DeleteMapping("/{id}/schedule/docs/{docId}")
+    public ApiResponse<Void> deleteScheduleDoc(@PathVariable Long id, @PathVariable Long docId,
+                                               @AuthenticationPrincipal AuthUser user) {
+        scheduleParseService.deleteScheduleDoc(id, docId, user);
+        return ApiResponse.ok(null);
+    }
+
     /** 触发解析（规则打底 + 本地大模型兜底，结果为候选，须人工确认）。 */
     @PostMapping("/{id}/schedule/{scheduleId}/parse")
     public ApiResponse<List<ProjectSpeaker>> parseSchedule(@PathVariable Long id, @PathVariable Long scheduleId,

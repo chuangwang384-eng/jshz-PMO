@@ -58,9 +58,11 @@ public class ScheduleParseService {
     private final ResumeParseService resumeParseService;
     private final com.jshz.expert.mapper.ProjectExpertMapper expertRelMapper;
     private final com.jshz.expert.mapper.ProjectDocMapper docMapper;
+    private final ProjectStorageService storageService;
     private final com.fasterxml.jackson.databind.ObjectMapper json;
 
-    public static final long MAX_SIZE = 20L * 1024 * 1024;
+    /** 日程单文件上限 50MB（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 全局 50MB 对齐）。 */
+    public static final long MAX_SIZE = 50L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS =
             List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
 
@@ -74,12 +76,10 @@ public class ScheduleParseService {
             "院长", "副院长", "主任", "副主任", "部长", "秘书长");
 
     private static final Pattern CHINESE_NAME = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,4}$");
-    /** 名字+头衔序列提取（「于晓 教授 侯艺芳 教授」），人名内全角空格在行级先剔除。 */
-    private static final Pattern NAME_WITH_TITLE = Pattern.compile("([\\u4e00-\\u9fa5·]{2,4})\\s*(教授|副教授|主任医师|副主任医师|主治医师|研究员|副研究员|讲师|博士)?");
 
     // ==================== 上传 / 查询 ====================
 
-    /** 上传日程（新 current 份，旧份置 0，清该项目未确认候选）。 */
+    /** 上传日程（替换式：硬删旧生效份与候选、软删旧附件，不做历史版本——Owner 2026-11-10 口径）。 */
     public ProjectSchedule upload(Long projectId, MultipartFile file, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
@@ -91,15 +91,36 @@ public class ScheduleParseService {
             throw new BusinessException("不支持的日程格式（支持 pdf/doc/docx/ppt/pptx/jpg/png）");
         }
         if (file.getSize() > MAX_SIZE) {
-            throw new BusinessException("日程文件超过 20MB 限制");
+            throw new BusinessException("日程文件超过 50MB 限制");
         }
         String stored = projectService.storageSave(file);
-        // 旧生效份置 0
+        // 旧生效份：硬删日程行与未确认候选（人工确认成果不受影响），旧附件软删，旧文件无引用时物理删
+        List<String> orphanFiles = new ArrayList<>();
+        List<String> oldFiles = scheduleMapper.selectList(new LambdaQueryWrapper<ProjectSchedule>()
+                .eq(ProjectSchedule::getProjectId, projectId)
+                .eq(ProjectSchedule::getIsCurrent, 1))
+                .stream().map(ProjectSchedule::getFilePath).filter(java.util.Objects::nonNull).toList();
         for (ProjectSchedule old : scheduleMapper.selectList(new LambdaQueryWrapper<ProjectSchedule>()
                 .eq(ProjectSchedule::getProjectId, projectId)
                 .eq(ProjectSchedule::getIsCurrent, 1))) {
-            old.setIsCurrent(0);
-            scheduleMapper.updateById(old);
+            speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
+                    .eq(ProjectSpeaker::getScheduleId, old.getId())
+                    .eq(ProjectSpeaker::getConfirmed, 0));
+            scheduleMapper.deleteById(old.getId());
+        }
+        for (String oldFile : oldFiles) {
+            if (oldFile.equals(stored)) continue;
+            // 旧日程附件软删，避免附件列表堆积重复
+            docMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<com.jshz.expert.entity.ProjectDoc>()
+                    .eq(com.jshz.expert.entity.ProjectDoc::getProjectId, projectId)
+                    .eq(com.jshz.expert.entity.ProjectDoc::getFilePath, oldFile)
+                    .eq(com.jshz.expert.entity.ProjectDoc::getIsDeleted, 0)
+                    .set(com.jshz.expert.entity.ProjectDoc::getIsDeleted, 1));
+            // 全库（含软删）无引用才物理删文件
+            if (docMapper.selectCount(new LambdaQueryWrapper<com.jshz.expert.entity.ProjectDoc>()
+                    .eq(com.jshz.expert.entity.ProjectDoc::getFilePath, oldFile)) == 0) {
+                orphanFiles.add(oldFile);
+            }
         }
         // 清该项目所有未确认候选（人工成果不受影响）
         speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
@@ -116,6 +137,12 @@ public class ScheduleParseService {
         s.setIsCurrent(1);
         s.setUploadedBy(user == null ? null : user.getUserId());
         scheduleMapper.insert(s);
+
+        // 旧日程文件已无任何引用（含软删行），物理删除落盘文件
+        for (String orphan : orphanFiles) {
+            log.info("物理删除被替换的旧日程文件 project={} file={}", projectId, orphan);
+            if (storageService != null) storageService.deleteFile(orphan);
+        }
 
         // 自动挂载到当前阶段资料（Owner 2026-11-09：上传日程即完成「阶段资料」+ 自动解析）
         attachToPhaseDoc(projectId, project.getPhaseId(), s, user);
@@ -142,6 +169,48 @@ public class ScheduleParseService {
         doc.setUploadBy(user == null ? null : user.getUsername());
         doc.setIsDeleted(0);
         docMapper.insert(doc);
+    }
+
+    /**
+     * 删除日程阶段附件（Owner 2026-11-10 需求：附件可删）。
+     * 软删 project_doc；若删的是当前生效日程文件，联动硬删该项目全部日程记录与未确认候选
+     * （人工确认成果保留），文件无其他引用时物理删——项目回到「未上传日程」状态。
+     */
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public void deleteScheduleDoc(Long projectId, Long docId, AuthUser user) {
+        Project project = projectService.requireProject(projectId);
+        projectService.requireOperable(project, user);
+        com.jshz.expert.entity.ProjectDoc doc = docMapper.selectById(docId);
+        if (doc == null || !projectId.equals(doc.getProjectId()) || doc.getIsDeleted() != 0) {
+            throw new BusinessException("附件不存在");
+        }
+        doc.setIsDeleted(1);
+        doc.setDeletedBy(user == null ? null : user.getUsername());
+        doc.setDeletedTime(java.time.LocalDateTime.now());
+        docMapper.updateById(doc);
+
+        ProjectSchedule current = currentSchedule(projectId);
+        boolean clearedSchedule = current != null && doc.getFilePath() != null
+                && doc.getFilePath().equals(current.getFilePath());
+        if (clearedSchedule) {
+            speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
+                    .eq(ProjectSpeaker::getProjectId, projectId)
+                    .eq(ProjectSpeaker::getConfirmed, 0));
+            scheduleMapper.delete(new LambdaQueryWrapper<ProjectSchedule>()
+                    .eq(ProjectSchedule::getProjectId, projectId));
+        }
+        // 全库（含软删行）无其他引用才物理删文件
+        boolean physicalDelete = doc.getFilePath() != null
+                && docMapper.selectCount(new LambdaQueryWrapper<com.jshz.expert.entity.ProjectDoc>()
+                .eq(com.jshz.expert.entity.ProjectDoc::getFilePath, doc.getFilePath())) == 0;
+        if (physicalDelete && storageService != null) {
+            log.info("日程附件已无引用，物理删除 project={} file={}", projectId, doc.getFilePath());
+            storageService.deleteFile(doc.getFilePath());
+        }
+        projectService.operationRecord(user, (clearedSchedule
+                ? "删除项目「" + project.getName() + "」日程附件《" + doc.getFileName() + "》，已联动清除该日程的解析候选"
+                : "删除项目「" + project.getName() + "」日程附件《" + doc.getFileName() + "》"),
+                "PROJECT", projectId);
     }
 
     /** 当前生效日程（无则 null）。 */
@@ -288,35 +357,64 @@ public class ScheduleParseService {
 
     // ==================== 规则打底 ====================
 
-    /** 规则解析：先定位表头行确定列映射，再逐数据行提取；多人同段=讨论嘉宾；页脚「大会主席」兜底。 */
+    /** 规则解析：先定位表头行确定列映射（放宽为 ≥2 关键词命中，兼容「时间/内容/嘉宾」等列头），
+     *  再逐数据行按角色词判定；无表头时用时间段锚定兜底；页脚「大会/会议主席」最后补齐。 */
     List<ProjectSpeaker> ruleParse(Extracted ext) {
         List<ProjectSpeaker> result = new ArrayList<>();
         int timeIdx = -1, topicIdx = -1, speakerIdx = -1, hostIdx = -1;
+        String prevTime = "";
         for (List<String> row : ext.tableRows) {
             if (row == null || row.isEmpty()) continue;
             List<String> cells = row.stream().map(c -> c == null ? "" : c.trim()).toList();
-            String compact = String.join("", cells).replaceAll("\\s", "");
-            // 表头行：确定列映射（时间/主题/讲者/主持；示例日程中"主 持"拆两行，逐字符匹配）
-            if (compact.contains("讲者") || compact.contains("主持") || compact.contains("主题")) {
+            // 表头行：≥2 个列头关键词命中（时间/主题/题目/议题/内容/讲题/讲者/嘉宾/主持/讲/专家）
+            if (isHeaderRow(cells)) {
                 for (int i = 0; i < cells.size(); i++) {
-                    String c = cells.get(i).replaceAll("\\s", "");
+                    String c = compactCell(cells.get(i));
                     if (timeIdx < 0 && c.contains("时") && !c.contains("时场")) timeIdx = i;
-                    if (topicIdx < 0 && (c.contains("主题") || c.contains("题目") || c.contains("议题"))) topicIdx = i;
-                    if (speakerIdx < 0 && c.contains("讲")) speakerIdx = i;
-                    if (hostIdx < 0 && c.contains("主") && !c.contains("主席") && !c.contains("主题")) hostIdx = i;
+                    // 讲题/内容等主题列头先判（「讲题」不能落进讲者列——2026-11-10 曲径通幽日程误抓根因）
+                    if (topicIdx < 0 && (c.contains("主题") || c.contains("题目") || c.contains("议题")
+                            || c.contains("内容") || c.contains("讲题"))) topicIdx = i;
+                    if (speakerIdx < 0 && !c.contains("讲题")
+                            && (c.contains("讲者") || c.contains("嘉宾") || c.contains("专家") || c.contains("讲"))) speakerIdx = i;
+                    if (hostIdx < 0 && c.contains("主") && !c.contains("主席") && !c.contains("主题") && !c.contains("内容")) hostIdx = i;
                 }
                 continue;
             }
             if (timeIdx < 0 && speakerIdx < 0) continue;   // 尚未定位到表头，跳过
             String time = timeIdx >= 0 && timeIdx < cells.size() ? cells.get(timeIdx) : "";
+            // 时间列校验：合并单元格留空或被非时间文字（如整行「主持：…」）占据时，沿用上一行有效时间
+            if (TIME_VALUE.matcher(time).find()) {
+                prevTime = time;
+            } else {
+                time = prevTime;
+            }
             String topic = topicIdx >= 0 && topicIdx < cells.size() ? cells.get(topicIdx) : "";
-            boolean chairRow = topic.contains("主席致辞") || topic.contains("大会主席");
-            if (speakerIdx >= 0 && speakerIdx < cells.size()) {
-                List<String> names = extractNames(cells.get(speakerIdx));
-                String role = names.size() > 1 ? ProjectSpeaker.ROLE_DISCUSSANT
-                        : (chairRow ? ProjectSpeaker.ROLE_CHAIR : ProjectSpeaker.ROLE_SPEAKER);
+            String speakerCell = speakerIdx >= 0 && speakerIdx < cells.size() ? cells.get(speakerIdx) : "";
+            List<String> names = extractNames(speakerCell);
+            if (names.isEmpty() && hasTitleWord(topic)) {
+                // 姓名落在「内容」列的日程（如「讨论：A 教授、B 教授」）：仅当主题单元格带头衔词才提取，
+                // 防止「静脉曲张日间手术」这类无头衔讲题被当成多人名
+                List<String> topicNames = extractNames(topic);
+                if (!topicNames.isEmpty()) {
+                    names = topicNames;
+                    speakerCell = topic;
+                    topic = topic.replaceFirst("^([\\u4e00-\\u9fa5]{1,6})[：:].*", "$1");
+                }
+            }
+            if (!names.isEmpty()) {
+                String role = roleFor(topic, speakerCell, names.size());
                 for (String n : names) {
                     result.add(speaker(n, role, topic, time));
+                }
+            } else if (hostIdx < 0) {
+                // 表内整行「主持：王雅 教授 某医院」（无时间/讲者列）：提取为主持行
+                for (String c : cells) {
+                    if (c.contains("主持") && extractNames(c).isEmpty() == false) {
+                        for (String n : extractNames(c)) {
+                            result.add(speaker(n, ProjectSpeaker.ROLE_HOST, "主持", time));
+                        }
+                        break;
+                    }
                 }
             }
             if (hostIdx >= 0 && hostIdx < cells.size()) {
@@ -325,60 +423,172 @@ public class ScheduleParseService {
                 }
             }
         }
-        // 页脚/正文「大会主席：X」兜底：已识别的同名主席/讲者升格 CHAIR，未识别的补一条
+        // 无表头兜底：按时间段锚定文本行（含 tableRows 未命中表头/纯文本日程）
+        if (result.isEmpty()) {
+            result.addAll(headerlessParse(ext));
+        }
+        // 页脚/正文「大会主席：X」「会议主席：X」兜底：已识别的同名致辞/主席段讲者升格 CHAIR，未识别的补一条
         if (ext.plainText != null) {
-            Matcher m = Pattern.compile("大会主席[:：]\\s*([\\u4e00-\\u9fa5·\\s]{2,12}?)\\s*(教授|主任医师|研究员|博士)?[，,。;；\\n]").matcher(ext.plainText);
+            Matcher m = Pattern.compile("(?:大会|会议)主席[:：]\\s*([^\\n]{0,40})").matcher(ext.plainText);
             while (m.find()) {
-                String name = normalizeName(m.group(1));
-                if (!isPlausibleName(name)) continue;
-                // 仅升格致辞/主席段落的同名讲者，避免把「大会总结」等普通发言也升为主席
-                boolean existed = false;
-                for (ProjectSpeaker sp : result) {
-                    if (normalizeName(sp.getExpertName()).equals(name)
-                            && sp.getSegmentTitle() != null
-                            && (sp.getSegmentTitle().contains("致辞") || sp.getSegmentTitle().contains("主席"))) {
-                        sp.setRole(ProjectSpeaker.ROLE_CHAIR);
-                        existed = true;
+                for (String name : extractNames(m.group(1))) {
+                    // 仅升格致辞/主席段落的同名讲者，避免把「大会总结」等普通发言也升为主席
+                    boolean existed = false;
+                    for (ProjectSpeaker sp : result) {
+                        if (normalizeName(sp.getExpertName()).equals(name)
+                                && sp.getSegmentTitle() != null
+                                && (sp.getSegmentTitle().contains("致辞") || sp.getSegmentTitle().contains("主席"))) {
+                            sp.setRole(ProjectSpeaker.ROLE_CHAIR);
+                            existed = true;
+                        }
                     }
-                }
-                if (!existed) {
-                    result.add(speaker(name, ProjectSpeaker.ROLE_CHAIR, "大会主席", ""));
+                    if (!existed) {
+                        result.add(speaker(name, ProjectSpeaker.ROLE_CHAIR, "大会主席", ""));
+                    }
                 }
             }
         }
         return result;
     }
 
+    /** 列头关键词（≥2 命中即认为是表头行）。 */
+    private static final List<String> HEADER_KEYWORDS =
+            List.of("时间", "主题", "题目", "议题", "内容", "讲者", "嘉宾", "主持", "专家", "讲");
+
+    /** 单元格压缩空白：\\s 不含全角空格/不换行空格（「时 间」表头曾因此整表跳过——邯郸卫星会实证）。 */
+    private String compactCell(String c) {
+        return c == null ? "" : c.replace("\u3000", "").replace("\u00a0", "").replaceAll("\\s", "");
+    }
+
+    private boolean isHeaderRow(List<String> cells) {
+        int hits = 0;
+        for (String c : cells) {
+            String v = compactCell(c);
+            if (v.isEmpty() || v.length() > 6) continue;   // 数据单元格不会这么短还带列头词
+            for (String k : HEADER_KEYWORDS) {
+                if (v.contains(k)) { hits++; break; }
+            }
+        }
+        return hits >= 2;
+    }
+
+    /** 单元格是否带头衔词（人名落的强信号，用于「姓名在内容列」的提取门控）。 */
+    private static final List<String> TITLE_WORDS = List.of(
+            "教授", "副教授", "主任医师", "副主任医师", "主治医师", "研究员", "副研究员", "讲师", "博士", "主任", "护师", "药师", "技师");
+
+    private boolean hasTitleWord(String v) {
+        if (v == null) return false;
+        for (String t : TITLE_WORDS) {
+            if (v.contains(t)) return true;
+        }
+        return false;
+    }
+
+    /** 行级角色判定：主席致辞→CHAIR；主持/环节行→HOST；讨论段或多人同段→DISCUSSANT；其余→SPEAKER。 */
+    private String roleFor(String topic, String speakerCell, int nameCount) {
+        String t = topic == null ? "" : topic;
+        if (t.contains("主席致辞") || t.contains("大会主席") || t.contains("会议主席")) return ProjectSpeaker.ROLE_CHAIR;
+        String cell = speakerCell == null ? "" : speakerCell;
+        if (t.contains("主持") || cell.contains("主持")) return ProjectSpeaker.ROLE_HOST;
+        if (t.contains("讨论") || cell.contains("讨论")) return ProjectSpeaker.ROLE_DISCUSSANT;
+        if (t.contains("环节")) return ProjectSpeaker.ROLE_HOST;   // 「第一环节」行=环节主持
+        return nameCount > 1 ? ProjectSpeaker.ROLE_DISCUSSANT : ProjectSpeaker.ROLE_SPEAKER;
+    }
+
+    /** 无表头兜底：逐行找时间段锚点，行内按启发式提取姓名（含角色词判定）。 */
+    private List<ProjectSpeaker> headerlessParse(Extracted ext) {
+        List<ProjectSpeaker> result = new ArrayList<>();
+        Pattern TIME_RANGE = Pattern.compile("\\d{1,2}[:：]\\d{2}\\s*[-—~至]\\s*\\d{1,2}[:：]\\d{2}");
+        List<String> lines = new ArrayList<>();
+        if (ext.tableRows != null) {
+            for (List<String> row : ext.tableRows) {
+                if (row != null) lines.add(String.join(" | ", row));
+            }
+        }
+        if (ext.plainText != null) {
+            for (String line : ext.plainText.split("\\R")) lines.add(line);
+        }
+        for (String line : lines) {
+            Matcher tm = TIME_RANGE.matcher(line);
+            if (!tm.find()) continue;
+            String time = tm.group().replace('：', ':');
+            // 时间段之后的文本参与提取（时间段常在行首/单元格首位）；行尾则用时间之前的部分
+            String rest = line.substring(tm.end()).trim();
+            String lead = line.substring(0, tm.start()).trim();
+            boolean timeLast = rest.isEmpty() || !containsName(rest);
+            String payload = timeLast ? lead : rest;
+            List<String> names = extractNames(payload);
+            if (names.isEmpty()) continue;
+            String role = roleFor(payload, payload, names.size());
+            // 议题=去掉人名与头衔后的剩余文本（粗略）
+            String topic = payload.replaceAll("[\\u4e00-\\u9fa5·]{2,4}\\s*(教授|主任医师|副主任医师|研究员|博士)?", " ")
+                    .replaceFirst("^[\\u4e00-\\u9fa5]{1,6}[：:]\\s*", "").replaceAll("\\s{2,}", " ").trim();
+            for (String n : names) {
+                result.add(speaker(n, role, blankToNull(topic), time));
+            }
+        }
+        return result;
+    }
+
+    /** 文本中是否存在像人名的片段。 */
+    private boolean containsName(String v) {
+        return !extractNames(v).isEmpty();
+    }
+
+    private static final Pattern TIME_VALUE = Pattern.compile("\\d{1,2}[:：]\\d{2}");
+
     private ProjectSpeaker speaker(String name, String role, String topic, String time) {
         ProjectSpeaker sp = new ProjectSpeaker();
         sp.setExpertName(name);
         sp.setRole(role);
-        sp.setSegmentTitle(blankToNull(topic));
+        sp.setSegmentTitle(blankToNull(topic == null ? null : topic.replaceAll("\\s+", " ").trim()));
         sp.setSegmentTime(blankToNull(time));
         return sp;
     }
 
-    /** 从单元格文本提取人名列表：换行切块，名字+头衔正则提取，剥头衔、归一化全角空格。 */
+    /**
+     * 从单元格文本提取人名列表：换行切块，剥段首标签（讨论：/主持：），再按分隔符切 token 逐个判名。
+     * token 判名（2026-11-10 曲径通幽/邯郸实证口径）：token 为纯 2-4 汉字（王军/刘铮/田春桃），
+     * 或剥去头衔后缀后为 2-4 汉字（彭军路教授→彭军路）；长 token（单位如 平顶山市中医院）整体拒绝，
+     * 避免 NAME_WITH_TITLE 任意滑窗把单位词截成人名。
+     */
     List<String> extractNames(String cell) {
         List<String> names = new ArrayList<>();
         if (cell == null || cell.isBlank()) return names;
         for (String line : cell.split("\\R")) {
-            // 全角/不换行空格是人名内部间隔（如「马　媛」），直接剔除；ASCII 空格保留为人名间分隔
-            String cleaned = line.replace("\u3000", "").replace("\u00a0", "").replace("|", " ").trim();
+            // 全角/不换行空格是人名内部间隔（如「马　媛」），直接剔除；
+            // PUA 私有区字符（\uE000-\uF8FF，嵌入字体的空白字形）与零宽字符一并剔除（邯郸卫星会「王\uF020军」实证）
+            String cleaned = line.replace("\u3000", "").replace("\u00a0", "").replace("|", " ")
+                    .replaceAll("[\\uE000-\\uF8FF\\u200b-\\u200f\\u2060\\ufeff]", "").trim();
+            cleaned = cleaned.replaceFirst("^[\\u4e00-\\u9fa5]{1,6}[：:]\\s*", "");   // 「讨论：」「主持：」等段首标签
             if (cleaned.isEmpty()) continue;
-            // 单行多人（空格分隔的名字+头衔序列）
-            Matcher m = NAME_WITH_TITLE.matcher(cleaned);
-            List<String> lineNames = new ArrayList<>();
-            while (m.find()) {
-                String name = normalizeName(m.group(1));
-                if (isPlausibleName(name)) lineNames.add(name);
+            for (String token : cleaned.split("[\\s、，,；;。/]+")) {
+                if (token.isEmpty()) continue;
+                String candidate = stripTitles(token);
+                if (CHINESE_NAME.matcher(candidate).matches() && isPlausibleName(candidate)
+                        && !names.contains(candidate)) {
+                    names.add(candidate);
+                }
             }
-            if (lineNames.isEmpty()) {
-                String stripped = stripTitles(cleaned);
-                if (isPlausibleName(stripped)) lineNames.add(stripped);
+            // 单字合并：人名被 ASCII 空格拆成单字（「王 军  刘 铮」，邯郸卫星会实证）时，连续单字 token 两两合并
+            String[] raw = cleaned.split("[\\s、，,；;。/]+");
+            java.util.List<String> run = new ArrayList<>();
+            java.util.List<String> merged = new ArrayList<>();
+            for (String token : raw) {
+                if (token.length() == 1 && token.matches("[\\u4e00-\\u9fa5·]")) {
+                    run.add(token);
+                } else {
+                    flushSingleCharRun(run, merged);
+                    if (!token.isEmpty()) merged.add(token);
+                }
             }
-            for (String n : lineNames) {
-                if (!names.contains(n)) names.add(n);
+            flushSingleCharRun(run, merged);
+            for (String token : merged) {
+                String candidate = stripTitles(token);
+                if (CHINESE_NAME.matcher(candidate).matches() && isPlausibleName(candidate)
+                        && !names.contains(candidate)) {
+                    names.add(candidate);
+                }
             }
         }
         return names;
@@ -400,17 +610,28 @@ public class ScheduleParseService {
         return s;
     }
 
+    /** 连续单字 token 两两合并为候选名（「王 军」→「王军」），奇数个时末位单字丢弃。 */
+    private void flushSingleCharRun(java.util.List<String> run, java.util.List<String> out) {
+        for (int i = 0; i + 1 < run.size(); i += 2) {
+            out.add(run.get(i) + run.get(i + 1));
+        }
+        run.clear();
+    }
+
     /** 归一化：去全部空白（含全角空格）、统一中间点。 */
     String normalizeName(String v) {
         return v == null ? "" : v.replaceAll("[\\u3000\\u00a0\\s]+", "").replace('・', '·');
     }
 
-    /** 像人名：2-4 个汉字（允许 ·），且不含机构/议题特征词。 */
+    /** 像人名：2-4 个汉字（允许 ·），不含数字/字母，且不含机构/议题/角色特征词。 */
     boolean isPlausibleName(String v) {
         if (v == null) return false;
         String s = stripTitles(v);
         if (!CHINESE_NAME.matcher(s).matches()) return false;
-        for (String w : List.of("医院", "大学", "大会", "会议", "规范", "优化", "解读", "指南", "论道", "致辞", "总结", "腾讯", "时间")) {
+        if (s.matches(".*[0-9A-Za-z].*")) return false;
+        for (String w : List.of("医院", "大学", "大会", "会议", "规范", "优化", "解读", "指南", "论道", "致辞", "总结", "腾讯", "时间",
+                "讨论", "主持", "嘉宾", "环节", "病例", "扫码", "地点", "形式", "尊敬", "您好", "邀请", "分享",
+                "手术", "体会", "治疗", "硬化", "射频", "下肢", "曲张", "药剂", "巡讲", "论坛", "专场", "指南更新", "医药")) {
             if (s.contains(w)) return false;
         }
         return true;
