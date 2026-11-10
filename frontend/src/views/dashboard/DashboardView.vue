@@ -1,9 +1,9 @@
 <template>
   <main class="dashboard">
-    <header class="dashboard-head"><div><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted"><span v-if="weekdayLabel">{{ weekdayLabel }} · </span>先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><template v-if="!editing"><el-button v-if="layoutEnabled" :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">自定义布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" class="refresh-btn" aria-label="刷新工作台" @click="refreshWorkbench"><el-icon><Refresh /></el-icon></el-button></div></header>
+    <header class="dashboard-head"><div><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted"><span v-if="weekdayLabel">{{ weekdayLabel }} · </span>先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><template v-if="!editing"><el-button :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">自定义布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" class="refresh-btn" aria-label="刷新工作台" @click="refreshWorkbench"><el-icon><Refresh /></el-icon></el-button></div></header>
     <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar ref="quickBar" :candidates="quickCandidates" :editing="editing" /></div>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
-    <p v-if="layoutEnabled && !wide" class="muted">请使用宽屏编辑布局。</p>
+    <p v-if="!wide" class="muted">请使用宽屏编辑布局。</p>
     <p v-if="editing" class="edit-tip">拖动卡片左上角手柄移动位置，拖动卡片右下角调整宽高；聚焦手柄后可用方向键微调，按住 Shift 加方向键改变宽高，按 Esc 取消当前操作。快捷访问的增删与排序也会一并调整，改完点上方「保存布局」生效，「取消」放弃全部改动。<span role="status">{{ layoutStatus }}</span></p>
     <el-button v-if="editing && conflict" :disabled="savingLayout" @click="reloadLayout">重新加载最新布局</el-button>
     <p v-if="!displayLayout.length" class="muted">暂无卡片，可通过编辑布局添加模块或恢复默认。</p>
@@ -28,23 +28,14 @@
               <!-- 面板：退回待修改 -->
               <article v-else-if="item.i==='panel.returned'" class="panel"><div class="panel-head"><h2>退回待修改</h2><el-button link @click="refresh(['myApplications'])">刷新</el-button></div><SectionState :value="section.myApplications" :loading="loading && !section.myApplications" @retry="refresh(['myApplications'])"/><p v-if="section.myApplications?.status!=='error' && !pendingItems('returned').length" class="muted">暂无退回待修改</p><template v-if="section.myApplications?.status !== 'error'"><button v-for="item2 in pendingItems('returned')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ applicationTitle(item2.title) }}</b><small>{{ item2.timeType || '申请时间' }} · {{ item2.time }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
               <!-- 面板：我的项目 -->
-              <article v-else-if="item.i==='panel.myProjects'" id="my-projects" ref="projectsElement" class="panel projects"><div class="panel-head"><div><h2>我的项目</h2><p class="muted">按到期风险排序</p></div><div><el-button v-if="auth.hasPermission('project:view-all')" link @click="router.push('/project')">全部可见项目</el-button><el-button link @click="router.push('/project?mine=1')">查看我的全部</el-button><el-button link @click="refresh(['myProjects','projectRisk'])">刷新</el-button></div></div><SectionState :value="section.myProjects" :loading="loading && !section.myProjects" @retry="refresh(['myProjects','projectRisk'])"/><template v-if="section.myProjects?.status === 'success'"><button v-for="item2 in data('myProjects').items" :key="item2.id" class="item-row project-row" @click="go(item2.target)"><span><b>{{ item2.name }} <el-tag v-if="warningNames[item2.warning]" :type="item2.warning==='OVERDUE'?'danger':'warning'" size="small">{{ warningNames[item2.warning] }}</el-tag></b><small>{{ item2.phaseName || '筹备' }} · 负责人 {{ item2.ownerName }} · 结束日期：{{ item2.endDate || '未设置' }}<template v-if="item2.lastPhaseChange"> · 最近{{ item2.lastPhaseChange.actionType==='ROLLBACK'?'回退':'推进' }} {{ item2.lastPhaseChange.time }}</template></small><small v-if="item2.myRelations?.length" class="relation-line">我的角色：{{ item2.myRelations.join(' / ') }}</small></span><span class="detail-arrow">详情 →</span></button></template></article>
+              <article v-else-if="item.i==='panel.myProjects'" id="my-projects" ref="projectsElement" class="panel projects"><div class="panel-head"><div><h2>我的项目</h2><p class="muted">按到期风险排序</p></div><div><el-button link @click="router.push('/project')">项目列表</el-button><el-button link @click="refresh(['myProjects','projectRisk'])">刷新</el-button></div></div><SectionState :value="section.myProjects" :loading="loading && !section.myProjects" @retry="refresh(['myProjects','projectRisk'])"/><template v-if="section.myProjects?.status === 'success'"><button v-for="item2 in data('myProjects').items" :key="item2.id" class="item-row project-row" @click="go(item2.target)"><span><b>{{ item2.name }} <el-tag v-if="warningNames[item2.warning]" :type="item2.warning==='OVERDUE'?'danger':'warning'" size="small">{{ warningNames[item2.warning] }}</el-tag></b><small>{{ item2.teamLabel || '团队未设置' }} · {{ item2.category === 'ONLINE' ? '线上' : '线下' }} · {{ item2.cityName || '城市未设置' }} · {{ item2.phaseName || '阶段未设置' }} · 负责人 {{ item2.ownerName || '-' }}<template v-if="meetingRange(item2)"> · 会议 {{ meetingRange(item2) }}</template> · 结束 {{ item2.endDate || '未设置' }}</small><small v-if="item2.myRelations?.length" class="relation-line">我的角色：{{ item2.myRelations.join(' / ') }}</small></span><span class="detail-arrow">详情 →</span></button></template></article>
               <!-- 面板：收藏/公告/通知 -->
               <article v-else-if="item.i==='panel.favorites' || item.i==='panel.announcements' || item.i==='panel.notifications'" class="panel"><div class="panel-head"><h2>{{ CARD_CATALOG[item.i].title }} <small v-if="item.i==='panel.notifications'">{{ data(sectionKeyOfPanel(item.i)).unreadCount ?? '' }}</small></h2><el-button link @click="go(allTargets[sectionKeyOfPanel(item.i)])">查看全部</el-button></div><SectionState :value="section[sectionKeyOfPanel(item.i)]" :loading="loading && !section[sectionKeyOfPanel(item.i)]" @retry="refresh([sectionKeyOfPanel(item.i)])"/><template v-if="section[sectionKeyOfPanel(item.i)]?.status !== 'error'"><button v-for="item2 in data(sectionKeyOfPanel(item.i)).items || []" :key="item2.id || item2.docId" class="item-row" @click="go(item2.target)"><span><b>{{ item2.title }}</b><small>{{ item2.favoriteTime || item2.publishTime || item2.time }}</small></span><el-tag v-if="sectionKeyOfPanel(item.i)==='announcements' && !item2.read" size="small">未读</el-tag></button></template></article>
           </div>
         </div>
       </div>
     </section>
-    <div v-if="data('projectRisk').unknownCompletionCount" class="risk-banner">
-      <el-icon class="risk-icon" aria-hidden="true"><WarningFilled /></el-icon>
-      <div class="risk-body">
-        <div class="risk-title">项目状态待核实 <el-tag size="small" type="warning">{{ data('projectRisk').unknownCompletionCount }} 个项目</el-tag>
-          <el-tooltip content="仅历史明确的完成阶段可判定完成" placement="top"><el-icon class="risk-info" aria-label="判定规则说明"><InfoFilled /></el-icon></el-tooltip>
-        </div>
-        <p class="risk-desc">{{ data('projectRisk').unknownCompletionCount === 1 ? '该项目暂不参与正常及到期风险统计。' : '这些项目暂不参与正常及到期风险统计。' }}</p>
-      </div>
-      <button type="button" class="risk-link" @click="go({ path: '/project', query: { mine: 1 } })">查看项目详情 →</button>
-    </div>
+    <!-- 2026-11-09：项目流程重塑后不再有「历史完成阶段」判定，原「项目状态待核实」提示条已移除 -->
     <template v-if="editing">
       <div class="palette">
         <div class="palette-head">备选卡片（点击添加到工作台）</div>
@@ -72,12 +63,12 @@ import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../store/auth'
-import { overview, getDashboardLayout, getLegacyDashboardLayout, saveDashboardLayout } from '../../api/dashboard'
+import { overview, getDashboardLayout, saveDashboardLayout } from '../../api/dashboard'
 import { sectionRequests, safeTarget, warningNames } from '../../utils/dashboard'
 import { normalizeDashboardLayout, orderLayout, placeCard } from '../../utils/dashboardLayout'
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
 import QuickAccessBar from '../../components/QuickAccessBar.vue'
-import { Refresh, WarningFilled, InfoFilled, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Refresh, WarningFilled, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 const router=useRouter(),auth=useAuthStore(),section=ref({}),loading=ref(false),pageError=ref(false),businessDate=ref(''),updatedAt=ref(''),projectsElement=ref(null),searchBar=ref(null),quickBar=ref(null),seq=sectionRequests()
 // capabilities 会话级缓存：首帧立即渲染快捷入口，避免 overview 返回前整条消失再弹入
 const capabilities=ref((()=>{try{return JSON.parse(sessionStorage.getItem(`dashboard-capabilities:${auth.id}`)||'[]')}catch(e){return []}})())
@@ -101,6 +92,9 @@ const CARD_CATALOG={
  'panel.announcements':{title:'最新公告',w:4,h:6,kind:'panel'},
  'panel.notifications':{title:'未读消息',w:4,h:6,kind:'panel'},
  'page.knowledge':{title:'知识星球',w:3,h:1,kind:'page',path:'/knowledge-planet/meeting-execution',cap:'knowledge'},
+ 'page.complianceAssociation':{title:'协会合规要求',w:3,h:1,kind:'page',path:'/knowledge-planet/association-compliance',cap:'knowledge'},
+ 'page.complianceEnterprise':{title:'企业合规要求',w:3,h:1,kind:'page',path:'/knowledge-planet/enterprise-compliance',cap:'knowledge'},
+ 'page.profileHome':{title:'我的主页',w:3,h:1,kind:'page',path:'/profile/overview'},
  'page.project':{title:'项目管理',w:3,h:1,kind:'page',path:'/project',cap:'project'},
  'page.experts':{title:'专家库',w:3,h:1,kind:'page',path:'/experts',cap:'expert'},
  'page.customer':{title:'客户信息',w:3,h:1,kind:'page',path:'/knowledge-planet/customer-info',cap:'customer'},
@@ -122,7 +116,8 @@ function canShow(id){
   if(card.cap && !capabilities.value.includes(card.cap))return false
   return true
 }
-const layoutEnabled = import.meta.env.VITE_DASHBOARD_LAYOUT_V2 === 'true'
+// 2026-11-09：布局编辑为工作台既有能力，改为固定启用；原先 VITE_DASHBOARD_LAYOUT_V2 开关
+// 漏带即整块功能消失（见 1.0.34.1.1 editfix 事故），legacy layout 回退由后端 /layout/v2 统一处理。
 const gridElement = ref(null)
 const wide = ref(false)
 const layoutReady = ref(false)
@@ -148,6 +143,7 @@ let editStarting = false
 
 function cardTarget(id){const card=CARD_CATALOG[id];return card?.path?{path:card.path}:null}
 function sectionKeyOfPanel(id){return {'panel.favorites':'favorites','panel.announcements':'announcements','panel.notifications':'notifications'}[id]}
+function meetingRange(p){const a=p?.meetingStartDate,b=p?.meetingEndDate;if(!a&&!b)return '';if(a&&b&&a!==b)return `${a} ~ ${b}`;return a||b}
 function cardDot(id){const card=CARD_CATALOG[id];return card.kind==='page'?'primary':(card.kind==='stat'?'warning':'success')}
 
 function syncGrid() {
@@ -226,12 +222,6 @@ function adjustCard(event, id) {
   grid.adjust(id, ...(event.shiftKey ? [0, 0, ...direction] : [...direction, 0, 0]))
 }
 async function loadLayout() {
-  if (!layoutEnabled) {
-    const legacy = await getLegacyDashboardLayout()
-    const items = JSON.parse(legacy.layout || 'null')
-    if (Array.isArray(items) && items.length) savedLayout.value = normalizeDashboardLayout(items, CARD_CATALOG)
-    return
-  }
   const data = await getDashboardLayout()
   revision.value = data.revision
   savedLayout.value = data.items === null ? null : normalizeDashboardLayout(data.items, CARD_CATALOG)
@@ -245,7 +235,7 @@ async function readInitialLayout() {
   }
 }
 async function refreshWorkbench() {
-  await Promise.all([refresh(), layoutEnabled && !layoutReady.value ? readInitialLayout() : Promise.resolve()])
+  await Promise.all([refresh(), layoutReady.value ? Promise.resolve() : readInitialLayout()])
 }
 async function reloadLayout() {
   try {
@@ -262,7 +252,9 @@ async function saveLayout() {
   grid?.setEnabled(false)
   const items = displayLayout.value.map(item => ({ ...item }))
   try {
-    await quickBar.value?.saveDraft()
+    const quickSaved = await quickBar.value?.saveDraft()
+    // 空快捷访问草稿会返回 false：整单中止，保留编辑态，不误报「布局与快捷访问已保存」
+    if (quickSaved === false) return
     const result = await saveDashboardLayout(revision.value, items)
     revision.value = result.revision
     savedLayout.value = items
@@ -293,7 +285,7 @@ const dataStale=computed(()=>lastRefreshAt.value>0 && nowTick.value-lastRefreshA
 const WEEK=['日','一','二','三','四','五','六']
 const weekdayLabel=computed(()=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(businessDate.value||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3]);return `${+m[2]}月${+m[3]}日，星期${WEEK[d.getDay()]}`})
 // 快捷访问候选：page.* 卡片按原固定顺序排列，经 canShow 过滤（含 capabilities 与权限）
-const QUICK_ACCESS_ORDER=['page.knowledge','page.project','page.experts','page.customer','page.supplier','page.myApplications','page.announcements','page.directory','page.notifications','page.approvalManage']
+const QUICK_ACCESS_ORDER=['page.knowledge','page.project','page.experts','page.customer','page.supplier','page.myApplications','page.announcements','page.directory','page.notifications','page.approvalManage','page.complianceAssociation','page.complianceEnterprise','page.profileHome']
 const quickCandidates=computed(()=>QUICK_ACCESS_ORDER.filter(canShow).map(id=>({id,title:CARD_CATALOG[id].title,path:CARD_CATALOG[id].path})))
 const allTargets={favorites:{path:'/knowledge-planet/meeting-execution',query:{favorites:'1'}},announcements:{path:'/profile/announcements'},notifications:{path:'/profile/notifications'}}
 const data=key=>section.value[key]?.data || {}

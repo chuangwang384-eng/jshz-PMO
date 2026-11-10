@@ -302,6 +302,13 @@ CREATE TABLE IF NOT EXISTS `project` (
   `cancel_reason` varchar(500) DEFAULT NULL,
   `cancel_time` datetime DEFAULT NULL,
   `budget_amount` decimal(14,2) DEFAULT NULL,
+  `team` varchar(20) DEFAULT NULL,
+  `city_id` bigint DEFAULT NULL,
+  `meeting_start_date` date DEFAULT NULL,
+  `meeting_end_date` date DEFAULT NULL,
+  `client_company` varchar(200) DEFAULT NULL,
+  `client_name` varchar(100) DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -321,6 +328,16 @@ CREATE TABLE IF NOT EXISTS `project_executor` (
   UNIQUE KEY `uk_project_user` (`project_id`,`user_id`),
   KEY `idx_executor_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='项目执行人（多人；创建时默认带入创建人）';
+
+CREATE TABLE IF NOT EXISTS `project_assistant` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `project_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_project_assistant` (`project_id`,`user_id`),
+  KEY `idx_assistant_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='项目协助人（多人；2026-11-09 项目基本信息改版）';
 
 CREATE TABLE IF NOT EXISTS `project_phase` (
   `id` bigint NOT NULL AUTO_INCREMENT,

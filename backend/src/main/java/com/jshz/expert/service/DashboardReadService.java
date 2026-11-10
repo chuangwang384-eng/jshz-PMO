@@ -13,7 +13,8 @@ import java.util.*;
 @Service
 public class DashboardReadService {
     private final JdbcTemplate db;
-    private final ProjectConfigurationService configuration;
+    // 保留构造签名以兼容隔离集成测试；2026-11-09 起工作台读取不再依赖项目配置快照。
+    @SuppressWarnings("unused") private final ProjectConfigurationService configuration;
     private final PermissionService permissions;
     private final GlobalSearchModules searchers;
     private final AntPathMatcher paths = new AntPathMatcher();
@@ -97,52 +98,60 @@ public class DashboardReadService {
         items.forEach(m->m.put("target",DashboardRules.target("/profile/announcements/"+m.get("id"),Map.of("from","dashboard"))));
         long total=count(from,List.of(now,now));return section(Map.of("total",total,"items",items),total==0);
     }
+    /** 工作台「我的项目」：阶段取 project_phase 字典；成员范围=负责人/创建人/协助人（兼容历史执行人）；到期风险只按 endDate。 */
     public Map<String,Map<String,Object>> projects(AuthUser user) { return projects(user,6,0); }
     public Map<String,Map<String,Object>> projects(AuthUser user,int limit,int offset) {
         LocalDate today=LocalDate.now(ZONE);
-        List<Map<String,Object>> all=rows("SELECT p.id,p.name,p.owner_id ownerId,p.phase_id phaseId,p.status,p.end_date endDate,EXISTS(SELECT 1 FROM project_executor x WHERE x.project_id=p.id AND x.user_id=?) isExecutor,u.username ownerName,s.origin,s.schema_version schemaVersion,s.effective_config config,s.config_hash configHash FROM project p LEFT JOIN sys_user u ON u.id=p.owner_id LEFT JOIN project_config_snapshot s ON s.project_id=p.id WHERE p.status NOT IN ('DELETED','CANCELED') AND (p.owner_id=? OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=p.id AND e.user_id=?))",user.getUserId(),user.getUserId(),user.getUserId());
-        // One batch for stage history; no per-card DB query.
-        Map<Long,Map<String,Object>> histories=new HashMap<>();
-        if(!all.isEmpty()) {
-            String slots=String.join(",",Collections.nCopies(all.size(),"?"));
-            List<Map<String,Object>> history=rows("SELECT h.project_id projectId,h.action_type actionType,h.from_phase_id fromPhaseId,h.to_phase_id toPhaseId,h.create_time time FROM project_phase_history h WHERE h.project_id IN ("+slots+") AND NOT EXISTS(SELECT 1 FROM project_phase_history n WHERE n.project_id=h.project_id AND (n.create_time>h.create_time OR (n.create_time=h.create_time AND n.id>h.id)))",all.stream().map(m->m.get("id")).toArray());
-            history.forEach(h->histories.put(number(h.get("projectId")),h));
-        }
+        Long uid=user.getUserId();
+        // 2026-11-09 项目流程重塑后：配置快照与阶段历史已停用，不再据此推断完成状态。
+        // 成员口径与 ProjectService.isProjectMember 对齐，避免创建人/协助人在工作台看不到自己的项目。
+        List<Map<String,Object>> all=rows(
+            "SELECT p.id,p.name,p.category,p.team,p.status,p.start_date startDate,p.end_date endDate,"+
+            "p.meeting_start_date meetingStartDate,p.meeting_end_date meetingEndDate,"+
+            "p.owner_id ownerId,p.creator_id creatorId,u.username ownerName,ph.name phaseName,sc.name cityName,"+
+            "EXISTS(SELECT 1 FROM project_executor x WHERE x.project_id=p.id AND x.user_id=?) isExecutor,"+
+            "EXISTS(SELECT 1 FROM project_assistant a WHERE a.project_id=p.id AND a.user_id=?) isAssistant "+
+            "FROM project p LEFT JOIN sys_user u ON u.id=p.owner_id "+
+            "LEFT JOIN project_phase ph ON ph.id=p.phase_id "+
+            "LEFT JOIN supplier_city sc ON sc.id=p.city_id "+
+            "WHERE p.status NOT IN ('DELETED','CANCELED') AND (p.owner_id=? OR p.creator_id=? "+
+            "OR EXISTS(SELECT 1 FROM project_assistant a2 WHERE a2.project_id=p.id AND a2.user_id=?) "+
+            "OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=p.id AND e.user_id=?))",
+            uid,uid,uid,uid,uid,uid);
         Map<String,Long> risks=new LinkedHashMap<>();
+        // unknownCompletionCount 保留为 0（兼容既有前端字段），新流程不再产生「完成状态待核实」。
         for(String key:List.of("overdueCount","dueTodayCount","dueSoonCount","unknownCompletionCount")) risks.put(key,0L);
         List<Map<String,Object>> items=new ArrayList<>();
         for(Map<String,Object> raw:all) {
-            String state="UNKNOWN", phase="配置异常";
-            try {
-                if(raw.get("schemaVersion")==null || number(raw.get("schemaVersion"))!=1) throw new IllegalArgumentException();
-                Map<String,Object> config=configuration.decode(raw.get("config").toString());
-                if(!configuration.configHash(config).equals(raw.get("configHash"))) throw new IllegalArgumentException();
-                phase=configuration.phase(config,number(raw.get("phaseId"))).getName();
-                state=DashboardRules.completion(String.valueOf(raw.get("origin")),config,number(raw.get("phaseId")));
-                Map<String,Object> history=histories.get(number(raw.get("id")));
-                if(history!=null) {
-                    history.put("fromPhaseName",configuration.phase(config,number(history.get("fromPhaseId"))).getName());
-                    history.put("toPhaseName",configuration.phase(config,number(history.get("toPhaseId"))).getName());
-                }
-            } catch(RuntimeException ex) { /* Fail closed: do not infer lifecycle from corrupt config. */ }
-            if("COMPLETED".equals(state)) continue;
             LocalDate end=raw.get("endDate")==null?null:((Date)raw.get("endDate")).toLocalDate();
-            String warning=DashboardRules.warning(state,end,today);
-            String counter=switch(warning){case "OVERDUE"->"overdueCount";case "DUE_TODAY"->"dueTodayCount";case "DUE_SOON"->"dueSoonCount";case "UNKNOWN_COMPLETION"->"unknownCompletionCount";default->null;};
+            String warning=DashboardRules.warning("INCOMPLETE",end,today);
+            String counter=switch(warning){case "OVERDUE"->"overdueCount";case "DUE_TODAY"->"dueTodayCount";case "DUE_SOON"->"dueSoonCount";default->null;};
             if(counter!=null) risks.put(counter,risks.get(counter)+1);
             Map<String,Object> item=new LinkedHashMap<>();
-            for(String k:List.of("id","name","status","endDate")) item.put(k,raw.get(k));
+            for(String k:List.of("id","name","category","team","status","startDate","endDate","meetingStartDate","meetingEndDate")) item.put(k,raw.get(k));
+            item.put("teamLabel",teamLabel(raw.get("team")));
+            item.put("cityName",text(raw.get("cityName")));
+            item.put("phaseName",raw.get("phaseName")==null?"未设置阶段":String.valueOf(raw.get("phaseName")));
             item.put("ownerName",text(raw.get("ownerName")));
             List<String> relations=new ArrayList<>();
-            if(raw.get("ownerId")!=null && number(raw.get("ownerId"))==user.getUserId()) relations.add("负责人");
-            if(Boolean.TRUE.equals(raw.get("isExecutor")) || raw.get("isExecutor") instanceof Number n && n.intValue()==1) relations.add("执行人");
+            if(raw.get("ownerId")!=null && number(raw.get("ownerId"))==uid) relations.add("负责人");
+            if(raw.get("creatorId")!=null && number(raw.get("creatorId"))==uid) relations.add("创建人");
+            if(isTrue(raw.get("isAssistant"))) relations.add("协助人");
+            if(isTrue(raw.get("isExecutor"))) relations.add("执行人");
             item.put("myRelations",relations);
-            item.put("phaseName",phase);item.put("completionState",state);item.put("warning",warning);item.put("lastPhaseChange",histories.get(number(raw.get("id"))));
-            item.put("target",DashboardRules.target("/project/"+raw.get("id"),Map.of("from","dashboard")));items.add(item);
+            item.put("warning",warning);
+            item.put("completionState","INCOMPLETE");
+            item.put("target",DashboardRules.target("/project/"+raw.get("id"),Map.of("from","dashboard")));
+            items.add(item);
         }
         List<String> rank=List.of("OVERDUE","DUE_TODAY","DUE_SOON","NONE","UNKNOWN_COMPLETION");
         items.sort(Comparator.<Map<String,Object>>comparingInt(m->rank.indexOf(m.get("warning"))).thenComparing(m->m.get("endDate")==null?null:m.get("endDate").toString(),Comparator.nullsLast(Comparator.naturalOrder())).thenComparingLong(m->number(m.get("id"))));
         return Map.of("projectRisk",section(new LinkedHashMap<>(risks),items.isEmpty()),"myProjects",section(Map.of("total",items.size(),"items",items.stream().skip(offset).limit(limit).toList()),items.isEmpty()));
+    }
+    private static boolean isTrue(Object v) { return Boolean.TRUE.equals(v) || v instanceof Number n && n.intValue()==1; }
+    private static String teamLabel(Object team) {
+        if(team==null) return "";
+        return switch(String.valueOf(team)){case "DEPT1"->"项目一部";case "DEPT2"->"项目二部";case "DEPT3"->"项目三部";default->"";};
     }
 
     /** Query specification shared by the preview and full-list endpoint. SQL fragments are code-owned. */
@@ -160,17 +169,10 @@ public class DashboardReadService {
         List<Object> selectArgs=new ArrayList<>(args);
         selectArgs.add(word.toLowerCase(Locale.ROOT));selectArgs.add(DashboardRules.literalLike(word.toLowerCase(Locale.ROOT))+"%");selectArgs.add(pattern);
         selectArgs.add(size);selectArgs.add((page-1)*size);
-        String metadata="project".equals(module)?",t.phase_id phaseId,snap.effective_config config,snap.config_hash configHash,snap.schema_version schemaVersion":"";
-        List<Map<String,Object>> items=rows("SELECT t.id,"+title+" title,"+extra+" extra "+metadata+" "+from+" ORDER BY CASE WHEN LOWER("+title+")=? THEN 0 WHEN LOWER("+title+") LIKE ? ESCAPE '!' THEN 1 WHEN LOWER("+title+") LIKE ? ESCAPE '!' THEN 2 ELSE 3 END,"+updated+" DESC,t.id DESC LIMIT ? OFFSET ?",selectArgs.toArray());
+        // 2026-11-09：项目阶段名由 GlobalSearchModules 的 project_phase 关联直接给出，
+        // 不再读取已停用的 project_config_snapshot，避免搜索结果出现「配置异常」。
+        List<Map<String,Object>> items=rows("SELECT t.id,"+title+" title,"+extra+" extra "+from+" ORDER BY CASE WHEN LOWER("+title+")=? THEN 0 WHEN LOWER("+title+") LIKE ? ESCAPE '!' THEN 1 WHEN LOWER("+title+") LIKE ? ESCAPE '!' THEN 2 ELSE 3 END,"+updated+" DESC,t.id DESC LIMIT ? OFFSET ?",selectArgs.toArray());
         items.forEach(m->{
-            if("project".equals(module)) {
-                try {
-                    Map<String,Object> config=configuration.decode(m.get("config").toString());
-                    if(number(m.get("schemaVersion"))!=1 || !configuration.configHash(config).equals(m.get("configHash"))) throw new IllegalArgumentException();
-                    m.put("extra",configuration.phase(config,number(m.get("phaseId"))).getName());
-                } catch(RuntimeException ex) { m.put("extra","配置异常"); }
-                for(String field:List.of("config","configHash","schemaVersion","phaseId")) m.remove(field);
-            }
             String path=LIST.get(module);Object id=m.get("id");
             Map<String,Object> dest=switch(module){
                 case "knowledge"->target(knowledgePath(m.get("extra")),"docId",id);

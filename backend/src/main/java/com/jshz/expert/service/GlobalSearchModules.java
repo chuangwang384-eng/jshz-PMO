@@ -18,14 +18,16 @@ public class GlobalSearchModules {
         registered.put("expert",(user,now)->new QuerySpec("expert_info t","t.name","t.unit",
                 List.of("t.name","t.unit"),"1=1",List.of(),"t.update_time"));
         registered.put("project",(user,now)-> {
+            // 2026-11-09 项目流程重塑：成员范围=负责人/创建人/协助人（兼容历史执行人）；
+            // 辅助信息取 project_phase 阶段字典，不再关联已停用的 project_config_snapshot。
             String where="t.status<>'DELETED'";
             List<Object> args=new ArrayList<>();
             if(!user.hasPermission("project:view-all")) {
-                where+=" AND (t.owner_id=? OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=t.id AND e.user_id=?))";
-                args.add(user.getUserId());args.add(user.getUserId());
+                where+=" AND (t.owner_id=? OR t.creator_id=? OR EXISTS(SELECT 1 FROM project_assistant a WHERE a.project_id=t.id AND a.user_id=?) OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=t.id AND e.user_id=?))";
+                for(int i=0;i<4;i++) args.add(user.getUserId());
             }
-            return new QuerySpec("project t LEFT JOIN project_config_snapshot snap ON snap.project_id=t.id","t.name","t.status",
-                    List.of("t.name","CAST(t.id AS CHAR)"),where,args,"t.update_time");
+            return new QuerySpec("project t LEFT JOIN project_phase ph ON ph.id=t.phase_id","t.name",
+                    "COALESCE(ph.name,'未设置阶段')",List.of("t.name","CAST(t.id AS CHAR)"),where,args,"t.update_time");
         });
         registered.put("customer",(user,now)->new QuerySpec("customer t","t.name","t.work_unit",
                 List.of("t.name"),"t.deleted=0",List.of(),"t.update_time"));

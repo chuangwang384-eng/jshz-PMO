@@ -28,7 +28,7 @@ class DashboardReadIntegrationTest {
         assertEquals(13319,db.queryForObject("SELECT @@port",Integer.class));
         assertTrue(db.queryForObject("SELECT @@datadir",String.class).contains(".build-dashboard-acceptance"));
         // Isolate assertions from synthetic browser fixtures; rollback restores them afterwards.
-        for(String table:List.of("project_phase_history","project_executor","project_config_snapshot","project","knowledge_favorite","knowledge_document","expert_info","application","announcement_read","announcement"))
+        for(String table:List.of("project_phase_history","project_executor","project_assistant","project_config_snapshot","project","knowledge_favorite","knowledge_document","expert_info","application","announcement_read","announcement"))
             db.update("DELETE FROM "+table);
         config=new ProjectConfigurationService(db,new ObjectMapper());permissions=mock(PermissionService.class);
         when(permissions.getPermissionRules()).thenReturn(List.of());
@@ -42,7 +42,7 @@ class DashboardReadIntegrationTest {
         Map<String,Object> snapshot=Map.of("phases",List.of(Map.of("phaseId",10,"name","立项","position",1),Map.of("phaseId",60,"name","已完成","position",2)));
         db.update("INSERT INTO project_config_snapshot(project_id,schema_version,effective_config,config_hash,origin) VALUES (?,1,?,?,?)",id,config.encode(snapshot),config.configHash(snapshot),origin);
     }
-    @Test void personalProjectsDoNotExpandForAdminAndExcludeCompletedCancelledDeleted() {
+    @Test void personalProjectsCoverMembersAndRankByEndDateRisk() {
         project(1001,501,-1,10,"LEGACY_BASELINE","ACTIVE");
         project(1002,999,0,10,"LEGACY_BASELINE","ACTIVE");db.update("INSERT INTO project_executor(project_id,user_id) VALUES (1002,501)");
         project(1003,501,7,10,"LEGACY_BASELINE","ACTIVE");db.update("INSERT INTO project_executor(project_id,user_id) VALUES (1003,501)");
@@ -50,13 +50,16 @@ class DashboardReadIntegrationTest {
         project(1005,501,-3,10,"LEGACY_BASELINE","CANCELED");project(1006,501,-3,10,"LEGACY_BASELINE","DELETED");
         project(1007,501,-9,60,"CREATED","ACTIVE");project(1008,999,-1,10,"LEGACY_BASELINE","ACTIVE");
         var result=reads.projects(admin);var list=items(data(result.get("myProjects")));
-        assertEquals(List.of(1001L,1002L,1003L,1007L),list.stream().map(m->((Number)m.get("id")).longValue()).toList());
-        assertEquals(List.of("负责人","执行人"),list.get(2).get("myRelations"));
-        var risks=data(result.get("projectRisk"));assertEquals(1L,risks.get("overdueCount"));assertEquals(1L,risks.get("dueTodayCount"));assertEquals(1L,risks.get("dueSoonCount"));assertEquals(1L,risks.get("unknownCompletionCount"));
-        assertEquals(4,items(data(reads.projects(employee).get("myProjects"))).size());
-        var search=reads.search(employee,"project","隔离项目",1,20);assertEquals(6L,search.get("total"));
+        // 2026-11-09 流程重塑后：不再按历史「已完成」阶段排除项目，也不再产生 UNKNOWN；CANCELED/DELETED 仍隐藏
+        assertEquals(List.of(1007L,1004L,1001L,1008L,1002L,1003L),list.stream().map(m->((Number)m.get("id")).longValue()).toList());
+        assertEquals(List.of("负责人","创建人","执行人"),list.get(5).get("myRelations"));
+        var risks=data(result.get("projectRisk"));assertEquals(4L,risks.get("overdueCount"));assertEquals(1L,risks.get("dueTodayCount"));assertEquals(1L,risks.get("dueSoonCount"));assertEquals(0L,risks.get("unknownCompletionCount"));
+        // 创建人=501 使普通员工同样可见 6 条；管理员不额外扩展
+        assertEquals(6,items(data(reads.projects(employee).get("myProjects"))).size());
+        var search=reads.search(employee,"project","隔离项目",1,20);assertEquals(7L,search.get("total"));
         assertEquals(7L,reads.search(admin,"project","隔离项目",1,20).get("total"));
         assertFalse(items(search).toString().contains("effective_config"));
+        assertEquals("未设置阶段",items(search).get(0).get("extra"));
         assertEquals(1L,reads.search(employee,"project","1001",1,5).get("total"));
     }
     @Test void literalSearchIsStableCaseInsensitiveAndSensitiveFieldsNeverReturn() {

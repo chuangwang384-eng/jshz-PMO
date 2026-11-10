@@ -6,9 +6,9 @@ export function safeLocalPath(value, fallback = '/dashboard') {
 }
 export function safeTarget(router, target) {
   if (!target || typeof target.path !== 'string' || safeLocalPath(target.path, '') !== target.path) return null
-  const allowed = /^(?:\/dashboard|\/experts|\/project(?:\/\d+)?|\/supplier(?:\/\d+)?|\/profile\/(?:my-approvals|approval\/manage|notifications|directory|announcements(?:\/\d+)?)|\/knowledge-planet\/(?:meeting-execution|association-compliance|enterprise-compliance|customer-info|customer-detail\/\d+))$/
+  const allowed = /^(?:\/dashboard|\/experts|\/project(?:\/\d+)?|\/supplier(?:\/\d+)?|\/profile\/(?:overview|my-approvals|approval\/manage|notifications|directory|announcements(?:\/\d+)?)|\/knowledge-planet\/(?:meeting-execution|association-compliance|enterprise-compliance|customer-info|customer-detail\/\d+))$/
   if (!allowed.test(target.path)) return null
-  const query = Object.fromEntries(Object.entries(target.query || {}).filter(([key, val]) => ['keyword','searchMode','docId','expertId','applicationId','notificationId','status','favorites','mine','actionable','from'].includes(key) && typeof val === 'string'))
+  const query = Object.fromEntries(Object.entries(target.query || {}).filter(([key, val]) => ['keyword','searchMode','docId','expertId','applicationId','notificationId','status','favorites','actionable','from'].includes(key) && typeof val === 'string'))
   return router.resolve({ path: target.path, query }).matched.length ? { path: target.path, query } : null
 }
 export function latestRequest() { let id = 0; return { next: () => ++id, current: value => value === id } }

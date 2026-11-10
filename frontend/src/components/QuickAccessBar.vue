@@ -29,7 +29,7 @@
                 @click="draft.push(item)" @keydown.enter.prevent="draft.push(item)">
             + <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
           </span>
-          <span v-if="!addable.length" class="qa-empty-tip">暂无可添加候选</span>
+          <span v-if="!addable.length" class="qa-empty-tip">{{ draft.length >= MAX_ITEMS ? `最多 ${MAX_ITEMS} 个，请先移除再添加` : '暂无可添加候选' }}</span>
         </span>
       </div>
     </template>
@@ -39,15 +39,18 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowDown, Bell, Checked, Collection, Folder, Iphone, Message, OfficeBuilding, Shop, Tickets, User } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, Checked, Collection, Document, Files, Folder, HomeFilled, Iphone, Message, OfficeBuilding, Shop, Tickets, User } from '@element-plus/icons-vue'
 import { getQuickAccess, saveQuickAccess } from '../api/dashboard'
 
 const router = useRouter()
 
 const props = defineProps({ candidates: { type: Array, required: true }, editing: { type: Boolean, default: false } })
 
-const ICONS = { 'page.project': Folder, 'page.experts': User, 'page.knowledge': Collection, 'page.customer': OfficeBuilding, 'page.supplier': Shop, 'page.myApplications': Tickets, 'page.announcements': Bell, 'page.directory': Iphone, 'page.notifications': Message, 'page.approvalManage': Checked }
+const ICONS = { 'page.project': Folder, 'page.experts': User, 'page.knowledge': Collection, 'page.customer': OfficeBuilding, 'page.supplier': Shop, 'page.myApplications': Tickets, 'page.announcements': Bell, 'page.directory': Iphone, 'page.notifications': Message, 'page.approvalManage': Checked, 'page.complianceAssociation': Document, 'page.complianceEnterprise': Files, 'page.profileHome': HomeFilled }
 const iconOf = id => ICONS[id] || Folder
+
+/** 与后端 QuickAccessService.MAX_ITEMS 对齐：候选集可多于上限，但启用/保存不得超过 10 个。 */
+const MAX_ITEMS = 10
 
 const config = ref(null)          // 服务端已保存配置；null=未配置，用默认顺序
 const draft = ref([]), dragIndex = ref(-1)
@@ -59,18 +62,22 @@ watch(() => props.editing, active => {
   else dragIndex.value = -1
 })
 
-/** 默认顺序 = 候选集原顺序（与旧固定入口一致）。 */
-const defaultEnabled = computed(() => props.candidates.slice())
-/** 已启用：过滤掉已撤权的过期配置项，再按保存顺序补回候选顺序之外的新可用项。 */
+/** 默认顺序 = 候选集原顺序（旧固定入口），按后端上限截断。 */
+const defaultEnabled = computed(() => props.candidates.slice(0, MAX_ITEMS))
+/** 已启用：过滤掉已撤权的过期配置项，并把候选集中新增的可用入口补到末尾（不超上限）。 */
 const enabled = computed(() => {
   if (!config.value) return defaultEnabled.value
-  const known = new Set(props.candidates.map(c => c.id))
-  const ordered = config.value.filter(id => known.has(id)).map(id => props.candidates.find(c => c.id === id))
-  return ordered
+  const known = new Map(props.candidates.map(c => [c.id, c]))
+  const ordered = config.value.filter(id => known.has(id)).slice(0, MAX_ITEMS).map(id => known.get(id))
+  const used = new Set(ordered.map(c => c.id))
+  const extra = props.candidates.filter(c => !used.has(c.id)).slice(0, MAX_ITEMS - ordered.length)
+  return [...ordered, ...extra]
 })
 const visible = computed(() => enabled.value.slice(0, 6))
 const hidden = computed(() => enabled.value.slice(6))
-const addable = computed(() => props.candidates.filter(c => !draft.value.some(d => d.id === c.id)))
+const addable = computed(() => draft.value.length >= MAX_ITEMS
+  ? []
+  : props.candidates.filter(c => !draft.value.some(d => d.id === c.id)).slice(0, MAX_ITEMS - draft.value.length))
 
 function reorder(toIndex) {
   const from = dragIndex.value
@@ -83,6 +90,7 @@ function resetDraft() { draft.value = defaultEnabled.value.slice() }
 /** 由页头「保存布局」调用；失败时抛错交由父级统一提示。 */
 async function saveDraft() {
   if (!draft.value.length) { ElMessage.warning('至少保留一个快捷入口'); return false }
+  if (draft.value.length > MAX_ITEMS) { ElMessage.warning(`快捷入口最多 ${MAX_ITEMS} 个`); return false }
   const { items } = await saveQuickAccess(draft.value.map(d => d.id))
   config.value = items
   return true

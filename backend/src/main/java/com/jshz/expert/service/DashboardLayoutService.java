@@ -17,11 +17,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class DashboardLayoutService {
     private static final Set<String> PUBLIC_CARDS = Set.of(
             "stat.myApplications", "stat.riskOverdue", "stat.riskDue", "panel.returned",
-            "panel.myProjects", "panel.favorites", "panel.announcements", "panel.notifications", "page.notifications");
+            "panel.myProjects", "panel.favorites", "panel.announcements", "panel.notifications",
+            "page.notifications", "page.profileHome");
     private static final Set<String> APPROVAL_CARDS = Set.of("stat.myApprovals", "panel.myApprovals", "page.approvalManage");
     private static final Map<String, String> MODULE_CARDS = Map.of(
-            "page.knowledge", "knowledge", "page.project", "project", "page.experts", "expert",
-            "page.customer", "customer", "page.supplier", "supplier", "page.announcements", "announcement");
+            "page.knowledge", "knowledge", "page.complianceAssociation", "knowledge",
+            "page.complianceEnterprise", "knowledge", "page.project", "project",
+            "page.experts", "expert", "page.customer", "customer",
+            "page.supplier", "supplier", "page.announcements", "announcement");
     private final DashboardReadService reads;
     private final JdbcTemplate db;
     private final ObjectMapper json;
@@ -118,7 +121,8 @@ public class DashboardLayoutService {
     }
 
     private List<Card> validate(AuthUser user, JsonNode items) {
-        if (!items.isArray() || items.size() > 20) throw invalid();
+        // 目录含 23 张卡片（2026-11-09 补齐知识星球子页与我的主页入口），上限与目录规模对齐。
+        if (!items.isArray() || items.size() > 24) throw invalid();
         List<Card> cards = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (JsonNode item : items) {

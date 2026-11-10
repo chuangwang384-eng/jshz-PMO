@@ -13,6 +13,13 @@ test('targets accept only registered module paths and approved scalar parameters
  assert.deepEqual(safeTarget(router,{path:'/experts',query:{expertId:'3',secret:'never',userId:5}}),{path:'/experts',query:{expertId:'3'}})
  assert.equal(safeTarget({resolve:()=>({matched:[]})},{path:'/project/7'}),null)
 })
+test('dashboard targets follow the live menu and drop retired query flags',()=>{
+ const router={resolve:()=>({matched:[{}]})}
+ for(const path of ['/profile/overview','/knowledge-planet/association-compliance','/knowledge-planet/enterprise-compliance'])
+   assert.deepEqual(safeTarget(router,{path}),{path,query:{}})
+ // 项目列表已不再读取 mine；工作台不得再产生该深链参数
+ assert.deepEqual(safeTarget(router,{path:'/project',query:{mine:'1',keyword:'abc'}}),{path:'/project',query:{keyword:'abc'}})
+})
 test('stale responses are rejected after another request or clear',()=>{
  const sequence=latestRequest(),first=sequence.next(),second=sequence.next()
  assert.equal(sequence.current(first),false);assert.equal(sequence.current(second),true)
