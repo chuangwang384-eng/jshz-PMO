@@ -205,6 +205,12 @@ V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `
 
 静态工作台保留现有业务查询和跳转。编辑器按需加载 GridStack 14.1.0，Vue 保留卡片内容渲染，宽屏静态视图用相同的 12 列坐标展示，窄屏按坐标顺序单列阅读。布局通过认证账号隔离。旧 layout 与可空 layout_v2 并行存储，旧版回退读取原列，迁移和并发语义见 [接口与部署说明](deployment/2026-11-06-工作台二维布局-接口部署与验收.md)。本轮生产未发布。
 
+> 历史状态说明（2026-11-09 核实）：上文「本轮生产未发布」「GridStack 14.1.0」为 2026-11-06 记录；后续布局编辑器已改为零依赖原生拖拽（`frontend/src/utils/dashboardGrid.js`）并已上线，1.0.37.28 起不再依赖构建期开关。
+
+### 工作台与实际功能对齐（2026-11-09，1.0.37.28 待发布）
+
+工作台的项目数据口径改为与现行项目流程一致：阶段名取 `project_phase` 字典（配置快照、历史完成阶段判定与阶段推进/回退已停用），到期风险仅按 `end_date` 计算，成员范围=负责人/创建人/协助人（兼容历史执行人）；全局搜索项目分组采用同一范围，辅助信息取阶段名而非配置快照。卡片目录补 3 个实际菜单入口（协会合规要求、企业合规要求、我的主页），前端卡片目录/快捷访问/图标/深链白名单与后端 `DashboardLayoutService` 白名单同步；移除失效的 `/project?mine=1` 深链与「项目状态待核实」横幅。**无数据库迁移、无接口契约变更、无权限码变更**。详见 [设计文档](design/2026-11-09-工作台与实际功能对齐-设计文档.md) 与 [发布记录](releases/20261109-dashboard-align-1.0.37.28.md)。
+
 ## 审批流事务边界（2026-11-06，开发完成未发布）
 
 `ApplicationService` 的审批流写入口统一声明 `@Transactional(rollbackFor = Exception.class)`：`updateConfig` / `submitRequest` / `submitCreateRequest` / `submitContractApproval` / `approve`（其内部 `approveContract`、`approveCreate`、`approveModify` 分支共享该事务）/ `approveModify` / `reject` / `returnRequest` / `resubmit`（两个重载）/ `withdraw` / `transfer` / `addApprover` / `saveConfigUsers`。单次操作中的申请单写入、合同 status 与 approval_ref、项目专家合同快照、审批记录、操作日志在同一事务内原子提交，任一失败整体回滚。

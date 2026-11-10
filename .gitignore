@@ -87,3 +87,9 @@ frontend/dist-*/
 
 # Runtime frontend rollback metadata (outside webroot; never source)
 frontend/release-metadata/
+
+# --- 本地构建/工具目录（不入库） ---
+builds/
+.workbuddy/
+.bdv4b.txt
+temp/
