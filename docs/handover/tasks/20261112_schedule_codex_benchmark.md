@@ -50,3 +50,38 @@ Codex 从原件的 PPTX 文本框、表格和内嵌图片，以及 PDF 渲染、
 - 本轮 219 条参照出场下，208 条完整命中且额外候选不超过 10 条时，完整 F1 约 95.2%。正式门槛仍需用独立会议验收集核算。
 - 完整链路有一次 Ollama 请求超时。节目单、仅封面及图片型妇愈芬芳三份返回无候选。真实推理日志见 logs/schedule-codex-local-full.log。逐条参照和差异见 temp/schedule-codex-review/reference.txt、diff.csv。
 - 本轮仅评测和编写优化方案，无生产代码、API、数据库或配置改动。
+
+## 附录：解析逻辑优化方案（ZCode 2026-11-12 复核，按投入产出排序）
+
+依据：本轮 F1 证据 + ScheduleParseService 当前能力核实（PDF 仅 Tesseract 150dpi 整页、PPTX 不读内嵌图片、文本框无坐标配对、Excel 已有 getMergedRegions、docx 无 vMerge 处理）。
+
+### P1 图片型 PPTX / 扫描 PDF 的 PP-OCRv5 接入（预期增量最大：47 条参照，当前命中 0）
+- 复用已上线的企业合规链路组件：`LocalTableOcr.recognize`（PP-OCRv5 整页 TSV，带逐行置信度）+ 噪声行过滤（无中文行剔除，已在 ComplianceParseService 验证）+ 置信度 ≥60。
+- `extractPpt`：逐 slide 统计文本形状字符量；低于阈值时遍历 `XSLFPictureData`（slide.getShapes→PictureShape.getPictureData）对每张图片 OCR，结果按块并入 plainText/tableRows。
+- `extractPdf`（ScheduleParseService L1318-1326）：150dpi Tesseract 换/竞争 **250dpi PP-OCRv5**（同 ComplianceParseService 的择优口径：按 CJK 字符量取优），并对表格特征页走 `ComplianceOcrTable.grid/blocks` 行列重建。
+- 验收：144-日程(1).pdf（27 条）与 妇愈芬芳日程.pptx（20 条）完整命中数 >0；四字段 F1 显著上升（47 条参照若达 70% 命中，整体 F1 即可逼近 90%）。
+
+### P2 PPTX 文本框坐标配对（重庆 5 条、零售 14 条）
+- POI 可取每个文本框锚点矩形（shape.getAnchor 的 x/y/w/h）。按行聚类（Y 区间重叠）、列排序（X 中心），结合表头行（时间/议题/讲者）列位置建立列语义，输出结构化行而非阅读顺序拼接。
+- 特殊时间格式（如"茶歇10min"行、合并时间列）沿用 expandTimeColumn 并允许"仅时间无讲者"行。
+- 验收：重庆 5/5、零售 14 条完整命中 ≥13；重复文件（PDF/PPTX 同会）候选一致性检查。
+
+### P3 合并格与主持区间（6.4会议日程 xlsx 29/21 多报、docx 纵向合并）
+- xlsx：getMergedRegions 已接入，需把"主持人列纵向合并"识别为**覆盖区间输出一次**（首行出主持人，后续行继承不出）；
+- docx：XWPFTableCell 读 vMerge（isMergeFirst/start）同口径；
+- 主题列表单元格（如"赵 敏/冯晓杰/梁俊华…"）以分隔符切分保留首位人名，避免整块吞并。
+- 验收：6.4会议日程 多报数 ≤3；整合日程 docx 保持 26/27。
+
+### P4 LLM 兜底约束（当前姓名 F1 提升但完整 F1 下降：16→43 多报）
+- 只对**规则未覆盖的行/片段**调用 LLM（候选非空即跳过 → 改为差集调用）；
+- 输出须携带**回指证据**（来源页/行号或原文片段），后处理用覆盖率校验（复用 compliance 的 coverageRatio ≥80 模式）丢弃无据条目；
+- 按"姓名+时间+议题"出场去重，允许同人跨角色保留多条；限制生成长度；Ollama 超时重试 1 次（本轮观察到 1 次超时）。
+- 验收：完整链路多报 ≤10 条（219 参照/208 完整命中下 F1≈95.2% 的门槛条件）。
+
+### P5 评测方法固化
+- 冻结本 12 份为调试回归集（同会多格式归同组）；另选独立会议组做达标验收集；
+- 每轮输出：精确率/召回率/完整四字段 F1/低候选文件/耗时（沿用本轮口径脚本）；
+- 达标线：独立集完整四字段 F1 ≥95%。
+
+### 建议实施顺序与预期
+P1（半天~1天）→ P2（1天）→ P3（半天）→ P4（半天）→ P5 验收。P1+P2 落地后预计完整 F1 从 75.0% 升至 ~90%+，叠加 P3/P4 达 95% 目标。
