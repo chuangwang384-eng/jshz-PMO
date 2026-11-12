@@ -1,5 +1,8 @@
 package com.jshz.expert.service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.rendering.PDFRenderer;
@@ -103,6 +106,12 @@ public class KnowledgeDocTextExtractor {
         catch (Exception e) { return new StructuredExtraction(List.of(), true, "读取文件失败，请人工核对原文件"); }
     }
 
+    /** Path 重载（合规解析异步链直接读盘，避免调用方持有整文件 byte[]，Owner 2026-11-10）。 */
+    public StructuredExtraction extractStructured(Path path, String fileName) {
+        try { return extractStructured(Files.readAllBytes(path), fileName); }
+        catch (Exception e) { return new StructuredExtraction(List.of(), true, "读取文件失败，请人工核对原文件"); }
+    }
+
     public StructuredExtraction extractStructured(byte[] bytes, String fileName) {
         if (bytes == null || bytes.length == 0) return new StructuredExtraction(List.of(), true, "文件为空");
         String ext = extensionOf(fileName);
@@ -112,22 +121,49 @@ public class KnowledgeDocTextExtractor {
                 case "pdf" -> {
                     try (PDDocument doc = PDDocument.load(bytes)) {
                         for (int i = 1; i <= doc.getNumberOfPages(); i++) {
-                            PDFTextStripper stripper = new PDFTextStripper();
+                            PDFTextStripper stripper = new PDFTextStripper() {
+                                private org.apache.pdfbox.text.TextPosition previousLine;
+
+                                @Override
+                                protected void writeString(String text, List<org.apache.pdfbox.text.TextPosition> positions)
+                                        throws java.io.IOException {
+                                    if (!positions.isEmpty()) {
+                                        var current = positions.get(0);
+                                        float gap = previousLine == null ? 0 : current.getYDirAdj() - previousLine.getYDirAdj();
+                                        if (gap > 1) {
+                                            float fontSize = Math.max(previousLine.getFontSizeInPt(), current.getFontSizeInPt());
+                                            boolean fontChanged = Math.abs(previousLine.getFontSizeInPt() - current.getFontSizeInPt()) >= 3;
+                                            if (gap > 3 * fontSize || fontChanged) writeLineSeparator();
+                                        }
+                                        if (previousLine == null || Math.abs(gap) > 1) previousLine = current;
+                                    }
+                                    super.writeString(text, positions);
+                                }
+                            };
                             stripper.setStartPage(i); stripper.setEndPage(i);
                             String page = clean(stripper.getText(doc));
                             if (page.length() < 20 || (page.contains("序号") && page.contains("标准"))) {
                                 var raster = new PDFRenderer(doc).renderImageWithDPI(i - 1, 250);
                                 var grid = ComplianceOcrTable.grid(raster);
                                 if (grid != null) {
-                                    var table = ComplianceOcrTable.blocks(grid, ocrPage(raster, true), "PDF第" + i + "页");
+                                    String anchor = "PDF第" + i + "页";
+                                    var table = ComplianceOcrTable.blocks(grid, LocalTableOcr.recognize(raster), anchor);
+                                    if (table.isEmpty() || table.stream().anyMatch(block -> "PAGE".equals(block.kind()))) {
+                                        table = ComplianceOcrTable.blocks(grid, ocrPage(raster, true), anchor);
+                                    }
                                     if (!table.isEmpty()) {
-                                        blocks.addAll(table);
+                                        blocks.addAll(ComplianceOcrTable.refineRows(raster, grid, table));
                                         continue;
                                     }
                                 }
                                 if (page.length() < 20) {
                                     String ocr = clean(ocrPage(raster, false));
                                     if (ocr.length() >= 20) page = ocr;
+                                    // PP-OCRv5 整页行识别竞争（Owner 2026-11-11）：表格定位失败的扫描页原走 Tesseract 整页
+                                    // 识别，噪声大（如「国玫汪避ER」「雍训人 基多内」）；PP-OCR 带逐行置信度，滤低分行后与
+                                    // Tesseract 按 CJK 字符量择优
+                                    String ppocr = ppOcrLines(raster);
+                                    if (ppocr != null && cjkCount(ppocr) > cjkCount(page)) page = ppocr;
                                 }
                             }
                             blocks.add(new SourceBlock("PDF第" + i + "页", page, page.length() < 20 ? "PAGE" : "PDF_PAGE"));
@@ -188,6 +224,34 @@ public class KnowledgeDocTextExtractor {
 
     private static String clean(String text) { return text == null ? "" : text.replaceAll("[ \\t]+", " ").trim(); }
     /** OCR 单页/单图（公开供简历解析复用）：chi_sim+eng，45s 超时，临时文件自动清理。 */
+    /**
+     * PP-OCRv5 整页行识别（Owner 2026-11-11）：调用 LocalTableOcr 的 TSV 输出，
+     * 按逐行置信度 ≥60 过滤后拼为文本；运行时未安装/超时/无有效行返回 null（调用方保留 Tesseract 结果）。
+     */
+    private String ppOcrLines(java.awt.image.BufferedImage raster) {
+        try {
+            String tsv = LocalTableOcr.recognize(raster);
+            if (tsv == null || tsv.isBlank()) return null;
+            StringBuilder sb = new StringBuilder();
+            for (String line : tsv.split("\\R")) {
+                String[] f = line.split("\t");
+                if (f.length < 2) continue;
+                String text = f[f.length - 1].trim();
+                double score;
+                try { score = Double.parseDouble(f[f.length - 2]); } catch (Exception e) { continue; }
+                if (text.isEmpty() || score < 60) continue;
+                sb.append(text).append('\n');
+            }
+            return sb.toString().isBlank() ? null : sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static long cjkCount(String s) {
+        return s == null ? 0 : s.chars().filter(c -> c >= 0x4E00 && c <= 0x9FA5).count();
+    }
+
     public static String ocrPage(java.awt.image.BufferedImage raster, boolean coordinates) {
         Path image = null;
         Path output = null;

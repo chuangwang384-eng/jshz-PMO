@@ -48,7 +48,7 @@ class KnowledgeDocStreamingParseTest {
         }
 
         ComplianceParseService.ParseResult result =
-                new ComplianceParseService().parse("compliance.xlsx", "xlsx", file, null);
+                new ComplianceParseService(null, null).parse("compliance.xlsx", "xlsx", file, null);
 
         assertThat(result.items()).hasSize(1);
         assertThat(result.items().get(0).getTitle()).isEqualTo("测试事项");
@@ -57,7 +57,7 @@ class KnowledgeDocStreamingParseTest {
     @Test
     void missingPathIsReportedAsFailureNotException(@TempDir Path dir) {
         ComplianceParseService.ParseResult result =
-                new ComplianceParseService().parse("missing.xlsx", "xlsx", dir.resolve("missing.xlsx"), null);
+                new ComplianceParseService(null, null).parse("missing.xlsx", "xlsx", dir.resolve("missing.xlsx"), null);
 
         assertThat(result.items()).isEmpty();
         assertThat(result.message()).contains("失败");

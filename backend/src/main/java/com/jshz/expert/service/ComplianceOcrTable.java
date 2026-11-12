@@ -11,6 +11,57 @@ final class ComplianceOcrTable {
     private record Word(int x, int y, String line, String text) {}
     record Grid(List<Integer> rows, List<Integer> columns) {}
 
+    static List<KnowledgeDocTextExtractor.SourceBlock> refineRows(
+            BufferedImage image, Grid grid, List<KnowledgeDocTextExtractor.SourceBlock> blocks) {
+        var result = new ArrayList<KnowledgeDocTextExtractor.SourceBlock>();
+        int row = 0;
+        int retries = 0;
+        for (var block : blocks) {
+            if (!block.anchor().contains("表格第")) {
+                result.add(block);
+                continue;
+            }
+            row++;
+            if (!"TABLE_ROW".equals(block.kind())) {
+                result.add(block);
+                continue;
+            }
+            String[] cells = block.text().split(" \\| ", 2);
+            for (int cell = 0; cell < cells.length; cell++) {
+                String original = cells[cell];
+                if (original.lines().noneMatch(ComplianceOcrTable::looksCorrupt)) continue;
+                if (retries < 6) {
+                    retries++;
+                    int left = grid.columns().get(cell + 1) + 3;
+                    int top = grid.rows().get(row) + 3;
+                    int width = grid.columns().get(cell + 2) - left - 3;
+                    int height = grid.rows().get(row + 1) - top - 3;
+                    if (width > 0 && height > 0) {
+                        String retry = KnowledgeDocTextExtractor.ocrPage(image.getSubimage(left, top, width, height), false).strip();
+                        if (!retry.isEmpty() && retry.lines().noneMatch(ComplianceOcrTable::looksCorrupt)
+                                && retry.lines().count() >= original.lines().count()) {
+                            cells[cell] = retry;
+                            continue;
+                        }
+                    }
+                }
+                cells[cell] = String.join("\n", original.lines()
+                        .map(line -> looksCorrupt(line) ? "〔此行识别不清，请核对原文〕" : line).toList());
+            }
+            result.add(new KnowledgeDocTextExtractor.SourceBlock(block.anchor(), String.join(" | ", cells), block.kind()));
+        }
+        return result;
+    }
+
+    private static boolean looksCorrupt(String line) {
+        String text = line.strip();
+        if (text.isEmpty()) return false;
+        return text.matches(".*[/／]\\s*[*＊].*")
+                || text.matches(".*[A-Za-z]{2,}\\s+[A-Za-z]{2,}\\s*[:：].*")
+                || text.matches("[（(]?\\d+[)）]\\d*\\s+[A-Za-z]{2,}\\s+[A-Za-z][)）]")
+                || text.matches("[\\p{P}\\p{S}\\s]+");
+    }
+
     static Grid grid(BufferedImage image) {
         int width = image.getWidth();
         int height = image.getHeight();
