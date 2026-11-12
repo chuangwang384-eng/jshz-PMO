@@ -345,11 +345,20 @@ public class ScheduleParseService {
         }
         String semanticInput = merged.size() < 2 ? ext.plainText : String.join("\n", unresolved);
         if (semanticInput != null && !semanticInput.isBlank()) {
+            // P4（Owner 2026-11-12）：LLM 兜底约束——超时重试 1 次；候选须回指原文（姓名含于输入，
+            // 议题/时间字段字符覆盖率 ≥60），按出场（姓名+时间+议题）去重，允许同人跨角色保留多条。
             List<ProjectSpeaker> semantic = ollamaService.extractScheduleSpeakers(semanticInput);
+            if (semantic == null && !unresolved.isEmpty()) {
+                semantic = ollamaService.extractScheduleSpeakers(semanticInput);
+            }
+            String normSemanticInput = normalizeName(semanticInput);
             if (semantic != null) {
                 for (ProjectSpeaker candidate : semantic) {
                     String name = normalizeName(candidate.getExpertName());
-                    if (isPlausibleName(name) && normalizeName(semanticInput).contains(name)
+                    boolean nameGrounded = isPlausibleName(name) && normSemanticInput.contains(name);
+                    boolean fieldsGrounded = coverageRatio(semanticInput, candidate.getSegmentTitle()) >= 60
+                            && coverageRatio(semanticInput, candidate.getSegmentTime()) >= 60;
+                    if (nameGrounded && fieldsGrounded
                             && merged.stream().noneMatch(existing -> sameAppearance(existing, candidate))) {
                         merged.add(candidate);
                     }
@@ -437,8 +446,10 @@ public class ScheduleParseService {
                 }
             }
             if (hostIdx >= 0 && hostIdx < cells.size()) {
-                for (String n : extractNames(cells.get(hostIdx))) {
-                    result.add(speaker(n, ProjectSpeaker.ROLE_HOST, topic, time));
+                // P3（Owner 2026-11-12）：主持名单合并格计一次（取首位）；单人仍正常
+                List<String> hostNames = extractNames(cells.get(hostIdx));
+                if (!hostNames.isEmpty()) {
+                    result.add(speaker(hostNames.get(0), ProjectSpeaker.ROLE_HOST, topic, time));
                 }
             }
             if (rowCandidate != null) {
@@ -590,11 +601,33 @@ public class ScheduleParseService {
         if (ext.plainText != null) {
             for (String line : ext.plainText.split("\\R")) lines.add(line);
         }
+        // P1（Owner 2026-11-12）：纵向关联——OCR 文本里时间行与议题/姓名行是连续独立行，
+        // 需要把「时间行 → 后续议题/姓名行」关联成组（144-日程 PDF 实证）
+        List<String> associated = new ArrayList<>();
+        StringBuilder group = new StringBuilder();
         for (String line : lines) {
+            String t = line.strip();
+            if (t.isEmpty()) continue;
+            Matcher tm = TIME_RANGE.matcher(t);
+            if (tm.find() && t.length() <= 20) {
+                // 纯时间行：保存前一组，开始新组
+                if (group.length() > 0) associated.add(group.toString());
+                group = new StringBuilder(t);
+            } else if (group.length() > 0 && t.length() >= 2) {
+                group.append(' ').append(t);
+            } else if (tm.find() && t.length() > 20) {
+                // 时间+内容同行
+                associated.add(t);
+            } else if (t.length() >= 4 && containsName(t)) {
+                // 无时间的独立姓名/议题行
+                associated.add(t);
+            }
+        }
+        if (group.length() > 0) associated.add(group.toString());
+        for (String line : associated) {
             Matcher tm = TIME_RANGE.matcher(line);
             if (!tm.find()) continue;
             String time = tm.group().replace('：', ':');
-            // 时间段之后的文本参与提取（时间段常在行首/单元格首位）；行尾则用时间之前的部分
             String rest = line.substring(tm.end()).trim();
             String lead = line.substring(0, tm.start()).trim();
             boolean timeLast = rest.isEmpty() || !containsName(rest);
@@ -986,7 +1019,29 @@ public class ScheduleParseService {
             for (var slide : ppt.getSlides()) {
                 boolean hostColumn = slide.getShapes().stream().anyMatch(shape ->
                         shape instanceof XSLFTextShape text && compactCell(text.getText()).equals("主持"));
-                collectPptBlocks(slide.getShapes(), slideIndex++, hostColumn, blocks);
+                int before = blocks.size();
+                long[] beforeCharsBox = {0};
+                collectPptBlocks(slide.getShapes(), slideIndex, hostColumn, blocks);
+                for (int i = before; i < blocks.size(); i++) {
+                    PptBlock b = blocks.get(i);
+                    if (b.text != null) beforeCharsBox[0] += b.text.length();
+                    else b.rows.forEach(r -> r.forEach(c -> beforeCharsBox[0] += c.length()));
+                }
+                // P1（Owner 2026-11-12）：图片型幻灯片（文本过薄且有内嵌图片）→ PP-OCRv5/Tesseract 竞争识别
+                if (beforeCharsBox[0] < 40) {
+                    List<BufferedImage> pictures = new ArrayList<>();
+                    collectSlidePictures(slide.getShapes(), pictures);
+                    StringBuilder ocrText = new StringBuilder();
+                    for (BufferedImage pic : pictures) {
+                        if (pic == null || pic.getWidth() < 80 || pic.getHeight() < 80) continue;
+                        String pageText = betterOcrPage(pic);
+                        if (pageText != null && !pageText.isBlank()) ocrText.append(pageText.strip()).append('\n');
+                    }
+                    if (!ocrText.isEmpty()) {
+                        blocks.add(new PptBlock(slideIndex, 0, 0, ocrText.toString(), List.of(), List.of(), hostColumn));
+                    }
+                }
+                slideIndex++;
             }
         }
         List<String> textBlocks = new ArrayList<>();
@@ -1022,6 +1077,25 @@ public class ScheduleParseService {
             } else if (shape instanceof XSLFTextShape text && !text.getText().isBlank()) {
                 blocks.add(new PptBlock(slide, anchor.getX(), anchor.getY(), text.getText().strip(),
                         List.of(), List.of(), hostColumn));
+            }
+        }
+    }
+
+    /** 递归收集幻灯片内嵌图片（含组合形状），供图片型幻灯片 OCR（P1）。 */
+    private void collectSlidePictures(List<XSLFShape> shapes, List<BufferedImage> out) {
+        for (XSLFShape shape : shapes) {
+            if (shape instanceof org.apache.poi.xslf.usermodel.XSLFGroupShape group) {
+                collectSlidePictures(group.getShapes(), out);
+            } else if (shape instanceof org.apache.poi.xslf.usermodel.XSLFPictureShape pic) {
+                try {
+                    var data = pic.getPictureData();
+                    if (data != null && data.getData() != null && data.getData().length > 1000) {
+                        BufferedImage img = ImageIO.read(new ByteArrayInputStream(data.getData()));
+                        if (img != null) out.add(img);
+                    }
+                } catch (Exception ignored) {
+                    // 单张图片解码失败不影响其余
+                }
             }
         }
     }
@@ -1313,24 +1387,23 @@ public class ScheduleParseService {
     }
 
     private Extracted extractPdf(byte[] bytes) throws IOException {
-        String text;
+        StringBuilder text = new StringBuilder();
         try (PDDocument doc = PDDocument.load(bytes)) {
-            text = new PDFTextStripper().getText(doc);
-            // 扫描件回退 OCR（复用简历解析口径：前 3 页）
-            if (text.trim().length() < Math.max(20L, doc.getNumberOfPages() * 20L)) {
-                var renderer = new org.apache.pdfbox.rendering.PDFRenderer(doc);
-                int pages = Math.min(3, doc.getNumberOfPages());
-                StringBuilder ocr = new StringBuilder();
-                for (int i = 0; i < pages; i++) {
-                    BufferedImage raster = renderer.renderImageWithDPI(i, 150);
-                    ocr.append(KnowledgeDocTextExtractor.ocrPage(raster, false)).append('\n');
+            // 扫描页回退 OCR：逐页在 文本层 与 PP-OCRv5/Tesseract 竞争结果 间按 CJK 量择优（P1，Owner 2026-11-12）
+            var renderer = new org.apache.pdfbox.rendering.PDFRenderer(doc);
+            int pages = Math.min(6, doc.getNumberOfPages());
+            for (int i = 1; i <= pages; i++) {
+                var stripper = new PDFTextStripper();
+                stripper.setStartPage(i); stripper.setEndPage(i);
+                String page = stripper.getText(doc);
+                if (page.trim().length() < 40) {
+                    BufferedImage raster = renderer.renderImageWithDPI(i - 1, 250);
+                    page = betterOcrPage(raster);
                 }
-                if (ocr.length() > text.trim().length()) {
-                    text = ocr.toString();
-                }
+                text.append(page).append('\n');
             }
         }
-        return new Extracted(text, List.of());
+        return new Extracted(text.toString(), List.of());
     }
 
     private Extracted extractImage(byte[] bytes) throws IOException {
@@ -1338,7 +1411,54 @@ public class ScheduleParseService {
         if (image == null) {
             throw new BusinessException("无法读取图片内容");
         }
-        return new Extracted(KnowledgeDocTextExtractor.ocrPage(image, false), List.of());
+        return new Extracted(betterOcrPage(image), List.of());
+    }
+
+    // ==================== PP-OCRv5 竞争（P1：图片/扫描件，Owner 2026-11-12） ====================
+
+    /**
+     * PP-OCRv5 与 Tesseract 整页识别竞争择优：LocalTableOcr TSV 逐行置信度 ≥60 过滤，
+     * 与 Tesseract 结果按 CJK 字符量取优（复用合规解析已验证的口径）；运行时未安装返回 Tesseract 文本。
+     */
+    private String betterOcrPage(BufferedImage raster) {
+        String tesseract = KnowledgeDocTextExtractor.ocrPage(raster, false);
+        try {
+            String tsv = LocalTableOcr.recognize(raster);
+            if (tsv == null || tsv.isBlank()) return tesseract;
+            StringBuilder sb = new StringBuilder();
+            for (String line : tsv.split("\\R")) {
+                String[] f = line.split("\t");
+                if (f.length < 2) continue;
+                String cell = f[f.length - 1].trim();
+                double score;
+                try { score = Double.parseDouble(f[f.length - 2]); } catch (NumberFormatException e) { continue; }
+                if (cell.isEmpty() || score < 60) continue;
+                sb.append(cell).append('\n');
+            }
+            String ppocr = sb.toString();
+            return cjkCount(ppocr) > cjkCount(tesseract) ? ppocr : tesseract;
+        } catch (Exception e) {
+            log.info("PP-OCRv5 整页识别不可用，回退 Tesseract：{}", e.getMessage());
+            return tesseract;
+        }
+    }
+
+    /** 样本字符在归一化原文中的顺序覆盖率（百分比）；空白差异不影响（P4 LLM 兜底回指校验）。 */
+    private int coverageRatio(String source, String sample) {
+        String normSample = sample == null ? "" : sample.replaceAll("[\\s\\u3000\\u00a0｜|/／、：:（）()（）-]", "");
+        if (normSample.isEmpty()) return 100;
+        String normSource = normalizeName(source);
+        int hit = 0;
+        String rest = normSource;
+        for (int ci = 0; ci < normSample.length(); ci++) {
+            int idx = rest.indexOf(normSample.charAt(ci));
+            if (idx >= 0) { hit++; rest = rest.substring(idx + 1); }
+        }
+        return hit * 100 / normSample.length();
+    }
+
+    private static long cjkCount(String s) {
+        return s == null ? 0 : s.chars().filter(c -> c >= 0x4E00 && c <= 0x9FA5).count();
     }
 
     // ==================== 小工具 ====================
