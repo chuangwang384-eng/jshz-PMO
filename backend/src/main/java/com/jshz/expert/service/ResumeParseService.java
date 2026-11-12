@@ -45,6 +45,7 @@ import java.util.regex.Pattern;
 public class ResumeParseService {
 
     private final OllamaService ollamaService;
+    private final PhotoMatteService photoMatteService;
 
     public static final long MAX_SIZE = 20L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS = List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
@@ -75,8 +76,11 @@ public class ResumeParseService {
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
     private static final Pattern CHINESE_NAME = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,4}$");
 
+    /** 证件照候选：base64 + mime + 是否已抠透明背景（rembg 成功=true，回退白底 JPG=false） */
+    public record PhotoCandidate(String base64, String mime, boolean transparent) {}
+
     /** 解析结果：fields 仅含命中的字段（键与专家表单中文名一致）。 */
-    public record ResumeParseResult(Map<String, String> fields, List<String> photoCandidates,
+    public record ResumeParseResult(Map<String, String> fields, List<PhotoCandidate> photoCandidates,
                                     int hitCount, String message) {}
 
     /** 解析入口：按扩展名分发；非法格式/超限直接 400。 */
@@ -274,7 +278,7 @@ public class ResumeParseService {
         }
         // 头像候选：先取"头像特征"过滤结果；若全部被过滤，回退为文档内所有图片
         //（Owner 2026-11-07：doc 等格式内所有图片都可能是头像）
-        List<String> photoCandidates = new ArrayList<>();
+        List<PhotoCandidate> photoCandidates = new ArrayList<>();
         List<BufferedImage> safeImages = images == null ? List.of() : images;
         List<BufferedImage> pool = safeImages.stream().filter(this::isAvatarLike).toList();
         if (pool.isEmpty()) pool = safeImages;
@@ -282,8 +286,21 @@ public class ResumeParseService {
             if (photoCandidates.size() >= 3) break;
             if (img == null || img.getWidth() <= 0 || img.getHeight() <= 0) continue;
             try {
-                String candidate = toBase64Jpeg(img);
-                if (!candidate.isEmpty()) photoCandidates.add(candidate);
+                // Owner 2026-11-11：先转无损 PNG 保留原始像素 → rembg 抠图 → 透明证件照；
+                // 抠图失败（运行时未装/超时）回退白底 JPG（原行为）
+                byte[] png = toPngBytes(img);
+                byte[] matted = photoMatteService == null ? null : photoMatteService.removeBackground(png);
+                if (matted != null) {
+                    // 抠图后按最长边 600px 缩放（保持透明通道；避免文档大图 base64 过大）
+                    byte[] scaled = downscalePng(matted, 600);
+                    photoCandidates.add(new PhotoCandidate(
+                            Base64.getEncoder().encodeToString(scaled), "image/png", true));
+                } else {
+                    String candidate = toBase64Jpeg(img);
+                    if (!candidate.isEmpty()) {
+                        photoCandidates.add(new PhotoCandidate(candidate, "image/jpeg", false));
+                    }
+                }
             } catch (Exception ignored) {
                 // 单张候选失败不影响其余
             }
@@ -473,6 +490,32 @@ public class ResumeParseService {
         } catch (Exception ignored) {
             // 单张候选失败不影响整体解析
         }
+    }
+
+    /** 抠图结果缩放（保留 Alpha）：最长边超限时等比缩小并重编码 PNG。 */
+    private byte[] downscalePng(byte[] png, int maxSide) throws IOException {
+        BufferedImage src = ImageIO.read(new ByteArrayInputStream(png));
+        if (src == null) throw new IOException("PNG 解析失败");
+        int w = src.getWidth(), h = src.getHeight();
+        int limit = Math.max(w, h);
+        if (limit <= maxSide) return png;
+        double scale = (double) maxSide / limit;
+        BufferedImage out = new BufferedImage(Math.max(1, (int) (w * scale)), Math.max(1, (int) (h * scale)),
+                BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(src, 0, 0, out.getWidth(), out.getHeight(), null);
+        g.dispose();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        if (!ImageIO.write(out, "png", bos)) throw new IOException("PNG 编码失败");
+        return bos.toByteArray();
+    }
+
+    /** 候选原图转无损 PNG bytes（保留像素，供 rembg 抠图）。 */
+    private byte[] toPngBytes(BufferedImage img) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        if (!ImageIO.write(img, "png", bos) || bos.size() == 0) throw new IOException("PNG 编码失败");
+        return bos.toByteArray();
     }
 
     /** 候选图统一重绘到 TYPE_INT_RGB 白底（JPEG 编码器不支持带 Alpha 的颜色模型）并缩到最长边 600px。 */

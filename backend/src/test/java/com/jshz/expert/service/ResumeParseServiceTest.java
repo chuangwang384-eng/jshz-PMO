@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** 简历字段多策略解析：标签行/机构词表/职称词表/正则；畸形输入不抛错。 */
 class ResumeParseServiceTest {
-    private final ResumeParseService service = new ResumeParseService(new OllamaService());
+    private final ResumeParseService service = new ResumeParseService(new OllamaService(), new PhotoMatteService());
 
     private Map<String, String> parse(String text) {
         Map<String, String> fields = new LinkedHashMap<>();

@@ -108,7 +108,7 @@
           @change="() => toggleSelect(expert)"
         />
         <div class="card-main">
-          <div class="card-photo">
+          <div class="card-photo" @click.stop>
             <PhotoImage :filename="expert.照片" :width="80" :height="80" />
           </div>
           <div class="card-info">
@@ -164,7 +164,9 @@
         </el-table-column>
         <el-table-column label="头像" width="70">
           <template #default="{ row }">
-            <PhotoImage :filename="row.照片" :width="44" :height="44" style="border-radius: 50%; display: block" />
+            <div @click.stop>
+              <PhotoImage :filename="row.照片" :width="44" :height="44" style="border-radius: 50%; display: block" />
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="姓名" label="姓名" min-width="90" />
@@ -213,6 +215,23 @@
       :before-close="handleDetailClose"
     >
       <el-form v-if="detail" :model="editForm" label-width="150px" class="edit-form">
+        <!-- 简历解析更新（Owner 2026-11-11）：上传简历→解析预填→人工确认保存，不自动覆盖 -->
+        <div class="resume-parse-block" style="border: 1px dashed #d9ecff; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png" :on-change="onEditResumePick">
+              <el-button size="small" plain :loading="resumeParsing">选择简历解析更新</el-button>
+            </el-upload>
+            <el-button v-if="editResumeFile" size="small" type="primary" plain :loading="resumeParsing" @click="parseResumeNow('edit')">开始解析</el-button>
+            <span class="resume-tip">{{ resumeMessage || '解析结果仅供预填确认，保存前可修改；照片候选为透明背景证件照' }}</span>
+          </div>
+          <div v-if="editResumeCandidates.length" class="resume-candidates">
+            <div v-for="(candidate, index) in editResumeCandidates" :key="index" class="resume-candidate">
+              <img :src="'data:' + candidate.mime + ';base64,' + candidate.base64" alt="证件照候选" />
+              <el-tag v-if="candidate.transparent" size="small" type="success">已抠透明背景</el-tag>
+              <el-button size="small" type="primary" plain @click="useResumePhoto(candidate, 'edit')">使用此照片</el-button>
+            </div>
+          </div>
+        </div>
         <div class="edit-photos">
           <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
@@ -381,9 +400,10 @@
             {{ resumeMessage || '支持 PDF / Word / PPT / 图片（≤20MB）；解析结果仅供确认，扫描件约需 10~45 秒' }}
           </span>
           <div v-if="resumeCandidates.length" class="resume-candidates">
-            <div v-for="(candidate, index) in resumeCandidates" :key="index" class="resume-candidate">
-              <img :src="'data:image/jpeg;base64,' + candidate" alt="解析出的证件照候选" />
-              <el-button size="small" type="primary" plain @click="useResumePhoto(candidate)">使用此照片</el-button>
+            <div v-for="(candidate, index) in resumeCandidates" :key="index" class="resume-candidate" style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+              <img :src="'data:' + candidate.mime + ';base64,' + candidate.base64" alt="解析出的证件照候选" />
+              <el-tag v-if="candidate.transparent" size="small" type="success">已抠透明背景</el-tag>
+              <el-button size="small" type="primary" plain @click="useResumePhoto(candidate, 'create')">使用此照片</el-button>
             </div>
           </div>
         </div>
@@ -945,6 +965,10 @@ const resumeMessage = ref('')
 const resumeFailed = ref(false)
 const resumeCandidates = ref([])
 const resumeFilled = reactive({})
+// 解析目标：create=新建弹窗；edit=专家详情编辑弹窗（Owner 2026-11-11 简历解析更新）
+const resumeTarget = ref('create')
+const editResumeFile = ref(null)
+const editResumeCandidates = ref([])
 
 // 打开新增专家弹窗：表单与照片均初始为空
 function openCreateDialog() {
@@ -982,25 +1006,42 @@ function onResumePick(file) {
   resumeFailed.value = false
 }
 
-async function parseResumeNow() {
-  if (!resumeFile.value || resumeParsing.value) return
+function onEditResumePick(file) {
+  const raw = file?.raw || file
+  if (!raw) return
+  editResumeFile.value = raw
+  resumeMessage.value = raw.name ? `已选择：${raw.name}` : ''
+}
+
+async function parseResumeNow(target = 'create') {
+  const file = target === 'edit' ? editResumeFile.value : resumeFile.value
+  if (!file || resumeParsing.value) return
+  resumeTarget.value = target
   resumeParsing.value = true
   resumeFailed.value = false
   try {
-    const data = await parseResume(resumeFile.value)
-    resumeCandidates.value = data?.photoCandidates || []
+    const data = await parseResume(file)
+    const candidates = (data?.photoCandidates || []).map((c) =>
+      typeof c === 'string' ? { base64: c, mime: 'image/jpeg', transparent: false } : c
+    )
     let filledCount = 0
+    const form = target === 'edit' ? editForm : createForm
     for (const [key, value] of Object.entries(data?.fields || {})) {
-      if (!String(createForm[key] ?? '').trim()) {
-        createForm[key] = value
-        resumeFilled[key] = true
+      if (!String(form[key] ?? '').trim()) {
+        form[key] = value
+        if (target === 'create') resumeFilled[key] = true
         filledCount++
       }
+    }
+    if (target === 'edit') {
+      editResumeCandidates.value = candidates
+    } else {
+      resumeCandidates.value = candidates
     }
     resumeMessage.value = data?.message
       || (filledCount
         ? `已解析 ${data.hitCount} 个字段（填充 ${filledCount} 个空字段），请核对后提交`
-        : '未命中可填充字段，请手动填写')
+        : '未命中可填充字段，请核对照片候选后保存')
   } catch (e) {
     resumeFailed.value = true
     resumeMessage.value = e?.response?.data?.message || '解析失败，请重试或手动填写'
@@ -1009,13 +1050,20 @@ async function parseResumeNow() {
   }
 }
 
-function useResumePhoto(base64) {
+function useResumePhoto(candidate, target = 'create') {
   try {
+    const base64 = typeof candidate === 'string' ? candidate : candidate.base64
+    const mime = typeof candidate === 'string' ? 'image/jpeg' : (candidate.mime || 'image/jpeg')
+    const ext = mime === 'image/png' ? 'png' : 'jpg'
     const bin = atob(base64)
     const bytes = new Uint8Array(bin.length)
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-    const file = new File([bytes], 'resume-photo.jpg', { type: 'image/jpeg' })
-    onCreatePickPhoto('photo', { raw: file })
+    const file = new File([bytes], 'resume-photo.' + ext, { type: mime })
+    if (target === 'edit') {
+      onPickPhoto('photo', { raw: file })
+    } else {
+      onCreatePickPhoto('photo', { raw: file })
+    }
     ElMessage.success('已使用解析照片作为证件照')
   } catch {
     ElMessage.error('照片候选处理失败，请直接手动上传')
