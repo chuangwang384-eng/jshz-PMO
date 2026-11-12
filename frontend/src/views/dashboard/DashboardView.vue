@@ -24,9 +24,21 @@
               <!-- 页面卡片 -->
               <button v-else-if="item.i.startsWith('page.')" class="summary page-tile" @click="go(cardTarget(item.i))"><span class="page-tile-title">{{ CARD_CATALOG[item.i].title }}</span><span class="page-tile-arrow">↗</span></button>
               <!-- 面板：待我审批 -->
-              <article v-else-if="item.i==='panel.myApprovals'" class="panel"><div class="panel-head"><h2>待我审批</h2><el-button link @click="refresh(['myApprovals'])">刷新</el-button></div><SectionState :value="section.myApprovals" :loading="loading && !section.myApprovals" @retry="refresh(['myApprovals'])"/><template v-if="section.myApprovals?.status !== 'error'"><button v-for="item2 in pendingItems('myApprovals')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ item2.title }}</b><small>{{ item2.timeType || '申请时间' }} · {{ item2.time }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
+              <article v-else-if="item.i==='panel.myApprovals'" class="panel"><div class="panel-head"><h2>待我审批</h2><el-button link @click="refresh(['myApprovals'])">刷新</el-button></div><SectionState :value="section.myApprovals" :loading="loading && !section.myApprovals" @retry="refresh(['myApprovals'])"/><template v-if="section.myApprovals?.status !== 'error'"><button v-for="item2 in pendingItems('myApprovals')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ applicationTitle(item2.title) }}</b><small>{{ item2.timeType || '申请时间' }} · {{ approvalTime(item2.time) }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
               <!-- 面板：退回待修改 -->
-              <article v-else-if="item.i==='panel.returned'" class="panel"><div class="panel-head"><h2>退回待修改</h2><el-button link @click="refresh(['myApplications'])">刷新</el-button></div><SectionState :value="section.myApplications" :loading="loading && !section.myApplications" @retry="refresh(['myApplications'])"/><p v-if="section.myApplications?.status!=='error' && !pendingItems('returned').length" class="muted">暂无退回待修改</p><template v-if="section.myApplications?.status !== 'error'"><button v-for="item2 in pendingItems('returned')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ applicationTitle(item2.title) }}</b><small>{{ item2.timeType || '申请时间' }} · {{ item2.time }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
+              <article v-else-if="item.i==='panel.returned'" class="panel"><div class="panel-head"><h2>退回待修改</h2><el-button link @click="refresh(['myApplications'])">刷新</el-button></div><SectionState :value="section.myApplications" :loading="loading && !section.myApplications" @retry="refresh(['myApplications'])"/><p v-if="section.myApplications?.status!=='error' && !pendingItems('returned').length" class="muted">暂无退回待修改</p><template v-if="section.myApplications?.status !== 'error'"><button v-for="item2 in pendingItems('returned')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ applicationTitle(item2.title) }}</b><small>{{ item2.timeType || '申请时间' }} · {{ approvalTime(item2.time) }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
+              <article v-else-if="item.i === 'panel.applicationProgress'" class="panel">
+                <div class="panel-head"><h2>我的申请进度</h2><el-button link @click="go(cardTarget('page.myApplications'))">查看全部</el-button></div>
+                <SectionState :value="section.myApplications" :loading="loading && !section.myApplications" @retry="refresh(['myApplications'])" />
+                <template v-if="section.myApplications?.status === 'success'">
+                  <p class="muted">等待审批 {{ count('myApplications', 'pendingOthersCount') }} 条</p>
+                  <p v-if="!applicationProgressItems.length" class="muted">暂无其他申请进度</p>
+                  <button v-for="application in applicationProgressItems" :key="application.id" class="item-row" @click="go(application.target)">
+                    <span><b>{{ applicationTitle(application.title) }}</b><small>{{ approvalTime(application.time) }}</small></span>
+                    <el-tag size="small">{{ statuses[application.status] || '处理中' }}</el-tag>
+                  </button>
+                </template>
+              </article>
               <!-- 面板：我的项目 -->
               <article v-else-if="item.i==='panel.myProjects'" id="my-projects" ref="projectsElement" class="panel projects"><div class="panel-head"><div><h2>我的项目</h2><p class="muted">按到期风险排序</p></div><div><el-button link @click="router.push('/project')">项目列表</el-button><el-button link @click="refresh(['myProjects','projectRisk'])">刷新</el-button></div></div><SectionState :value="section.myProjects" :loading="loading && !section.myProjects" @retry="refresh(['myProjects','projectRisk'])"/><template v-if="section.myProjects?.status === 'success'"><button v-for="item2 in data('myProjects').items" :key="item2.id" class="item-row project-row" @click="go(item2.target)"><span><b>{{ item2.name }} <el-tag v-if="warningNames[item2.warning]" :type="item2.warning==='OVERDUE'?'danger':'warning'" size="small">{{ warningNames[item2.warning] }}</el-tag></b><small>{{ item2.teamLabel || '团队未设置' }} · {{ item2.category === 'ONLINE' ? '线上' : '线下' }} · {{ item2.cityName || '城市未设置' }} · {{ item2.phaseName || '阶段未设置' }} · 负责人 {{ item2.ownerName || '-' }}<template v-if="meetingRange(item2)"> · 会议 {{ meetingRange(item2) }}</template> · 结束 {{ item2.endDate || '未设置' }}</small><small v-if="item2.myRelations?.length" class="relation-line">我的角色：{{ item2.myRelations.join(' / ') }}</small></span><span class="detail-arrow">详情 →</span></button></template></article>
               <!-- 面板：收藏/公告/通知 -->
@@ -76,7 +88,8 @@ const greeting=new Date().getHours()<12?'早上好':new Date().getHours()<18?'�
 const titles={myApprovals:'待我审批',myApplications:'我发起的申请',returned:'退回待修改',favorites:'我的收藏',announcements:'最新公告',notifications:'未读消息'}
 const statuses={0:'等待审批',1:'已通过',2:'已驳回',3:'已撤回',4:'退回修改'}
 const types={EXPERT_MODIFY:'专家修改申请',EXPERT_CREATE:'专家新增申请',CONTRACT:'专家合同申请'}
-const applicationTitle=t=>types[t] || t
+const applicationTitle = title => types[title] || (title && /[\u3400-\u9fff]/.test(title) ? title : '其他申请')
+const approvalTime = time => time ? String(time).replace('T', ' ').slice(0, 19) : '—'
 
 // ==================== 卡片目录与可调布局 ====================
 // 布局模型（借鉴 vue-grid-layout 的"布局即数据"思路，零第三方依赖）：[{i,w}]，顺序即排列，w 为 12 列栅格宽度
@@ -87,6 +100,7 @@ const CARD_CATALOG={
  'stat.riskDue':{title:'今天到期 / 七天内到期',w:3,h:1,kind:'stat'},
  'panel.myApprovals':{title:'待我审批',w:4,h:6,kind:'panel',perm:'approval:audit'},
  'panel.returned':{title:'退回待修改',w:4,h:6,kind:'panel'},
+ 'panel.applicationProgress':{title:'我的申请进度',w:4,h:6,kind:'panel',cap:'myApplications'},
  'panel.myProjects':{title:'我的项目',w:4,h:6,kind:'panel'},
  'panel.favorites':{title:'我的收藏',w:4,h:6,kind:'panel'},
  'panel.announcements':{title:'最新公告',w:4,h:6,kind:'panel'},
@@ -94,6 +108,7 @@ const CARD_CATALOG={
  'page.knowledge':{title:'知识星球',w:3,h:1,kind:'page',path:'/knowledge-planet/meeting-execution',cap:'knowledge'},
  'page.complianceAssociation':{title:'协会合规要求',w:3,h:1,kind:'page',path:'/knowledge-planet/association-compliance',cap:'knowledge'},
  'page.complianceEnterprise':{title:'企业合规要求',w:3,h:1,kind:'page',path:'/knowledge-planet/enterprise-compliance',cap:'knowledge'},
+ 'page.complianceDocs':{title:'规范文档库',w:3,h:1,kind:'page',path:'/knowledge-planet/enterprise-compliance',query:{tab:'docs'},cap:'knowledge'},
  'page.profileHome':{title:'我的主页',w:3,h:1,kind:'page',path:'/profile/overview'},
  'page.project':{title:'项目管理',w:3,h:1,kind:'page',path:'/project',cap:'project'},
  'page.experts':{title:'专家库',w:3,h:1,kind:'page',path:'/experts',cap:'expert'},
@@ -134,14 +149,27 @@ const visible = (items) => orderLayout(items.filter(item => canShow(item.i)))
 const defaults = () => normalizeDashboardLayout(DEFAULT_LAYOUT.filter(item => canShow(item.i)), CARD_CATALOG)
 const layoutItems = computed(() => savedLayout.value === null ? defaults() : visible(savedLayout.value))
 const displayLayout = computed(() => editing.value ? visible(editLayout.value) : layoutItems.value)
-const paletteIds = computed(() => Object.keys(CARD_CATALOG).filter(id => canShow(id) && !editLayout.value.some(item => item.i === id)))
+const retiredPaletteIds = new Set(['stat.myApprovals', 'stat.myApplications'])
+const equivalentPanels = {
+  'page.approvalManage': 'panel.myApprovals',
+  'page.announcements': 'panel.announcements',
+  'page.notifications': 'panel.notifications',
+  'page.myApplications': 'panel.applicationProgress'
+}
+const paletteIds = computed(() => {
+  const placed = new Set(editLayout.value.map(item => item.i))
+  const shortcuts = new Set(quickBar.value?.draftIds || [])
+  return Object.keys(CARD_CATALOG).filter(id =>
+    canShow(id) && !retiredPaletteIds.has(id) && !placed.has(id)
+      && !shortcuts.has(id) && !placed.has(equivalentPanels[id]))
+})
 const layoutKeys = computed(() => displayLayout.value.map(item => item.i).sort().join('|'))
 let grid
 let gridFactory
 let resizeObserver
 let editStarting = false
 
-function cardTarget(id){const card=CARD_CATALOG[id];return card?.path?{path:card.path}:null}
+function cardTarget(id){const card=CARD_CATALOG[id];return card?.path?{path:card.path,query:card.query}:null}
 function sectionKeyOfPanel(id){return {'panel.favorites':'favorites','panel.announcements':'announcements','panel.notifications':'notifications'}[id]}
 function meetingRange(p){const a=p?.meetingStartDate,b=p?.meetingEndDate;if(!a&&!b)return '';if(a&&b&&a!==b)return `${a} ~ ${b}`;return a||b}
 function cardDot(id){const card=CARD_CATALOG[id];return card.kind==='page'?'primary':(card.kind==='stat'?'warning':'success')}
@@ -192,6 +220,7 @@ async function startEdit() {
   }
 }
 function addCard(id) {
+  if (!paletteIds.value.includes(id)) return
   const card = CARD_CATALOG[id]
   const placed = placeCard(displayLayout.value, { i: id, w: card.w, h: Math.max(card.h, 2) })
   if (placed) editLayout.value = [...displayLayout.value, placed]
@@ -291,6 +320,7 @@ const allTargets={favorites:{path:'/knowledge-planet/meeting-execution',query:{f
 const data=key=>section.value[key]?.data || {}
 const count=(key,field)=>section.value[key]?.status==='error'?'暂不可用':data(key)[field] ?? '—'
 const pendingItems=key=>key==='returned'?data('myApplications').returnedItems || []:key==='myApplications'?data(key).latestItems || []:data(key).items || []
+const applicationProgressItems = computed(() => pendingItems('myApplications').filter(item => Number(item.status) !== 4))
 const SectionState=defineComponent({props:['value','loading'],emits:['retry'],setup(p,{emit}){return()=>p.loading?h('p',{class:'muted'},'正在加载…'):p.value?.status==='error'?h('p',{class:'section-error'},['加载失败，数据暂不可用。',h('button',{onClick:()=>emit('retry')},'重试')]):p.value?.status==='empty'?h('p',{class:'muted'},'暂无相关事项'):null}})
 const allSections=['myApplications','myApprovals','myProjects','projectRisk','favorites','announcements','notifications']
 const requests=new Set()

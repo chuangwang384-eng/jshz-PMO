@@ -9,6 +9,7 @@ export function safeTarget(router, target) {
   const allowed = /^(?:\/dashboard|\/experts|\/project(?:\/\d+)?|\/supplier(?:\/\d+)?|\/profile\/(?:overview|my-approvals|approval\/manage|notifications|directory|announcements(?:\/\d+)?)|\/knowledge-planet\/(?:meeting-execution|association-compliance|enterprise-compliance|customer-info|customer-detail\/\d+))$/
   if (!allowed.test(target.path)) return null
   const query = Object.fromEntries(Object.entries(target.query || {}).filter(([key, val]) => ['keyword','searchMode','docId','expertId','applicationId','notificationId','status','favorites','actionable','from'].includes(key) && typeof val === 'string'))
+  if (target.path === '/knowledge-planet/enterprise-compliance' && target.query?.tab === 'docs') query.tab = 'docs'
   return router.resolve({ path: target.path, query }).matched.length ? { path: target.path, query } : null
 }
 export function latestRequest() { let id = 0; return { next: () => ++id, current: value => value === id } }

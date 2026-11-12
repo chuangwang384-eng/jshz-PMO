@@ -220,3 +220,12 @@ export function archiveResumes(id, files) {
 export function archiveManual(id, data) {
   return request.post(`/project/${id}/speakers/archive-manual`, data)
 }
+
+// 项目文件流（Owner 2026-11-12 在线预览/下载）：blob 响应；preview=true Office 转 PDF，失败返回 JSON {code,message}
+export function fetchProjectFile(fileName, download = false, preview = false) {
+  const params = new URLSearchParams()
+  if (download) params.set('download', '1')
+  if (preview) params.set('preview', 'true')
+  const qs = params.toString()
+  return request.get(`/project/files/${encodeURIComponent(fileName)}${qs ? '?' + qs : ''}`, { responseType: 'blob' })
+}

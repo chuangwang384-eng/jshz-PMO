@@ -20,6 +20,13 @@ test('dashboard targets follow the live menu and drop retired query flags',()=>{
  // 项目列表已不再读取 mine；工作台不得再产生该深链参数
  assert.deepEqual(safeTarget(router,{path:'/project',query:{mine:'1',keyword:'abc'}}),{path:'/project',query:{keyword:'abc'}})
 })
+test('standards library deep link accepts only the docs tab on enterprise compliance', () => {
+  const router = { resolve: () => ({ matched: [{}] }) }
+  const path = '/knowledge-planet/enterprise-compliance'
+  assert.deepEqual(safeTarget(router, { path, query: { tab: 'docs' } }), { path, query: { tab: 'docs' } })
+  assert.deepEqual(safeTarget(router, { path, query: { tab: 'maintenance' } }), { path, query: {} })
+  assert.deepEqual(safeTarget(router, { path: '/project', query: { tab: 'docs' } }), { path: '/project', query: {} })
+})
 test('stale responses are rejected after another request or clear',()=>{
  const sequence=latestRequest(),first=sequence.next(),second=sequence.next()
  assert.equal(sequence.current(first),false);assert.equal(sequence.current(second),true)

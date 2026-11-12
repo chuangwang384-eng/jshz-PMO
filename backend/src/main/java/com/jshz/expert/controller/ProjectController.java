@@ -115,6 +115,74 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    /**
+     * 项目文件流（Owner 2026-11-12 在线预览/下载）：GET /api/project/files/{fileName}?download=1&preview=true。
+     * 登录即可；preview=true 时 Office 经 DocPreviewService 转 PDF（失败返回结构化 JSON），PDF/图片原流。
+     */
+    @GetMapping("/files/{fileName}")
+    public org.springframework.http.ResponseEntity<?> projectFile(
+            @PathVariable String fileName,
+            @RequestParam(required = false) String download,
+            @RequestParam(required = false) String preview,
+            @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        if (user == null) {
+            return org.springframework.http.ResponseEntity.status(401).build();
+        }
+        java.nio.file.Path path = projectService.resolveStoredFile(fileName);
+        if (path == null || !java.nio.file.Files.exists(path) || !java.nio.file.Files.isRegularFile(path)) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
+        boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
+        boolean previewMode = !forceDownload && ("true".equalsIgnoreCase(preview) || "1".equals(preview));
+        int dot = fileName.lastIndexOf('.');
+        String ext = dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        org.springframework.http.MediaType mediaType = projectFileMediaType(ext);
+        if (previewMode && com.jshz.expert.service.DocPreviewService.isOffice(ext)) {
+            try {
+                String cacheKey = "proj_" + fileName.replaceAll("[^A-Za-z0-9._-]", "_");
+                path = docPreviewService.getPreviewFileFor(path, cacheKey, ext);
+                mediaType = org.springframework.http.MediaType.APPLICATION_PDF;
+            } catch (BusinessException e) {
+                return projectPreviewError("CONVERT_FAILED", "文档转换失败，可下载查看");
+            } catch (Exception e) {
+                return projectPreviewError("PREVIEW_FAILED", "预览失败，可下载查看");
+            }
+        }
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(mediaType);
+        headers.setContentLength(java.nio.file.Files.size(path));
+        if (forceDownload) {
+            headers.set(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+        } else {
+            headers.set(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline");
+        }
+        return new org.springframework.http.ResponseEntity<>(
+                new org.springframework.core.io.InputStreamResource(java.nio.file.Files.newInputStream(path)),
+                headers, org.springframework.http.HttpStatus.OK);
+    }
+
+    private org.springframework.http.MediaType projectFileMediaType(String ext) {
+        return switch (ext) {
+            case "pdf" -> org.springframework.http.MediaType.APPLICATION_PDF;
+            case "png" -> org.springframework.http.MediaType.IMAGE_PNG;
+            case "jpg", "jpeg" -> org.springframework.http.MediaType.IMAGE_JPEG;
+            case "gif" -> org.springframework.http.MediaType.IMAGE_GIF;
+            case "webp" -> org.springframework.http.MediaType.parseMediaType("image/webp");
+            case "bmp" -> org.springframework.http.MediaType.parseMediaType("image/bmp");
+            default -> org.springframework.http.MediaType.APPLICATION_OCTET_STREAM;
+        };
+    }
+
+    private org.springframework.http.ResponseEntity<?> projectPreviewError(String code, String message) {
+        java.util.Map<String, String> body = new java.util.LinkedHashMap<>();
+        body.put("code", code);
+        body.put("message", message);
+        return org.springframework.http.ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(body);
+    }
+
     /** 恢复已取消项目（Owner 2026-11-10：与取消对称；仅 CANCELED 可恢复，负责人/创建人权限，阶段保持不变）。 */
     @PutMapping("/{id}/restore")
     public ApiResponse<Void> restore(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
@@ -377,6 +445,7 @@ public class ProjectController {
     // ==================== 日程上传（2026-11-09 流程重塑第一阶段） ====================
 
     private final ScheduleParseService scheduleParseService;
+    private final com.jshz.expert.service.DocPreviewService docPreviewService;
 
     /** 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；覆盖当前生效份）。 */
     @PostMapping("/{id}/schedule")

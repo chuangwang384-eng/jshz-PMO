@@ -116,7 +116,7 @@
             <div v-else class="hint-text" style="margin-top: 8px">尚未上传日程文件</div>
             <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
               <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
-                <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
+                <a href="javascript:void(0)" class="doc-name" @click="openFilePreview(d)">{{ d.fileName }}</a>
                 <el-tag v-if="isCurrentScheduleDoc(d)" size="small" type="success" style="margin-left: 6px">生效日程</el-tag>
                 <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
                 <el-button v-if="canOperate" link type="danger" style="margin-left: 12px" @click="removeScheduleDoc(d)">删除</el-button>
@@ -139,7 +139,7 @@
               <!-- 资料附件模板 -->
               <div v-if="t.templateType === 'FILE'">
                 <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row">
-                  <a :href="d.filePath" target="_blank" class="doc-name">{{ d.fileName }}</a>
+                  <a href="javascript:void(0)" class="doc-name" @click="openFilePreview(d)">{{ d.fileName }}</a>
                   <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
                   <el-button v-if="canOperatePhase" link type="danger" @click="removeDoc(d)">删除</el-button>
                 </div>
@@ -521,6 +521,23 @@
           <div v-else class="side-done">当前阶段必填配置已完成</div>
         </div>
 
+        <!-- 项目文件快速访问（Owner 2026-11-12）：始终显示，所有阶段上传的文件均可快速下载/预览 -->
+        <div class="ui-card side-card">
+          <div class="pd-sec-title">项目文件（{{ allDocs.length }}）</div>
+          <template v-if="allDocs.length">
+            <div v-for="d in allDocs.slice(0, 10)" :key="d.id" class="side-doc">
+              <a href="javascript:void(0)" class="doc-name" :title="d.fileName" @click="openFilePreview(d)">{{ d.fileName }}</a>
+              <div class="side-doc-ops">
+                <el-button link type="primary" size="small" @click="openFilePreview(d)">预览</el-button>
+                <el-button link size="small" @click="downloadProjectFile(d)">下载</el-button>
+                <span class="doc-meta">{{ d.createTime }}</span>
+              </div>
+            </div>
+            <div v-if="allDocs.length > 10" class="hint-text" style="margin-top: 4px">共 {{ allDocs.length }} 份，仅展示最近 10 份</div>
+          </template>
+          <div v-else class="hint-text">暂无附件资料</div>
+        </div>
+
         <section v-if="detail.complianceBoundDocTitle || detail.complianceTodos?.length" class="ui-card side-card pd-compliance">
           <div class="pd-sec-title">合规要求注意事项</div>
           <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
@@ -550,18 +567,6 @@
           </ul>
           <div v-else class="hint-text">暂无推送的合规待办</div>
         </section>
-
-        <div v-if="!isAgendaStage" class="ui-card side-card">
-          <div class="pd-sec-title">相关附件（{{ allDocs.length }}）</div>
-          <template v-if="allDocs.length">
-            <div v-for="d in allDocs.slice(0, 10)" :key="d.id" class="side-doc">
-              <a :href="d.filePath" target="_blank" class="doc-name" :title="d.fileName">{{ d.fileName }}</a>
-              <span class="doc-meta">{{ d.createTime }}</span>
-            </div>
-            <div v-if="allDocs.length > 10" class="hint-text" style="margin-top: 4px">共 {{ allDocs.length }} 份，仅展示最近 10 份</div>
-          </template>
-          <div v-else class="hint-text">暂无附件资料</div>
-        </div>
 
         <div v-if="!isAgendaStage" class="ui-card side-card">
           <div class="pd-sec-title">项目动态</div>
@@ -790,11 +795,43 @@
         <el-button type="primary" @click="doBudget">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 项目文件在线预览（Owner 2026-11-12，参考知识星球：pdf.js / img / Office 转 PDF / 下载兜底） -->
+    <el-drawer v-model="filePreviewVisible" size="72%" :title="filePreviewTitle" destroy-on-close class="preview-drawer">
+      <div class="preview-toolbar">
+        <div v-if="filePreviewMode === 'pdf'" class="preview-nav">
+          <el-button-group>
+            <el-button size="small" :disabled="filePreviewPage <= 1" @click="filePreviewPage -= 1">上一页</el-button>
+            <el-button size="small" :disabled="filePreviewPage >= filePreviewNumPages" @click="filePreviewPage += 1">下一页</el-button>
+          </el-button-group>
+          <span class="preview-info">{{ filePreviewPage }} / {{ filePreviewNumPages }}</span>
+        </div>
+        <div v-if="canZoomFilePreview" class="preview-nav" aria-label="滚轮缩放预览">
+          <el-button size="small" :disabled="filePreviewScale <= 0.3" @click="zoomFilePreview(-1)">缩小</el-button>
+          <span class="preview-info">{{ Math.round(filePreviewScale * 100) }}%</span>
+          <el-button size="small" :disabled="filePreviewScale >= 3" @click="zoomFilePreview(1)">放大</el-button>
+        </div>
+        <el-button size="small" type="primary" @click="downloadProjectFile(filePreviewRow)">下载</el-button>
+      </div>
+      <div class="preview-body" :class="{ 'is-pannable': canZoomFilePreview && !filePreviewLoading, 'is-panning': filePreviewPanning }"
+        v-loading="filePreviewLoading" @wheel="onFilePreviewWheel" @pointerdown="startFilePreviewPan"
+        @pointermove="moveFilePreviewPan" @pointerup="stopFilePreviewPan"
+        @pointercancel="stopFilePreviewPan" @lostpointercapture="stopFilePreviewPan">
+        <img v-if="filePreviewMode === 'image'" :src="filePreviewImageUrl" class="preview-image" draggable="false" alt="文件预览" :style="filePreviewImageWidth ? { width: filePreviewImageWidth * filePreviewScale + 'px' } : {}" @load="sizeFilePreviewImage" />
+        <canvas v-else-if="filePreviewMode === 'pdf'" ref="filePreviewCanvasRef" class="preview-canvas"></canvas>
+        <el-empty v-else-if="filePreviewMode === 'failed'" description="预览失败，可下载查看">
+          <el-button type="primary" size="small" @click="downloadProjectFile(filePreviewRow)">下载</el-button>
+        </el-empty>
+        <el-empty v-else description="正在加载预览..." />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -812,7 +849,7 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveResumes, archiveManual, deleteScheduleDoc
+  archiveResumes, archiveManual, deleteScheduleDoc, fetchProjectFile
 } from '../../api/project'
 
 const route = useRoute()
@@ -1557,6 +1594,199 @@ onMounted(async () => {
   const userData = await listProjectUsers()
   userOptions.value = userData || []
 })
+
+// ==================== 项目文件在线预览/下载（Owner 2026-11-12，参考知识星球口径） ====================
+pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([pdfWorkerCode], { type: 'text/javascript' }))
+const filePreviewVisible = ref(false)
+const filePreviewLoading = ref(false)
+const filePreviewMode = ref('') // image | pdf | failed
+const filePreviewTitle = ref('')
+const filePreviewRow = ref(null)
+const filePreviewImageUrl = ref('')
+const filePreviewBlobUrl = ref('')
+// pdfDoc 必须 shallowRef：Vue Proxy 会破坏 pdfjs 私有字段（知识星球 20261103 同口径修复）
+const filePdfDoc = shallowRef(null)
+const filePreviewPage = ref(1)
+const filePreviewNumPages = ref(0)
+const filePreviewScale = ref(1)
+const filePreviewCanvasRef = ref(null)
+const filePreviewImageWidth = ref(0)
+const filePreviewPanning = ref(false)
+let filePreviewPan = null
+const canZoomFilePreview = computed(() => filePreviewMode.value === 'pdf' || filePreviewMode.value === 'image')
+let filePdfRenderTask = null
+let filePdfRenderRevision = 0
+
+function zoomFilePreview(direction) {
+  filePreviewScale.value = Math.min(3, Math.max(0.3, (Math.round(filePreviewScale.value * 10) + direction) / 10))
+}
+
+function sizeFilePreviewImage(event) {
+  const img = event.currentTarget
+  const body = img.parentElement
+  const style = getComputedStyle(body)
+  const availableWidth = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+  const availableHeight = body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)
+  filePreviewImageWidth.value = Math.min(
+    img.naturalWidth,
+    availableWidth > 0 ? availableWidth : img.naturalWidth,
+    availableHeight > 0 ? availableHeight * img.naturalWidth / img.naturalHeight : img.naturalWidth
+  )
+}
+
+function onFilePreviewWheel(event) {
+  if (!canZoomFilePreview.value || filePreviewLoading.value || !event.deltaY) return
+  event.preventDefault()
+  zoomFilePreview(event.deltaY < 0 ? 1 : -1)
+}
+
+function startFilePreviewPan(event) {
+  if (event.pointerType !== 'mouse' || event.button !== 0 || !canZoomFilePreview.value || filePreviewLoading.value) return
+  // 原生滚动条仍可直接操作。
+  if (!event.target.matches('.preview-image, .preview-canvas')) return
+  const body = event.currentTarget
+  if (body.scrollWidth <= body.clientWidth && body.scrollHeight <= body.clientHeight) return
+  event.preventDefault()
+  body.setPointerCapture(event.pointerId)
+  filePreviewPan = {
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    left: body.scrollLeft,
+    top: body.scrollTop
+  }
+  filePreviewPanning.value = true
+}
+
+function moveFilePreviewPan(event) {
+  const pan = filePreviewPan
+  if (pan?.pointerId !== event.pointerId) return
+  const body = event.currentTarget
+  body.scrollLeft = pan.left + pan.x - event.clientX
+  body.scrollTop = pan.top + pan.y - event.clientY
+}
+
+function stopFilePreviewPan(event) {
+  if (filePreviewPan?.pointerId !== event.pointerId) return
+  filePreviewPan = null
+  filePreviewPanning.value = false
+}
+
+function fileExtOf(name) {
+  const i = (name || '').lastIndexOf('.')
+  return i < 0 ? '' : name.slice(i + 1).toLowerCase()
+}
+
+async function openFilePreview(d) {
+  if (!d || !d.filePath) return
+  filePreviewRow.value = d
+  filePreviewTitle.value = d.fileName || d.filePath
+  filePreviewMode.value = ''
+  filePreviewImageUrl.value = ''
+  filePreviewImageWidth.value = 0
+  filePreviewBlobUrl.value = ''
+  filePdfDoc.value = null
+  filePreviewPage.value = 1
+  filePreviewNumPages.value = 0
+  filePreviewScale.value = 1
+  filePreviewVisible.value = true
+  filePreviewLoading.value = true
+  try {
+    const response = await fetchProjectFile(d.filePath, false, true)
+    const blob = response.data
+    if (blob && blob.type === 'application/json') {
+      let err = null
+      try { err = JSON.parse(await blob.text()) } catch (e) { /* ignore */ }
+      filePreviewMode.value = 'failed'
+      ElMessage.warning(err && err.code === 'CONVERT_FAILED' ? '文档转换失败，可下载查看' : '预览失败，可下载查看')
+      return
+    }
+    const ext = fileExtOf(d.fileName || d.filePath)
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) {
+      filePreviewMode.value = 'image'
+      filePreviewImageUrl.value = URL.createObjectURL(blob)
+    } else {
+      filePreviewMode.value = 'pdf'
+      filePreviewBlobUrl.value = URL.createObjectURL(blob)
+      const doc = await pdfjsLib.getDocument({ url: filePreviewBlobUrl.value }).promise
+      filePdfDoc.value = doc
+      filePreviewNumPages.value = doc.numPages
+      await renderFilePdfPage()
+    }
+  } catch (e) {
+    filePreviewMode.value = 'failed'
+    ElMessage.error('预览失败，可下载查看')
+  } finally {
+    filePreviewLoading.value = false
+  }
+}
+
+async function renderFilePdfPage() {
+  const doc = filePdfDoc.value
+  const canvas = filePreviewCanvasRef.value
+  if (!doc || !canvas || !doc.numPages) return
+  const revision = ++filePdfRenderRevision
+  filePdfRenderTask?.cancel()
+  const page = await doc.getPage(filePreviewPage.value)
+  if (revision !== filePdfRenderRevision) return
+  const viewport = page.getViewport({ scale: filePreviewScale.value })
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = Math.floor(viewport.width * dpr)
+  canvas.height = Math.floor(viewport.height * dpr)
+  canvas.style.width = viewport.width + 'px'
+  canvas.style.height = viewport.height + 'px'
+  const task = page.render({
+    canvasContext: canvas.getContext('2d'),
+    viewport,
+    transform: [dpr, 0, 0, dpr, 0, 0]
+  })
+  filePdfRenderTask = task
+  try {
+    await task.promise
+  } catch (error) {
+    if (error.name !== 'RenderingCancelledException') throw error
+  } finally {
+    if (filePdfRenderTask === task) filePdfRenderTask = null
+  }
+}
+
+watch([filePreviewPage, filePreviewScale], async () => {
+  if (filePreviewMode.value !== 'pdf') return
+  try {
+    await renderFilePdfPage()
+  } catch {
+    if (filePreviewVisible.value) filePreviewMode.value = 'failed'
+  }
+})
+
+watch(filePreviewVisible, (visible) => {
+  if (!visible) {
+    filePdfRenderRevision++
+    filePdfRenderTask?.cancel()
+    if (filePdfDoc.value) { try { filePdfDoc.value.destroy() } catch (e) { /* ignore */ } filePdfDoc.value = null }
+    if (filePreviewImageUrl.value) { URL.revokeObjectURL(filePreviewImageUrl.value); filePreviewImageUrl.value = '' }
+    if (filePreviewBlobUrl.value) { URL.revokeObjectURL(filePreviewBlobUrl.value); filePreviewBlobUrl.value = '' }
+    filePreviewRow.value = null
+    filePreviewMode.value = ''
+  }
+})
+
+async function downloadProjectFile(d) {
+  if (!d || !d.filePath) return
+  try {
+    const response = await fetchProjectFile(d.filePath, true)
+    const url = URL.createObjectURL(response.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = d.fileName || d.filePath
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error('下载失败，请重试')
+  }
+}
 </script>
 
 <style scoped>
@@ -1686,6 +1916,16 @@ onMounted(async () => {
 .todo-name { font-size: 13px; color: var(--ui-text-main); }
 .side-done { color: var(--ui-success); font-size: 13px; }
 .side-doc { display: flex; flex-direction: column; padding: 4px 0; border-bottom: 1px dashed var(--ui-border-weak); }
+.side-doc-ops { display: flex; align-items: center; gap: 2px; }
+.side-doc-ops .doc-meta { margin-left: auto; }
+.preview-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--ui-border-weak); }
+.preview-nav { display: flex; align-items: center; gap: 8px; }
+.preview-info { font-size: 13px; color: var(--el-text-color-secondary); }
+.preview-body { padding: 16px; overflow: auto; height: calc(100% - 60px); }
+.preview-body.is-pannable :is(.preview-image, .preview-canvas) { cursor: grab; }
+.preview-body.is-panning, .preview-body.is-panning :is(.preview-image, .preview-canvas) { cursor: grabbing; user-select: none; }
+.preview-image, .preview-canvas { display: block; max-width: none; margin-inline: auto; }
+.preview-canvas { box-shadow: 0 2px 12px rgba(0,0,0,.12); }
 .side-log { padding: 6px 0; border-bottom: 1px dashed var(--ui-border-weak); }
 .side-log-desc { font-size: 13px; color: var(--ui-text-main); }
 .side-log-meta { font-size: 12px; color: var(--ui-text-muted); margin-top: 2px; }

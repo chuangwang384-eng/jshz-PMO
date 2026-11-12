@@ -18,7 +18,8 @@
   </div>
 </template>
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { getComplianceMode } from '../api/complianceV4'
 import KnowledgeDocList from '../components/KnowledgeDocList.vue'
@@ -27,7 +28,11 @@ import ComplianceTemplateEditor from '../components/compliance/ComplianceTemplat
 import LegacyCompliancePanel from '../components/compliance/LegacyCompliancePanel.vue'
 import MaintenanceBoard from '../components/compliance/MaintenanceBoard.vue'
 const auth = useAuthStore()
+const route = useRoute()
 const pageTab = ref('notebook')
+watch(() => route.query.tab, tab => {
+  pageTab.value = tab === 'docs' ? 'docs' : 'notebook'
+}, { immediate: true })
 const notebookRef = ref(null)
 // 收藏变更 → 记事本与文档筛选项立即刷新（需求规则3：取消收藏即移除该文档分组）
 function onFavoriteChanged() {

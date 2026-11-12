@@ -177,6 +177,52 @@ public class DocPreviewService {
         return converted;
     }
 
+    /**
+     * 通用源路径预览转换（Owner 2026-11-12 项目文件在线预览）：与知识库同口径的
+     * 缓存+锁+重试逻辑，但源文件可为任意存储目录（项目资料库等），缓存键由调用方保证安全。
+     */
+    public Path getPreviewFileFor(Path source, String cacheKey, String fileType) {
+        if (!isOffice(fileType)) {
+            throw new BusinessException("该格式不支持在线预览转换");
+        }
+        Path cache = previewDir.resolve(cacheKey + ".pdf");
+        if (Files.exists(cache) && Files.isRegularFile(cache)) {
+            return cache;
+        }
+        Object lock = locks.computeIfAbsent(cacheKey, k -> new Object());
+        synchronized (lock) {
+            if (Files.exists(cache) && Files.isRegularFile(cache)) {
+                return cache;
+            }
+            if (source == null || !Files.exists(source)) {
+                throw new BusinessException("文档源文件缺失，暂无法在线预览");
+            }
+            try {
+                Path converted = convertToPdf(source, previewDir, fileType, false);
+                Files.move(converted, cache, StandardCopyOption.REPLACE_EXISTING);
+                return cache;
+            } catch (BusinessException firstEx) {
+                log.warn("项目文件 Office 转 PDF 首次失败，自动重试 1 次：cacheKey={}, error={}",
+                        cacheKey, firstEx.getMessage());
+                try {
+                    Path converted = convertToPdf(source, previewDir, fileType, true);
+                    Files.move(converted, cache, StandardCopyOption.REPLACE_EXISTING);
+                    return cache;
+                } catch (BusinessException retryEx) {
+                    throw new BusinessException("文档转换失败（已自动重试 1 次），暂无法在线预览");
+                } catch (IOException | InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new BusinessException("文档转换失败（已自动重试 1 次），暂无法在线预览");
+                }
+            } catch (IOException | InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException("文档转换失败，暂无法在线预览");
+            } finally {
+                locks.remove(cacheKey);
+            }
+        }
+    }
+
     /** 重试模式使用的转换目标：PDF/A-2b（SelectPdfVersion=4）+ 对应 Office 导出过滤器。 */
     private String pdfATarget(String fileType) {
         String filter = PDF_FILTERS.getOrDefault(fileType == null ? "" : fileType.toLowerCase(), "writer_pdf_Export");

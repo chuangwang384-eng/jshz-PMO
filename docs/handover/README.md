@@ -1,5 +1,14 @@
 # 最新交接摘要
 
+- 2026-11-12 项目列表调整筛选与表格布局，隔离 Edge 宽窄屏验证通过，生产前端已发布。见 [交接记录](tasks/20261112_project_list_layout.md)。
+
+- 2026-11-12 工作台审批中文化、备选卡片去重并补充两个实际功能卡，前后端 1.0.38.15 已发布。见 [交接记录](tasks/20261112_dashboard_palette_cleanup.md)。
+
+- 2026-11-12 项目附件滚轮和按钮缩放已上线，左键拖动通过隔离 Edge 验收，待发布。见 [交接记录](tasks/20261112_project_file_preview_zoom.md)。
+
+- 2026-11-12 「项目详情页项目文件预览/下载失效修复已发布生产」**已发布，待业务验收**：根因为 ProjectDetail.vue `</script>` 提前闭合，预览/下载实现（约 110 行）被构建静默丢弃。注意：并行会话 13:36 的 `1.0.38.14-file-preview` 发布**未含实现代码**（chunk 仅模板，getDocument/createObjectURL 均为 0），本次从含修复源码重新构建并发布快照 `frontend/releases/1.0.38.14-projectfile-preview-impl-20261112`（平滑切换，上一 root 已保留），线上 chunk 实现断言 True、SPA 路由 200。过期构建产物已清理。见 [任务交接](tasks/20261112_project_file_preview_fix.md)。
+- 2026-11-12 「日程解析 P1-P4 准确率优化」**已发布生产 1.0.38.13（12:29，Owner 手动执行 deploy-13813.cmd，后端蓝绿，仅后端无迁移），发布后核验通过**：P1 图片/扫描件接入 PP-OCRv5（逐页 250dpi 竞争择优 + PPTX 内嵌图片 OCR）；P2 坐标配对确认（Codex 已有）；P3 主持合并格取首位；P4 LLM 兜底约束（回指+覆盖率≥60%+重试+出场去重）。mvn 全量 116 过 0 失败；发布后 8080 直连与经 Nginx 均 1.0.38.13 UP、运行 jar=候选（aba306d6…5afe8）、SPA 200。**待 Owner 真机验收**：上传 144-日程.pdf / 妇愈芬芳.pptx / 苏州站回归。回滚=重发 1.0.38.12 制品。见 [发布记录](../releases/20261112-schedule-accuracy-1.0.38.13.md) / [优化方案附录](tasks/20261112_schedule_codex_benchmark.md)。
+
 - 2026-11-12 「开场致辞主席修复」**已发布生产 1.0.38.12（11:39，Owner 手动执行 deploy-13812.cmd，后端蓝绿，仅后端无迁移），发布后核验通过**：候选 jar SHA256=5782f50f…61b1（源码差异仅 ScheduleParseService.java 开场/总结主席规则 applyCeremonyChairRoles）；隔离 Surefire 11 项 0 失败；发布后 8080 直连与经 Nginx 均 1.0.38.12 UP、运行 jar=候选哈希、前端保持 1.0.38.8 快照、SPA 200。**待 Owner 真机验收**：上传「日程-6.15 与艾同行苏州站.pptx」→ 31 条候选、开场致辞（09:00-09:10）陈友国/张梦真为大会主席。已知观察项：「会议总结」行主席升格在隔离 Edge 未按预期生效（角色实际值已记录，见 logs/opening-chair-isolated-13812.log），待对照生产数据裁决口径。回滚=重发 1.0.38.11 制品。见 [发布交接](tasks/20261112_opening_chair_release_handover.md) / [批量报告](tasks/20261112_schedule_opening_chair_batch.md) / [基准报告](tasks/20261112_schedule_codex_benchmark.md)。
 
 - 2026-11-12 [日程解析交接总览](../../HANDOFF.md)，含线上 1.0.38.11、开场主席待发布修复及 95% 验收路线。

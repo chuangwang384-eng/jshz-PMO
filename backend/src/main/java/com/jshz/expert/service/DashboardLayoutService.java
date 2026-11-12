@@ -22,7 +22,7 @@ public class DashboardLayoutService {
     private static final Set<String> APPROVAL_CARDS = Set.of("stat.myApprovals", "panel.myApprovals", "page.approvalManage");
     private static final Map<String, String> MODULE_CARDS = Map.of(
             "page.knowledge", "knowledge", "page.complianceAssociation", "knowledge",
-            "page.complianceEnterprise", "knowledge", "page.project", "project",
+            "page.complianceEnterprise", "knowledge", "page.complianceDocs", "knowledge", "page.project", "project",
             "page.experts", "expert", "page.customer", "customer",
             "page.supplier", "supplier", "page.announcements", "announcement");
     private final DashboardReadService reads;
@@ -144,7 +144,7 @@ public class DashboardLayoutService {
     public boolean allowed(AuthUser user, String id) {
         if (PUBLIC_CARDS.contains(id)) return true;
         if (APPROVAL_CARDS.contains(id)) return user.hasPermission("approval:audit");
-        if (id.equals("page.myApplications")) return reads.allowedPath(user, "/api/approval/my-applications");
+        if (id.equals("page.myApplications") || id.equals("panel.applicationProgress")) return reads.allowedPath(user, "/api/approval/my-applications");
         if (id.equals("page.directory")) return reads.allowedPath(user, "/api/wecom/directory/mine");
         String module = MODULE_CARDS.get(id);
         return module != null && reads.allowed(user, module);

@@ -104,7 +104,8 @@ onMounted(async () => {
   } catch (e) { /* 接口失败回退默认入口，不阻塞页面 */ }
 })
 
-defineExpose({ saveDraft, resetDraft })
+const draftIds = computed(() => draft.value.map(item => item.id))
+defineExpose({ saveDraft, resetDraft, draftIds })
 </script>
 <style scoped>
 .quick-access{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--c-border,#e2e8f0)}

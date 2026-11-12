@@ -1834,6 +1834,11 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     /** 供日程解析等协作服务复用：按存储相对路径读取文件字节（防穿越；不存在返回 null）。 */
+    /** 项目资料库文件解析（防穿越，供文件流端点；Owner 2026-11-12 在线预览）。 */
+    public java.nio.file.Path resolveStoredFile(String filePath) {
+        return storageService.resolveFile(filePath);
+    }
+
     public byte[] storageRead(String filePath) {
         java.nio.file.Path p = storageService.resolveFile(filePath);
         if (p == null) return null;
