@@ -1,5 +1,39 @@
 # 最新交接摘要
 
+- 2026-11-12 「开场致辞主席修复」**已发布生产 1.0.38.12（11:39，Owner 手动执行 deploy-13812.cmd，后端蓝绿，仅后端无迁移），发布后核验通过**：候选 jar SHA256=5782f50f…61b1（源码差异仅 ScheduleParseService.java 开场/总结主席规则 applyCeremonyChairRoles）；隔离 Surefire 11 项 0 失败；发布后 8080 直连与经 Nginx 均 1.0.38.12 UP、运行 jar=候选哈希、前端保持 1.0.38.8 快照、SPA 200。**待 Owner 真机验收**：上传「日程-6.15 与艾同行苏州站.pptx」→ 31 条候选、开场致辞（09:00-09:10）陈友国/张梦真为大会主席。已知观察项：「会议总结」行主席升格在隔离 Edge 未按预期生效（角色实际值已记录，见 logs/opening-chair-isolated-13812.log），待对照生产数据裁决口径。回滚=重发 1.0.38.11 制品。见 [发布交接](tasks/20261112_opening_chair_release_handover.md) / [批量报告](tasks/20261112_schedule_opening_chair_batch.md) / [基准报告](tasks/20261112_schedule_codex_benchmark.md)。
+
+- 2026-11-12 [日程解析交接总览](../../HANDOFF.md)，含线上 1.0.38.11、开场主席待发布修复及 95% 验收路线。
+
+- 2026-11-12 完成 Codex 原文对照与本地规则/Ollama 双链路首轮评测，12 份样本的四字段 F1 分别为 75.0% 和 70.0%。见 [评测报告](tasks/20261112_schedule_codex_benchmark.md)。
+
+- 2026-11-12 修复开场致辞主席角色，77 份原件离线批量对照，未发布。见 [逐文件报告](tasks/20261112_schedule_opening_chair_batch.md)。
+
+- 2026-11-12 日程支持「发言人」表头及总结主席身份，CSCO 原件恢复 12 条，三份原件隔离 Edge 通过，后端 1.0.38.11 已发布。见 [交接记录](tasks/20261112_schedule_csco_chair.md)。
+
+- 2026-11-12 修复 PPTX 日程议题残片与人员阅读顺序，信阳与濮阳原件通过隔离 Edge 上传、解析、确认及刷新验证，后端 1.0.38.10 已发布。见 [交接记录](tasks/20261112_ppt_schedule_reading_order.md)。
+
+- 2026-11-12 项目日程解析补齐 PPTX 独立文本框的主持出场，真实 Edge 隔离上传、解析、确认和刷新验证通过，28 条候选，后端 1.0.38.9 已发布。见 [交接记录](tasks/20261112_schedule_appearances.md)。
+
+- 2026-11-12 项目详情移除阶段任务卡并优化生命周期，真实 Edge 复验通过，生产前端已切换。真实 PPTX 复现 3 位环节主持漏识别，日程解析复测及回滚见 [交接记录](tasks/20261112_project_lifecycle_ui.md)。
+
+- 2026-11-12 「模板维护搜索修复 + 候选事项清空已发布生产 1.0.38.8」**已发布，待业务验收**：后端蓝绿 11 阶段通过（/health=1.0.38.8，keyword 字面匹配 + drafts-clear-preview/drafts-clear 两接口生效），前端快照 `frontend/releases/1.0.38.8-maintenance-search-20261112` 平滑切换（上一 root=1.0.38.7-maintenance-ui-20261111），SPA 路由 200、新功能代码入快照、新接口未登录 401 核验通过。version.txt/package.json → 1.0.38.8。回滚与核验见 [发布记录](../releases/20261112-maintenance-search-clear-1.0.38.8.md)、[任务交接](tasks/20261111_compliance_maintenance_search_clear.md)。
+- 2026-11-11 「模板维护搜索修复 + 候选事项清空」**已完成待验收，未发布**：① 后端 `GET /compliance/items` 的 keyword 改为字面子串匹配（转义 `\ % _` LIKE 通配符 + trim），修复特殊字符误匹配；② 新增候选事项一键清空：`GET/POST /compliance/documents/{id}/drafts-clear-preview|drafts-clear`（knowledge:maintain，expectedCount 乐观校验，逐条复用 deleteItem 留痕），`MaintenanceBoard.vue` 候选分组内新增「清空候选事项」按钮（预览+确认弹窗），并区分"搜索无结果"与"暂无数据"空态。无数据库迁移。验证：ComplianceMaintenanceTest 4 用例通过、前端独立目录构建通过；真实接口/浏览器验收待部署后执行。详见 [任务交接](tasks/20261111_compliance_maintenance_search_clear.md)。
+- 2026-11-11 「根目录清理第一档执行（零风险临时残留）」**已执行，未提交、未发布**：按 2026-11-06 清理报告第一档 + 本次扫描补充，删除 47 个文件：① `temp/cookies.txt`（含有效期至 2026-11-12 的 `expert_token` JWT，安全优先，**建议通知该测试账号 token 作废**）；② `tv.txt`（内容"2"，系 2f680ef 批量补提交时误入库，删除后需随下次提交落库，当前 `git status` 显示 `D tv.txt`）；③ `docs/deployment.md.bak-20261106_160221/160331` 两份手工备份；④ `backend/` 根目录 24 个散落日志 + `smoke_*.json`×4（`backend/logs/`、`logs/` 未动）；⑤ `frontend/` 根目录 12 个构建日志 + `$err`/`$log`；⑥ `backend/target/surefire-reports/` 171 个历史测试产物（保留目录与 `target/expert-system.jar`）。核验：backend/frontend 根目录散落日志计数=0、生产 jar 存在、`/health`=200。**未做**：`target-1.0.22/`、`temp/` 历史脚本与旧 jar、`builds/archive/`、ProjectConfig 死链（均属第二档或需负责人确认）。详见 [任务交接](tasks/20261111_root_cleanup_batch1.md)。
+
+- 2026-11-11 「approval_record 自增值不同步修复（提交申请报 Duplicate entry）」**数据库已修复（152 起分配）、后端异常处理已加固、未发布**：Owner 反馈解析简历后提交申请报"服务器内部错误：Duplicate entry '139' for key 'approval_record.PRIMARY'"。取证：日志定位 `ApplicationService.addRecord→submitCreateRequest` 的 INSERT（id 由 AUTO 分配，未显式传 id）；实测库 `approval_record` 自增值=141 而存量 MAX(id)=151（141~151 为 11-07 合法数据，138~140 已存在），即**自增计数器被重置落后于存量数据**，与文件大小/格式/解析/编码无关（application 等其余表自增均正常）。修复：①生产库 `ALTER TABLE approval_record AUTO_INCREMENT=152`（动态取 MAX(id)+1，仅元数据无数据变更；事务内试插入分配 152 后 ROLLBACK 验证通过，失败事务因 20261106 事务边界修复已整体回滚，application 无脏数据残留）；②`GlobalExceptionHandler` 新增 DuplicateKeyException 友好提示、兜底 500 不再向前端透出原始 SQL 错误（只进日志）；③迁移脚本 `database/migration/20261111_fix_approval_record_auto_increment.sql`（幂等）。**遗留：自增值被重置的具体操作来源未查明（疑似 11-07 前后的人工数据恢复/手工 ALTER），建议排查是否有维护流程在改库；后端异常处理改动待下次发布生效。** 见 [交接任务](tasks/20261111_approval_record_auto_increment_fix.md)。
+
+- 2026-11-11 「简历证件照自动抠图 + 专家详情页简历解析更新」**已发布生产 1.0.38.7（15:21，后端蓝绿+前端 graceful，无迁移），发布后核验通过**：① 选型 **rembg**（MIT，U²Net 本地 ONNX，数据不出内网；u2net.onnx SHA256=8D10D2F3…B491），新增 `PhotoMatteService`（多解释器探测 PHOTOMATTE_PYTHON→E盘venv→受保护venv、单并发、120s、失败回退白底 JPG 不阻断）；② `ResumeParseResult.photoCandidates` 改为 `{base64,mime,transparent}`，候选**透明 PNG**（抠图后 ≤600px 缩放，实测 1.9MB→384KB）；③ ExpertList 新建+详情编辑两处简历解析，详情页新增「选择简历解析更新」（仅填空字段不覆盖，人工确认保存）。实测真实简历 3 张候选全 transparent=true（42%/19%/34% 透明占比），mvn 110 过 0 失败。**注意：受保护 venv 内 rembg 安装不稳定，运行时默认走 E 盘 venv；如需切换设 PHOTOMATTE_PYTHON。待 Owner 真机验收。** 见 [发布记录](../releases/20261111-resume-photo-matte-1.0.38.7.md)。
+
+- 2026-11-11 「酒店段解析质量修复 + 解析中弹窗」**已发布生产 1.0.38.5（12:09，后端蓝绿+前端 graceful，无迁移），核验通过**：Owner 反馈酒店交通段候选混入 OCR 噪声行且表格行丢失、需解析中弹窗。取证=该页表格定位失败回退 Tesseract 整页识别（噪声大行丢失）。修复：①addParagraphs 逐行剔除无中文噪声行；②表格定位失败的扫描页 PP-OCRv5 整页行识别与 Tesseract 竞争择优（置信度≥60 过滤+CJK 择优）；③MaintenanceBoard 解析加 ElLoading 全屏弹窗（提示 OCR+LLM 约 1-2 分钟）。实测：酒店段候选从乱码+行丢失变为 PP-OCRv5 完整干净内容（全部表格行在位）；mvn test 107 过 0 失败；发布后 /api/health 经 Nginx 1.0.38.5 UP、root 已切、index 哈希一致、运行 jar=候选。**遗留：行内嵌噪声片段仍需维护人编辑；「≤2000元次」缺斜杠待对照原件；Owner 真机验收**。见 [交接任务](tasks/20261111_ppocrv5_compliance_rollout.md)。
+
+- 2026-11-11 「候选乱码定位与热修 1.0.38.4」**已发布生产（11:44 后端蓝绿），核验通过**：Owner 反馈候选乱码（hex:、(220444 Ht K) 等）。取证（同路径 extractStructured 全 14 块逐块比对）证实乱码串不存在于 OCR 文本，且流水线候选非空时不调 LLM → 乱码为 **PP-OCRv5/Tesseract 整页块识别噪声行**被 addCandidate（仅 ≥4 字符门槛）逐字带入候选——**OCR 噪声+候选无质量门槛，非 LLM 问题**。修复：addCandidate 加中文门槛（CJK<2 丢弃）。真实 PDF 回归 15 条候选全干净；mvn 全量此前 102 过。热修后 /api/health=1.0.38.4 UP、运行 jar=候选哈希。遗留：行内嵌噪声片段需维护人编辑；「≤2000元次」缺斜杠待对照原件。见 [交接任务](tasks/20261111_ppocrv5_compliance_rollout.md)。
+
+- 2026-11-11 「合规扫描表格 PP-OCRv5 升级」**已发布生产 1.0.38.3（11:18 后端 R-1 蓝绿，仅后端，无迁移），发布后核验通过**：接手 Codex 交接完成收尾——运行时安装 `scripts/install-ppocr-runtime-20261111.ps1`（E:→<LOCAL_PATH> Files\JSHZ\pp-ocrv5，解引用 junction/实体 Python 物理拷贝/pyvenv.cfg 重写/模型 SHA-256 一致/重解析点 0）；交互+SYSTEM（LocalSystem）双通道 `python -I` 推理验证通过（模型自 Program Files 加载，识别坐标置信度一致）；DryRun 11 阶段过 → 蓝绿发布，8080 与经 Nginx 均 1.0.38.3 UP、运行 jar 哈希=候选（3bd13df8…）、SPA 200、版本元数据已同步。真实样本四档金额符号/PPT 单位此前已验收（15 条候选，Surefire 10 项 0 失败）。**遗留：Owner 挑生产样本重解析验收 OCR 质量（不批量）；「≤2000元次」斜杠缺失待对照原件；冷启动耗时观察。回滚=重发 1.0.38.2 后端制品。** 见 [发布记录](../releases/20261111-ppocrv5-compliance-1.0.38.3.md) / [交接任务](tasks/20261111_ppocrv5_compliance_rollout.md)。
+
+- 2026-11-10 「企业合规记事本」**已发布生产 1.0.37.36（17:18，迁移 MIGRATION_OK+后端 R-1 蓝绿+前端 graceful），发布后核验通过**；⚠️ 当日与并行会话（Codex 合规模板单次保存）并发发布（其 15:37/16:01 发布 .34/.35 模板工作区功能），已核对源码快照确认当前树包含两批全部改动，本发布改为 .36 避免版本回退（首跑因迁移校验列数笔误中止，流程自检生效）。功能=记事本（收藏∩已发布∩上架/隐藏恢复/推送项目绑定+快照去重）、维护端按文档撤下（计数+版本冲突校验）、项目「合规要求注意事项」待办（row_version 乐观锁）、真实参与关系判定 isRealProjectMember、旧执行六写端点关闭+页签移除。mvn test 99 过 0 失败。**⚠️ 旧执行四表清理脚本未执行，需 Owner 批准**；AC 真机验收待 Owner。见 [发布记录](../releases/20261110-compliance-notebook-1.0.37.34.md)。
+
+- 2026-11-10 「合规情况事项看板 + LLM 重要事项标记」**已发布 1.0.37.33（后端 R-1 蓝绿+前端 graceful，无迁移），发布后核验通过**：①「模板维护」页签挂载此前从未挂载的 MaintenanceBoard（情况事项=解析待办：草稿确认/手动新增/优先级筛选，HIGH 渲染红色「重要」徽标）；② 解析链 `parseAndCreateDrafts` 接入 LLM——`OllamaService` 新增通用 `completeJson` 与 `complianceImportance`（重要口径：资金/合同/法务/时限/监管/证件/审计等），重要草稿 priority→HIGH、remark 追加「LLM标记：重要」；**Ollama 不可用/失败时静默回退全部 MEDIUM（回归断言：行为与现状零差异，新增 ComplianceLlmMarkTest）**。mvn test 全绿、前端构建过；发布后 /api/health 经 Nginx 1.0.37.33 UP（buildTime/gitShort 与制品一致）、root 已切、index 哈希一致、SPA 200。**待 Owner：页面真机验收**（维护页签底部情况事项看板手动新增；上传合规文档看红色"重要"标，首次 LLM 调用或需等模型冷加载 1-2 分钟）。**本版改动尚未提交入库**（与 .32 一并验收后提交）。见 [发布记录](../releases/20261110-compliance-situation-llm-1.0.37.33.md)。
+- 2026-11-10 「项目恢复/成员级编辑 + 日程解析 Excel/Word」**已发布 1.0.37.32（后端 R-1 蓝绿+前端 graceful，无迁移），发布后核验通过**：① `PUT /project/{id}/restore`（仅 CANCELED、负责人/创建人、阶段不变、留痕）+详情/列表恢复入口；② 项目编辑放宽为成员级（requireOperable，ownerId/assistantIds 仍限负责人/创建人守卫），detail 新增 canRestore/canEditBasic；③ 日程解析支持 xlsx/xls（WorkbookFactory 全 sheet+纵向合并填充/横向合并不复制——「再谱华章」假名实证）+「院士」头衔；④ Word 提准（topic 提名放宽至"≥2 token 名"抓齐大医万里行合并单元格讨论段 11→26 人；docx 嵌套表格递归；.doc HWPF 表格提取）。实测：新长征 xlsx 76 人（8 主席团 CHAIR，假名 0）、大医万里行 docx 26 人全对；发布后 /health 直连+经 Nginx 均 1.0.37.32 UP（gitShort=a417c51）、root 已切、index 哈希一致、restore 端点 401。**待 Owner：页面真机验收**（取消→恢复；成员编辑；上传 xlsx/docx 核对候选 76/26）。**本版改动尚未提交入库**（.32 单主题提交待验收后一并办理）。见 [发布记录](../releases/20261110-project-restore-edit-schedule-excel-word-1.0.37.32.md)。
 - 2026-11-10 「日程上传限额 20MB→50MB + 413 友好提示」**已发布 1.0.37.31（后端蓝绿+前端 graceful+Nginx 60m 重载，无迁移），发布后核验通过**：Owner 上传 27.7MB 日程报 413（被 Nginx 20m 拦截，目录内多份真实日程 27-30MB）；改后端日程 MAX_SIZE=50MB、前端预检中文提示、Nginx `/api/` client_max_body_size 20m→60m（nginx -t 过，随发布 reload）。核验：/health 直连+经 Nginx 均 1.0.37.31 UP、root 已切、index 哈希一致、**25MB 请求体到后端返回 401（413 解除实证）**、SPA 200。见 [发布记录](../releases/20261110-schedule-upload-limit-1.0.37.31.md)。**同日 .28~.31 四轮发布积压改动已分主题提交入库**。
 - 2026-11-10 「日程解析泛用性第二轮强化 + 详情页区块顺序」**已发布 1.0.37.30（后端蓝绿+前端 graceful，无迁移），发布后核验通过**：Owner 复测曲径通幽日程识别率差，取证四份真实文件暴露 7 类形态问题——「讲题」列被误判为讲者列、人名滑窗误抓单位词（平顶山）、表内整行「主持：X 教授 单位」、表头含全角空格整表跳过、人名夹 PUA 字符（\uF020）、无头衔裸名（王军 刘铮）、公司名（恒瑞医药）。修复：列头空白归一化、讲题列优先、人名判定改 token 切分+单字两两合并、PUA/零宽字符清洗、时间列格式校验沿上一行、表内主持行提取、黑名单扩医学词；前端「阶段资料」区移到「参会专家」之前。实测四份真实文件 12/23/4/7 人全对（垃圾人名 0）；发布后 /health 直连+经 Nginx 均 1.0.37.30 UP、root 已切且 master PID 7696 未变、index 哈希一致、schedule 接口 401。**待 Owner：页面真机验收**（重新解析曲径通幽日程应为 12 人）。见 [发布记录](../releases/20261110-schedule-parse-generalize-1.0.37.30.md)。
 - 2026-11-10 「日程上传阶段：附件删除 + 解析泛用性强化」**已发布 1.0.37.29（后端蓝绿+前端 graceful，无迁移），发布后核验通过**：三门峡 pptx 取证根因=表头「时间/内容/嘉宾」不在旧表头词表导致整表跳过、讨论名单在内容列漏抓 13 人、合并单元格时间丢失；已改 ruleParse（表头≥2 关键词、内容列讨论段提取、时间沿上、角色词判定、无表头时间段锚定兜底、页脚兼容「会议主席」、人名拒字母数字）；上传改**替换语义**（硬删旧份+候选、软删旧附件、无引用才物理删，不做历史版本）；新增 `DELETE /project/{id}/schedule/docs/{docId}`（删生效日程联动清候选，confirmed=1 保留）；前端日程附件行加生效标签/状态/删除按钮。实测：三门峡真实文件候选 **23 人全量抓齐角色时间全对**、单测 8/8、全量 96 通过 0 失败、构建过 is-not-exported=0；发布后 `/health` 直连+经 Nginx 均 1.0.37.29 UP、root 已切且 master PID 7696 未变、index 哈希线上=磁盘、schedule 接口 401、登录冒烟过。**待 Owner：页面真机验收**（重新解析三门峡日程核对候选 23 人；试删生效/非生效附件验证联动）。见 [发布记录](../releases/20261110-schedule-doc-delete-1.0.37.29.md) / [任务记录](tasks/20261109_project_schedule_stage.md)。
@@ -107,15 +141,15 @@
 
 - 2026-11-05 企业合规模板草稿真实MySQL与Edge隔离验收通过：真实PDF上传、原文引用、重复生成及清单/权限流程通过；尚未生产发布，管理员执行环境和服务OCR模型路径待就绪，并发生成护栏仍待补。见[施工交接](tasks/20261105_compliance_template_generation.md)。
 
-- 2026-11-04 三份真实规范离线简测完成待复核：当前解析三文件均0条；保留换行仅得到文本行候选，基金会两页图像规范漏提取。已在原文件目录“清单草稿验证”交付36条人工辅助、带来源的待确认样例和实际探针输出；未入库、未发布、无业务代码变更。见[简测交接](tasks/20261104_compliance_template_sample_probe.md)。
+- 2026-11-04 三份真实规范离线简测完成待复核：当前解析三文件均0条；保留换行仅得到文本行候选，基金会两页图像规范漏提取。已在原文件目录"清单草稿验证"交付36条人工辅助、带来源的待确认样例和实际探针输出；未入库、未发布、无业务代码变更。见[简测交接](tasks/20261104_compliance_template_sample_probe.md)。
 
-- 2026-11-04 知识星球模板生成可行性评估已完成待评审：负责人确认“上传规范生成草稿，人工确认后发布”；建议复用V4执行机制，先打通企业合规草稿生成及原文确认，再评估协会分类扩展和微盘试点。已纠正旧上传只进旧版、文本换行丢失、xls实现及后端分类边界等关键前提；下方原调研“权限零改动/默认未启用”不可直接作为实施依据。仅文档，无业务/生产变更。见[评估交接](tasks/20261104_compliance_template_feasibility.md)。
+- 2026-11-04 知识星球模板生成可行性评估已完成待评审：负责人确认"上传规范生成草稿，人工确认后发布"；建议复用V4执行机制，先打通企业合规草稿生成及原文确认，再评估协会分类扩展和微盘试点。已纠正旧上传只进旧版、文本换行丢失、xls实现及后端分类边界等关键前提；下方原调研"权限零改动/默认未启用"不可直接作为实施依据。仅文档，无业务/生产变更。见[评估交接](tasks/20261104_compliance_template_feasibility.md)。
 
 - 2026-11-04 企业微信微盘与知识星球集成调研已交付并**按负责人意见重写**（纯只读调研，零代码/数据库/部署变更）：新方向为"不改二级菜单、文件归入现有3分类、上传后自动解析待办清单"；结论：思路可行，推荐"共性骨架+平台参数+解析填差异+一次确认"模型替代手工模板维护，菜单/路由/权限零改动；关键前置：解析触发扩展至协会合规（当前硬编码仅企业合规，KnowledgeDocumentService.java:79）、补齐 PPTX 正文抽取。报告见 E:\王创\2026-11-4\企业微信微盘文件与知识星球深度集成调研报告.md，详见 [任务交接](tasks/20261104_wedrive_knowledge_integration_research.md)（含 §11 修订记录，第一版"新增子菜单"方案已废弃）。
 
-- 2026-11-04 工作台1.0.24已获批准并发布生产（业务源码1980a66），授权账号只读/页面/372资源检查通过，Nginx master39504不变、无本次迁移或密钥轮换。切流原窗口有1次ECONNRESET，严格连续性门禁FAILED；单独稳态3034请求零失败，最终保留健康版本并记PUBLISHED_WITH_WARNING，待业务验收。见[生产发布与回滚记录](../releases/20261104-dashboard-production.md)和[连接重置跟踪](tasks/20261104_nginx_switch_reset.md)。下方“未发布”为历史状态。
+- 2026-11-04 工作台1.0.24已获批准并发布生产（业务源码1980a66），授权账号只读/页面/372资源检查通过，Nginx master39504不变、无本次迁移或密钥轮换。切流原窗口有1次ECONNRESET，严格连续性门禁FAILED；单独稳态3034请求零失败，最终保留健康版本并记PUBLISHED_WITH_WARNING，待业务验收。见[生产发布与回滚记录](../releases/20261104-dashboard-production.md)和[连接重置跟踪](tasks/20261104_nginx_switch_reset.md)。下方"未发布"为历史状态。
 
-- 2026-11-04 个人工作台V1.1.1已实施并完成隔离技术验证，待业务验收，未发布生产。负责人已选仅复用历史完成阶段；首屏事项/风险、搜索、定位、编辑重提与返回刷新已落地。17项后端、8项前端、真实浏览器及HTTP/故障验证通过；小数据集4000请求零模块错误。见[实施交接](tasks/20261104_dashboard_implementation.md)与[API/部署/测试说明](../deployment/2026-11-04-个人工作台V1.1.1接口与隔离验证-部署说明.md)。下方“仅文档/未施工”为历史阶段。
+- 2026-11-04 个人工作台V1.1.1已实施并完成隔离技术验证，待业务验收，未发布生产。负责人已选仅复用历史完成阶段；首屏事项/风险、搜索、定位、编辑重提与返回刷新已落地。17项后端、8项前端、真实浏览器及HTTP/故障验证通过；小数据集4000请求零模块错误。见[实施交接](tasks/20261104_dashboard_implementation.md)与[API/部署/测试说明](../deployment/2026-11-04-个人工作台V1.1.1接口与隔离验证-部署说明.md)。下方"仅文档/未施工"为历史阶段。
 
 - 2026-11-04 个人工作台需求/设计已按负责人采纳意见原位替换为 V1.1.0：首屏事项与风险优先、申请/审批分开、具体对象处理闭环、日期/排序边界、六类搜索交互及权限降级已明确。仅文档、未施工未部署；项目完成权威来源仍是实施验收门槛。见 [修订交接](tasks/20261104_dashboard_documents_v11.md)。
 
@@ -127,11 +161,11 @@
 
 - 2026-11-03 21:44 企业合规 v4 首期已不停机蓝绿上线（业务代码c24add5，双路各1815次零失败，Nginx主进程39504不变）；真实测试账号只读登录/执行/待办/历史验收通过，原有记录数量保留，员工自行启用新版。先前UAC/WinPS预检阻塞已解除；旧磁盘小JAR不可回滚，已补完整基线与可启动检查护栏。详见 [最终生产记录](../releases/20261103-compliance-v4-production.md)。业务体验待负责人复核。
 
-- 2026-11-03 企业合规 v4 生产发布已获用户要求，但 Windows UAC 返回“操作已被用户取消”，管理员执行器未启动。生产七表结构兼容、备份及内容校验、严格发布 DryRun 已完成；未补表、未改开关、未切流，原服务在线。见 [生产发布状态与接手步骤](../releases/20261103-compliance-v4-production.md)。
+- 2026-11-03 企业合规 v4 生产发布已获用户要求，但 Windows UAC 返回"操作已被用户取消"，管理员执行器未启动。生产七表结构兼容、备份及内容校验、严格发布 DryRun 已完成；未补表、未改开关、未切流，原服务在线。见 [生产发布状态与接手步骤](../releases/20261103-compliance-v4-production.md)。
 
 - 2026-11-03 企业合规 v4 发布阻断闭环：资源隔离、提醒事务/并发、个人提醒及等待复查、旧版只读快照与逐人互斥切换已实现；14 项真实 MySQL + 22 项服务回归、真实 Edge→Spring→MySQL 核心流程及旧页面回归通过。仅隔离验收，待业务复核和生产审批；见 [最新闭环交接](tasks/20261103_compliance_v4_release_blockers.md) 与 [部署/API/权限说明](../deployment/2026-11-03-企业合规V4隔离验收灰度切换与回滚-部署说明.md)。
 
-- 2026-11-03 企业合规 v4 接手：已补真实页面、模板细项编辑、个人答案/日期/优先级/备注、草稿显式开始与再次使用；22 项服务回归及合规/项目配置 Edge 隔离 API 浏览器回归通过。页面链路已完成待验收，整体 v4 的权限/提醒/历史兼容仍有发布阻断，未做本轮发布。见 [施工与验收交接](tasks/20261103_compliance_v4_takeover.md)。下方“未施工”条目为此前历史状态。
+- 2026-11-03 企业合规 v4 接手：已补真实页面、模板细项编辑、个人答案/日期/优先级/备注、草稿显式开始与再次使用；22 项服务回归及合规/项目配置 Edge 隔离 API 浏览器回归通过。页面链路已完成待验收，整体 v4 的权限/提醒/历史兼容仍有发布阻断，未做本轮发布。见 [施工与验收交接](tasks/20261103_compliance_v4_takeover.md)。下方"未施工"条目为此前历史状态。
 
 - 2026-11-02 项目配置板块改造 v2 已发布上线（后端 1.011 / 前端 1.0.19，迁移 20261102_project_config_v2.sql），API+UI 验收通过，待需求人页面复核。详见 [tasks/20261102_project_config_v2.md](tasks/20261102_project_config_v2.md)。
 - 2026-11-02 供应商详情页 UI 重构 v1 已上线（纯前端 v1.0.20，后端零改动），7 项验收通过，待需求人复核。详见 [tasks/20261102_supplier_detail_ui.md](tasks/20261102_supplier_detail_ui.md)。
@@ -159,3 +193,41 @@
 - 2026-11-03 用户反馈上一轮上线已复核；新增企业合规v4可复用清单设计已完成待评审（仅文档、未实施）。已确认优先关联项目且允许个人清单；需求/技术及未决事项见 [设计交接](tasks/20261103_compliance_v4_design.md)。
 
 - 2026-11-03 企业合规v4设计交接已补需求/技术完整路径及额度评估：16:07账号五小时剩约10%，18:32预计重置，不承诺本窗口完成全量施工；未启动开发。见 [交接第0/10节](tasks/20261103_compliance_v4_design.md)。
+
+- [合规模板单次保存](tasks/20261110_compliance_template_single_save.md)
+
+- 2026-11-10 合规模板单次保存已发布 1.0.37.34。隔离 40 项回归及真实 Edge 通过，生产健康及制品哈希已核验。见 [发布与交接](tasks/20261110_compliance_template_single_save.md)。
+
+- 合规模板长列表遮挡及清空当前文档事项已发布 1.0.37.35，隔离验收、生产健康及制品哈希均通过。见 [交接记录](tasks/20261110_compliance_template_single_save.md)。
+
+- 2026-11-10 企业合规记事本业务口径已确认，已落盘[需求](../requirements/2026-11-10-企业合规记事本-需求文档.md)与[设计](../design/2026-11-10-企业合规记事本-设计文档.md)，待实施。旧执行数据清理独立安排。
+
+- 合规事项看板与主动解析已实施，详见[交接记录](tasks/20261110_compliance_maintenance_reparse.md)。
+
+- 合规事项看板精简与主动解析已发布 1.0.37.38，真实 PDF 隔离 Edge 验收、生产健康和制品哈希均通过。见 [发布与交接](tasks/20261110_compliance_maintenance_reparse.md)。
+
+- 合规 PDF 原文候选覆盖修复已通过真实基金会 PDF 测试，待发布。见 [交接记录](tasks/20261110_compliance_maintenance_reparse.md)。
+
+- 1.0.37.39 合规 PDF 段落解析已发布，生产健康及 JAR 哈希核验通过。见 [交接记录](tasks/20261110_compliance_maintenance_reparse.md)。
+
+- 2026-11-11 规范文档库 Excel 直接预览已开发至 1.0.38.1，见 [交接记录](tasks/20261111_knowledge_excel_preview.md)。
+
+- 1.0.38.1 Excel 直接预览已发布并核验，见 [交接记录](tasks/20261111_knowledge_excel_preview.md)。
+
+- 合规标题和表格 OCR 质量调整见[交接记录](tasks/20261110_compliance_maintenance_reparse.md)。
+
+- 1.0.38.2 合规候选标题和表格 OCR 修复已发布并核验。见 [交接记录](tasks/20261110_compliance_maintenance_reparse.md)。
+
+- 2026-11-11 完成本地 qwen2.5:3b 与云端会话的真实合规文档对照及解析微调，见 [对照和交接](tasks/20261111_compliance_model_comparison.md)。
+
+- 2026-11-11 PP-OCRv5 模型下载、集成复测和生产接手步骤见 [OCR 升级交接](tasks/20261111_ppocrv5_compliance_rollout.md)。
+
+- 2026-11-11 企业合规要求记事本界面优化，见 [交接记录](tasks/20261111_enterprise_compliance_ui.md)。
+
+- 企业合规记事本界面优化已通过隔离 Edge 验收并完成生产前端切换，见 [交接与回退](tasks/20261111_enterprise_compliance_ui.md)。
+
+- 浏览器四项批注已通过隔离 Edge 验收并完成生产前端切换，见 [交接与回退](tasks/20261111_enterprise_compliance_ui.md)。
+
+- 模板维护页已通过真实 PDF 隔离 Edge 复验并发布生产前端，见 [交接与回退](tasks/20261111_enterprise_compliance_ui.md)。
+
+- 2026-11-12 模板维护搜索移除已通过同版后端隔离 Edge 复验并上线，见 [交接与回退](tasks/20261111_enterprise_compliance_ui.md)。
