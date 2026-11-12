@@ -99,8 +99,8 @@ public class OllamaService {
                 你是会议日程解析助手。从以下会议日程文本中抽取参会专家，严格输出 JSON 对象（不要输出任何其他文字）：
                 {"speakers":[{"name":"","role":"","segmentTitle":"","segmentTime":""}]}
                 规则：role 只能取 CHAIR(大会主席)/HOST(大会主持)/SPEAKER(大会讲者)/DISCUSSANT(讨论嘉宾)；
-                讨论嘉宾=同一段落/议题下多人共同发言；同一个人有多个角色时取最高的一个
-                （主席>主持>讲者>讨论嘉宾）；姓名为 2-4 个汉字人名，去掉"教授"等头衔；不要编造。
+                讨论嘉宾=同一段落/议题下多人共同发言；按每次出场分别输出，保留同一人不同角色或不同议题
+                姓名为 2-4 个汉字人名，去掉"教授"等头衔；议题和时间仅使用原文可确认的对应信息，缺失则留空；不要编造。
                 日程文本：
                 """.replaceAll("\\n{3,}", "\n\n") + text.substring(0, Math.min(text.length(), 4000));
         try {
@@ -146,6 +146,75 @@ public class OllamaService {
             return result;
         } catch (Exception e) {
             log.warn("Ollama 日程抽取异常：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 通用 JSON 生成（Owner 2026-11-10 合规重要性标记引入）：prompt 要求严格输出 JSON，返回模型 response 原文。
+     * 不可用/失败/超时返回 null，调用方回退规则结果；不再各方法重复 HTTP 样板。
+     */
+    public String completeJson(String prompt) {
+        if (!available() || prompt == null || prompt.isBlank()) return null;
+        String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
+        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+        try {
+            String body = json.writeValueAsString(Map.of(
+                    "model", model,
+                    "prompt", prompt,
+                    "stream", false,
+                    "format", "json",
+                    "keep_alive", "60m"));
+            long timeoutSec = 180;
+            try {
+                timeoutSec = Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", "180"));
+            } catch (Exception ignored) {}
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
+                    .timeout(Duration.ofSeconds(timeoutSec))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("Ollama 生成失败：HTTP {}", response.statusCode());
+                return null;
+            }
+            return json.readTree(response.body()).path("response").asText(null);
+        } catch (Exception e) {
+            log.warn("Ollama 生成异常：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 合规草稿重要性分类（Owner 2026-11-10）：识别重要事项供解析链标记 priority=HIGH。
+     * 判定口径（写入 prompt）：资金/合同/法务/付款/发票/时限截止/监管处罚/证件资质/审计等为重要，
+     * 一般性事务性准备为普通。返回与入参等长的 boolean 列表（index 对应）；失败返回 null 回退。
+     */
+    public boolean[] complianceImportance(List<String> titles) {
+        if (!available() || titles == null || titles.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < titles.size(); i++) {
+            String t = titles.get(i) == null ? "" : titles.get(i).replaceAll("\\s+", " ");
+            sb.append(i + 1).append('.').append(t, 0, Math.min(t.length(), 80)).append('\n');
+        }
+        String prompt = """
+                你是合规事项审核助手。判断下面每个合规事项是否"重要"。严格输出 JSON 对象（不要输出任何其他文字）：
+                {"flags":[true,false]}
+                规则：flags 为与事项列表等长的布尔数组，按顺序对应；判定为重要的口径：涉及资金/付款/合同/法务/
+                发票/时限截止/监管/处罚/证件/资质/审计/上报，或逾期会产生严重后果；一般性事务准备（如预订会场、
+                收集名单、日常签到）为普通(false)。拿不准时输出 false。事项列表：
+                """ + sb;
+        String resp = completeJson(prompt);
+        if (resp == null) return null;
+        try {
+            JsonNode flags = json.readTree(resp).path("flags");
+            if (!flags.isArray() || flags.size() < titles.size()) return null;
+            boolean[] result = new boolean[titles.size()];
+            for (int i = 0; i < titles.size(); i++) result[i] = flags.get(i).asBoolean(false);
+            return result;
+        } catch (Exception e) {
+            log.warn("Ollama 合规重要性解析失败：{}", e.getMessage());
             return null;
         }
     }

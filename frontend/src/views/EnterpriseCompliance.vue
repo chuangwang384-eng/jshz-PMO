@@ -1,53 +1,50 @@
 <template>
   <div class="page-container">
+    <h1 class="compliance-title">企业合规要求</h1>
     <el-tabs v-model="pageTab">
-      <el-tab-pane label="我的执行" name="execution">
-        <el-alert title="收藏仅保存文档入口；创建独立清单后，按本次项目安排日期、选择和进度。" type="info" :closable="false" />
-        <el-alert v-if="mode === 'V4' && !enabled" title="新版写入暂未开放，可查看历史；不会自动恢复旧版写入或提醒。" type="warning" :closable="false" />
-        <ExecutionBoard v-if="mode === 'V4'" :readonly="!enabled" />
-        <div v-else>
-          <el-alert title="原有待办继续保留在下方页签。启用新版后，旧到期提醒停止；新版需明确创建独立清单。" :closable="false" />
-          <el-button type="primary" :disabled="!enabled" :loading="switching" @click="enable">{{ enabled ? '启用新版执行清单' : '新版尚未开放' }}</el-button>
-        </div>
+      <!-- 合规记事本（Owner 2026-11-10 需求：默认页签；收藏文档的已发布条目集中阅读/隐藏/推送项目） -->
+      <el-tab-pane label="合规记事本" name="notebook">
+        <ComplianceNotebook ref="notebookRef" @goto-docs="pageTab = 'docs'" />
       </el-tab-pane>
       <el-tab-pane label="规范文档库" name="docs">
-        <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="true" />
+        <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="true" @favorite-changed="onFavoriteChanged" />
       </el-tab-pane>
-      <el-tab-pane v-if="auth.hasPermission('knowledge:maintain')" label="模板维护" name="maintenance"><ComplianceTemplateEditor v-if="enabled" /></el-tab-pane>
+      <el-tab-pane v-if="auth.hasPermission('knowledge:maintain')" label="模板维护" name="maintenance">
+        <ComplianceTemplateEditor v-if="enabled" />
+        <MaintenanceBoard :active="pageTab === 'maintenance'" @changed="onFavoriteChanged" />
+      </el-tab-pane>
       <el-tab-pane v-if="mode === 'V3'" label="原有待办" name="legacy"><LegacyCompliancePanel /></el-tab-pane>
     </el-tabs>
   </div>
 </template>
 <script setup>
 import { onMounted, ref } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { getComplianceMode, enableComplianceV4 } from '../api/complianceV4'
+import { getComplianceMode } from '../api/complianceV4'
 import KnowledgeDocList from '../components/KnowledgeDocList.vue'
-import ExecutionBoard from '../components/compliance/ExecutionBoard.vue'
+import ComplianceNotebook from '../components/compliance/ComplianceNotebook.vue'
 import ComplianceTemplateEditor from '../components/compliance/ComplianceTemplateEditor.vue'
 import LegacyCompliancePanel from '../components/compliance/LegacyCompliancePanel.vue'
+import MaintenanceBoard from '../components/compliance/MaintenanceBoard.vue'
 const auth = useAuthStore()
-const pageTab = ref('execution')
-// 模板维护页签与后端同权限码（knowledge:maintain，知识星球维护人角色持有）；
-// 无权限时页签隐藏，若当前停留在维护页签则回退到"我的执行"
-if (!auth.hasPermission('knowledge:maintain') && pageTab.value === 'maintenance') pageTab.value = 'execution'
-// 模式会话级缓存：刷新首帧用上次已知模式渲染页签，避免 V4 用户首帧闪现"原有待办"页签
-const cachedMode = (() => { try { return JSON.parse(sessionStorage.getItem(`compliance-mode:${auth.id}`) || 'null') } catch (e) { return null } })()
-const mode = ref(cachedMode?.mode || 'V3'), enabled = ref(cachedMode?.enabled ?? false), switching = ref(false)
-async function loadMode() {
-  const d = await getComplianceMode()
-  mode.value = d.mode; enabled.value = d.enabled
-  try { sessionStorage.setItem(`compliance-mode:${auth.id}`, JSON.stringify({ mode: mode.value, enabled: enabled.value })) } catch (e) {}
+const pageTab = ref('notebook')
+const notebookRef = ref(null)
+// 收藏变更 → 记事本与文档筛选项立即刷新（需求规则3：取消收藏即移除该文档分组）
+function onFavoriteChanged() {
+  notebookRef.value?.reload()
 }
-async function enable() {
-  try { await ElMessageBox.confirm('确认启用新版？旧到期提醒停止；不会自动搬移或推断项目。', '启用新版执行清单') } catch { return }
-  switching.value = true
-  try { await enableComplianceV4(); await loadMode() } catch { /* 拦截器提示 */ } finally { switching.value = false }
+// 旧「我的执行」已按需求规则6移除（1.0.37.34）：后端写接口关闭、提醒调度保持停用
+const mode = ref(sessionStorage.getItem(`compliance-legacy-mode`) || 'V3')
+async function loadMode() {
+  try {
+    const d = await getComplianceMode()
+    mode.value = d.mode
+    sessionStorage.setItem('compliance-legacy-mode', d.mode)
+  } catch (e) { /* 拦截器提示 */ }
 }
 onMounted(loadMode)
 </script>
 <style scoped>
 .page-container { padding: 16px; max-width: 1440px; margin: 0 auto; }
-.el-alert { margin-bottom: 16px; }
+.compliance-title { margin: 0 0 6px; font-size: 22px; line-height: 1.4; font-weight: 650; }
 </style>

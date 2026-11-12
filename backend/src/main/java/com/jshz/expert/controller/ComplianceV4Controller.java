@@ -168,7 +168,7 @@ public class ComplianceV4Controller {
     public ApiResponse<Map<String, Object>> createExecution(@RequestBody Map<String, Object> body,
                                                             @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        return ApiResponse.ok(complianceV4Service.createExecution(body, user));
+        throw new com.jshz.expert.common.BusinessException("旧执行清单已下线（企业合规记事本替代），写入已停用");
     }
 
     /** 草稿确认开始（进入待办并建立提醒）。 */
@@ -177,7 +177,7 @@ public class ComplianceV4Controller {
                                                            @RequestBody(required = false) Map<String, Object> body,
                                                            @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        return ApiResponse.ok(complianceV4Service.startExecution(id, body, user));
+        throw new com.jshz.expert.common.BusinessException("旧执行清单已下线（企业合规记事本替代），写入已停用");
     }
 
     /** 本人清单分页。 */
@@ -206,23 +206,21 @@ public class ComplianceV4Controller {
     public ApiResponse<Map<String, Object>> reuse(@PathVariable Long id, @RequestBody Map<String, Object> body,
                                                   @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        return ApiResponse.ok(complianceV4Service.reuseExecution(id, body, user));
+        throw new com.jshz.expert.common.BusinessException("旧执行清单已下线（企业合规记事本替代），写入已停用");
     }
 
     /** 暂停（显式；取消未发送提醒）。 */
     @PostMapping("/executions/{id}/pause")
     public ApiResponse<Void> pause(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        complianceV4Service.pauseOrArchive(id, "pause", user);
-        return ApiResponse.ok(null);
+        throw new com.jshz.expert.common.BusinessException("旧执行清单已下线（企业合规记事本替代），写入已停用");
     }
 
     /** 归档（显式；取消未发送提醒）。 */
     @PostMapping("/executions/{id}/archive")
     public ApiResponse<Void> archive(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        complianceV4Service.pauseOrArchive(id, "archive", user);
-        return ApiResponse.ok(null);
+        throw new com.jshz.expert.common.BusinessException("旧执行清单已下线（企业合规记事本替代），写入已停用");
     }
 
     // ==================== 任务 ====================
@@ -233,7 +231,7 @@ public class ComplianceV4Controller {
                                                       @RequestBody Map<String, Object> body,
                                                       @AuthenticationPrincipal AuthUser user) {
         requireUser(user);
-        return ApiResponse.ok(complianceV4Service.patchTask(taskId, body, user));
+        throw new com.jshz.expert.common.BusinessException("旧执行清单已下线（企业合规记事本替代），写入已停用");
     }
 
     /** 我的任务列表（statusScope=ACTIVE/COMPLETED；已完成服务端过滤）。 */

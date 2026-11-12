@@ -16,8 +16,11 @@ class ComplianceAssignmentRegressionTest {
     @Mock ComplianceItemHistoryMapper histories;
     @Mock ComplianceUserProgressMapper progresses;
     @Mock NotificationService notifications;
+    @Mock KnowledgeDocumentMapper documents;
     @Test void editingAIntoABNotifiesOnlyBOnce() {
-        ComplianceItem item = new ComplianceItem(); item.setId(1L); item.setTitle("fixture"); item.setStatus("PENDING");
+        ComplianceItem item = new ComplianceItem(); item.setId(1L); item.setDocumentId(1L); item.setTitle("fixture"); item.setStatus("PENDING");
+        KnowledgeDocument doc = new KnowledgeDocument(); doc.setCategory("enterprise-compliance");
+        when(documents.selectOne(any())).thenReturn(doc);
         ComplianceItemAssignee a = new ComplianceItemAssignee(); a.setUserId(2L);
         ComplianceItemAssignee b = new ComplianceItemAssignee(); b.setUserId(3L);
         when(items.selectById(1L)).thenReturn(item);

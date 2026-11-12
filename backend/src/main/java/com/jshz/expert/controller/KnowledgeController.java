@@ -14,6 +14,7 @@ import com.jshz.expert.service.ComplianceService;
 import com.jshz.expert.service.KnowledgeFavoriteService;
 import com.jshz.expert.service.DownloadAuditService;
 import com.jshz.expert.service.DocPreviewService;
+import com.jshz.expert.service.ExcelPreviewService;
 import com.jshz.expert.service.OperationLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +63,7 @@ public class KnowledgeController {
     private final KnowledgeParseTaskService parseTaskService;
     private final DownloadAuditService downloadAuditService;
     private final DocPreviewService docPreviewService;
+    private final ExcelPreviewService excelPreviewService;
     private final OperationLogService operationLogService;
 
     // ==================== 上传 ====================
@@ -229,6 +231,20 @@ public class KnowledgeController {
     }
 
     // ==================== 文件下载/预览 ====================
+
+    @GetMapping("/docs/workbooks/{fileName}")
+    public ApiResponse<ExcelPreviewService.Preview> workbook(
+            @PathVariable String fileName,
+            @RequestParam(required = false) Integer sheet,
+            @RequestParam(defaultValue = "0") int rowPage,
+            @RequestParam(defaultValue = "0") int columnPage,
+            @AuthenticationPrincipal AuthUser authUser) {
+        var doc = documentService.requireDownloadable(fileName, authUser);
+        if (!"xls".equalsIgnoreCase(doc.getFileType()) && !"xlsx".equalsIgnoreCase(doc.getFileType())) {
+            throw new com.jshz.expert.common.BusinessException("该文件不是 Excel 工作簿");
+        }
+        return ApiResponse.ok(excelPreviewService.read(storageService.resolveDocument(fileName), sheet, rowPage, columnPage));
+    }
 
     /**
      * 文件流：GET /api/knowledge/docs/files/{fileName}?download=1&preview=true。登录即可。
