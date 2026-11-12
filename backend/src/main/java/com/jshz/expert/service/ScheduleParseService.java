@@ -64,7 +64,7 @@ public class ScheduleParseService {
     /** 日程单文件上限 50MB（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 全局 50MB 对齐）。 */
     public static final long MAX_SIZE = 50L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS =
-            List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
+            List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png", "xlsx", "xls");
 
     /** 头衔后缀（清洗姓名用；命中即从词条尾部剥离）。 */
     private static final List<String> TITLE_SUFFIXES = List.of(
@@ -73,7 +73,7 @@ public class ScheduleParseService {
             "主任技师", "副主任技师", "主管技师", "技师",
             "主任护师", "副主任护师", "主管护师", "护师",
             "研究员", "副研究员", "助理研究员", "讲师", "博士", "书记",
-            "院长", "副院长", "主任", "副主任", "部长", "秘书长");
+            "院长", "副院长", "主任", "副主任", "部长", "秘书长", "院士");
 
     private static final Pattern CHINESE_NAME = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,4}$");
 
@@ -88,7 +88,7 @@ public class ScheduleParseService {
         }
         String ext = extension(file.getOriginalFilename());
         if (!ALLOWED_EXTENSIONS.contains(ext)) {
-            throw new BusinessException("不支持的日程格式（支持 pdf/doc/docx/ppt/pptx/jpg/png）");
+            throw new BusinessException("不支持的日程格式（支持 pdf/doc/docx/ppt/pptx/jpg/png/xlsx/xls）");
         }
         if (file.getSize() > MAX_SIZE) {
             throw new BusinessException("日程文件超过 50MB 限制");
@@ -335,15 +335,23 @@ public class ScheduleParseService {
     /** 解析主流程：规则打底 → LLM 兜底 → 合并去重 → 专家库精确匹配。 */
     List<ProjectSpeaker> parseInternal(ProjectSchedule s, Extracted ext) {
         List<ProjectSpeaker> merged = new ArrayList<>(ruleParse(ext));
-        if (merged.isEmpty() || merged.size() < 2) {
-            // 表格缺失/过薄时 LLM 兜底（未配置 Ollama 返回 null 自动跳过）
-            List<ProjectSpeaker> semantic = ollamaService.extractScheduleSpeakers(ext.plainText);
-            if (semantic != null && !semantic.isEmpty()) {
-                Set<String> seen = new LinkedHashSet<>();
-                for (ProjectSpeaker sp : merged) seen.add(normalizeName(sp.getExpertName()));
-                for (ProjectSpeaker sp : semantic) {
-                    if (seen.add(normalizeName(sp.getExpertName()))) {
-                        merged.add(sp);
+        List<String> unresolved = new ArrayList<>();
+        for (String block : standaloneBlocks(ext)) {
+            if ((ROLE_LABEL.matcher(block).find() && labeledAppearances(List.of(block)).isEmpty())
+                    || (hasTitleWord(block) && extractNames(block).stream().anyMatch(name -> merged.stream()
+                        .noneMatch(existing -> normalizeName(existing.getExpertName()).equals(name))))) {
+                unresolved.add(block);
+            }
+        }
+        String semanticInput = merged.size() < 2 ? ext.plainText : String.join("\n", unresolved);
+        if (semanticInput != null && !semanticInput.isBlank()) {
+            List<ProjectSpeaker> semantic = ollamaService.extractScheduleSpeakers(semanticInput);
+            if (semantic != null) {
+                for (ProjectSpeaker candidate : semantic) {
+                    String name = normalizeName(candidate.getExpertName());
+                    if (isPlausibleName(name) && normalizeName(semanticInput).contains(name)
+                            && merged.stream().noneMatch(existing -> sameAppearance(existing, candidate))) {
+                        merged.add(candidate);
                     }
                 }
             }
@@ -360,10 +368,20 @@ public class ScheduleParseService {
     /** 规则解析：先定位表头行确定列映射（放宽为 ≥2 关键词命中，兼容「时间/内容/嘉宾」等列头），
      *  再逐数据行按角色词判定；无表头时用时间段锚定兜底；页脚「大会/会议主席」最后补齐。 */
     List<ProjectSpeaker> ruleParse(Extracted ext) {
+        if (ext.pptBlocks != null) return parsePptBlocks(ext.pptBlocks);
+        List<ProjectSpeaker> result = ruleParse(ext, null);
+        applyCeremonyChairRoles(result);
+        return result;
+    }
+
+    private List<ProjectSpeaker> ruleParse(Extracted ext,
+                                           java.util.function.BiConsumer<Integer, ProjectSpeaker> rowCandidate) {
         List<ProjectSpeaker> result = new ArrayList<>();
         int timeIdx = -1, topicIdx = -1, speakerIdx = -1, hostIdx = -1;
         String prevTime = "";
-        for (List<String> row : ext.tableRows) {
+        for (int rowIndex = 0; rowIndex < ext.tableRows.size(); rowIndex++) {
+            List<String> row = ext.tableRows.get(rowIndex);
+            int firstCandidate = result.size();
             if (row == null || row.isEmpty()) continue;
             List<String> cells = row.stream().map(c -> c == null ? "" : c.trim()).toList();
             // 表头行：≥2 个列头关键词命中（时间/主题/题目/议题/内容/讲题/讲者/嘉宾/主持/讲/专家）
@@ -375,7 +393,7 @@ public class ScheduleParseService {
                     if (topicIdx < 0 && (c.contains("主题") || c.contains("题目") || c.contains("议题")
                             || c.contains("内容") || c.contains("讲题"))) topicIdx = i;
                     if (speakerIdx < 0 && !c.contains("讲题")
-                            && (c.contains("讲者") || c.contains("嘉宾") || c.contains("专家") || c.contains("讲"))) speakerIdx = i;
+                            && (c.contains("讲者") || c.contains("发言人") || c.contains("发言者") || c.contains("报告人") || c.contains("嘉宾") || c.contains("专家") || c.contains("讲"))) speakerIdx = i;
                     if (hostIdx < 0 && c.contains("主") && !c.contains("主席") && !c.contains("主题") && !c.contains("内容")) hostIdx = i;
                 }
                 continue;
@@ -391,11 +409,12 @@ public class ScheduleParseService {
             String topic = topicIdx >= 0 && topicIdx < cells.size() ? cells.get(topicIdx) : "";
             String speakerCell = speakerIdx >= 0 && speakerIdx < cells.size() ? cells.get(speakerIdx) : "";
             List<String> names = extractNames(speakerCell);
-            if (names.isEmpty() && hasTitleWord(topic)) {
-                // 姓名落在「内容」列的日程（如「讨论：A 教授、B 教授」）：仅当主题单元格带头衔词才提取，
-                // 防止「静脉曲张日间手术」这类无头衔讲题被当成多人名
+            if (names.isEmpty()) {
+                // 姓名落在「内容」列的日程（如「讨论：A 教授、B 教授」「真知灼见:A、B、C」）：
+                // 主题单元格带头衔词，或 token 判名 ≥2 人（顿号分隔名单强信号）才提取，
+                // 防止「静脉曲张日间手术」这类无头衔讲题被当成多人名（2026-11-10 大医万里行 docx 实证补 ≥2 人门控）
                 List<String> topicNames = extractNames(topic);
-                if (!topicNames.isEmpty()) {
+                if (!topicNames.isEmpty() && (hasTitleWord(topic) || topicNames.size() >= 2)) {
                     names = topicNames;
                     speakerCell = topic;
                     topic = topic.replaceFirst("^([\\u4e00-\\u9fa5]{1,6})[：:].*", "$1");
@@ -422,6 +441,9 @@ public class ScheduleParseService {
                     result.add(speaker(n, ProjectSpeaker.ROLE_HOST, topic, time));
                 }
             }
+            if (rowCandidate != null) {
+                for (int i = firstCandidate; i < result.size(); i++) rowCandidate.accept(rowIndex, result.get(i));
+            }
         }
         // 无表头兜底：按时间段锚定文本行（含 tableRows 未命中表头/纯文本日程）
         if (result.isEmpty()) {
@@ -432,11 +454,12 @@ public class ScheduleParseService {
             Matcher m = Pattern.compile("(?:大会|会议)主席[:：]\\s*([^\\n]{0,40})").matcher(ext.plainText);
             while (m.find()) {
                 for (String name : extractNames(m.group(1))) {
-                    // 仅升格致辞/主席段落的同名讲者，避免把「大会总结」等普通发言也升为主席
+                    // 同名主席已有致辞或主席段落时，沿用该条有议题与时间的记录。
                     boolean existed = false;
                     for (ProjectSpeaker sp : result) {
                         if (normalizeName(sp.getExpertName()).equals(name)
                                 && sp.getSegmentTitle() != null
+                                && !ProjectSpeaker.ROLE_HOST.equals(sp.getRole())
                                 && (sp.getSegmentTitle().contains("致辞") || sp.getSegmentTitle().contains("主席"))) {
                             sp.setRole(ProjectSpeaker.ROLE_CHAIR);
                             existed = true;
@@ -448,7 +471,66 @@ public class ScheduleParseService {
                 }
             }
         }
+        for (ProjectSpeaker candidate : labeledAppearances(standaloneBlocks(ext))) {
+            if (result.stream().noneMatch(existing -> sameAppearance(existing, candidate))) {
+                result.add(candidate);
+            }
+        }
         return result;
+    }
+
+    private static final Pattern ROLE_LABEL = Pattern.compile(
+            "(大会主持|会议主持|环节主持|主持人|主持|讲者|讲课嘉宾|主讲人|主讲|讨论嘉宾|讨论)\\s*[:：]");
+    private static final Pattern LOCAL_TIME = Pattern.compile(
+            "\\d{1,2}[:：]\\d{2}(?:\\s*[-—–~～至]\\s*\\d{1,2}[:：]\\d{2})?");
+
+    private List<String> standaloneBlocks(Extracted ext) {
+        if (ext.textBlocks != null) return ext.textBlocks;
+        if (ext.plainText == null) return List.of();
+        Set<String> cellLines = new LinkedHashSet<>();
+        for (List<String> row : ext.tableRows) {
+            if (row == null) continue;
+            for (String cell : row) {
+                if (cell != null) cell.lines().map(String::strip).forEach(cellLines::add);
+            }
+        }
+        return ext.plainText.lines().filter(line -> !cellLines.contains(line.strip())).toList();
+    }
+
+    private List<ProjectSpeaker> labeledAppearances(List<String> blocks) {
+        List<ProjectSpeaker> appearances = new ArrayList<>();
+        for (String block : blocks) {
+            for (String line : block.split("\\R")) {
+                Matcher label = ROLE_LABEL.matcher(line);
+                if (!label.find()) continue;
+                String prefix = line.substring(0, label.start());
+                Matcher clock = LOCAL_TIME.matcher(prefix);
+                String time = clock.find() ? clock.group().replace('：', ':') : "";
+                String topic = LOCAL_TIME.matcher(prefix).replaceAll("").strip()
+                        .replaceAll("^[：:|｜·\\s]+|[：:|｜·\\s]+$", "");
+                do {
+                    String roleLabel = label.group(1);
+                    int payloadStart = label.end();
+                    boolean hasNextLabel = label.find();
+                    String payload = line.substring(payloadStart, hasNextLabel ? label.start() : line.length());
+                    List<String> names = extractNames(payload);
+                    String role = roleLabel.contains("主持") ? ProjectSpeaker.ROLE_HOST
+                            : roleLabel.contains("讨论") ? ProjectSpeaker.ROLE_DISCUSSANT : ProjectSpeaker.ROLE_SPEAKER;
+                    for (String name : names) {
+                        appearances.add(speaker(name, role, topic, time));
+                    }
+                    if (!hasNextLabel) break;
+                } while (true);
+            }
+        }
+        return appearances;
+    }
+
+    private boolean sameAppearance(ProjectSpeaker left, ProjectSpeaker right) {
+        return normalizeName(left.getExpertName()).equals(normalizeName(right.getExpertName()))
+                && java.util.Objects.equals(left.getRole(), right.getRole())
+                && java.util.Objects.equals(blankToNull(left.getSegmentTitle()), blankToNull(right.getSegmentTitle()))
+                && java.util.Objects.equals(blankToNull(left.getSegmentTime()), blankToNull(right.getSegmentTime()));
     }
 
     /** 列头关键词（≥2 命中即认为是表头行）。 */
@@ -520,9 +602,7 @@ public class ScheduleParseService {
             List<String> names = extractNames(payload);
             if (names.isEmpty()) continue;
             String role = roleFor(payload, payload, names.size());
-            // 议题=去掉人名与头衔后的剩余文本（粗略）
-            String topic = payload.replaceAll("[\\u4e00-\\u9fa5·]{2,4}\\s*(教授|主任医师|副主任医师|研究员|博士)?", " ")
-                    .replaceFirst("^[\\u4e00-\\u9fa5]{1,6}[：:]\\s*", "").replaceAll("\\s{2,}", " ").trim();
+            String topic = agendaColumns(payload).length > 1 ? agendaColumns(payload)[0] : "";
             for (String n : names) {
                 result.add(speaker(n, role, blankToNull(topic), time));
             }
@@ -562,28 +642,18 @@ public class ScheduleParseService {
                     .replaceAll("[\\uE000-\\uF8FF\\u200b-\\u200f\\u2060\\ufeff]", "").trim();
             cleaned = cleaned.replaceFirst("^[\\u4e00-\\u9fa5]{1,6}[：:]\\s*", "");   // 「讨论：」「主持：」等段首标签
             if (cleaned.isEmpty()) continue;
+            List<String> run = new ArrayList<>();
+            List<String> tokens = new ArrayList<>();
             for (String token : cleaned.split("[\\s、，,；;。/]+")) {
-                if (token.isEmpty()) continue;
-                String candidate = stripTitles(token);
-                if (CHINESE_NAME.matcher(candidate).matches() && isPlausibleName(candidate)
-                        && !names.contains(candidate)) {
-                    names.add(candidate);
-                }
-            }
-            // 单字合并：人名被 ASCII 空格拆成单字（「王 军  刘 铮」，邯郸卫星会实证）时，连续单字 token 两两合并
-            String[] raw = cleaned.split("[\\s、，,；;。/]+");
-            java.util.List<String> run = new ArrayList<>();
-            java.util.List<String> merged = new ArrayList<>();
-            for (String token : raw) {
                 if (token.length() == 1 && token.matches("[\\u4e00-\\u9fa5·]")) {
                     run.add(token);
                 } else {
-                    flushSingleCharRun(run, merged);
-                    if (!token.isEmpty()) merged.add(token);
+                    flushSingleCharRun(run, tokens);
+                    if (!token.isEmpty()) tokens.add(token);
                 }
             }
-            flushSingleCharRun(run, merged);
-            for (String token : merged) {
+            flushSingleCharRun(run, tokens);
+            for (String token : tokens) {
                 String candidate = stripTitles(token);
                 if (CHINESE_NAME.matcher(candidate).matches() && isPlausibleName(candidate)
                         && !names.contains(candidate)) {
@@ -876,53 +946,235 @@ public class ScheduleParseService {
     // ==================== 文件提取 ====================
 
     /** 提取结果：plainText 全文（LLM 兜底/页脚扫描），tableRows 表格行（规则打底）。 */
-    public record Extracted(String plainText, List<List<String>> tableRows) {}
+    public record Extracted(String plainText, List<List<String>> tableRows, List<String> textBlocks,
+                            List<PptBlock> pptBlocks) {
+        public Extracted(String plainText, List<List<String>> tableRows, List<String> textBlocks) {
+            this(plainText, tableRows, textBlocks, null);
+        }
+        public Extracted(String plainText, List<List<String>> tableRows) {
+            this(plainText, tableRows, null);
+        }
+    }
 
     Extracted extract(String fileName, byte[] bytes) throws IOException {
         String ext = extension(fileName);
         return switch (ext) {
             case "ppt", "pptx" -> extractPpt(bytes);
             case "docx" -> extractDocx(bytes);
-            case "doc" -> new Extracted(docText(bytes), List.of());
+            case "doc" -> extractDoc(bytes);
+            case "xlsx", "xls" -> extractExcel(bytes);
             case "pdf" -> extractPdf(bytes);
             case "jpg", "jpeg", "png" -> extractImage(bytes);
             default -> throw new BusinessException("不支持的日程格式");
         };
     }
 
+    record PptBlock(int slide, double x, double y, String text, List<List<String>> rows,
+                    List<Double> rowOffsets, boolean hostColumn) {}
+
+    private record PptAppearance(int slide, double x, double y, ProjectSpeaker speaker) {}
+
+    private static final Pattern AGENDA_RANGE =
+            Pattern.compile("\\d{1,2}[:：]\\d{2}\\s*[-—–~～至]\\s*\\d{1,2}[:：]\\d{2}");
+    private static final Pattern AGENDA_LINE = Pattern.compile("^(" + AGENDA_RANGE + ")\\s*(.*)$");
+    private static final Pattern DISCUSSION_LINE = Pattern.compile("^讨论(?:嘉宾)?\\s*[:：]");
+
     private Extracted extractPpt(byte[] bytes) throws IOException {
-        StringBuilder text = new StringBuilder();
-        List<List<String>> rows = new ArrayList<>();
+        List<PptBlock> blocks = new ArrayList<>();
         try (XMLSlideShow ppt = new XMLSlideShow(new ByteArrayInputStream(bytes))) {
+            int slideIndex = 0;
             for (var slide : ppt.getSlides()) {
-                for (XSLFShape shape : slide) {
-                    collectShape(shape, text, rows);
-                }
+                boolean hostColumn = slide.getShapes().stream().anyMatch(shape ->
+                        shape instanceof XSLFTextShape text && compactCell(text.getText()).equals("主持"));
+                collectPptBlocks(slide.getShapes(), slideIndex++, hostColumn, blocks);
             }
         }
-        return new Extracted(text.toString(), rows);
+        List<String> textBlocks = new ArrayList<>();
+        List<List<String>> rows = new ArrayList<>();
+        StringBuilder text = new StringBuilder();
+        for (PptBlock block : blocks) {
+            if (block.text != null) {
+                textBlocks.add(block.text);
+                text.append(block.text).append('\n');
+            } else {
+                rows.addAll(block.rows);
+                for (List<String> row : block.rows) text.append(String.join("\n", row)).append('\n');
+            }
+        }
+        return new Extracted(text.toString(), rows, textBlocks, blocks);
     }
 
-    /** 递归收集：表格逐行逐单元格（保结构），文本形状逐行。 */
-    private void collectShape(XSLFShape shape, StringBuilder text, List<List<String>> rows) {
-        if (shape instanceof org.apache.poi.xslf.usermodel.XSLFGroupShape group) {
-            for (var child : group) {
-                collectShape(child, text, rows);
-            }
-        } else if (shape instanceof XSLFTable table) {
-            for (var row : table) {
-                List<String> cells = new ArrayList<>();
-                for (var cell : row) {
-                    String v = cell.getText();
-                    cells.add(v == null ? "" : v.trim());
-                    if (v != null && !v.isBlank()) text.append(v.trim()).append('\n');
+    private void collectPptBlocks(List<XSLFShape> shapes, int slide, boolean hostColumn, List<PptBlock> blocks) {
+        for (XSLFShape shape : shapes) {
+            var anchor = shape.getAnchor();
+            if (shape instanceof org.apache.poi.xslf.usermodel.XSLFGroupShape group) {
+                collectPptBlocks(group.getShapes(), slide, hostColumn, blocks);
+            } else if (shape instanceof XSLFTable table) {
+                List<List<String>> rows = new ArrayList<>();
+                List<Double> offsets = new ArrayList<>();
+                double offset = 0;
+                for (var row : table) {
+                    offsets.add(offset);
+                    rows.add(row.getCells().stream().map(cell -> cell.getText().strip()).toList());
+                    offset += row.getHeight();
                 }
-                rows.add(cells);
+                blocks.add(new PptBlock(slide, anchor.getX(), anchor.getY(), null, rows, offsets, hostColumn));
+            } else if (shape instanceof XSLFTextShape text && !text.getText().isBlank()) {
+                blocks.add(new PptBlock(slide, anchor.getX(), anchor.getY(), text.getText().strip(),
+                        List.of(), List.of(), hostColumn));
             }
-        } else if (shape instanceof XSLFTextShape ts) {
-            String v = ts.getText();
-            if (v != null && !v.isBlank()) text.append(v.trim()).append('\n');
         }
+    }
+
+    private List<ProjectSpeaker> parsePptBlocks(List<PptBlock> blocks) {
+        List<PptAppearance> appearances = new ArrayList<>();
+        for (PptBlock block : blocks) {
+            if (block.text != null) {
+                List<ProjectSpeaker> candidates = new ArrayList<>();
+                parseAgendaLines(block.text, block.hostColumn, candidates);
+                for (ProjectSpeaker candidate : candidates) {
+                    appearances.add(new PptAppearance(block.slide, block.x, block.y, candidate));
+                }
+                continue;
+            }
+            var table = new Extracted("", block.rows, List.of());
+            List<ProjectSpeaker> standard = ruleParse(table, (index, candidate) ->
+                    appearances.add(new PptAppearance(block.slide, block.x,
+                            block.y + block.rowOffsets.get(index), candidate)));
+            if (block.rows.stream().anyMatch(this::isHeaderRow)) continue;
+            boolean expandedTable = false;
+            for (int index = 0; index < block.rows.size(); index++) {
+                String expanded = expandTimeColumn(block.rows.get(index));
+                if (expanded == null) continue;
+                expandedTable = true;
+                List<ProjectSpeaker> candidates = new ArrayList<>();
+                parseAgendaLines(expanded, block.hostColumn, candidates);
+                for (ProjectSpeaker candidate : candidates) {
+                    appearances.add(new PptAppearance(block.slide, block.x,
+                            block.y + block.rowOffsets.get(index), candidate));
+                }
+            }
+            if (!expandedTable) {
+                for (ProjectSpeaker candidate : standard) {
+                    appearances.add(new PptAppearance(block.slide, block.x, block.y, candidate));
+                }
+            }
+        }
+        appearances.sort(java.util.Comparator.comparingInt(PptAppearance::slide).thenComparingDouble(PptAppearance::y));
+        List<ProjectSpeaker> result = new ArrayList<>();
+        for (int start = 0; start < appearances.size();) {
+            PptAppearance first = appearances.get(start);
+            int end = start + 1;
+            while (end < appearances.size() && appearances.get(end).slide == first.slide
+                    && appearances.get(end).y - first.y <= 3) end++;
+            // 近似同一视觉行时按左到右，表格行内维持姓名顺序。
+            List<PptAppearance> line = appearances.subList(start, end);
+            line.sort(java.util.Comparator.comparingDouble(PptAppearance::x));
+            for (PptAppearance appearance : line) {
+                ProjectSpeaker candidate = appearance.speaker;
+                if (result.stream().noneMatch(existing -> sameAppearance(existing, candidate))) result.add(candidate);
+            }
+            start = end;
+        }
+        applyCeremonyChairRoles(result);
+        Set<String> scheduledChairs = new LinkedHashSet<>();
+        for (ProjectSpeaker candidate : result) {
+            if (ProjectSpeaker.ROLE_CHAIR.equals(candidate.getRole()) && candidate.getSegmentTime() != null) {
+                scheduledChairs.add(candidate.getExpertName());
+            }
+        }
+        result.removeIf(candidate -> ProjectSpeaker.ROLE_CHAIR.equals(candidate.getRole())
+                && "大会主席".equals(candidate.getSegmentTitle()) && candidate.getSegmentTime() == null
+                && scheduledChairs.contains(candidate.getExpertName()));
+        return result;
+    }
+
+    /** 开场和总结优先使用本场主席名单，明确主持保留原角色。 */
+    private void applyCeremonyChairRoles(List<ProjectSpeaker> candidates) {
+        Set<String> chairs = new LinkedHashSet<>();
+        for (ProjectSpeaker candidate : candidates) {
+            if (ProjectSpeaker.ROLE_CHAIR.equals(candidate.getRole())) {
+                chairs.add(normalizeName(candidate.getExpertName()));
+            }
+        }
+        for (ProjectSpeaker candidate : candidates) {
+            String topic = candidate.getSegmentTitle();
+            if (topic == null || ProjectSpeaker.ROLE_HOST.equals(candidate.getRole())) continue;
+            boolean opening = isOpeningAddress(topic);
+            boolean namedChair = chairs.contains(normalizeName(candidate.getExpertName()));
+            if ((opening && (namedChair || chairs.isEmpty())) || (topic.contains("总结") && namedChair)) {
+                candidate.setRole(ProjectSpeaker.ROLE_CHAIR);
+            }
+        }
+    }
+
+    private boolean isOpeningAddress(String topic) {
+        return compactCell(topic).matches("^(?:大会|会议)?开场致辞(?:及.+)?$");
+    }
+
+    /** 兼容一行表格的时间列和内容列各自用多段文字表示多个日程行。 */
+    private String expandTimeColumn(List<String> row) {
+        if (row.size() != 2) return null;
+        List<String> times = row.get(0).lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+        List<String> content = row.get(1).lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+        if (times.size() != 2 || !times.stream().allMatch(time -> AGENDA_RANGE.matcher(time).matches())
+                || content.size() < 2 || !DISCUSSION_LINE.matcher(content.get(content.size() - 1)).find()) return null;
+        int discussion = content.size() - 1;
+        return times.get(0) + " " + String.join("\n", content.subList(0, discussion))
+                + "\n" + times.get(1) + " " + content.get(discussion);
+    }
+
+    private void parseAgendaLines(String text, boolean hostColumn, List<ProjectSpeaker> result) {
+        String time = "";
+        String topic = "";
+        for (String line : text.lines().map(String::strip).toList()) {
+            if (line.isBlank()) continue;
+            Matcher timed = AGENDA_LINE.matcher(line);
+            if (timed.matches()) {
+                time = timed.group(1).replace('：', ':');
+                String body = timed.group(2).strip();
+                if (DISCUSSION_LINE.matcher(body).find()) {
+                    topic = "讨论";
+                    addAgendaPeople(result, DISCUSSION_LINE.matcher(body).replaceFirst(""), ProjectSpeaker.ROLE_DISCUSSANT, topic, time);
+                    time = "";
+                    continue;
+                }
+                String[] columns = agendaColumns(body);
+                topic = columns.length > 1 ? columns[0] : "";
+                if (columns.length > 1) {
+                    String role = roleFor(topic, "", 1);
+                    addAgendaPeople(result, columns[1], role, topic, time);
+                    for (int i = 2; i < columns.length; i++) {
+                        addAgendaPeople(result, columns[i], hostColumn ? ProjectSpeaker.ROLE_HOST : role, topic, time);
+                    }
+                } else {
+                    result.addAll(labeledAppearances(List.of(line)));
+                    time = "";
+                }
+            } else if (line.matches("^(大会|会议)主席\\s*[:：].*")) {
+                addAgendaPeople(result, line, ProjectSpeaker.ROLE_CHAIR, "大会主席", "");
+                time = "";
+            } else if (hostColumn && !time.isEmpty() && isNameList(line)) {
+                addAgendaPeople(result, line, ProjectSpeaker.ROLE_HOST, topic, time);
+            } else {
+                result.addAll(labeledAppearances(List.of(line)));
+                time = "";
+            }
+        }
+    }
+
+    private String[] agendaColumns(String text) {
+        return text.split("(?:\\t+| {5,}|　{2,})");
+    }
+
+    private boolean isNameList(String text) {
+        List<String> names = extractNames(text);
+        return !names.isEmpty() && normalizeName(text).replaceAll("[、，,；;]", "")
+                .equals(String.join("", names));
+    }
+
+    private void addAgendaPeople(List<ProjectSpeaker> result, String payload, String role, String topic, String time) {
+        for (String name : extractNames(payload)) result.add(speaker(name, role, topic, time));
     }
 
     private Extracted extractDocx(byte[] bytes) throws IOException {
@@ -932,26 +1184,132 @@ public class ScheduleParseService {
              XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
             text.append(extractor.getText());
             for (XWPFTable table : doc.getTables()) {
-                for (var row : table.getRows()) {
-                    List<String> cells = new ArrayList<>();
-                    for (var cell : row.getTableCells()) {
-                        String v = cell.getText();
-                        cells.add(v == null ? "" : v.trim());
-                    }
-                    rows.add(cells);
-                }
+                collectDocxTable(table, text, rows);
             }
         }
         return new Extracted(text.toString(), rows);
     }
 
-    private String docText(byte[] bytes) throws IOException {
-        org.apache.poi.hwpf.HWPFDocument doc = new org.apache.poi.hwpf.HWPFDocument(new ByteArrayInputStream(bytes));
+    /** 递归收集 docx 表格：顶层与嵌套表格（cell.getTables()）行均平铺进 tableRows。 */
+    private void collectDocxTable(XWPFTable table, StringBuilder text, List<List<String>> rows) {
+        for (var row : table.getRows()) {
+            List<String> cells = new ArrayList<>();
+            boolean hasValue = false;
+            for (var cell : row.getTableCells()) {
+                String v = cell.getText();
+                cells.add(v == null ? "" : v.trim());
+                if (v != null && !v.isBlank()) {
+                    hasValue = true;
+                    text.append(v.trim()).append('\n');
+                }
+                for (XWPFTable nested : cell.getTables()) {
+                    collectDocxTable(nested, text, rows);
+                }
+            }
+            if (hasValue) rows.add(cells);
+        }
+    }
+
+    /**
+     * .doc 旧格式（Owner 2026-11-10 Word 提准）：优先提取 HWPF 表格（此前只取纯文本导致表格型 .doc 全漏），
+     * 表格 API 失败或无表格时回退纯文本（段落式日程由 headerlessParse 时间锚定兜底）。
+     */
+    private Extracted extractDoc(byte[] bytes) throws IOException {
+        org.apache.poi.hwpf.HWPFDocument doc =
+                new org.apache.poi.hwpf.HWPFDocument(new ByteArrayInputStream(bytes));
         try {
-            return new WordExtractor(doc).getText();
+            StringBuilder text = new StringBuilder();
+            List<List<String>> rows = new ArrayList<>();
+            org.apache.poi.hwpf.usermodel.Range range = doc.getRange();
+            try {
+                text.append(new WordExtractor(doc).getText());
+            } catch (Exception ignored) {
+            }
+            try {
+                org.apache.poi.hwpf.usermodel.TableIterator it =
+                        new org.apache.poi.hwpf.usermodel.TableIterator(range);
+                while (it.hasNext()) {
+                    org.apache.poi.hwpf.usermodel.Table table = it.next();
+                    for (int r = 0; r < table.numRows(); r++) {
+                        var row = table.getRow(r);
+                        List<String> cells = new ArrayList<>();
+                        boolean hasValue = false;
+                        for (int c = 0; c < row.numCells(); c++) {
+                            String v = row.getCell(c).text().trim();
+                            v = v.replace('\u0007', ' ').replaceAll("\\s+", " ");
+                            cells.add(v);
+                            if (!v.isBlank()) {
+                                hasValue = true;
+                                text.append(v).append('\n');
+                            }
+                        }
+                        if (hasValue) rows.add(cells);
+                    }
+                }
+            } catch (Exception e) {
+                log.info(".doc 表格提取不可用，回退纯文本：{}", e.getMessage());
+            }
+            return new Extracted(text.toString(), rows);
         } finally {
             try { doc.close(); } catch (Exception ignored) {}
         }
+    }
+
+    /**
+     * xlsx/xls 日程（Owner 2026-11-10 新增）：WorkbookFactory 统一吃新旧格式；遍历全部 sheet；
+     * 合并单元格展开（仅左上格有值→填充区域内每格），空行跳过；cell 值经 DataFormatter 格式化
+     * （数字/日期保持显示值），行同时拼入 plainText 供 headerlessParse/Ollama 兜底。
+     */
+    private Extracted extractExcel(byte[] bytes) throws IOException {
+        StringBuilder text = new StringBuilder();
+        List<List<String>> rows = new ArrayList<>();
+        try (var wb = org.apache.poi.ss.usermodel.WorkbookFactory.create(new ByteArrayInputStream(bytes))) {
+            var formatter = new org.apache.poi.ss.usermodel.DataFormatter();
+            for (var sheet : wb) {
+                // 合并区域展开策略：纵向合并（跨行）才把左上格值填充到区域内各格（时间列合并续行）；
+                // 横向合并（单行横幅如「上半场：… 大会主席：胡毅 秦叔逵」）不复制——复制会把横幅文本灌进
+                // 讲者/主持列产生假人名（2026-11-10 新长征 xlsx 实证「再谱华章」），横幅人名由 plainText 页脚兜底接管
+                Map<Integer, String> filled = new LinkedHashMap<>();
+                for (int i = 0; i < sheet.getNumMergedRegions(); i++) {
+                    var region = sheet.getMergedRegion(i);
+                    if (region.getLastRow() == region.getFirstRow()) continue;
+                    var src = sheet.getRow(region.getFirstRow());
+                    if (src == null) continue;
+                    var srcCell = src.getCell(region.getFirstColumn());
+                    String v = srcCell == null ? "" : formatter.formatCellValue(srcCell).trim();
+                    for (int r = region.getFirstRow(); r <= region.getLastRow(); r++) {
+                        for (int c = region.getFirstColumn(); c <= region.getLastColumn(); c++) {
+                            filled.put(r * 1000 + c, v);
+                        }
+                    }
+                }
+                for (int r = sheet.getFirstRowNum(); r <= sheet.getLastRowNum(); r++) {
+                    var row = sheet.getRow(r);
+                    if (row == null) continue;
+                    List<String> cells = new ArrayList<>();
+                    boolean hasValue = false;
+                    for (int c = 0; c < Math.max(row.getLastCellNum(), 1); c++) {
+                        String v = filled.getOrDefault(r * 1000 + c, "");
+                        if (v.isEmpty()) {
+                            var cell = row.getCell(c);
+                            if (cell != null && cell.getCellType() != org.apache.poi.ss.usermodel.CellType.BLANK) {
+                                v = formatter.formatCellValue(cell).trim();
+                            }
+                        }
+                        cells.add(v);
+                        if (!v.isBlank()) {
+                            hasValue = true;
+                            text.append(v).append('\t');
+                        }
+                    }
+                    if (hasValue) {
+                        text.append('\n');
+                        rows.add(cells);
+                    }
+                }
+            }
+        }
+        return new Extracted(text.toString(), rows);
     }
 
     private Extracted extractPdf(byte[] bytes) throws IOException {
