@@ -107,7 +107,8 @@
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="goDetail(row.id)">详情</el-button>
             <el-button v-permission="'project:manage'" link type="primary" @click.stop="openEdit(row)">编辑</el-button>
-            <el-button v-if="row.canAdvance" link type="warning" @click.stop="openCancel(row)">取消</el-button>
+            <el-button v-if="row.canAdvance && row.status === 'CANCELED'" link type="success" @click.stop="doRestore(row)">恢复</el-button>
+            <el-button v-if="row.canAdvance && row.status !== 'CANCELED'" link type="warning" @click.stop="openCancel(row)">取消</el-button>
             <el-button v-permission="'project:manage'" link type="danger" @click.stop="confirmDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -151,7 +152,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectEdit from './ProjectEdit.vue'
 import {
-  listProjects, exportProjects, deleteProject, cancelProject,
+  listProjects, exportProjects, deleteProject, cancelProject, restoreProject,
   listPhaseOptions, listProjectUsers
 } from '../../api/project'
 import { listSupplierCities } from '../../api/supplier'
@@ -313,6 +314,14 @@ async function doCancel() {
   await cancelProject(cancelRow.value.id, cancelReason.value.trim())
   ElMessage.success('项目已取消')
   cancelVisible.value = false
+  fetchList()
+}
+
+// 恢复已取消项目（Owner 2026-11-10：与取消对称，负责人/创建人）
+async function doRestore(row) {
+  await ElMessageBox.confirm('确认恢复项目「' + row.name + '」？恢复后回到 ACTIVE 状态，阶段保持不变。', '恢复项目', { type: 'warning' })
+  await restoreProject(row.id)
+  ElMessage.success('项目已恢复')
   fetchList()
 }
 

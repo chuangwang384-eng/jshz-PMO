@@ -128,6 +128,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private final ProjectConfigurationService configuration;
     private final ProjectScheduleMapper scheduleMapper;
     private final ProjectSpeakerMapper speakerMapper;
+    private final com.jshz.expert.mapper.ComplianceProjectTodoMapper complianceProjectTodoMapper;
+    private final com.jshz.expert.mapper.ComplianceProjectDocBindingMapper complianceProjectDocBindingMapper;
 
     // ==================== 项目 CRUD ====================
 
@@ -306,6 +308,16 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("canAdvance", isOwnerOrCreator(project, user));
         // REQ-20261102 需求三：回退权限独立字段（2026-11-09 起与推进一致=负责人+创建人）
         m.put("canRollback", isOwnerOrCreator(project, user));
+        // 恢复（与取消对称，Owner 2026-11-10）：仅已取消项目且负责人/创建人可见
+        m.put("canRestore", STATUS_CANCELED.equals(project.getStatus()) && isOwnerOrCreator(project, user));
+        // 基础信息编辑（Owner 2026-11-10 放宽）：管理员/project:manage 或项目成员均可编辑
+        m.put("canEditBasic", user != null && (user.isAdmin() || user.hasPermission("project:manage")
+                || isProjectMember(project, user)));
+
+        // 合规要求注意事项（Owner 2026-11-10 记事本需求规则5）：绑定文档名+推送待办（推送时快照）
+        var complianceBinding = complianceProjectDocBindingMapper.selectById(id);
+        m.put("complianceBoundDocTitle", complianceBinding == null ? null : complianceBinding.getDocTitle());
+        m.put("complianceTodos", complianceProjectTodoMapper.selectForProject(id));
         // 阶段变更历史（最近 20 条，倒序）
         List<ProjectPhaseHistory> hists = phaseHistoryMapper.selectList(new LambdaQueryWrapper<ProjectPhaseHistory>()
                 .eq(ProjectPhaseHistory::getProjectId, id)
@@ -397,10 +409,19 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return project;
     }
 
+    /**
+     * 编辑项目基础信息（Owner 2026-11-10 放宽口径：项目成员可编辑，与日程上传 requireOperable 同口径；
+     * 原 requireManage（admin/project:manage）保留为人员结构守卫——携带 ownerId/assistantIds 时仍须
+     * 负责人/创建人/admin，防协助人越权调整项目负责人结构）。
+     */
     @Transactional(rollbackFor = Exception.class)
     public Project update(Long id, Map<String, Object> body, AuthUser user) {
         Project project = requireProject(id);
-        requireManage(user);
+        requireOperable(project, user);
+        boolean personnelCarrier = body.containsKey("ownerId") || body.containsKey("assistantIds");
+        if (personnelCarrier && !(user != null && (user.isAdmin() || isOwnerOrCreator(project, user)))) {
+            throw new BusinessException("仅负责人/创建人可修改项目人员（负责人/协助人）");
+        }
         if (StringUtils.hasText(str(body.get("name")))) {
             project.setName(str(body.get("name")).trim());
         }
@@ -589,6 +610,27 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
                 OperationLogService.ACTION_CANCEL_PROJECT,
                 "取消项目「" + project.getName() + "」，原因：" + reason.trim(),
+                "PROJECT", id, null);
+    }
+
+    /**
+     * 恢复已取消项目（Owner 2026-11-10：取消的对称操作）：仅 CANCELED 可恢复，权限与取消一致（负责人/创建人）。
+     * 恢复后 status=ACTIVE、阶段保持不变；cancelReason/cancelTime 保留作历史留痕，不回写阶段变更记录。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void restore(Long id, AuthUser user) {
+        Project project = requireProject(id);
+        if (!isOwnerOrCreator(project, user)) {
+            throw new BusinessException("仅项目总负责人或创建人可恢复项目");
+        }
+        if (!STATUS_CANCELED.equals(project.getStatus())) {
+            throw new BusinessException("仅已取消的项目可恢复");
+        }
+        project.setStatus(STATUS_ACTIVE);
+        this.updateById(project);
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPDATE_PROJECT,
+                "恢复项目「" + project.getName() + "」（原取消原因：" + project.getCancelReason() + "）",
                 "PROJECT", id, null);
     }
 
@@ -1701,11 +1743,20 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     /** 项目成员级授权（2026-11-09 执行人概念删除后）：负责人/创建人/协助人；超级管理员全权。 */
     private boolean isProjectMember(Project project, AuthUser user) {
+        if (user != null && user.isAdmin()) {
+            return true;
+        }
+        return isRealProjectMember(project, user);
+    }
+
+    /**
+     * 真实参与关系判定（Owner 2026-11-10 合规记事本推送口径）：负责人/创建人/协助人/历史执行人，
+     * **不含管理员快捷放行**——项目全量查看豁免仅用于读取，不扩大推送/处理范围（设计文档 §接口与事务）。
+     * 供合规推送与项目选择器共用。
+     */
+    public boolean isRealProjectMember(Project project, AuthUser user) {
         if (user == null) {
             return false;
-        }
-        if (user.isAdmin()) {
-            return true;
         }
         Long uid = user.getUserId();
         if ((project.getOwnerId() != null && project.getOwnerId().equals(uid))
@@ -1721,6 +1772,40 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Long acnt = assistantMapper.selectCount(new LambdaQueryWrapper<ProjectAssistant>()
                 .eq(ProjectAssistant::getProjectId, project.getId()).eq(ProjectAssistant::getUserId, uid));
         return acnt != null && acnt > 0;
+    }
+
+    /**
+     * 本人真实参与的项目列表（Owner 2026-11-10 合规记事本项目选择器）：
+     * 负责人/创建人/协助人/历史执行人，不含全量查看豁免；排除已删除项目。
+     */
+    public List<Project> myParticipatedProjects(AuthUser user) {
+        Long uid = user == null ? null : user.getUserId();
+        if (uid == null) {
+            return List.of();
+        }
+        java.util.Set<Long> ids = new java.util.LinkedHashSet<>();
+        for (Project p : this.list(new LambdaQueryWrapper<Project>()
+                .eq(Project::getOwnerId, uid).ne(Project::getStatus, STATUS_DELETED))) {
+            ids.add(p.getId());
+        }
+        for (Project p : this.list(new LambdaQueryWrapper<Project>()
+                .eq(Project::getCreatorId, uid).ne(Project::getStatus, STATUS_DELETED))) {
+            ids.add(p.getId());
+        }
+        for (ProjectAssistant a : assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
+                .eq(ProjectAssistant::getUserId, uid))) {
+            ids.add(a.getProjectId());
+        }
+        for (ProjectExecutor e : executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
+                .eq(ProjectExecutor::getUserId, uid))) {
+            ids.add(e.getProjectId());
+        }
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return this.list(new LambdaQueryWrapper<Project>()
+                .in(Project::getId, ids).ne(Project::getStatus, STATUS_DELETED)
+                .orderByDesc(Project::getUpdateTime));
     }
 
     /** 推进/回退/取消级授权（2026-11-09 Owner 口径）：仅负责人+创建人（执行人概念已删除）。 */

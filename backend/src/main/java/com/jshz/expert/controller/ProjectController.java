@@ -115,6 +115,13 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    /** 恢复已取消项目（Owner 2026-11-10：与取消对称；仅 CANCELED 可恢复，负责人/创建人权限，阶段保持不变）。 */
+    @PutMapping("/{id}/restore")
+    public ApiResponse<Void> restore(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        projectService.restore(id, user);
+        return ApiResponse.ok(null);
+    }
+
     /** 时间线（operation_log target_type=PROJECT 倒序）。 */
     @GetMapping("/{id}/timeline")
     public ApiResponse<List<?>> timeline(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {

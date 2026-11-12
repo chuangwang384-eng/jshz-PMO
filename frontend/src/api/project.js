@@ -40,6 +40,11 @@ export function cancelProject(id, reason) {
   return request.put(`/project/${id}/cancel`, { reason })
 }
 
+// 恢复已取消项目（Owner 2026-11-10：与取消对称，负责人/创建人；阶段保持不变）
+export function restoreProject(id) {
+  return request.put(`/project/${id}/restore`)
+}
+
 // 时间线（operation_log 同源，倒序）
 export function getProjectTimeline(id) {
   return request.get(`/project/${id}/timeline`)

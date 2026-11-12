@@ -27,13 +27,14 @@
       </div>
       <div class="pd-actions">
         <el-button v-if="detail.canAdvance && hasNextPhase" type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
-        <el-button v-if="detail.canManage" @click="openEdit">编辑项目</el-button>
+        <el-button v-if="detail.canManage || detail.canEditBasic" @click="openEdit">编辑项目</el-button>
         <el-dropdown trigger="click" @command="onHeadCommand">
           <el-button>更多操作<el-icon style="margin-left: 4px"><ArrowDown /></el-icon></el-button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item v-if="detail.canRollback" command="rollback">回退阶段</el-dropdown-item>
-              <el-dropdown-item v-if="detail.canAdvance" command="cancel" divided>取消项目</el-dropdown-item>
+              <el-dropdown-item v-if="detail.canRestore" command="restore" divided>恢复项目</el-dropdown-item>
+              <el-dropdown-item v-if="detail.canAdvance && detail.status !== 'CANCELED'" command="cancel" divided>取消项目</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -71,69 +72,24 @@
           </div>
         </div>
 
-        <!-- ③ 生命周期 Stepper（当前/查看双状态；未开始阶段点击查看空状态） -->
-        <div class="pd-stepper ui-card">
+        <section class="pd-stepper ui-card" aria-label="项目生命周期">
           <div class="pd-sec-title">项目生命周期</div>
-          <div class="steps-row">
-            <template v-for="(p, idx) in sortedPhases" :key="p.id">
-              <div
-                class="step-item"
-                :class="stepClass(p)"
-                @click="setViewPhase(p)"
-              >
-                <div class="step-dot">
-                  <span v-if="phaseState(p) === 'done'">✓</span>
-                  <span v-else>{{ idx + 1 }}</span>
-                </div>
-                <div class="step-name">
-                  {{ p.name }}
-                  <span v-if="Number(p.id) === Number(detail.phaseId)" class="step-current-mark">当前</span>
-                </div>
-              </div>
-              <div v-if="idx < sortedPhases.length - 1" class="step-line" :class="{ done: phaseState(sortedPhases[idx + 1]) !== 'future' }" />
-            </template>
-          </div>
-          <div class="steps-legend">
-            <span class="legend-item"><i class="dot dot-done" />已完成</span>
-            <span class="legend-item"><i class="dot dot-current" />当前阶段（蓝）</span>
-            <span class="legend-item"><i class="dot dot-future" />未开始</span>
-            <span class="legend-item">光圈 = 正在查看的阶段</span>
-          </div>
-        </div>
-
-        <!-- ④ 阶段任务卡 -->
-        <div class="pd-task ui-card">
-          <div class="pd-sec-title-row">
-            <span class="pd-sec-title">阶段任务 · {{ viewPhaseObj?.name || '-' }}</span>
-            <span :class="'ui-badge ' + taskBadgeClass">{{ taskBadgeText }}</span>
-          </div>
-          <div class="task-grid">
-            <div class="task-cell">
-              <div class="task-label">必填配置</div>
-              <div class="task-value">{{ requiredDoneCount }} / {{ requiredTotal }} 已完成</div>
-            </div>
-            <div class="task-cell">
-              <div class="task-label">阶段负责人</div>
-              <div class="task-value">{{ detail.ownerName || '-' }}<span class="task-scope">（项目级：负责人 + 创建人）</span></div>
-            </div>
-          </div>
-          <template v-if="isViewingCurrent">
-            <div v-if="missingRequiredTemplates.length" class="task-block">
-              <div class="task-label">待处理任务（阻塞推进）</div>
-              <div v-for="(m, i) in missingRequiredTemplates" :key="i" class="task-item">
-                <span class="task-item-name">{{ m }}</span>
-                <el-button link type="primary" size="small" @click="resolveMissing(m)">{{ resolveLabel(m) }} →</el-button>
-              </div>
-              <div class="pd-block-tip" style="margin-top: 8px">{{ missingRequiredTip }}</div>
-            </div>
-            <div v-else class="task-done-line">本阶段必填配置已完成</div>
-          </template>
-          <div v-else-if="phaseState(viewPhaseObj) === 'done'" class="task-done-line">该阶段已完成（只读查看）</div>
-          <div class="task-ops">
-            <el-button v-if="detail.canAdvance && hasNextPhase && isViewingCurrent" type="primary" size="small" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
-            <el-button v-if="detail.canRollback" size="small" @click="openRollback">回退阶段</el-button>
-          </div>
-        </div>
+          <ol class="steps-row">
+            <li v-for="(p, idx) in sortedPhases" :key="p.id">
+              <button type="button" class="step-item" :class="stepClass(p)"
+                :aria-current="phaseState(p) === 'current' ? 'step' : undefined"
+                :aria-pressed="String(p.id) === String(viewPhaseId)"
+                @click="setViewPhase(p)">
+                <span class="step-dot" aria-hidden="true">{{ phaseState(p) === 'done' ? '✓' : idx + 1 }}</span>
+                <span class="step-info">
+                  <span class="step-name">{{ p.name }}</span>
+                  <span class="step-state">{{ phaseState(p) === 'current' ? '当前阶段' : phaseState(p) === 'done' ? '已完成' : '未开始' }}</span>
+                </span>
+                <span v-if="String(p.id) === String(viewPhaseId) && !isViewingCurrent" class="step-viewing">正在查看</span>
+              </button>
+            </li>
+          </ol>
+        </section>
 
         <!-- ⑤ 阶段资料区（随查看阶段切换） -->
         <div class="pd-phase ui-card">
@@ -145,10 +101,10 @@
           <!-- 日程上传阶段：上传即替换当前日程（不做历史版本）并自动解析参会专家 -->
           <template v-if="isAgendaStage && isViewingCurrent">
             <div class="schedule-upload-row">
-              <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png">
+              <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,.xlsx,.xls">
                 <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程（替换当前份）' : '上传日程文件' }}</el-button>
               </el-upload>
-              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png，≤50MB；重新上传将替换当前日程并自动重新解析</span>
+              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png/xlsx/xls，≤50MB；重新上传将替换当前日程并自动重新解析</span>
               <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
                 {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
               </el-button>
@@ -565,6 +521,36 @@
           <div v-else class="side-done">当前阶段必填配置已完成</div>
         </div>
 
+        <section v-if="detail.complianceBoundDocTitle || detail.complianceTodos?.length" class="ui-card side-card pd-compliance">
+          <div class="pd-sec-title">合规要求注意事项</div>
+          <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
+            来源文档：{{ detail.complianceBoundDocTitle }}
+          </div>
+          <ul v-if="detail.complianceTodos?.length" class="pd-compliance-items">
+            <li v-for="todo in detail.complianceTodos" :key="todo.id">
+              <div class="pd-compliance-heading">
+                <strong>{{ todo.title }}</strong>
+                <el-tag :type="todo.status === 'DONE' ? 'success' : 'warning'" size="small">
+                  {{ todo.status === 'DONE' ? '已完成' : '待处理' }}
+                </el-tag>
+              </div>
+              <div v-if="todo.content" class="pd-compliance-content">{{ todo.content }}</div>
+              <div class="pd-compliance-footer">
+                <span class="hint-text">{{ todo.docTitle }} {{ todo.sourceAnchor || '' }}</span>
+                <el-tag v-if="todo.sourceDeleted" size="small" type="info">来源已删除</el-tag>
+                <el-button
+                  v-if="detail.canOperate || detail.canEditBasic"
+                  link
+                  :type="todo.status === 'PENDING' ? 'primary' : 'info'"
+                  size="small"
+                  @click="handleComplianceTodo(todo, todo.status === 'PENDING' ? 'DONE' : 'PENDING')"
+                >{{ todo.status === 'PENDING' ? '完成' : '重开' }}</el-button>
+              </div>
+            </li>
+          </ul>
+          <div v-else class="hint-text">暂无推送的合规待办</div>
+        </section>
+
         <div v-if="!isAgendaStage" class="ui-card side-card">
           <div class="pd-sec-title">相关附件（{{ allDocs.length }}）</div>
           <template v-if="allDocs.length">
@@ -812,11 +798,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { handleProjectComplianceTodo } from '../../api/compliance'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
 import request from '../../api/request'
 import {
-  getProjectDetail, changePhase, cancelProject,
+  getProjectDetail, changePhase, cancelProject, restoreProject,
   addProjectExpert, removeProjectExpert, createExpertCard,
   addProjectSupplier, removeProjectSupplier,
   uploadProjectDoc, deleteProjectDoc, saveRichText,
@@ -907,6 +894,18 @@ async function fetchDetail() {
     fetchSchedule().catch(() => {})
   } finally {
     loading.value = false
+  }
+}
+
+// ---- 合规要求注意事项（Owner 2026-11-10 记事本：项目待办处理，row_version 乐观锁） ----
+async function handleComplianceTodo(row, status) {
+  try {
+    await handleProjectComplianceTodo(row.id, status, row.rowVersion)
+    ElMessage.success(status === 'DONE' ? '待办已完成' : '待办已重开')
+    fetchDetail()
+  } catch (e) {
+    // 冲突（他人已更新）或权限问题由拦截器提示；刷新拿最新状态
+    fetchDetail()
   }
 }
 
@@ -1155,7 +1154,7 @@ async function removeSpeaker(row) {
 const currentPhase = computed(() => (detail.value.phases || []).find((p) => Number(p.id) === Number(detail.value.phaseId)) || null)
 const viewPhaseObj = computed(() => (detail.value.phases || []).find((p) => String(p.id) === String(viewPhaseId.value)) || currentPhase.value)
 const isViewingCurrent = computed(() => viewPhaseObj.value && Number(viewPhaseObj.value.id) === Number(detail.value.phaseId))
-// 2026-11-09 Owner 口径：日程上传阶段只展示 生命周期/阶段任务/阶段资料/参会专家，其余模块待阶段推进后再展示
+// 2026-11-09 Owner 口径：日程上传阶段只展示 生命周期/阶段资料/参会专家，其余模块待阶段推进后再展示
 const AGENDA_PHASE_NAME = '日程上传'
 const isAgendaStage = computed(() => {
   const name = currentPhase.value?.name || detail.value.phaseName || ''
@@ -1239,18 +1238,6 @@ function isTemplateFulfilled(t) {
   if (t.templateType === 'SUPPLIER') return (detail.value.suppliers || []).length > 0
   return true
 }
-
-// 阶段任务卡：必填完成数（查看阶段）
-const requiredTotal = computed(() => (viewPhaseObj.value?.templates || []).filter((t) => t.required === 1).length)
-const requiredDoneCount = computed(() => (viewPhaseObj.value?.templates || []).filter((t) => t.required === 1 && isTemplateFulfilled(t)).length)
-const taskBadgeText = computed(() => {
-  const st = phaseState(viewPhaseObj.value)
-  return { done: '已完成', current: '进行中', future: '未开始' }[st] || '-'
-})
-const taskBadgeClass = computed(() => {
-  const st = phaseState(viewPhaseObj.value)
-  return { done: 'ui-badge-success', current: 'ui-badge-primary', future: 'ui-badge-info' }[st] || 'ui-badge-info'
-})
 
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
 function resolveLabel(m) {
@@ -1373,6 +1360,15 @@ async function doRollback() {
 function onHeadCommand(cmd) {
   if (cmd === 'rollback') openRollback()
   else if (cmd === 'cancel') openCancel()
+  else if (cmd === 'restore') doRestore()
+}
+
+// 恢复已取消项目（Owner 2026-11-10：与取消对称；阶段保持不变）
+async function doRestore() {
+  await ElMessageBox.confirm('确认恢复项目「' + detail.value.name + '」？恢复后项目回到 ACTIVE 状态，阶段保持不变。', '恢复项目', { type: 'warning' })
+  await restoreProject(projectId)
+  ElMessage.success('项目已恢复')
+  fetchDetail()
 }
 
 function openCancel() {
@@ -1577,6 +1573,14 @@ onMounted(async () => {
 /* 布局网格：主列 + 右侧辅助栏 */
 .pd-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
 .pd-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.pd-compliance-source { margin-bottom: 6px; overflow-wrap: anywhere; }
+.pd-compliance-items { list-style: none; margin: 0; padding: 0; max-height: 38vh; overflow-y: auto; }
+.pd-compliance-items li { padding: 10px 2px; border-top: 1px solid var(--el-border-color-lighter); }
+.pd-compliance-heading, .pd-compliance-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.pd-compliance-heading { justify-content: space-between; overflow-wrap: anywhere; }
+.pd-compliance-content { margin: 5px 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pd-compliance-footer { overflow-wrap: anywhere; }
+.pd-compliance-footer .el-button { margin-left: auto; }
 .pd-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 72px; }
 
 /* ② 核心数据卡 */
@@ -1591,40 +1595,26 @@ onMounted(async () => {
 .pd-stepper { padding: 16px 20px; }
 .pd-sec-title { font-size: 15px; font-weight: 600; color: var(--ui-text-main); }
 .pd-sec-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.steps-row { display: flex; align-items: center; margin-top: 12px; flex-wrap: nowrap; overflow-x: auto; }
-.step-item { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; min-width: 72px; padding: 4px 8px; border-radius: var(--ui-radius-md); }
-.step-dot {
-  width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font-size: 13px; border: 2px solid var(--ui-info); color: var(--ui-text-muted); background: #fff;
+.steps-row { display: flex; align-items: stretch; gap: 10px; overflow-x: auto; list-style: none; margin: 12px 0 0; padding: 2px 2px 5px; }
+.steps-row > li { flex: 0 0 auto; }
+.step-item {
+  display: flex; align-items: center; gap: 10px; height: 100%; min-width: 142px; padding: 9px 12px;
+  background: var(--ui-fill); border: 1px solid var(--ui-border-weak);
+  border-radius: var(--ui-radius-md); cursor: pointer; text-align: left; font: inherit;
 }
-.step-item.done .step-dot { border-color: var(--ui-success); color: var(--ui-success); background: #F0F9EB; }
-.step-item.current .step-dot { border-color: var(--ui-primary); color: #fff; background: var(--ui-primary); }
-.step-item.future .step-dot { border-color: var(--ui-info); color: var(--ui-text-muted); }
-.step-item.viewing { box-shadow: 0 0 0 4px rgba(64, 158, 255, 0.35); }
-.step-name { font-size: 13px; color: var(--ui-text-sub); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
-.step-item.current .step-name { color: var(--ui-primary); font-weight: 600; }
-.step-item.future .step-name { color: var(--ui-text-muted); }
-.step-current-mark { font-size: 11px; color: var(--ui-primary); background: #ECF5FF; border-radius: 999px; padding: 0 6px; }
-.step-line { flex: 1; height: 2px; background: var(--ui-info); min-width: 18px; }
-.step-line.done { background: var(--ui-success); }
-.steps-legend { margin-top: 12px; display: flex; gap: 16px; font-size: 12px; color: var(--ui-text-muted); flex-wrap: wrap; }
-.legend-item { display: inline-flex; align-items: center; gap: 5px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.dot-done { background: var(--ui-success); }
-.dot-current { background: var(--ui-primary); }
-.dot-future { background: var(--ui-info); }
+.step-dot {
+  width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; font-weight: 650; color: var(--ui-text-sub); background: var(--el-fill-color-dark);
+}
+.step-item.done .step-dot { color: var(--ui-success); background: var(--el-color-success-light-9); }
+.step-item.current .step-dot { color: #fff; background: var(--ui-primary); }
+.step-item.viewing { border-color: var(--ui-primary); background: var(--el-color-primary-light-9); }
+.step-item:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 1px; }
+.step-info { display: flex; flex-direction: column; gap: 3px; }
+.step-name { font-size: 13px; font-weight: 650; color: var(--ui-text-main); white-space: nowrap; }
+.step-state, .step-viewing { font-size: 12px; color: var(--ui-text-sub); white-space: nowrap; }
+.step-item.current .step-state, .step-viewing { color: var(--ui-primary); }
 
-/* ④ 阶段任务卡 */
-.pd-task { padding: 16px 20px; }
-.task-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.task-cell { background: var(--ui-fill); border-radius: var(--ui-radius-md); padding: 10px 12px; }
-.task-label { color: var(--ui-text-muted); font-size: 12px; margin-bottom: 4px; }
-.task-value { color: var(--ui-text-main); font-size: 14px; }
-.task-scope { color: var(--ui-text-muted); font-size: 12px; margin-left: 6px; }
-.task-block { margin-top: 12px; background: #FEF0F0; border-radius: var(--ui-radius-md); padding: 10px 12px; }
-.task-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
-.task-item-name { color: var(--ui-text-main); font-size: 13px; }
-.task-done-line { margin-top: 12px; color: var(--ui-success); font-size: 13px; background: #F0F9EB; border-radius: var(--ui-radius-md); padding: 8px 12px; }
 .task-ops { margin-top: 12px; display: flex; gap: 8px; }
 
 /* ⑤ 阶段资料区 */
