@@ -182,10 +182,10 @@ class ComplianceV4AcceptanceIT {
     }
     @Test void deleteSourceAndProjectRevocationNeverLeakSnapshots() {
         long e=execution(template(),"permissions"), t=task(e);
-        db.update("UPDATE project SET owner_id=3 WHERE id=1");
+        db.update("UPDATE project SET owner_id=3,creator_id=3 WHERE id=1");
         assertThrows(BusinessException.class,()->v4.executionDetail(e,owner()));
         assertEquals(0L,((Number)v4.myTasks(owner(),"ACTIVE",null,null,null,null,1,50).get("total")).longValue());
-        db.update("UPDATE project SET owner_id=2 WHERE id=1");
+        db.update("UPDATE project SET owner_id=2,creator_id=2 WHERE id=1");
         db.update("UPDATE knowledge_document SET status=0 WHERE id=1");
         assertFalse((Boolean)v4.executionDetail(e,owner()).get("sourceAvailable"));
         assertThrows(BusinessException.class,()->v4.createExecution(Map.of("templateVersionId",db.queryForObject("SELECT template_version_id FROM compliance_execution WHERE id=?",Long.class,e),"name","bad","idempotencyKey","off"),owner()));
@@ -270,10 +270,10 @@ class ComplianceV4AcceptanceIT {
     }
     @Test void revokedProjectAndDisabledAccountCancelScheduledDelivery() {
         long id=dueNode(execution(template(),"revoked"));
-        db.update("UPDATE project SET owner_id=3 WHERE id=1"); delivery.send(id);
+        db.update("UPDATE project SET owner_id=3,creator_id=3 WHERE id=1"); delivery.send(id);
         assertEquals("CANCELLED",db.queryForObject("SELECT state FROM compliance_execution_reminder WHERE id=?",String.class,id));
         assertEquals(0,n("notification"));
-        db.update("UPDATE project SET owner_id=2 WHERE id=1");
+        db.update("UPDATE project SET owner_id=2,creator_id=2 WHERE id=1");
         long e2=execution(db.queryForObject("SELECT id FROM compliance_template_version",Long.class),"inactive"), id2=dueNode(e2);
         db.update("UPDATE sys_user SET status=0 WHERE id=2"); delivery.send(id2);
         assertEquals("CANCELLED",db.queryForObject("SELECT state FROM compliance_execution_reminder WHERE id=?",String.class,id2));

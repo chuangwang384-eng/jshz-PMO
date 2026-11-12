@@ -78,6 +78,19 @@ public class ComplianceTemplateWorkspaceService {
         if(updated!=1) throw new BusinessException(409,"内容已被修改或尚未选择保留模板，请刷新对比；本地内容已保留");
         return open(id,user);
     }
+    @Transactional(rollbackFor=Exception.class,isolation=Isolation.READ_COMMITTED)
+    public Map<String,Object> saveAndActivate(long id,Map<String,Object> body,AuthUser user) {
+        lock(id,user);
+        maintainer(user);
+        Map<String,Object> existing=previous(id,body);
+        if(existing!=null) return existing;
+
+        Map<String,Object> saved=save(id,body,user);
+        Map<String,Object> activation=new LinkedHashMap<>(body);
+        activation.put("expectedRowVersion",saved.get("rowVersion"));
+        return activateSaved(id,activation,body,user,true);
+    }
+
     private void maintainer(AuthUser user) {
         AuthUser current=access.currentUser(user.getUserId());
         if(current==null || !current.hasPermission("knowledge:maintain")) throw new BusinessException(403,"需要维护人权限");
@@ -135,11 +148,19 @@ public class ComplianceTemplateWorkspaceService {
     public Map<String,Object> activate(long id,Map<String,Object> body,AuthUser user) {
         lock(id,user); maintainer(user);
         Map<String,Object> existing=previous(id,body); if(existing!=null) return existing;
+        return activateSaved(id,body,body,user,false);
+    }
+
+    private Map<String,Object> activateSaved(long id,Map<String,Object> body,Map<String,Object> request,AuthUser user,boolean allowEmpty) {
         Map<String,Object> workspace=open(id,user);
         if(!Boolean.TRUE.equals(workspace.get("selectionResolved")) || ((Number)workspace.get("rowVersion")).intValue()!=revision(body)) throw new BusinessException(409,"内容已变化，请刷新对比");
         Map<String,Object> content=decode(encode(workspace.get("content")));
         String activationHash=sources.hash(content);
         validate(id,content,user,true);
+        if(allowEmpty && content.get("nodes") instanceof List<?> nodes && nodes.isEmpty()) {
+            db.update("UPDATE compliance_template_workspace SET active_template_version_id=NULL,active_content_hash=?,row_version=row_version+1,updated_by=? WHERE document_id=?",activationHash,user.getUserId(),id);
+            return record(id,request,open(id,user));
+        }
         if(content.get("extractionId")!=null){var extraction=sources.extraction(id,content.get("extractionId").toString(),user);if(Boolean.TRUE.equals(extraction.get("incomplete")) && !Boolean.TRUE.equals(extraction.get("confirmed"))){
             if(!Boolean.TRUE.equals(body.get("confirmIncomplete")))throw new BusinessException("请人工确认漏提取页及截断内容已补齐");
             confirmExtraction(id,Map.of("extractionId",content.get("extractionId"),"confirmed",true),user);
@@ -159,7 +180,7 @@ public class ComplianceTemplateWorkspaceService {
                 if(db.queryForObject("SELECT COUNT(*) FROM compliance_template_review WHERE document_id=? AND node_code=? AND content_hash=?",Integer.class,id,node.get("nodeCode"),hash)==0) throw new BusinessException("请逐项核对原文；修改事项后须重新核对");
             }
         }
-        if(!Boolean.TRUE.equals(workspace.get("hasChanges")))return record(id,body,workspace);
+        if(!Boolean.TRUE.equals(workspace.get("hasChanges")))return record(id,request,workspace);
         for(Object item:nodes) {
             @SuppressWarnings("unchecked") Map<String,Object> node=(Map<String,Object>)item;
             if(!List.of("SINGLE","MULTI").contains(Objects.toString(node.get("inputType"),""))) node.remove("options");
@@ -170,7 +191,7 @@ public class ComplianceTemplateWorkspaceService {
         templates.patchTemplate(templateId,content,user);
         templates.publish(templateId,user);
         db.update("UPDATE compliance_template_workspace SET active_template_version_id=?,active_content_hash=?,row_version=row_version+1,updated_by=? WHERE document_id=?",templateId,activationHash,user.getUserId(),id);
-        return record(id,body,open(id,user));
+        return record(id,request,open(id,user));
     }
 
     @SuppressWarnings("unchecked") private void validate(long id,Map<?,?> content,AuthUser user,boolean complete){

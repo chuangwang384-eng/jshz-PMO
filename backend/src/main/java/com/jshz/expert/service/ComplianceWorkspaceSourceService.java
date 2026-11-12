@@ -95,6 +95,12 @@ public class ComplianceWorkspaceSourceService {
   if (colon>0 && colon<=40 && colon+1<body.length()) return List.of(body.substring(0,colon),body.substring(colon+1).trim());
   return List.of(body,body);
  }
+ public Map<String,Object> latest(long id,AuthUser user){
+  access.requireDraftAuthor(id,user);
+  var rows=db.queryForList("SELECT id FROM compliance_template_extraction WHERE document_id=? AND source_version=? ORDER BY created_at DESC,id DESC LIMIT 1",id,documents.selectById(id).getVersion());
+  return rows.isEmpty()?Map.of():extraction(id,rows.get(0).get("id").toString(),user);
+ }
+
  public Map<String,Object> extraction(long id,String extractionId,AuthUser user){
   access.requireDraftAuthor(id,user);var rows=db.queryForList("SELECT source_version,result,confirmed_by FROM compliance_template_extraction WHERE id=? AND document_id=?",extractionId,id);
   if(rows.isEmpty())throw new BusinessException(404,"提取结果不存在");

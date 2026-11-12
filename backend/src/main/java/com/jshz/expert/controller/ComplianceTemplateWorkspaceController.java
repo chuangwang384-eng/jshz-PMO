@@ -22,6 +22,10 @@ public class ComplianceTemplateWorkspaceController {
     public ApiResponse<Map<String,Object>> save(@PathVariable long documentId,@RequestBody Map<String,Object> body,@AuthenticationPrincipal AuthUser user) {
         return ApiResponse.ok(workspace.save(documentId,body,user));
     }
+    @PostMapping("/save-and-activate")
+    public ApiResponse<Map<String,Object>> saveAndActivate(@PathVariable long documentId,@RequestBody Map<String,Object> body,@AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(workspace.saveAndActivate(documentId,body,user));
+    }
     @GetMapping("/legacy-candidates")
     public ApiResponse<java.util.List<Map<String,Object>>> candidates(@PathVariable long documentId,@AuthenticationPrincipal AuthUser user) { return ApiResponse.ok(workspace.candidates(documentId,user)); }
     @PostMapping("/select-existing")
@@ -36,6 +40,10 @@ public class ComplianceTemplateWorkspaceController {
     public ApiResponse<Map<String,Object>> review(@PathVariable long documentId,@RequestBody Map<String,Object> body,@AuthenticationPrincipal AuthUser user){return ApiResponse.ok(workspace.review(documentId,body,user));}
     @PostMapping("/confirm-extraction")
     public ApiResponse<Map<String,Object>> confirm(@PathVariable long documentId,@RequestBody Map<String,Object> body,@AuthenticationPrincipal AuthUser user){return ApiResponse.ok(workspace.confirmExtraction(documentId,body,user));}
+    @GetMapping("/extractions/latest")
+    public ApiResponse<Map<String,Object>> latest(@PathVariable long documentId,@AuthenticationPrincipal AuthUser user){
+        return ApiResponse.ok(sources.latest(documentId,user));
+    }
     @GetMapping("/extractions/{extractionId}")
     public ApiResponse<Map<String,Object>> extraction(@PathVariable long documentId,@PathVariable String extractionId,@AuthenticationPrincipal AuthUser user){return ApiResponse.ok(sources.extraction(documentId,extractionId,user));}
 }

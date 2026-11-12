@@ -3,6 +3,7 @@ package com.jshz.expert.config;
 import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.common.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -65,11 +66,22 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(400, "文件大小超过限制（单文件 ≤5MB）");
     }
 
-    /** 兜底异常 */
+    /**
+     * 数据库主键/唯一键冲突：不再向前端透出原始 SQL 错误，
+     * 返回可重试的友好提示（典型场景：表自增值与存量数据不同步）。
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ApiResponse<Void> handleDuplicateKey(DuplicateKeyException e) {
+        log.error("数据库唯一键冲突", e);
+        return ApiResponse.error(500, "数据保存冲突，请稍后重试；若多次失败请联系管理员检查数据");
+    }
+
+    /** 兜底异常：完整堆栈只写日志，前端仅返回通用提示，避免泄露 SQL/表结构细节 */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleException(Exception e) {
         log.error("服务器内部错误", e);
-        return ApiResponse.error(500, "服务器内部错误：" + e.getMessage());
+        return ApiResponse.error(500, "服务器内部错误，请稍后重试；若持续出现请联系管理员并提供操作时间");
     }
 }

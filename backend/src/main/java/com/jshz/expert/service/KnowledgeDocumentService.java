@@ -360,7 +360,8 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         if (!user.hasPermission("knowledge:maintain")) {
             throw new BusinessException("无权限执行该操作");
         }
-        KnowledgeDocument doc = getById(id);
+        KnowledgeDocument doc = getOne(new LambdaQueryWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, id).last("FOR UPDATE"));
         if (doc == null) {
             throw new BusinessException("文档不存在");
         }

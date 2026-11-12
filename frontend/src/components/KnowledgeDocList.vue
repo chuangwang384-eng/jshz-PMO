@@ -156,7 +156,12 @@
         </div>
         <el-button size="small" type="primary" @click="downloadPreviewRow">下载</el-button>
       </div>
-      <div class="preview-body" v-loading="previewLoading">
+      <KnowledgeWorkbookPreview
+        v-if="previewMode === 'excel' && previewRow"
+        :key="previewRow.filePath"
+        :file-path="previewRow.filePath"
+      />
+      <div v-else class="preview-body" v-loading="previewLoading">
         <img v-if="previewMode === 'image'" :src="previewImageUrl" class="preview-image" alt="文档预览" />
         <canvas v-else-if="previewMode === 'pdf'" ref="previewCanvasRef" class="preview-canvas"></canvas>
         <div v-else-if="previewMode === 'text'" class="preview-text-wrap">
@@ -180,6 +185,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // ① pdfDoc 用 shallowRef（见下方说明）——Vue 响应式 Proxy 破坏 pdfjs 私有字段；
 // ② worker 用 blob URL ——独立 .mjs 文件在 nginx 上以 application/octet-stream 返回，浏览器拒绝模块加载；
 // ③ 使用 legacy 兼容构建 ——现代构建依赖 Promise.withResolvers 等新 API，旧浏览器抛错。
+import KnowledgeWorkbookPreview from './KnowledgeWorkbookPreview.vue'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useAuthStore } from '../store/auth'
@@ -485,6 +491,11 @@ async function handlePreview(row) {
   previewNumPages.value = 0
   previewScale.value = 1
   previewVisible.value = true
+  if (['xls', 'xlsx'].includes((row.fileType || '').toLowerCase())) {
+    previewLoading.value = false
+    previewMode.value = 'excel'
+    return
+  }
   previewLoading.value = true
   try {
     // 需求 3：预览走 ?preview=true 模式，失败时后端返回结构化错误码（PREVIEW_FAILED / CONVERT_FAILED）
