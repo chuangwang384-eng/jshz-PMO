@@ -205,5 +205,3 @@ R-3 数据库向后兼容迁移规范、R-4 一键发布脚本化、R-5 版本�
 | `backend/pom.xml` 的实际版本 | `${revision}` 动态注入 | 不再是硬编码，无需手工维护；包内实际值见 `build-info.properties` | `release-backend.ps1` 强制校验包内版本 == `version.txt` |
 
 界面展示（登录页/侧边栏「正式版 vX」）与 `/health` 的 `version` 都来自构建期的 `version.txt`，因此**改了 `version.txt` 必须重新构建前端**，否则界面仍显示旧版本号。
-
-*（内容由AI生成，仅供参考）*
