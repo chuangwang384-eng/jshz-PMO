@@ -254,6 +254,7 @@ import {
 } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 import { useAuthStore } from '../store/auth'
+import { relationDirectionLabel } from '../utils/dict'
 
 const router = useRouter()
 const route = useRoute()
@@ -430,8 +431,7 @@ const enabledRelationTypes = computed(() => relationTypes.value.filter((t) => t.
 const pickedTargetIds = computed(() => relationRows.value.map((r) => r.targetCustomerId).filter(Boolean))
 
 function typeLabel(t) {
-  const map = { DIRECTED: '单向', BIDIRECTED: '双向', UNDIRECTED: '无向' }
-  return `${t.name}（${map[t.direction] || '单向'}）`
+  return `${t.name}（${relationDirectionLabel(t.direction)}）`
 }
 
 function relationTypeDirection(typeId) {

@@ -25,9 +25,9 @@ final class LocalTableOcr {
         Process process = null;
         try {
             Path root = Path.of(configuredRoot).toAbsolutePath();
-            Path python = root.resolve("runtime/Scripts/python.exe");
-            Path script = root.resolve("compliance-ppocr-table.py");
-            if (!Files.isRegularFile(python) || !Files.isRegularFile(script)) return "";
+            Path python = com.jshz.expert.common.PpOcrRuntime.pythonUnder(root);
+            Path script = com.jshz.expert.common.PpOcrRuntime.scriptUnder(root, "compliance-ppocr-table.py");
+            if (!com.jshz.expert.common.PpOcrRuntime.ready(python, script)) return "";
             input = Files.createTempFile("compliance-table-", ".png");
             output = Files.createTempFile("compliance-table-", ".tsv");
             ImageIO.write(image, "png", input.toFile());

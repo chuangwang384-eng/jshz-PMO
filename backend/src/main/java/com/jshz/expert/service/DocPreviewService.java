@@ -256,9 +256,6 @@ public class DocPreviewService {
     }
 
     private String safeName(String fileName) {
-        return new File(fileName == null ? "" : fileName).getName()
-                .replace("..", "")
-                .replace("/", "")
-                .replace("\\", "");
+        return com.jshz.expert.common.FileNames.sanitize(fileName);
     }
 }

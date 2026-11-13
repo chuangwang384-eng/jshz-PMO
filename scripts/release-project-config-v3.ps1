@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference='Stop'
 $OutputEncoding=New-Object Text.UTF8Encoding($false)
 try{[Console]::OutputEncoding=$OutputEncoding}catch{}
-$root='D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
 if(-not $stage.StartsWith((Join-Path $root 'builds'),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected private stage directory: stage must live under builds\'}
 $jar=Join-Path $stage 'backend\target\expert-system.jar'

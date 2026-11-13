@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$true)][string]$ExpectedJarSha256,[Parameter(Mandatory=$true)][string]$ExpectedIndexSha256,[switch]$Apply)
 $ErrorActionPreference='Stop'
-$root='D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
 if(-not $stage.StartsWith((Join-Path $root 'builds'),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected stage directory: stage must live under builds\'}
 $release='1.0.24-compliance-template-20261105-r2'

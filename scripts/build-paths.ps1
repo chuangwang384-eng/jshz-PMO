@@ -14,7 +14,8 @@
      本模块的 Get-ProjectRevision 供全部构建/发布脚本调用，避免各处重复解析。
 #>
 
-$script:RepoRoot      = 'D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+$script:RepoRoot      = $root
 $script:BuildsRoot    = Join-Path $script:RepoRoot 'builds'
 $script:BuildsArchive = Join-Path $script:BuildsRoot 'archive'
 $script:VersionFile   = Join-Path $script:RepoRoot 'version.txt'

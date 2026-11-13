@@ -497,6 +497,109 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 3. 交接检查：涉及状态变更的任务，第 11.5 模板第 5 节必须能回答"前端哪些映射文件已同步"；回答不了的视为未完成。
 4. 暂不引入全局字典中心或动态字典接口（2026-11-13 决策：以流程约束替代架构改造）；若未来状态字典数量或漂移频率显著上升，再评估后端字典接口方案。
 
+---
+
+## 18. 硬编码禁令与环境配置规范
+
+> 2026-11-13 新增。背景：硬编码审查发现约 10 处 Windows 盘符路径写死后端配置、CORS 内网 IP 写死安全配置、上传限额前后端四处各写一份、9 个运维脚本各自复制凭据解析——已完成第一轮治理（交接记录 `docs/handover/tasks/20261113_hardcode_remediation.md`，随 1.0.38.23 发布）。本节为后续所有代码工作的强制约定。
+
+### 18.1 分类禁令
+
+1. **密钥凭据（最高禁令）**：禁止在代码、配置、脚本、日志、交接记录中出现任何真实密码/密钥/token（MYSQL_PASSWORD、JWT_SECRET、WECOM_* 等）。凭据一律环境变量注入（`${ENV:}` 空 default + 启动 fail-fast 模式）；真实值只存本地 `start-backend.bat`（gitignored）与 NSSM 服务环境。发现疑似泄露立即停发布并按第 5 节处置。
+2. **环境相关路径**：禁止在代码/配置/脚本中写死盘符绝对路径（`D:\`、`C:\Program Files`、`E:\` 等）。必须 `${VAR:默认值}` 出口化，默认值仅作本机兜底。判据：换机器/换盘符/迁移数据是否需要改代码重编译——需要 → 必须先出口化再合入。
+3. **URL/IP/端口**：内网 IP、第三方服务地址、端口不得写死在 Java/前端源码。后端用 yml 占位（如 `security.cors.allowed-origins`）、前端用 `VITE_*` 兜底（如 `vite.config.js` proxy、`api/request.js` baseURL 的既有写法）。
+4. **业务配置参数**：限额、阈值、超时、cron、线程池、模型名等默认值只允许定义**一处**（application.yml 或唯一常量），消费方引用单一来源。**前后端共享的数值以后端为唯一真源、前端经接口拉取**（现有样板：`expert.upload` + `GET /api/meta/limits` + `frontend/src/utils/limits.js` 兜底），禁止两侧各写一份字面量。
+5. **业务常量/状态**：状态权威定义在后端（枚举/permission 数据）；前端 statusMap/roleOptions 为展示层副本，必须成对修改并按 17.7 留痕。禁止新增第三套状态命名或与既有语义色冲突的修饰类。
+6. **部署/运维脚本**：新脚本禁止复制粘贴仓库根路径、端口、凭据解析逻辑。凭据解析统一 dot-source `scripts/common-credentials.ps1`（环境变量优先 → bat 运行时解析）；路径/端口引用参数化或读取既有公共定义。`common-credentials.ps1` 必须保持 UTF-8 带 BOM 编码（PS5.1 兼容，已实测踩坑）。
+
+### 18.2 单一真源原则（现行登记）
+
+| 事实源 | 内容 | 消费方 |
+| --- | --- | --- |
+| `version.txt` revision | 版本号 | pom/version.properties、vite 注入、deploy 脚本 |
+| `application.yml expert.upload` | 上传限额（photo/resume/doc-max-bytes） | MetaController → 前端 limits.js |
+| `security.cors.allowed-origins` | CORS 白名单 | SecurityConfig（env：CORS_ALLOWED_ORIGINS） |
+| `STORAGE_ROOT` | 全部存储目录统一根（默认 `D:\jshz-PMO`） | application.yml 各 storage-dir |
+| `start-backend.bat` + NSSM AppEnvironmentExtra | 真实凭据 | 服务启动、deploy-backend 凭据一致性护栏 |
+
+约定：**出口化不改行为**——新增 `${VAR:默认值}` 的默认值必须等于当前生产实际值；新增环境变量必须登记到 `docs/deployment.md` 的"环境变量注入点"小节，否则视为文档不同步。
+
+### 18.3 AI 助手开发约定
+
+1. 新增配置前先检索 yml 与环境变量清单（18.4），**先复用既有配置、后新建**；禁止再造同义配置项或重复默认值。
+2. 代码中出现任何字面量路径/IP/密码/魔法数值前，必须先给出出口化方案并在交接记录中说明环境变量名、默认值与"默认值=当前生产值"核对结论。
+3. 修改既有默认值 = 改变行为，须经项目负责人批准并同步 `docs/deployment.md`；仅做出口化（默认值不变）属低风险，可在交接记录中留痕后直接合入。
+4. 验证最低要求：硬编码模式 grep（盘符路径 / 内网 IP / 密钥赋值 / 重复魔法数字）+ 编译或构建通过 + 残留清单逐条标注"有意保留"理由（如 JS/canvas 无法用 CSS 变量、Windows 惯例兜底），结果记入交接记录第 6 节。
+5. 禁止事项：
+   - 禁止为绕过 grep 复查而拼接路径/凭据（如 `chr()` 组装、"D:" + 字符串），行为等同硬编码；
+   - 禁止把测试用假密码/占位密钥提交进任何入库文件（测试代码用 `System.getenv` 或本地未入库配置）；
+   - 禁止在新增运维脚本中内联 bat 凭据解析正则（必须复用 common-credentials.ps1）。
+
+### 18.4 现行环境变量清单（2026-11-13 登记）
+
+| 变量 | 用途 | 默认/兜底 |
+| --- | --- | --- |
+| `MYSQL_PASSWORD` / `JWT_SECRET` | 数据库凭据 / JWT 签名密钥 | 无默认，空则启动失败（fail-fast） |
+| `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE` | 企微登录与通讯录 | 空占位 / NAME |
+| `STORAGE_ROOT` | 全部存储目录统一根 | `D:\jshz-PMO` |
+| `LIBREOFFICE_PATH` | Office 预览转换可执行文件 | `C:\Program Files\LibreOffice\program\soffice.com` |
+| `CORS_ALLOWED_ORIGINS` | 前端来源白名单（逗号分隔） | 3 个既有内网来源 |
+| `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT` | 抠图正式 Python/venv 出口 | 显式配置 / `ProgramFiles/JSHZ/pp-ocrv5` |
+| `PHOTOMATTE_LEGACY_ROOT` | 抠图历史 E 盘 venv 兜底（可置空跳过） | `E:/AI助手开发/pp-ocrv5` |
+| `OLLAMA_URL` / `OLLAMA_MODEL` / `OLLAMA_TIMEOUT` | 本地语义抽取 | 无（未设停用）/ qwen2.5:7b / 180s |
+| `LOG_DIR` | 应用日志目录 | `D:/jshz-PMO/logs` |
+| `VITE_API_BASE` / `VITE_API_PROXY_TARGET` | 前端请求地址 / 开发代理 | `/api` / `http://127.0.0.1:8080` |
+
+清单与 `docs/deployment.md` 同步维护；新增变量先登记 deployment.md，再更新本表。
+
+---
+
+## 19. 功能复用与封装规范
+
+> 2026-11-13 新增。背景：复用审查发现 5 个存储服务逐字同构、文件名清洗/扩展名解析散落 9 处、前端跨页面字典重复（详见 `docs/handover/tasks/20261113_reuse_consolidation.md`），已按本节完成第一轮收敛。本节约束后续所有功能开发。
+
+### 19.1 可复用功能的识别标准
+
+出现以下任一信号时，必须评估抽取公共实现，禁止直接复制第 N 份：
+
+1. **"第 3 处复制即收口"**（硬阈值）：同一逻辑（逐字或仅参数级差异）第 3 次被复制时，必须抽取为公共实现并回头替换前 2 处；
+2. **安全/一致性敏感逻辑**（防路径穿越、凭据、权限判定、限额校验）即使只出现 2 处也应立即收敛——安全修补不允许在多个副本间"逐个同步"；
+3. **同一后端枚举/配置在多个消费方出现**：展示文案、颜色映射、默认值必须单一来源；
+4. **参数级差异**（白名单集合、前缀、提示文案、阈值）不算实现差异，只是公共实现的配置项——以"差异是否可参数化"判断，而不是以"代码长得像不像"判断。
+
+**不收口的边界**（与 17.4 一致）：枚举域不同的字典（如日程 parseStatus 与合规文档解析状态）、仅单页使用的映射、行为语义不同的同形代码（如 resolve 返回 null 与抛异常是两种契约）不得强行合并；抽象收益低于复杂度时保持现状并在交接记录说明。
+
+### 19.2 封装与调用约定
+
+1. **后端**：跨服务通用逻辑放 `com.jshz.expert.common`（现役：`FileNames` 文件名清洗/扩展名/目录归一化、`UploadGuard` 上传三段校验、`PpOcrRuntime` venv 布局探测、`BusinessException`）；实现形态优先静态工具类（无状态）或抽象基类（模板方法）。
+2. **前端**：跨页面纯函数/字典放 `frontend/src/utils/`（现役：`format.js` 审批展示、`dict.js` 共享字典、`limits.js` 上传限额真源副本、`supplier.js` 供应商映射）；组件级复用用 components/，跨页面状态用 stores/。
+3. **运维脚本**：路径真源 dot-source `scripts/common-paths.ps1`（`$root`，可被 `JSHZ_ROOT` 覆盖），凭据解析 dot-source `scripts/common-credentials.ps1`，构建/版本能力用 `scripts/build-paths.ps1`；禁止在脚本内重复实现这三类逻辑。
+4. **行为不变原则**：收口改造必须保持对外契约（方法签名、返回值语义、异常类型与文案、错误码）不变；公共实现只能合并"逐字相同"的部分，差异行为保留在各消费方。
+5. **配置化差异**：可参数化的差异（扩展名白名单、文件名前缀、大小上限、提示文案）作为公共实现的参数/抽象方法，由消费方声明，禁止为差异化而在公共实现里加 if-else 分支枚举消费方。
+
+### 19.3 命名与接口规范
+
+1. 公共工具类用**语义化名词**（`FileNames`、`UploadGuard`、`PpOcrRuntime`），方法用动词短语；禁止 `Utils`/`Common`/`Helper` 这类无边界垃圾名作为类名。
+2. 公共实现的方法签名以"最窄 sufficient 类型"为准（入参用 `Set<String>`/`Path`/`long`，不接收整个 Service 或整个 MultipartFile 之外的上下文对象）；无状态工具类 final + 私有构造器。
+3. 前端共享字典导出**大写常量 + camelCase 取值函数**（如 `RELATION_DIRECTION_TEXT` + `relationDirectionLabel()`）；共享纯函数文件头注释必须写明消费方清单（样板：`utils/format.js` L1）。
+4. 公共实现的 Javadoc/注释必须包含：用途、行为契约（异常/返回值）、以及"禁止复制本地副本"的提示；脚本公共库 `.SYNOPSIS` 同理。
+5. **禁止复制私有副本**：一旦公共实现存在，消费方出现同名 private 方法即视为违规（编译期无法发现，靠评审与 19.5 检查项拦截）。
+
+### 19.4 依赖管理
+
+1. 依赖方向：`service → common`、`views/components → utils`、`脚本 → scripts 公共库`；**公共实现不得反向依赖业务层**（common 类禁止 import mapper/service，utils 不得 import api/store——保持纯函数/纯工具，可测试、可独立复用）。
+2. 公共实现引入的配置项（如 `expert.upload.*-max-bytes`）必须来自既有单一真源（18.2），不得在公共实现内部再写默认值字面量（`@Value` 缺省值仅作占位兜底并注明真源）。
+3. 新增公共库文件（Java/JS/ps1）时同步更新 19.2 的现役清单与本节版本记录；第三方依赖不得因"写个公共类"而引入（先确认 JDK/Spring/既有 utils 是否已具备）。
+4. 环境变量语义不同的消费方（样板：PHOTOMATTE_* vs COMPLIANCE_PPOCR_ROOT）共享的是**布局/扫描逻辑**而非根目录来源——抽象边界画在"逐字相同"处，不画在"看起来相关"处。
+
+### 19.5 维护更新流程
+
+1. **修改公共实现 = 修改所有消费方**：任何行为变更（哪怕是文案）都必须枚举全部调用方并评估影响，在交接记录"实际变更"中列出消费方清单。
+2. 收口/新建公共实现时，交接记录必须回答三问：消除了几处重复？对外契约是否不变？残留未收口项及理由？
+3. **验证最低要求**：后端 `mvn compile`、前端 `npm run build`、脚本 AST 语法解析、重复残留 grep（如 `private String extension|safeName` 计数），结果如实记入交接记录。
+4. 每次交接时执行"复制检测"核对：`grep -c "private String (safeName|extension)"` 后端应为 0（保留的委托包装除外）、`$root\s*=\s*['\"]D:` 脚本应为 0（common-paths.ps1 自身除外）；发现新增副本当场收口或说明豁免理由。
+5. 本节 19.2 现役清单与 17.6 样式清单同等维护：新增、废弃、改名均需同步；文档与代码不一致时以代码为准并立即修文档。
+
 ## Agent skills
 
 ### Issue tracker

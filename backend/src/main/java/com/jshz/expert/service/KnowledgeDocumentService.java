@@ -433,10 +433,6 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     private String extensionOf(String fileName) {
-        if (!StringUtils.hasText(fileName)) {
-            return "";
-        }
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        return com.jshz.expert.common.FileNames.extension(fileName);
     }
 }

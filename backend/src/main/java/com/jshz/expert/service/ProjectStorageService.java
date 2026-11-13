@@ -25,7 +25,7 @@ public class ProjectStorageService {
     private final Path storageDir;
 
     public ProjectStorageService(@Value("${expert.project.storage-dir}") String storageDir) {
-        this.storageDir = Paths.get(storageDir.replace('\\', '/')).toAbsolutePath().normalize();
+        this.storageDir = com.jshz.expert.common.FileNames.normalizeDir(storageDir);
     }
 
     @PostConstruct

@@ -40,7 +40,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = 'D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 . (Join-Path $PSScriptRoot 'logging.ps1')
 . (Join-Path $PSScriptRoot 'build-paths.ps1')
 Enable-Utf8Console

@@ -70,6 +70,7 @@ import * as echarts from 'echarts'
 import { useAuthStore } from '../store/auth'
 import { getCenterGraph, getNetworkGraph, listRelationTypes, createRelation, deleteRelation } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
+import { relationDirectionLabel } from '../utils/dict'
 
 const router = useRouter()
 const route = useRoute()
@@ -102,8 +103,7 @@ const relationTypes = ref([])
 const enabledTypes = computed(() => relationTypes.value.filter((t) => t.status === 1))
 
 function typeLabel(t) {
-  const map = { DIRECTED: '单向', BIDIRECTED: '双向', UNDIRECTED: '无向' }
-  return `${t.name}（${map[t.direction] || '单向'}）`
+  return `${t.name}（${relationDirectionLabel(t.direction)}）`
 }
 
 function directionOf(typeId) {

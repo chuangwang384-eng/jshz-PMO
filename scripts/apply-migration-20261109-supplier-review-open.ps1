@@ -4,7 +4,7 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-$root = 'D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $sqlPath = Join-Path $root 'database\migration\20261109_supplier_review_open.sql'
 $logPath = Join-Path $root 'logs\migration-20261109-supplier-review-open.log'
 $mysqlExe = 'C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe'

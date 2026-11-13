@@ -7,7 +7,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$StageDirectory,[Parameter(Mandatory=$true)][string]$ExpectedJarSha256,[Parameter(Mandatory=$true)][string]$ExpectedIndexSha256,[switch]$Apply,[switch]$Hotfix,[ValidatePattern('^\d+\.\d+\.\d+$')][string]$HotfixVersion='1.0.26')
 $ErrorActionPreference='Stop'
-$root='D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $stage=(Resolve-Path -LiteralPath $StageDirectory).Path
 if(-not $stage.StartsWith((Join-Path $root 'builds'),[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected stage directory: stage must live under builds\'}
 $expectedVersion=if($Hotfix){$HotfixVersion}else{'1.0.25'}

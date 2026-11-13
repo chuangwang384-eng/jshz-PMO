@@ -1,5 +1,6 @@
 package com.jshz.expert.service;
 
+import com.jshz.expert.common.PpOcrRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -82,30 +83,22 @@ public class PhotoMatteService {
 
     /** Python 解释器探测：显式配置 → E 盘管理 venv（实测可用）→ 受保护 venv。 */
     private Path resolvePython() {
-        java.util.List<String> candidates = new java.util.ArrayList<>();
+        java.util.List<Path> candidates = new java.util.ArrayList<>();
         String explicit = System.getenv("PHOTOMATTE_PYTHON");
-        if (explicit != null && !explicit.isBlank()) candidates.add(explicit);
+        if (explicit != null && !explicit.isBlank()) candidates.add(Path.of(explicit));
         String legacy = legacyRoot();
-        if (legacy != null && !legacy.isBlank()) candidates.add(legacy + "/runtime/Scripts/python.exe");
-        candidates.add(resolveRoot() + "/runtime/Scripts/python.exe");
-        for (String c : candidates) {
-            Path p = Path.of(c);
-            if (Files.isRegularFile(p)) return p;
-        }
-        return null;
+        if (legacy != null && !legacy.isBlank()) candidates.add(PpOcrRuntime.pythonUnder(Path.of(legacy)));
+        candidates.add(PpOcrRuntime.pythonUnder(Path.of(resolveRoot())));
+        return PpOcrRuntime.firstExisting(candidates);
     }
 
     /** 脚本探测：受保护目录 → E 盘镜像。 */
     private Path resolveScript() {
-        java.util.List<String> candidates = new java.util.ArrayList<>();
-        candidates.add(resolveRoot() + "/photomatte.py");
+        java.util.List<Path> candidates = new java.util.ArrayList<>();
+        candidates.add(PpOcrRuntime.scriptUnder(Path.of(resolveRoot()), "photomatte.py"));
         String legacy = legacyRoot();
-        if (legacy != null && !legacy.isBlank()) candidates.add(legacy + "/photomatte.py");
-        for (String c : candidates) {
-            Path p = Path.of(c);
-            if (Files.isRegularFile(p)) return p;
-        }
-        return null;
+        if (legacy != null && !legacy.isBlank()) candidates.add(PpOcrRuntime.scriptUnder(Path.of(legacy), "photomatte.py"));
+        return PpOcrRuntime.firstExisting(candidates);
     }
 
     private static void deleteTemporary(Path file) {

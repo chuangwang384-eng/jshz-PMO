@@ -21,6 +21,7 @@ import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -61,8 +62,9 @@ public class ScheduleParseService {
     private final ProjectStorageService storageService;
     private final com.fasterxml.jackson.databind.ObjectMapper json;
 
-    /** 日程单文件上限 50MB（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 全局 50MB 对齐）。 */
-    public static final long MAX_SIZE = 50L * 1024 * 1024;
+    /** 日程单文件上限：单一真源 application.yml expert.upload.doc-max-bytes（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 全局 50MB 对齐）。 */
+    @Value("${expert.upload.doc-max-bytes:52428800}")
+    private long docMaxBytes;
     private static final List<String> ALLOWED_EXTENSIONS =
             List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png", "xlsx", "xls");
 
@@ -86,12 +88,12 @@ public class ScheduleParseService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("日程文件不能为空");
         }
-        String ext = extension(file.getOriginalFilename());
+        String ext = com.jshz.expert.common.FileNames.extension(file.getOriginalFilename());
         if (!ALLOWED_EXTENSIONS.contains(ext)) {
             throw new BusinessException("不支持的日程格式（支持 pdf/doc/docx/ppt/pptx/jpg/png/xlsx/xls）");
         }
-        if (file.getSize() > MAX_SIZE) {
-            throw new BusinessException("日程文件超过 50MB 限制");
+        if (file.getSize() > docMaxBytes) {
+            throw new BusinessException("日程文件超过 " + (docMaxBytes / 1024 / 1024) + "MB 限制");
         }
         String stored = projectService.storageSave(file);
         // 旧生效份：硬删日程行与未确认候选（人工确认成果不受影响），旧附件软删，旧文件无引用时物理删
@@ -1001,7 +1003,7 @@ public class ScheduleParseService {
     }
 
     Extracted extract(String fileName, byte[] bytes) throws IOException {
-        String ext = extension(fileName);
+        String ext = com.jshz.expert.common.FileNames.extension(fileName);
         return switch (ext) {
             case "ppt", "pptx" -> extractPpt(bytes);
             case "docx" -> extractDocx(bytes);
@@ -1473,12 +1475,6 @@ public class ScheduleParseService {
     }
 
     // ==================== 小工具 ====================
-
-    private String extension(String fileName) {
-        if (fileName == null) return "";
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
-    }
 
     private String blankToNull(String v) {
         return v == null || v.isBlank() ? null : v;

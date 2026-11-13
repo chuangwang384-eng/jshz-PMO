@@ -13,6 +13,7 @@ import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -47,7 +48,9 @@ public class ResumeParseService {
     private final OllamaService ollamaService;
     private final PhotoMatteService photoMatteService;
 
-    public static final long MAX_SIZE = 20L * 1024 * 1024;
+    /** 简历单文件上限：单一真源 application.yml expert.upload.resume-max-bytes。 */
+    @Value("${expert.upload.resume-max-bytes:20971520}")
+    private long resumeMaxBytes;
     private static final List<String> ALLOWED_EXTENSIONS = List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
 
     /** 职称词表（精确匹配，优先级从高到低）。 */
@@ -89,15 +92,15 @@ public class ResumeParseService {
     }
 
     public ResumeParseResult parse(String fileName, byte[] bytes, boolean allowFilenameFallback) {
-        String ext = extension(fileName);
+        String ext = com.jshz.expert.common.FileNames.extension(fileName);
         if (!ALLOWED_EXTENSIONS.contains(ext)) {
             throw new BusinessException(400, "不支持的简历格式（支持 pdf/doc/docx/ppt/pptx/jpg/png）");
         }
         if (bytes == null || bytes.length == 0) {
             throw new BusinessException(400, "简历文件为空");
         }
-        if (bytes.length > MAX_SIZE) {
-            throw new BusinessException(400, "简历文件超过 20MB 限制");
+        if (bytes.length > resumeMaxBytes) {
+            throw new BusinessException(400, "简历文件超过 " + (resumeMaxBytes / 1024 / 1024) + "MB 限制");
         }
         try {
             ResumeParseResult result = switch (ext) {
@@ -567,9 +570,4 @@ public class ResumeParseService {
         return bos.toByteArray();
     }
 
-    private String extension(String fileName) {
-        if (fileName == null) return "";
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
-    }
 }

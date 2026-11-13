@@ -5,7 +5,7 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-$root = 'D:\jshz-PMO'
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $sqlPath = Join-Path $root 'database\migration\20261112_add_storage_manage_permission.sql'
 $logPath = Join-Path $root 'logs\migration-20261112-storage-manage-permission.log'
 $mysqlExe = 'C:\Program Files\MySQL\MySQL Server 26.7\bin\mysql.exe'
