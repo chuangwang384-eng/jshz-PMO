@@ -4,9 +4,28 @@
 #   . (Join-Path $PSScriptRoot 'common-credentials.ps1')
 #   $null = Use-DbPassword
 # 解析优先级：
-#   1) 环境变量 MYSQL_PASSWORD（运维推荐，deploy-backend.ps1 同源）
+#   1) 环境变量 MYSQL_PASSWORD / JWT_SECRET（运维推荐，deploy-backend.ps1 同源）
 #   2) 本地 start-backend.bat（gitignored，运行时解析不落盘；bat 是 NSSM 服务环境的唯一事实源）
-# 安全约定：解析结果只写入 $env:MYSQL_PWD 供 mysql.exe 客户端使用；任何日志/输出不得打印明文。
+# 安全约定：解析结果只写入进程环境变量供消费方使用；任何日志/输出不得打印明文。
+
+function Get-BatValue {
+    # start-backend.bat 单变量运行时解析（2026-11-13 扩展：同模式支持 JWT_SECRET）
+    param([Parameter(Mandatory = $true)][string]$Name)
+    $batPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'start-backend.bat'
+    if (-not (Test-Path -LiteralPath $batPath)) {
+        throw "未找到凭据文件：$batPath（bat 是 NSSM 服务环境的唯一事实源）"
+    }
+    $batText = Get-Content -LiteralPath $batPath -Raw -Encoding Default
+    $m = [regex]::Match($batText, "(?im)^[ \t]*set[ \t]+$Name=(.*)$")
+    if (-not $m.Success) { throw "start-backend.bat 缺少 $Name 行" }
+    $value = $m.Groups[1].Value.Trim()
+    $quote = [char]34
+    if ($value.Length -ge 2 -and $value[0] -eq $quote -and $value[$value.Length - 1] -eq $quote) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    if ([string]::IsNullOrWhiteSpace($value)) { throw "start-backend.bat 中 $Name 为空" }
+    return $value
+}
 
 function Resolve-DbPassword {
     # 1) 环境变量优先
@@ -14,20 +33,15 @@ function Resolve-DbPassword {
         return $env:MYSQL_PASSWORD
     }
     # 2) 本地 start-backend.bat 运行时解析（bat 位于仓库根，与 scripts/ 同级）
-    $batPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'start-backend.bat'
-    if (-not (Test-Path -LiteralPath $batPath)) {
-        throw "未设置 MYSQL_PASSWORD 环境变量，且未找到凭据文件：$batPath"
+    return Get-BatValue -Name 'MYSQL_PASSWORD'
+}
+
+function Resolve-JwtSecret {
+    # 与 NSSM AppEnvironmentExtra 同源：环境变量优先，缺省从 start-backend.bat 解析
+    if ($env:JWT_SECRET -and -not [string]::IsNullOrWhiteSpace($env:JWT_SECRET)) {
+        return $env:JWT_SECRET
     }
-    $batText = Get-Content -LiteralPath $batPath -Raw -Encoding Default
-    $m = [regex]::Match($batText, '(?im)^[ \t]*set[ \t]+MYSQL_PASSWORD=(.*)$')
-    if (-not $m.Success) { throw 'start-backend.bat 缺少 MYSQL_PASSWORD 行' }
-    $value = $m.Groups[1].Value.Trim()
-    $quote = [char]34
-    if ($value.Length -ge 2 -and $value[0] -eq $quote -and $value[$value.Length - 1] -eq $quote) {
-        $value = $value.Substring(1, $value.Length - 2)
-    }
-    if ([string]::IsNullOrWhiteSpace($value)) { throw 'start-backend.bat 中 MYSQL_PASSWORD 为空' }
-    return $value
+    return Get-BatValue -Name 'JWT_SECRET'
 }
 
 function Use-DbPassword {
