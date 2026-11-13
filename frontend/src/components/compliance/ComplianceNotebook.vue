@@ -1,7 +1,7 @@
 <template>
   <div class="nb-wrap" :class="{ 'nb-wrap-selected': checkedIds.length }">
     <el-alert type="info" :closable="false" class="nb-intro">
-      <template #title>本记事本由「规范文档库」的收藏自动关联：在文档库中收藏规范文档后，该文档已发布的合规事项会自动出现在这里（按文档分组）；取消收藏即移除对应分组。勾选条目可推送到项目，隐藏仅对自己生效。点击事项标题可展开详情。</template>
+      <template #title>本记事本由「规范文档库」的收藏自动关联：在文档库中收藏规范文档后，该文档已发布的合规事项会自动出现在这里（按文档分组）；取消收藏即移除对应分组。勾选条目可推送到项目，隐藏仅对自己生效。点击文档分组或事项标题可展开详情。</template>
     </el-alert>
     <div class="nb-toolbar">
       <div class="nb-filter">
@@ -18,10 +18,23 @@
     </el-empty>
 
     <section v-for="g in visibleGroups" :key="g.documentId" class="nb-group">
-      <header class="nb-group-head">
+      <header
+        class="nb-group-head nb-group-head-toggle"
+        role="button"
+        tabindex="0"
+        :aria-expanded="groupExpanded[g.documentId] ? 'true' : 'false'"
+        @click="toggleGroup(g)"
+        @keydown.enter.prevent="toggleGroup(g)"
+        @keydown.space.prevent="toggleGroup(g)"
+      >
+        <el-icon class="nb-item-chevron">
+          <ArrowRight v-if="!groupExpanded[g.documentId]" />
+          <ArrowDown v-else />
+        </el-icon>
         <h2 class="nb-doc-title">{{ g.documentTitle }}</h2>
         <el-tag size="small" type="info" effect="plain">{{ g.items.length }} 条</el-tag>
       </header>
+      <template v-if="groupExpanded[g.documentId]">
       <article v-for="it in g.items" :key="it.id" class="nb-item" :class="{ 'nb-item-selected': checked[it.id] }">
         <el-checkbox
           v-if="!hiddenView && g.documentId"
@@ -61,6 +74,7 @@
           <el-button v-else link type="primary" size="small" @click="doUnhide(it)">恢复显示</el-button>
         </div>
       </article>
+      </template>
     </section>
 
     <aside v-if="checkedIds.length" class="nb-push-bar" aria-label="推送操作">
@@ -89,7 +103,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import {
@@ -108,6 +122,17 @@ const expanded = reactive({})
 function toggle(it) {
   if (it.content || it.stage || it.timeNote || it.sourceAnchor) expanded[it.id] = !expanded[it.id]
 }
+
+// 文档分组默认收起，点击分组头展开；筛选到具体文档时自动展开
+const groupExpanded = reactive({})
+
+function toggleGroup(g) {
+  groupExpanded[g.documentId] = !groupExpanded[g.documentId]
+}
+
+watch(filterDocId, (v) => {
+  if (v) groupExpanded[v] = true
+})
 const checked = ref({})
 const pushVisible = ref(false)
 const pushProjectId = ref(null)
@@ -132,6 +157,7 @@ async function load() {
   if (!groups.value.some(group => group.documentId === filterDocId.value)) filterDocId.value = null
   checked.value = {}
   Object.keys(expanded).forEach((k) => { delete expanded[k] })
+  Object.keys(groupExpanded).forEach((k) => { delete groupExpanded[k] })
 }
 
 function stageText(v) {
@@ -219,6 +245,9 @@ defineExpose({ reload: load })
   background: var(--el-fill-color-light);
   border-radius: 10px 10px 0 0;
 }
+.nb-group-head-toggle { cursor: pointer; user-select: none; }
+.nb-group-head-toggle:hover .nb-doc-title { color: var(--el-color-primary); }
+.nb-group-head-toggle:focus-visible { outline: 2px solid var(--el-color-primary-light-5); outline-offset: -2px; }
 .nb-doc-title { margin: 0; font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
 .nb-item {
   display: flex;

@@ -1,6 +1,5 @@
 <template>
   <div class="page-container">
-    <h1 class="compliance-title">企业合规要求</h1>
     <el-tabs v-model="pageTab">
       <!-- 合规记事本（Owner 2026-11-10 需求：默认页签；收藏文档的已发布条目集中阅读/隐藏/推送项目） -->
       <el-tab-pane label="合规记事本" name="notebook">
@@ -51,5 +50,4 @@ onMounted(loadMode)
 </script>
 <style scoped>
 .page-container { padding: 16px; max-width: 1440px; margin: 0 auto; }
-.compliance-title { margin: 0 0 6px; font-size: 22px; line-height: 1.4; font-weight: 650; }
 </style>
