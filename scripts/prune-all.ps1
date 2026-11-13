@@ -25,16 +25,25 @@
 .PARAMETER DryRun
   只打印将删除的条目，不实际删除
 
+.PARAMETER ScatterThreshold
+  temp\ 根目录散落文件告警阈值，默认 160；超过即输出 [WARN]（只告警，不删除）
+
+.PARAMETER SkipScatterCheck
+  跳过 temp\ 根目录散落文件检查
+
 .EXAMPLE
   .\scripts\prune-all.ps1 -DryRun
   .\scripts\prune-all.ps1 -Keep 5
+  .\scripts\prune-all.ps1 -ScatterThreshold 100
 #>
 [CmdletBinding()]
 param(
     [int]$Keep = 5,
     [int]$MinAgeDays = 2,
     [switch]$SkipLogs,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [int]$ScatterThreshold = 160,
+    [switch]$SkipScatterCheck
 )
 
 $ErrorActionPreference = 'Continue'
@@ -44,6 +53,24 @@ if (-not (Test-Path -LiteralPath $logsDir)) { New-Item -ItemType Directory -Path
 $logFile = Join-Path $logsDir ('prune-' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.log')
 
 $script:Failures = @()
+$script:Warnings = @()
+
+# temp\ 根目录散落文件统计（2026-11-13 新增）：AGENTS.md 0.4 要求一次性脚本/日志不留在根部，
+# 历史上曾堆积 160+ 个。此处只统计与告警，不删除（删除属高风险操作，须人工批准）。
+function Get-TempScatter {
+    param([Parameter(Mandatory = $true)][string]$TempDir)
+    $files = @(Get-ChildItem -LiteralPath $TempDir -File -Force -ErrorAction SilentlyContinue)
+    $byExt = @{}
+    foreach ($f in $files) {
+        $k = if ($f.Extension) { $f.Extension.ToLower() } else { '(无扩展名)' }
+        if ($byExt.ContainsKey($k)) { $byExt[$k]++ } else { $byExt[$k] = 1 }
+    }
+    [pscustomobject]@{
+        Count   = $files.Count
+        ByExt   = $byExt
+        Samples = @($files | Sort-Object LastWriteTime -Descending | Select-Object -First 10 | ForEach-Object { $_.Name })
+    }
+}
 
 $banner = ('空间保留策略执行 ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' Keep=' + $Keep + $(if ($DryRun) { ' DRYRUN' } else { '' }))
 Add-Content -LiteralPath $logFile -Value $banner -Encoding UTF8
@@ -87,6 +114,40 @@ try {
     $script:Failures += '临时产物'
 }
 
+if (-not $SkipScatterCheck) {
+    Write-Host ''
+    Write-Host '==== temp 根目录散落文件检查 ====' -ForegroundColor Cyan
+    $tempDir = Join-Path $RepoRoot 'temp'
+    if (Test-Path -LiteralPath $tempDir) {
+        try {
+            $sc = Get-TempScatter -TempDir $tempDir
+            $extText = (($sc.ByExt.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 6 |
+                         ForEach-Object { $_.Key + '=' + $_.Value }) -join ', ')
+            if (-not $extText) { $extText = '无' }
+            $line = '散落文件数: ' + $sc.Count + '（阈值 ' + $ScatterThreshold + '）; 类型分布: ' + $extText
+            Write-Host ('  ' + $line)
+            Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
+            if ($sc.Count -gt $ScatterThreshold) {
+                $msg = '[WARN] temp\ 根目录散落文件 ' + $sc.Count + ' 个，超过阈值 ' + $ScatterThreshold +
+                       '：一次性脚本/日志应归档到 temp\archive\ 或清理，不应留在根部（AGENTS.md 0.4）'
+                Write-Host $msg -ForegroundColor Yellow
+                Add-Content -LiteralPath $logFile -Value $msg -Encoding UTF8
+                $sampleLine = '  最近修改: ' + ($sc.Samples -join ', ')
+                Write-Host $sampleLine -ForegroundColor Yellow
+                Add-Content -LiteralPath $logFile -Value $sampleLine -Encoding UTF8
+                $script:Warnings += $msg
+            } else {
+                Write-Host '[OK] temp 根目录散落文件未超阈值' -ForegroundColor Green
+            }
+        } catch {
+            Write-Host ('[WARN] 散落文件检查失败: ' + $_.Exception.Message) -ForegroundColor Yellow
+            Add-Content -LiteralPath $logFile -Value ('[WARN] 散落文件检查失败: ' + $_.Exception.Message) -Encoding UTF8
+        }
+    } else {
+        Write-Host '  temp\ 不存在，跳过' -ForegroundColor DarkGray
+    }
+}
+
 if (-not $SkipLogs) {
     Write-Host ''
     Write-Host '==== 日志（logs\） ====' -ForegroundColor Cyan
@@ -112,6 +173,9 @@ try {
 
 Write-Host ''
 Write-Host ("日志: " + $logFile) -ForegroundColor DarkGray
+if ($script:Warnings.Count -gt 0) {
+    Write-Host ('[WARN] 有 ' + $script:Warnings.Count + ' 项告警（不影响退出码）：' + ($script:Warnings -join ' | ')) -ForegroundColor Yellow
+}
 if ($script:Failures.Count -gt 0) {
     Write-Host ('[FAIL] 有 ' + $script:Failures.Count + ' 个环节失败：' + ($script:Failures -join '; ')) -ForegroundColor Red
     exit 1

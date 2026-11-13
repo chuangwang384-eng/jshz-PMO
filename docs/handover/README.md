@@ -1,5 +1,7 @@
 # 最新交接摘要
 
+- 2026-11-13 「docs 失效文档清理 + prune-all 散落文件告警」**已完成待验收**：删除 7 份会误导 agent 的文档（旧版部署手册 `deployment-prod.md`、指向已删除 `demo/`+SQLite 的 4 份 Demo 期文档、2 份 dist 覆盖式发布计划/方案，均以 git rm 保留历史）；`prune-all.ps1` 新增 `-ScatterThreshold`（默认 160）散落文件告警（只告警不删除，退出码不变），两条路径已实测。见 [任务交接](tasks/20261113_docs_cleanup_prune_alert.md)。
+
 - 2026-11-13 「temp/ 临时目录清理」**已执行（待 2026-11-20 最终删除确认）**：清理前 2958 文件/432.1 MB，A 类 2861 文件入 `temp\.quarantine-20261113\`（7 天观察）、B 类 31 文件归档（`builds\archive\` 两个 1.0.21 jar + `temp\archive\{codex-review,java-probes,ppocr-benchmark,installers}`）、C 类已授权项 51 文件入隔离区、`login.json`（含明文凭据）已直接删除并留 SHA256；9 个个人信息样本未授权保留。执行前已校验零引用依赖、`supplier_image` 121 行导入已生效、`docs/data/` 留档齐全。见 [审计记录](tasks/20261113_temp_cleanup_audit.md) / [方案](tasks/20261113_temp_cleanup_plan.md)。
 
 - 2026-11-13 「功能复用审查落地（R1~R5）+ AGENTS.md 19 节复用规范」**已发布上线 1.0.38.24**（提交 a8e913f/96f35d1/c330168）：上传校验/文件名清洗收敛 common.UploadGuard/FileNames，6 处 MAX_SIZE 接入 expert.upload 真源（修复后端限额脱节）；客户关系方向字典 4 处收敛 utils/dict.js；脚本 $root 12 处收敛 common-paths.ps1（方案 C）；venv 探测统一 PpOcrRuntime；凭据库新增 Resolve-JwtSecret。发布后实测 /health=1.0.38.24、前端哈希一致。**发布过程发生 jar 误选事故（生产短暂降级 1.0.38.19 约 14 分钟）**：根因为构建产物时间戳归一化导致 LastWriteTime 选包失效，已修复三重护栏（版本一致性校验/显式 JarPath 强制核对/9e 版本比对），事故详情与回滚基线见 deployment.md 事故记录节。见 [任务交接](tasks/20261113_reuse_consolidation.md)。

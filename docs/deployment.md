@@ -703,6 +703,12 @@ powershell -ExecutionPolicy Bypass -File <LOCAL_PATH> -DryRun
 计划任务：`jshzPMOPruneMonthly`（**每月 1 日 03:30，SYSTEM**，与周日 02:00 备份任务错开），执行
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\prune-all.ps1 -Keep 5`，日志 `logs\prune-<时间戳>.log`。
 
+**temp 根目录散落文件告警（2026-11-13 新增）**：`prune-all.ps1` 在临时产物清理后统计 `temp\` **根目录散文件**数量
+（不含子目录），超过阈值（`-ScatterThreshold`，默认 **160**）即输出 `[WARN]` 并列出类型分布与最近修改的 10 个文件；
+**只告警不删除**（删除属高风险须人工批准），不影响退出码。`-SkipScatterCheck` 可跳过该检查。
+背景：`temp\` 曾堆积 160+ 个一次性脚本/日志（2026-11-13 已清理并审计，见
+`docs/handover/tasks/20261113_temp_cleanup_audit.md`）。
+
 ```powershell
 .\scripts\prune-all.ps1 -DryRun            # 全量预演（不删任何文件）
 .\scripts\prune-all.ps1                    # 立即执行一次
