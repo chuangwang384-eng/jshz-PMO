@@ -1,5 +1,7 @@
 # 最新交接摘要
 
+- 2026-11-13 「temp/ 临时目录清理」**已执行（待 2026-11-20 最终删除确认）**：清理前 2958 文件/432.1 MB，A 类 2861 文件入 `temp\.quarantine-20261113\`（7 天观察）、B 类 31 文件归档（`builds\archive\` 两个 1.0.21 jar + `temp\archive\{codex-review,java-probes,ppocr-benchmark,installers}`）、C 类已授权项 51 文件入隔离区、`login.json`（含明文凭据）已直接删除并留 SHA256；9 个个人信息样本未授权保留。执行前已校验零引用依赖、`supplier_image` 121 行导入已生效、`docs/data/` 留档齐全。见 [审计记录](tasks/20261113_temp_cleanup_audit.md) / [方案](tasks/20261113_temp_cleanup_plan.md)。
+
 - 2026-11-13 「功能复用审查落地（R1~R5）+ AGENTS.md 19 节复用规范」**已发布上线 1.0.38.24**（提交 a8e913f/96f35d1/c330168）：上传校验/文件名清洗收敛 common.UploadGuard/FileNames，6 处 MAX_SIZE 接入 expert.upload 真源（修复后端限额脱节）；客户关系方向字典 4 处收敛 utils/dict.js；脚本 $root 12 处收敛 common-paths.ps1（方案 C）；venv 探测统一 PpOcrRuntime；凭据库新增 Resolve-JwtSecret。发布后实测 /health=1.0.38.24、前端哈希一致。**发布过程发生 jar 误选事故（生产短暂降级 1.0.38.19 约 14 分钟）**：根因为构建产物时间戳归一化导致 LastWriteTime 选包失效，已修复三重护栏（版本一致性校验/显式 JarPath 强制核对/9e 版本比对），事故详情与回滚基线见 deployment.md 事故记录节。见 [任务交接](tasks/20261113_reuse_consolidation.md)。
 
 - 2026-11-13 「前端样式重复治理（P1~P8）+ 硬编码治理四项改造」**已发布上线 1.0.38.23**（提交 fa899d8）：蓝绿发布（凭据一致性预检/影子健康/业务探测全过）+ 前端快照发布（release id `1.0.38.23-style-dedup-hardcode-20261113`，graceful 切换 master PID 未变）；发布后实测 /health=1.0.38.23、/api/meta/limits 401 鉴权正确、前端 served index 哈希一致。样式侧：`ui-tokens.css` 全局公共类收口 + 183 处色值令牌化；硬编码侧：STORAGE_ROOT/CORS/LibreOffice/抠图路径环境变量出口化 + 上传限额单一真源（meta/limits）+ 凭据解析统一。详见 [硬编码治理交接](tasks/20261113_hardcode_remediation.md)、[样式治理交接](tasks/20261113_style_dedup.md)。
