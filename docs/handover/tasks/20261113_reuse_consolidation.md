@@ -5,7 +5,7 @@
 - 任务名称：功能复用审查落地（R1~R5）+ AGENTS.md 第 19 节复用规范
 - 主责 Agent：CodeBuddy（Auto）
 - 交接时间：2026-11-13
-- 当前状态：已完成待验收（未提交、未发布）
+- 当前状态：已发布上线 1.0.38.24（2026-11-13 蓝绿发布 + 前端快照发布；发布过程含一次 jar 误选事故已修复，见第 6a 节）
 - 优先级：P1（R1 补方案 D 缺口）/ P2（其余）
 
 ## 2. 目标与验收条件
@@ -20,8 +20,9 @@
   - [x] mvn compile + npm run build + 15 脚本 AST 解析 + 残留 grep 全部通过
 
 ## 3. 项目基线
-- 分支：codex/personal-dashboard-v11；最新提交 f597031（1.0.38.23 发布态）
-- 工作区：含本任务 + 上轮 AGENTS.md 第 18 节文档改动（均未提交）
+- 分支：codex/personal-dashboard-v11；发布提交链 a8e913f（R1~R5 主体）→ 96f35d1（测试适配）→ c330168（凭据库 Resolve-JwtSecret）
+- 工作区：已发布上线（deploy-backend.ps1 护栏修复与文档同步随后提交）
+- 运行环境：生产已运行 1.0.38.24（jar 归档 backend/releases/1.0.38.24-*，回滚基线 1.0.38.23 见 deployment.md 事故记录节）
 - 核实时间：2026-11-13
 
 ## 4. 已完成工作
@@ -48,7 +49,15 @@
 | 15 脚本 AST 解析 | 通过 | 含新增 common-paths 与 build-paths |
 | 残留 grep | 通过 | `private String (safeName|extension|extensionOf)` 仅剩 3 处一行委托（豁免）；`$root='<LOCAL_PATH>'` 脚本 0 处；MAX_SIZE 字面量 0 处 |
 | read_lints | 0 错误 | 覆盖全部新增/关键修改文件 |
-| 运行时验证 | 未执行 | 未发布；随下次发布窗口验证（重点：上传限额文案、日程/简历上传、抠图/表格 OCR 可用性） |
+| 运行时验证 | 通过 | 2026-11-13 发布后实测：/health=1.0.38.24 gitShort=96f35d1（8080 直连与经 Nginx 一致）；/api/meta/limits 未登录 401 拦截正确；前端 served index SHA256 与发布快照一致、assets 含 1.0.38.24 版本号 |
+
+## 6a. 发布事故与修复（2026-11-13，如实披露）
+
+- **事故**：首次蓝绿发布时发布包装脚本未传 -JarPath，deploy-backend.ps1 缺省按 LastWriteTime 选 jar；构建产物时间戳经 reproducible-builds 归一化后该判据失效，随机命中今晨 1.0.38.19 旧构建 → 生产 14:27~14:41 意外降级运行 1.0.38.19，且阶段 9e 只探活不核版本未拦截。
+- **纠正**：发布后 /health 核验发现版本异常；修复护栏后显式指定 1.0.38.24 制品重新蓝绿发布，14:53 完成切回并实测版本正确。**事故与本次复用治理代码无关**（1.0.38.24 制品本身经完整构建与 testCompile 校验）。
+- **护栏修复**（deploy-backend.ps1）：版本先行解析 + 候选 jar build.version 一致性校验 + 阶段 9e /health 版本比对（不符自动回滚）。详见 deployment.md「1.0.38.24 发布事故与修复记录」。
+- **衍生修复**：阶段 1 预检要求 JWT_SECRET → 凭据库新增 Resolve-JwtSecret（c330168，bat 解析抽公共助手 Get-BatValue）；测试适配 PhotoStorageService 三参构造器（96f35d1，testCompile 此前未覆盖是流程盲区）。
+- **备案**：① 阶段 10 的 8081 清空护栏会被 keepalive/浏览器直连卡住（两次均人工核验连接归属后收尾）；② 8081 存在发布前即有的无关 python 监听进程（PID 8340）待排查；③ 临时脚本含中文必须 UTF-8 带 BOM（本次补记发布表格行时再次踩坑，已当场修正记录行）。
 
 ## 7. 风险与回滚
 - 已知问题：

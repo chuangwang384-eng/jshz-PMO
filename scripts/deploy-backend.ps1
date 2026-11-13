@@ -200,6 +200,22 @@ function Invoke-NginxSwitch {
     }
 }
 
+# 构建产物 zip 时间戳经 reproducible-builds 归一化（LastWriteTime 不可用于比较新旧），
+# jar 的新旧只能以内嵌 build-info.properties 的 build.version 判定。
+function Get-JarBuildVersion([string]$jarPath) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    try {
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($jarPath)
+        try {
+            $e = $zip.GetEntry('META-INF/build-info.properties')
+            if (-not $e) { return '' }
+            $r = New-Object System.IO.StreamReader($e.Open())
+            try { $txt = $r.ReadToEnd() } finally { $r.Dispose() }
+            return [regex]::Match($txt, '(?m)^build\.version=(.*)$').Groups[1].Value.Trim()
+        } finally { $zip.Dispose() }
+    } catch { return '' }
+}
+
 # ==================== 阶段 1: 预检 ====================
 function Wait-PortDrained([int]$port) {
     if (-not $GracefulSwitch -or $DryRun) { return }
@@ -220,24 +236,51 @@ function Step1-Preflight {
         }
     }
     Write-Step '1/11 预检（新 jar 存在 + 绿服务健康）'
+    # 期望版本先行解析（唯一真源 version.txt）。
+    # 2026-11-13 事故修复：构建产物时间戳归一化后按 LastWriteTime 选"最新 jar"会随机命中旧构建，
+    # 因此候选包必须通过 build.version 一致性校验，禁止再按时间戳猜测。
+    if ($Version) { $script:NewVersion = $Version }
+    else {
+        $verFile = 'D:\jshz-PMO\version.txt'
+        if (Test-Path $verFile) {
+            $m = [regex]::Match((Get-Content $verFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
+            if ($m.Success) { $script:NewVersion = $m.Groups[1].Value.Trim() }
+            else { throw 'version.txt 缺少 revision 键，无法确定期望版本（禁止按时间戳猜测 jar）' }
+        } else {
+            throw '缺少 version.txt（版本号唯一真源），无法确定期望版本'
+        }
+    }
+    Write-Info "期望版本: $script:NewVersion"
+
     if (-not $JarPath) {
         # 构建产物统一在 builds\ 下；排除 archive（历史快照不可作为候选包）。仅在找不到时才回退到 backend\target
-        $jar = Get-ChildItem -Path (Get-BuildsRoot) -Directory -ErrorAction SilentlyContinue |
+        $candidates = @(Get-ChildItem -Path (Get-BuildsRoot) -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -ne 'archive' } |
-            ForEach-Object { Get-ChildItem -Path $_.FullName -Filter 'expert-system.jar' -File -ErrorAction SilentlyContinue } |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $jar) {
+            ForEach-Object { Get-ChildItem -Path $_.FullName -Filter 'expert-system.jar' -File -ErrorAction SilentlyContinue })
+        if ($candidates.Count -eq 0) {
             Write-Info 'builds\ 下无候选包，回退到 backend\target（不推荐，建议先用 build-all.ps1 构建）'
-            $jar = Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $candidates = @(Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File)
         }
-        if (-not $jar) { throw '未找到新 jar：请先执行 scripts\build-all.ps1，或用 -JarPath 显式指定' }
+        $matched = @($candidates | Where-Object { (Get-JarBuildVersion $_.FullName) -eq $script:NewVersion })
+        if ($matched.Count -eq 0) {
+            $listing = (@($candidates | ForEach-Object { "$($_.FullName) => $(Get-JarBuildVersion $_.FullName)" }) -join '; ')
+            throw "无 build.version=$script:NewVersion 的候选包。候选清单: $listing 。请先执行 scripts\build-all.ps1，或用 -JarPath 显式指定"
+        }
+        if ($matched.Count -gt 1) {
+            Write-Info "存在 $($matched.Count) 个同版本候选，取路径字典序最新"
+        }
+        $jar = $matched | Sort-Object FullName -Descending | Select-Object -First 1
         $script:NewJar = $jar.FullName
     } else {
         if (-not (Test-Path $JarPath)) { throw "新 jar 不存在: $JarPath" }
         $script:NewJar = $JarPath
     }
     Write-Info "新 jar: $script:NewJar"
+    $jarVer = Get-JarBuildVersion $script:NewJar
+    if ($jarVer -ne $script:NewVersion) {
+        throw "新 jar 版本不一致: build.version=$jarVer，期望=$script:NewVersion（事故护栏：禁止发布与 version.txt 不符的包）"
+    }
+    Write-Ok "版本一致性: jar build.version=$jarVer == 期望 $script:NewVersion"
     if(-not (Test-ExecutableBootJar -Path $script:NewJar)){throw 'Candidate JAR is not an executable Spring Boot package.'}
     $script:RollbackSource = if($RollbackJarPath){(Resolve-Path -LiteralPath $RollbackJarPath).Path}else{Join-Path (Join-Path $BackendDir 'target') $TargetJarName}
     if(-not (Test-ExecutableBootJar -Path $script:RollbackSource)){throw 'Rollback JAR is not executable. Supply an approved known-good package using -RollbackJarPath before release.'}
@@ -271,18 +314,7 @@ function Step1-Preflight {
         Write-Info '未读取到 NSSM AppEnvironmentExtra，跳过一致性比对（首次部署场景）'
     }
 
-    if ($Version) { $script:NewVersion = $Version }
-    else {
-        # jar 已固定名为 expert-system.jar（无版本号），版本号从唯一真源 version.txt 读取
-        $verFile = 'D:\jshz-PMO\version.txt'
-        if (Test-Path $verFile) {
-            $m = [regex]::Match((Get-Content $verFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
-            if ($m.Success) { $script:NewVersion = $m.Groups[1].Value.Trim() }
-            else { $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm') }
-        } else {
-            $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm')
-        }
-    }
+    # 版本号已在阶段 1 开头解析（唯一真源 version.txt），此处仅登记
     Write-Info "发布版本: $script:NewVersion"
 
     # 日志轮转 + JVM 输出编码（UTF-8）幂等就绪。失败不阻断发布：日志配置问题不应阻塞业务上线。
@@ -460,9 +492,13 @@ function Step9-StabilizeNssm {
         Start-Sleep -Seconds 3
     }
 
-    # 9e 健康检查
-    $ok = Invoke-Check "9e 健康检查: 8080/health = UP（新版本）" {
+    # 9e 健康检查（含版本核对：健康 UP ≠ 版本正确，2026-11-13 事故护栏）
+    $ok = Invoke-Check "9e 健康检查: 8080/health = UP 且 build 版本 = $script:NewVersion" {
         if (-not (Wait-Healthy "http://127.0.0.1:${GreenPort}/health" $HealthOkRetries $HealthOkDelay '8080 新版本')) { throw '8080 新版本健康检查失败' }
+        $h = Invoke-RestMethod "http://127.0.0.1:${GreenPort}/health"
+        $live = $h.data.version
+        if (-not $live) { throw "8080 /health 未返回 build 版本，无法核对（响应结构异常）" }
+        if ($live -ne $script:NewVersion) { throw "8080 版本不符: 实际=$live，期望=$script:NewVersion" }
     }
     if (-not $ok) {
         Invoke-Action '回滚：从 releases 恢复旧 jar -> 重启 NSSM' {
