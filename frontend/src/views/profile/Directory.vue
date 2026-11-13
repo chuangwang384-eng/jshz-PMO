@@ -77,7 +77,7 @@ onMounted(async () => {
   gap: 12px;
 }
 .muted {
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 12px;
 }
 .chain {
@@ -88,7 +88,7 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 .arrow {
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .members h3 {
   margin-top: 0;

@@ -367,29 +367,15 @@ watchDashboardFocus(route, 'applicationId', 'approval', row => openDiff(row, 'ap
   align-items: baseline;
   gap: 12px;
 }
-.page-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #303133;
-}
-.page-sub {
-  font-size: 13px;
-  color: #909399;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
 .dialog-expert {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   margin-bottom: 8px;
 }
 .dialog-summary {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
   margin-bottom: 12px;
 }
 </style>

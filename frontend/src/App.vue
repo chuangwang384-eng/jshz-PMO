@@ -300,7 +300,7 @@ body {
 .header-title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .user-area {
   display: flex;
@@ -308,7 +308,7 @@ body {
   gap: 12px;
 }
 .username {
-  color: #303133;
+  color: var(--ui-text-main);
   font-weight: 500;
 }
 .main {

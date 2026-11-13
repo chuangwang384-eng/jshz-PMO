@@ -92,13 +92,5 @@ function prioText(p) {
 
 <style scoped>
 .todo-stats { margin-bottom: 12px; }
-.stat { padding: 12px 16px; text-align: center; }
-.stat-label { color: #909399; font-size: 13px; }
-.stat-value { font-size: 22px; font-weight: 700; color: #303133; margin-top: 4px; }
-.stat-warn { color: #E6A23C; }
-.stat-danger { color: #F56C6C; }
-.todo-title { font-weight: 600; color: #303133; display: flex; align-items: center; gap: 6px; }
-.todo-sub { font-size: 12px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.due-over { color: #F56C6C; font-weight: 600; }
-.due-near { color: #E6A23C; }
+.due-near { color: var(--ui-warning); }
 </style>

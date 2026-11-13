@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 24px;
   align-items: center;
-  color: #606266;
+  color: var(--ui-text-sub);
   font-size: 13px;
 }
 .legend-item {
@@ -402,13 +402,13 @@ onBeforeUnmount(() => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--ui-primary);
 }
 .arrow {
   display: inline-block;
   width: 24px;
   height: 2px;
-  background: #c0c4cc;
+  background: var(--ui-info);
   position: relative;
 }
 .arrow::after {
@@ -416,7 +416,7 @@ onBeforeUnmount(() => {
   position: absolute;
   right: -1px;
   top: -3px;
-  border-left: 6px solid #c0c4cc;
+  border-left: 6px solid var(--ui-info);
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
 }
@@ -424,7 +424,7 @@ onBeforeUnmount(() => {
   display: inline-block;
   width: 24px;
   height: 2px;
-  background: #c0c4cc;
+  background: var(--ui-info);
   position: relative;
 }
 .double-arrow::before {
@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
   position: absolute;
   left: -1px;
   top: -3px;
-  border-right: 6px solid #c0c4cc;
+  border-right: 6px solid var(--ui-info);
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
 }
@@ -441,7 +441,7 @@ onBeforeUnmount(() => {
   position: absolute;
   right: -1px;
   top: -3px;
-  border-left: 6px solid #c0c4cc;
+  border-left: 6px solid var(--ui-info);
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
 }
@@ -449,6 +449,6 @@ onBeforeUnmount(() => {
   display: inline-block;
   width: 24px;
   height: 2px;
-  background: #c0c4cc;
+  background: var(--ui-info);
 }
 </style>

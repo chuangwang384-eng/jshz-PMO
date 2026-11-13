@@ -61,7 +61,7 @@ function formatTime(t) {
 .stats-title {
   font-weight: 600;
   margin-bottom: 8px;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .stats-list {
   min-height: 80px;
@@ -73,6 +73,6 @@ function formatTime(t) {
 }
 .stats-time {
   margin-left: 4px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 </style>

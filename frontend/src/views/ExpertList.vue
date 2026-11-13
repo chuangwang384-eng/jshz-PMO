@@ -601,6 +601,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters, parseResume } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
+import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
+
+ensureUploadLimits()
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
 import BatchResumeDialog from '../components/BatchResumeDialog.vue'
@@ -924,8 +927,8 @@ function onPickPhoto(kind, file) {
   if (!raw) {
     return
   }
-  if (raw.size > 5 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过 5MB')
+  if (raw.size > uploadLimits.photoMaxBytes) {
+    ElMessage.warning(`图片大小不能超过 ${toMb(uploadLimits.photoMaxBytes)}MB`)
     return
   }
   if (canEditExpert.value) {
@@ -1081,8 +1084,8 @@ function onCreatePickPhoto(kind, file) {
   if (!raw) {
     return
   }
-  if (raw.size > 5 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过 5MB')
+  if (raw.size > uploadLimits.photoMaxBytes) {
+    ElMessage.warning(`图片大小不能超过 ${toMb(uploadLimits.photoMaxBytes)}MB`)
     return
   }
   createPickedFiles[kind] = raw
@@ -1279,8 +1282,8 @@ function onAdminCreatePickPhoto(kind, file) {
   if (!raw) {
     return
   }
-  if (raw.size > 5 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过 5MB')
+  if (raw.size > uploadLimits.photoMaxBytes) {
+    ElMessage.warning(`图片大小不能超过 ${toMb(uploadLimits.photoMaxBytes)}MB`)
     return
   }
   adminCreatePickedFiles[kind] = raw
@@ -1432,30 +1435,30 @@ watch(() => route.query.expertId, async id => {
 <style scoped>
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
   line-height: 1.4;
   margin-top: 4px;
 }
-.toolbar {
-  display: flex;
-  align-items: center;
-}
-
 /* 简历解析区块（新增专家弹窗顶部） */
+/* 共用灰底圆角块（文件内三处重复收口） */
+.resume-parse,
+.advanced-panel,
+.selected-bar {
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
 .resume-parse {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   padding: 10px 14px;
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
   margin-bottom: 14px;
 }
 .resume-tip {
   font-size: 12px;
-  color: #606266;
+  color: var(--ui-text-sub);
   flex: 1;
   min-width: 200px;
 }
@@ -1488,7 +1491,7 @@ watch(() => route.query.expertId, async id => {
   margin-left: 4px;
   font-size: 10px;
   font-weight: 400;
-  color: #67c23a;
+  color: var(--ui-success);
 }
 /* 第一层：搜索筛选区 */
 .filter-bar {
@@ -1510,9 +1513,6 @@ watch(() => route.query.expertId, async id => {
   flex-wrap: wrap;
   margin-top: 12px;
   padding: 14px 16px;
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
 }
 .filter-field {
   display: inline-flex;
@@ -1521,7 +1521,7 @@ watch(() => route.query.expertId, async id => {
 }
 .filter-field label {
   font-size: 12px;
-  color: #606266;
+  color: var(--ui-text-sub);
   white-space: nowrap;
 }
 /* 第二层：工具行 */
@@ -1533,11 +1533,11 @@ watch(() => route.query.expertId, async id => {
 }
 .total-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
 }
 .view-toggle-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .view-btn {
   display: inline-flex;
@@ -1548,15 +1548,15 @@ watch(() => route.query.expertId, async id => {
   background: #fff;
   border-radius: 6px;
   cursor: pointer;
-  color: #606266;
+  color: var(--ui-text-sub);
   font-size: 12px;
 }
 .view-btn .el-icon {
   font-size: 14px;
 }
 .view-btn.active {
-  color: #409eff;
-  border-color: #409eff;
+  color: var(--ui-primary);
+  border-color: var(--ui-primary);
   background: #ecf5ff;
   font-weight: 600;
 }
@@ -1578,16 +1578,11 @@ watch(() => route.query.expertId, async id => {
 }
 .batch-label {
   font-size: 13px;
-  color: #303133;
+  color: var(--ui-text-main);
   white-space: nowrap;
-}
-.spacer {
-  flex: 1;
 }
 .pagination-wrap {
   margin-top: 45px;
-  display: flex;
-  justify-content: flex-end;
   align-items: center;
   padding: 10px 16px;
   background: rgba(255, 255, 255, 0.95);
@@ -1620,12 +1615,12 @@ watch(() => route.query.expertId, async id => {
 /* 详情弹窗字段复制图标 */
 .copy-icon {
   font-size: 16px;
-  color: #909399;
+  color: var(--ui-text-muted);
   cursor: pointer;
   transition: color 0.2s;
 }
 .copy-icon:hover {
-  color: #409eff;
+  color: var(--ui-primary);
 }
 .textarea-copy-wrap {
   position: relative;
@@ -1644,17 +1639,14 @@ watch(() => route.query.expertId, async id => {
   gap: 8px 10px;
   margin-top: 16px;
   padding: 12px 16px;
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
 }
 .selected-label {
   font-size: 14px;
-  color: #606266;
+  color: var(--ui-text-sub);
   white-space: nowrap;
 }
 .expert-card.selected {
-  border-color: #409eff;
+  border-color: var(--ui-primary);
   background: #ecf5ff;
   box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.35);
 }
@@ -1675,7 +1667,7 @@ watch(() => route.query.expertId, async id => {
   flex-wrap: nowrap;
   gap: 8px;
   font-size: 11px;
-  color: #909399;
+  color: var(--ui-text-muted);
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -1726,7 +1718,7 @@ watch(() => route.query.expertId, async id => {
   max-width: 100%;
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1736,7 +1728,7 @@ watch(() => route.query.expertId, async id => {
   min-width: 0;
   max-width: 100%;
   font-size: 12px;
-  color: #606266;
+  color: var(--ui-text-sub);
   line-height: 1.55;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1762,7 +1754,7 @@ watch(() => route.query.expertId, async id => {
   top: 50%;
   transform: translateY(-50%);
   text-align: center;
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 12px;
   background: rgba(255, 255, 255, 0.7);
   padding: 2px 0;
@@ -1793,7 +1785,7 @@ watch(() => route.query.expertId, async id => {
 }
 .edit-photo-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
   margin-bottom: 2px;
 }
 .edit-photo-box {

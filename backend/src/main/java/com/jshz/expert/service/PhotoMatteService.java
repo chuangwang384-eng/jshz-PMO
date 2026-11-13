@@ -66,15 +66,28 @@ public class PhotoMatteService {
         }
     }
 
+    /** 受保护 venv 根目录：PHOTOMATTE_ROOT 可覆盖，缺省 ProgramFiles/JSHZ/pp-ocrv5。 */
+    private static String resolveRoot() {
+        String programFiles = System.getenv().getOrDefault("ProgramFiles", "C:/Program Files");
+        return System.getenv().getOrDefault("PHOTOMATTE_ROOT", programFiles + "/JSHZ/pp-ocrv5");
+    }
+
+    /**
+     * 历史管理 venv 根目录（E 盘实测可用镜像）：默认保留原路径以维持运行时行为不变，
+     * 可通过 PHOTOMATTE_LEGACY_ROOT 覆盖或置空跳过（交接记录：E 盘 venv 安装不稳定，正式出口为 PHOTOMATTE_PYTHON/PHOTOMATTE_ROOT）。
+     */
+    private static String legacyRoot() {
+        return System.getenv().getOrDefault("PHOTOMATTE_LEGACY_ROOT", "E:/AI助手开发/pp-ocrv5");
+    }
+
     /** Python 解释器探测：显式配置 → E 盘管理 venv（实测可用）→ 受保护 venv。 */
     private Path resolvePython() {
-        String programFiles = System.getenv().getOrDefault("ProgramFiles", "C:/Program Files");
-        String root = System.getenv().getOrDefault("PHOTOMATTE_ROOT", programFiles + "/JSHZ/pp-ocrv5");
         java.util.List<String> candidates = new java.util.ArrayList<>();
         String explicit = System.getenv("PHOTOMATTE_PYTHON");
         if (explicit != null && !explicit.isBlank()) candidates.add(explicit);
-        candidates.add("E:/AI助手开发/pp-ocrv5/runtime/Scripts/python.exe");
-        candidates.add(root + "/runtime/Scripts/python.exe");
+        String legacy = legacyRoot();
+        if (legacy != null && !legacy.isBlank()) candidates.add(legacy + "/runtime/Scripts/python.exe");
+        candidates.add(resolveRoot() + "/runtime/Scripts/python.exe");
         for (String c : candidates) {
             Path p = Path.of(c);
             if (Files.isRegularFile(p)) return p;
@@ -84,9 +97,11 @@ public class PhotoMatteService {
 
     /** 脚本探测：受保护目录 → E 盘镜像。 */
     private Path resolveScript() {
-        String programFiles = System.getenv().getOrDefault("ProgramFiles", "C:/Program Files");
-        String root = System.getenv().getOrDefault("PHOTOMATTE_ROOT", programFiles + "/JSHZ/pp-ocrv5");
-        for (String c : new String[]{root + "/photomatte.py", "E:/AI助手开发/pp-ocrv5/photomatte.py"}) {
+        java.util.List<String> candidates = new java.util.ArrayList<>();
+        candidates.add(resolveRoot() + "/photomatte.py");
+        String legacy = legacyRoot();
+        if (legacy != null && !legacy.isBlank()) candidates.add(legacy + "/photomatte.py");
+        for (String c : candidates) {
             Path p = Path.of(c);
             if (Files.isRegularFile(p)) return p;
         }

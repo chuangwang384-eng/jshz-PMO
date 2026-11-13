@@ -399,7 +399,7 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.04);
 }
 .msg-bell-icon {
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .msg-bell-badge {
   display: flex;
@@ -420,7 +420,7 @@ onBeforeUnmount(() => {
 .msg-drawer-title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .msg-drawer-tag {
   flex-shrink: 0;
@@ -452,7 +452,7 @@ onBeforeUnmount(() => {
 .msg-empty {
   padding: 40px 0;
   text-align: center;
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 13px;
 }
 .msg-item {
@@ -469,14 +469,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
-}
-.msg-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f56c6c;
-  flex-shrink: 0;
+  color: var(--ui-text-main);
 }
 .msg-tag {
   flex-shrink: 0;
@@ -495,7 +488,7 @@ onBeforeUnmount(() => {
 .msg-scroll-tip {
   padding: 10px 0;
   text-align: center;
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 12px;
 }
 .msg-foot {

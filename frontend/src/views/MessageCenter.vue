@@ -14,7 +14,7 @@
       <el-tab-pane label="已读" name="read" />
     </el-tabs>
 
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-select
         v-model="typeFilter"
         placeholder="全部类型"
@@ -275,18 +275,7 @@ watchDashboardFocus(route, 'notificationId', 'notification', async row => {
   align-items: baseline;
   gap: 12px;
 }
-.page-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #303133;
-}
-.page-sub {
-  font-size: 13px;
-  color: #909399;
-}
 .toolbar {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
 }
 .tab-badge {
@@ -294,24 +283,14 @@ watchDashboardFocus(route, 'notificationId', 'notification', async row => {
   transform: translateY(-2px);
 }
 .row-title {
-  color: #606266;
+  color: var(--ui-text-sub);
 }
 .row-title.is-unread {
-  color: #303133;
+  color: var(--ui-text-main);
   font-weight: 600;
 }
 .unread-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f56c6c;
   margin-right: 6px;
   vertical-align: middle;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
 }
 </style>

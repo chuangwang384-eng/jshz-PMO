@@ -179,7 +179,7 @@ defineExpose({ getStates })
 <style scoped>
 .template-bind__layout { display: flex; gap: 14px; min-height: 320px; }
 .template-bind__phases { width: 220px; flex-shrink: 0; border-right: 1px solid #ebeef5; padding-right: 12px; }
-.template-bind__phases-title { font-size: 13px; color: #606266; margin-bottom: 8px; font-weight: 600; }
+.template-bind__phases-title { font-size: 13px; color: var(--ui-text-sub); margin-bottom: 8px; font-weight: 600; }
 .template-bind__phase {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: 6px; cursor: pointer;
@@ -189,17 +189,17 @@ defineExpose({ getStates })
 .template-bind__phase.is-active { background: #ecf5ff; border-color: #b3d8ff; }
 .template-bind__phase-idx {
   width: 20px; height: 20px; border-radius: 50%;
-  background: #409eff; color: #fff; font-size: 12px;
+  background: var(--ui-primary); color: #fff; font-size: 12px;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.template-bind__phase-name { flex: 1; font-size: 13px; color: #303133; }
+.template-bind__phase-name { flex: 1; font-size: 13px; color: var(--ui-text-main); }
 .template-bind__phase-tag { font-size: 11px; padding: 0 4px; border-radius: 3px; line-height: 15px; }
-.template-bind__phase-tag--global { color: #409eff; background: #ecf5ff; }
-.template-bind__phase-tag--own { color: #67c23a; background: #f0f9eb; }
-.template-bind__phases-empty { color: #c0c4cc; font-size: 12px; }
+.template-bind__phase-tag--global { color: var(--ui-primary); background: #ecf5ff; }
+.template-bind__phase-tag--own { color: var(--ui-success); background: #f0f9eb; }
+.template-bind__phases-empty { color: var(--ui-info); font-size: 12px; }
 .template-bind__detail { flex: 1; min-width: 0; }
-.template-bind__detail-title { font-size: 14px; font-weight: 600; color: #303133; }
-.template-bind__fallback-hint { color: #409eff; font-size: 12px; margin-top: 3px; }
+.template-bind__detail-title { font-size: 14px; font-weight: 600; color: var(--ui-text-main); }
+.template-bind__fallback-hint { color: var(--ui-primary); font-size: 12px; margin-top: 3px; }
 .template-bind__cards { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; }
 .template-bind__card {
   display: flex; align-items: center; gap: 10px;
@@ -209,5 +209,5 @@ defineExpose({ getStates })
 .template-bind__card.is-bound { border-color: #d3e9d0; background: #f8fbf8; }
 .template-bind__card-main { flex: 1; min-width: 0; }
 .template-bind__card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.template-bind__empty { color: #c0c4cc; font-size: 13px; padding: 40px 0; text-align: center; }
+.template-bind__empty { color: var(--ui-info); font-size: 13px; padding: 40px 0; text-align: center; }
 </style>

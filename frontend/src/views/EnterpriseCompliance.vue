@@ -49,5 +49,5 @@ async function loadMode() {
 onMounted(loadMode)
 </script>
 <style scoped>
-.page-container { padding: 16px; max-width: 1440px; margin: 0 auto; }
+.page-container { max-width: 1440px; margin: 0 auto; }
 </style>

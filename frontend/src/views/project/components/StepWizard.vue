@@ -56,7 +56,7 @@
         <p>
           从公共阶段库选取，或直接新建。新阶段仅加入当前流程，保存后供其他类型选用。
         </p>
-        <div class="toolbar">
+        <div class="toolbar ui-toolbar">
           <el-select
             v-model="selected"
             filterable
@@ -640,14 +640,13 @@ async function close() {
 }
 .hint,
 .explanation {
-  color: #606266;
+  color: var(--ui-text-sub);
   font-size: 13px;
 }
 .hint {
   margin-left: 10px;
 }
 .toolbar {
-  display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 16px;

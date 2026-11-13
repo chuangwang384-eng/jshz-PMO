@@ -1,5 +1,9 @@
 # 最新交接摘要
 
+- 2026-11-13 「硬编码治理四项改造」**已完成待验收，未发布**：B=存储目录（STORAGE_ROOT 统一根）/LibreOffice/CORS 白名单（CORS_ALLOWED_ORIGINS）/抠图 E 盘路径（PHOTOMATTE_LEGACY_ROOT）全部环境变量出口化（默认值=原值，行为不变）；D=上传限额单一真源（application.yml expert.upload + 新增 GET /api/meta/limits + 前端 utils/limits.js，替换 5 处字面量）；A=凭据解析收敛到 scripts/common-credentials.ps1（9 个脚本）；E=AGENTS.md 17.7 状态字典成对修改约定。后端编译/前端构建/脚本语法/凭据库功能测试通过，运行时验证待发布窗口。见 [任务交接](tasks/20261113_hardcode_remediation.md)。
+
+- 2026-11-13 「前端样式重复治理（P1~P8）」**已完成待验收，未发布**：`ui-tokens.css` 新增全局公共类（ui-toolbar/page-sub/pagination-wrap/page-container/spacer/红点组/统计卡组），15 个页面删除逐字重复 scoped 规则（含 6 处 `.page-title` 死代码），38 文件 183 处 style 块内等值硬编码色接入 `var(--ui-*)`；按约定保留 Dashboard/Supplier 专属色系与各页视觉差异（P2 卡片/P3 徽标未收口待决策）。`npm run build` 通过，浏览器回归待验收。见 [任务交接](tasks/20261113_style_dedup.md)。
+
 - 2026-11-13 项目库外专家批量建档复用专家库简历窗口并校验正文姓名。见 [任务交接](tasks/20261113_project_resume_reuse.md)。
 
 - 2026-11-13 审批管理快速审批已完成前端实现及隔离 Edge 回归，待业务验收。见 [任务交接](tasks/20261113_quick_approval.md)。

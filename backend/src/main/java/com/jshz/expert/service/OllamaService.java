@@ -31,6 +31,27 @@ public class OllamaService {
             .build();
     private final ObjectMapper json = new ObjectMapper();
 
+    // 默认值单一来源（可分别由 OLLAMA_MODEL / OLLAMA_TIMEOUT 环境变量覆盖）
+    private static final String DEFAULT_MODEL = "qwen2.5:7b";
+    private static final String DEFAULT_TIMEOUT_SEC = "180";
+    private static final String DEFAULT_KEEP_ALIVE = "60m";
+
+    private static String baseUrl() {
+        return System.getenv("OLLAMA_URL").replaceAll("/+$", "");
+    }
+
+    private static String modelOrDefault() {
+        return System.getenv().getOrDefault("OLLAMA_MODEL", DEFAULT_MODEL);
+    }
+
+    private static long resolveTimeoutSeconds() {
+        try {
+            return Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", DEFAULT_TIMEOUT_SEC));
+        } catch (Exception ignored) {
+            return Long.parseLong(DEFAULT_TIMEOUT_SEC);
+        }
+    }
+
     /** 语义层是否已配置启用（OLLAMA_URL 存在即启用）。 */
     public boolean available() {
         return System.getenv("OLLAMA_URL") != null && !System.getenv("OLLAMA_URL").isBlank();
@@ -42,8 +63,8 @@ public class OllamaService {
      */
     public Map<String, String> extractResumeFields(String text) {
         if (!available() || text == null || text.isBlank()) return null;
-        String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
-        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+        String url = baseUrl();
+        String model = modelOrDefault();
         String prompt = """
                 你是专家档案录入助手。从以下简历文本中抽取字段，严格输出 JSON 对象（不要输出任何其他文字）：
                 {"姓名":"","单位":"","科室":"","职称":"","联系方式":""}
@@ -56,12 +77,9 @@ public class OllamaService {
                     "prompt", prompt,
                     "stream", false,
                     "format", "json",
-                    "keep_alive", "60m"));
+                    "keep_alive", DEFAULT_KEEP_ALIVE));
             // 冷加载模型 + 长文本预填充可能超过 60s，超时可由 OLLAMA_TIMEOUT 秒覆盖（默认 180）
-            long timeoutSec = 180;
-            try {
-                timeoutSec = Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", "180"));
-            } catch (Exception ignored) {}
+            long timeoutSec = resolveTimeoutSeconds();
             HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
                     .timeout(Duration.ofSeconds(timeoutSec))
                     .header("Content-Type", "application/json")
@@ -93,8 +111,8 @@ public class OllamaService {
      */
     public java.util.List<com.jshz.expert.entity.ProjectSpeaker> extractScheduleSpeakers(String text) {
         if (!available() || text == null || text.isBlank()) return null;
-        String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
-        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+        String url = baseUrl();
+        String model = modelOrDefault();
         String prompt = """
                 你是会议日程解析助手。从以下会议日程文本中抽取参会专家，严格输出 JSON 对象（不要输出任何其他文字）：
                 {"speakers":[{"name":"","role":"","segmentTitle":"","segmentTime":""}]}
@@ -109,11 +127,8 @@ public class OllamaService {
                     "prompt", prompt,
                     "stream", false,
                     "format", "json",
-                    "keep_alive", "60m"));
-            long timeoutSec = 180;
-            try {
-                timeoutSec = Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", "180"));
-            } catch (Exception ignored) {}
+                    "keep_alive", DEFAULT_KEEP_ALIVE));
+            long timeoutSec = resolveTimeoutSeconds();
             HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
                     .timeout(Duration.ofSeconds(timeoutSec))
                     .header("Content-Type", "application/json")
@@ -156,19 +171,16 @@ public class OllamaService {
      */
     public String completeJson(String prompt) {
         if (!available() || prompt == null || prompt.isBlank()) return null;
-        String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
-        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+        String url = baseUrl();
+        String model = modelOrDefault();
         try {
             String body = json.writeValueAsString(Map.of(
                     "model", model,
                     "prompt", prompt,
                     "stream", false,
                     "format", "json",
-                    "keep_alive", "60m"));
-            long timeoutSec = 180;
-            try {
-                timeoutSec = Long.parseLong(System.getenv().getOrDefault("OLLAMA_TIMEOUT", "180"));
-            } catch (Exception ignored) {}
+                    "keep_alive", DEFAULT_KEEP_ALIVE));
+            long timeoutSec = resolveTimeoutSeconds();
             HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
                     .timeout(Duration.ofSeconds(timeoutSec))
                     .header("Content-Type", "application/json")
@@ -228,16 +240,16 @@ public class OllamaService {
     public void warmUpOnStartup() {
         if (!available()) return;
         Thread warm = new Thread(() -> {
-            String url = System.getenv("OLLAMA_URL").replaceAll("/+$", "");
-            String model = System.getenv().getOrDefault("OLLAMA_MODEL", "qwen2.5:7b");
+            String url = baseUrl();
+            String model = modelOrDefault();
             try {
                 String body = json.writeValueAsString(Map.of(
                         "model", model,
                         "prompt", "预热",
                         "stream", false,
-                        "keep_alive", "60m"));
+                        "keep_alive", DEFAULT_KEEP_ALIVE));
                 HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
-                        .timeout(Duration.ofSeconds(180))
+                        .timeout(Duration.ofSeconds(resolveTimeoutSeconds()))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();

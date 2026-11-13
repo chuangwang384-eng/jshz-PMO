@@ -4,7 +4,7 @@
       <span class="page-sub">下载导出、专家/文档变更、登录与权限等敏感操作留痕（含历史下载记录）</span>
     </div>
 
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-input
         v-model="filters.username"
         placeholder="用户名（模糊）"
@@ -205,25 +205,9 @@ onMounted(fetchList)
   align-items: baseline;
   gap: 12px;
 }
-.page-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #303133;
-}
-.page-sub {
-  font-size: 13px;
-  color: #909399;
-}
 .toolbar {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 4px 0;
   margin-top: 12px;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
 }
 </style>

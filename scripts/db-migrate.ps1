@@ -62,16 +62,8 @@ function Find-MySqlClient {
     return ''
 }
 
-function Resolve-DbPassword {
-    if ($env:MYSQL_PASSWORD) { return $env:MYSQL_PASSWORD }
-    $bat = Join-Path $RepoRoot 'start-backend.bat'
-    if (Test-Path $bat) {
-        $raw = Get-Content $bat -Raw -Encoding Default
-        $m = [regex]::Match($raw, '(?im)^[ \t]*set[ \t]+MYSQL_PASSWORD=(.*)$')
-        if ($m.Success) { return $m.Groups[1].Value.Trim().Trim('"') }
-    }
-    return ''
-}
+# 凭据解析（方案 A，2026-11-13 收敛：实现统一在 scripts/common-credentials.ps1）
+. (Join-Path $PSScriptRoot 'common-credentials.ps1')
 
 $mysql = Find-MySqlClient
 if (-not $mysql) { Fail '未找到 mysql.exe（已探测 PATH 与 C:\Program Files\MySQL\*\bin）' }

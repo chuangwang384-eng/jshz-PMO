@@ -202,6 +202,6 @@ onMounted(loadTypes)
 .builtin-tip {
   margin-left: 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 </style>

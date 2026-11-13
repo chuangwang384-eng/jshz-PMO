@@ -708,12 +708,12 @@ onMounted(fetchAll)
 <style scoped>
 .order-entry{margin-bottom:12px}.order-row{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid #dcdfe6;margin:8px 0}.order-row span{flex:1}
 .page-head { margin-bottom: 12px; }
-.page-title { font-size: 18px; font-weight: 600; }
-.page-sub { margin-left: 8px; color: #909399; font-size: 13px; }
-.hint-text { color: #909399; font-size: 13px; }
-.err-dot { color: #f56c6c; margin-left: 4px; font-weight: 700; }
+.page-title { font-size: 18px; font-weight: 600; color: inherit; }
+.page-sub { margin-left: 8px; }
+.hint-text { color: var(--ui-text-muted); font-size: 13px; }
+.err-dot { color: var(--ui-danger); margin-left: 4px; font-weight: 700; }
 .view-switch { margin-bottom: 14px; }
 .graph-toolbar { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
 .graph-title { font-size: 16px; font-weight: 600; }
-.graph-sub { color: #909399; font-size: 12px; margin-top: 3px; }
+.graph-sub { color: var(--ui-text-muted); font-size: 12px; margin-top: 3px; }
 </style>

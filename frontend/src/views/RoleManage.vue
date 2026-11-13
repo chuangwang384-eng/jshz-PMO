@@ -1,6 +1,6 @@
 <template>
   <div v-permission="'role:manage'">
-    <div class="toolbar">
+    <div class="ui-toolbar">
       <div class="spacer" />
       <el-button type="primary" @click="openCreate">新增角色</el-button>
     </div>
@@ -304,21 +304,9 @@ onMounted(fetchRoles)
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-}
-.page-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #303133;
-}
-.spacer {
-  flex: 1;
-}
 .perm-tag {
   margin-left: 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 </style>

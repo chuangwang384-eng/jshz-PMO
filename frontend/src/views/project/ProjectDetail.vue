@@ -814,6 +814,9 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
+import { uploadLimits, ensureUploadLimits, toMb } from '../../utils/limits'
+
+ensureUploadLimits()
 import {
   getProjectDetail, changePhase, cancelProject, restoreProject,
   addProjectExpert, removeProjectExpert, createExpertCard,
@@ -978,9 +981,9 @@ function resetCandidateDraft() {
 
 async function onScheduleFile(file) {
   if (!file || !file.raw) return
-  // 前端预检：超限给明确提示，不再让 Nginx 413 弹英文报错（日程上限 50MB，2026-11-10）
-  if (file.raw.size > 50 * 1024 * 1024) {
-    ElMessage.warning('日程文件超过 50MB 限制，请压缩后再上传')
+  // 前端预检：超限给明确提示，不再让 Nginx 413 弹英文报错（限额单一真源 application.yml expert.upload，2026-11-10）
+  if (file.raw.size > uploadLimits.docMaxBytes) {
+    ElMessage.warning(`日程文件超过 ${toMb(uploadLimits.docMaxBytes)}MB 限制，请压缩后再上传`)
     return
   }
   try {
@@ -1866,7 +1869,7 @@ async function downloadProjectFile(d) {
 }
 .avatar-more { background: var(--ui-info); }
 .executor-names { color: var(--ui-text-muted); font-size: 12px; }
-.remark-text { margin-top: 4px; color: var(--ui-text-muted, #909399); font-size: 13px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; }
+.remark-text { margin-top: 4px; color: var(--ui-text-muted, var(--ui-text-muted)); font-size: 13px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; }
 
 /* 库外专家建档 */
 .link-tag { cursor: pointer; }
@@ -1880,8 +1883,7 @@ async function downloadProjectFile(d) {
 /* ⑧ 预算 */
 .pd-budget { padding: 16px 20px; }
 .stat-box { text-align: center; padding: 8px 0; }
-.stat-label { color: var(--ui-text-muted); font-size: 13px; }
-.stat-value { font-size: 20px; font-weight: 600; color: var(--ui-text-main); margin-top: 4px; }
+.stat-value { font-size: 20px; font-weight: 600; }
 
 /* ⑨ 业务明细 */
 .pd-block { padding: 16px 20px; }

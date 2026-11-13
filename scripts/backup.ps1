@@ -93,18 +93,8 @@ function Find-MySqlTools {
 }
 
 # 凭据：环境变量优先，其次本地 start-backend.bat 运行时解析（不落盘）
-function Resolve-DbPassword {
-    if ($env:MYSQL_PASSWORD) { return $env:MYSQL_PASSWORD }
-    if (Test-Path $StartBat) {
-        $bat = Get-Content $StartBat -Raw
-        $m = [regex]::Match($bat, '(?m)^\s*set\s+MYSQL_PASSWORD=(.+?)\s*$')
-        if ($m.Success) {
-            Log 'MYSQL_PASSWORD 环境变量未设置，已从本地 start-backend.bat 运行时解析（不落盘）'
-            return $m.Groups[1].Value.Trim()
-        }
-    }
-    return $null
-}
+# （方案 A，2026-11-13 收敛：解析实现统一在 scripts/common-credentials.ps1）
+. (Join-Path $PSScriptRoot 'common-credentials.ps1')
 
 # 最新一份备份目录（或 -From 指定）
 function Resolve-BackupSource {

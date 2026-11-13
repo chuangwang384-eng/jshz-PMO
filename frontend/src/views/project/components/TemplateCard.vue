@@ -45,13 +45,13 @@ function onDragStart(e) {
 }
 .tmpl-card--dim { opacity: 0.72; }
 .tmpl-card__head { display: flex; align-items: center; gap: 6px; }
-.tmpl-card__name { font-weight: 600; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.tmpl-card__type { flex-shrink: 0; color: #909399; font-size: 11px; }
+.tmpl-card__name { font-weight: 600; color: var(--ui-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.tmpl-card__type { flex-shrink: 0; color: var(--ui-text-muted); font-size: 11px; }
 .tmpl-card__meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
 .tmpl-card__flag { font-size: 11px; padding: 0 5px; border-radius: 3px; line-height: 16px; }
-.tmpl-card__flag.is-req { color: #f56c6c; background: #fef0f0; }
-.tmpl-card__flag.is-opt { color: #e6a23c; background: #fdf6ec; }
+.tmpl-card__flag.is-req { color: var(--ui-danger); background: #fef0f0; }
+.tmpl-card__flag.is-opt { color: var(--ui-warning); background: #fdf6ec; }
 .tmpl-card__src { font-size: 11px; padding: 0 5px; border-radius: 3px; line-height: 16px; }
-.tmpl-card__src.is-own { color: #67c23a; background: #f0f9eb; }
-.tmpl-card__src.is-global { color: #409eff; background: #ecf5ff; }
+.tmpl-card__src.is-own { color: var(--ui-success); background: #f0f9eb; }
+.tmpl-card__src.is-global { color: var(--ui-primary); background: #ecf5ff; }
 </style>

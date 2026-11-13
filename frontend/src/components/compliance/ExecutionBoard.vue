@@ -478,17 +478,8 @@ onMounted(async () => {
 
 <style scoped>
 .exec-stats { margin-bottom: 12px; }
-.stat { padding: 12px 16px; text-align: center; }
-.stat-label { color: #909399; font-size: 13px; }
-.stat-value { font-size: 22px; font-weight: 700; color: #303133; margin-top: 4px; }
-.stat-warn { color: #E6A23C; }
-.stat-danger { color: #F56C6C; }
 .exec-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-.task-title { font-weight: 600; color: #303133; display: flex; align-items: center; gap: 6px; }
-.task-sub { font-size: 12px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-note { font-size: 12px; color: #67C23A; }
-.task-note.muted { color: #C0C4CC; }
-.muted { color: #909399; }
-.due-over { color: #F56C6C; font-weight: 600; }
-.hint { font-size: 12px; color: #909399; }
+.task-note { font-size: 12px; color: var(--ui-success); }
+.task-note.muted { color: var(--ui-info); }
+.hint { font-size: 12px; color: var(--ui-text-muted); }
 </style>

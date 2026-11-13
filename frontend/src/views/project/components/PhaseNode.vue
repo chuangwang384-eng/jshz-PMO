@@ -71,20 +71,20 @@ function onToggle() {
 .phase-node__badge {
   width: 22px; height: 22px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--ui-primary);
   color: #fff;
   font-size: 12px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
 .phase-node__info { flex: 1; min-width: 0; }
-.phase-node__name { font-weight: 600; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phase-node__name { font-weight: 600; color: var(--ui-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phase-node__sub { display: flex; align-items: center; gap: 4px; margin-top: 2px; flex-wrap: wrap; }
 .src-tag { font-size: 10px; line-height: 14px; padding: 0 4px; border-radius: 3px; }
-.src-tag--global { color: #409eff; background: #ecf5ff; }
-.src-tag--own { color: #67c23a; background: #f0f9eb; }
-.tmpl-count { color: #909399; font-size: 11px; }
-.phase-node__arrow { color: #909399; flex-shrink: 0; }
+.src-tag--global { color: var(--ui-primary); background: #ecf5ff; }
+.src-tag--own { color: var(--ui-success); background: #f0f9eb; }
+.tmpl-count { color: var(--ui-text-muted); font-size: 11px; }
+.phase-node__arrow { color: var(--ui-text-muted); flex-shrink: 0; }
 .phase-node__tmpls { border-top: 1px dashed #e5e7eb; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; }
-.phase-node__empty { border-top: 1px dashed #e5e7eb; padding: 8px; color: #c0c4cc; text-align: center; font-size: 11px; }
+.phase-node__empty { border-top: 1px dashed #e5e7eb; padding: 8px; color: var(--ui-info); text-align: center; font-size: 11px; }
 </style>

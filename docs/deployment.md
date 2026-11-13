@@ -223,7 +223,7 @@ server {
 ## 备份与恢复演练体系（2026-10-26 建立）
 
 - **一键备份**：`scripts/backup.ps1`（单脚本三模式 Backup/Verify/Drill）。备份产物 `backup\backup_时间戳\`：expert_system 全量 SQL（--single-transaction --set-gtid-purged=OFF）+ 照片库/知识文档库 zip（照片库_tmp 空则跳过）+ 每产物 .sha256 + manifest.txt；保留最近 5 份，超出移入回收站；日志 `logs\backup.log`。
-- **凭据**：优先环境变量 MYSQL_PASSWORD，缺省从本地 start-backend.bat（gitignored）运行时解析，不落盘明文。
+- **凭据**：优先环境变量 MYSQL_PASSWORD，缺省从本地 start-backend.bat（gitignored）运行时解析，不落盘明文（解析实现已统一到 `scripts/common-credentials.ps1`，2026-11-13）。
 - **自动计划任务**：`jshzPMOBackupWeekly` **每周日 02:00，SYSTEM 身份**，执行 `backup.ps1 -Mode Backup -Keep 5`（2026-11-12 重新注册，此前任务已丢失导致 6 天无备份）。注册/删除：`scripts\register-backup-schedule.ps1 [-DryRun|-Unregister]`（管理员）。
 - **保留策略**：只处理 `backup_yyyyMMdd_HHmmss` 目录，超出 -Keep 的最旧者移入回收站；删除前判存在、删除后复核，已不存在的目录只记一行日志不再报错（2026-11-12 修复）。手工目录（如早期 `backup\frontend*`）不在策略范围，已归档到 `builds\archive\legacy-manual-backups-20261112\`。
 - **校验**：`-Mode Verify` 对产物做 SHA256 复核 + zip 全量读取（CRC）校验。
@@ -250,6 +250,15 @@ server {
 - NSSM 服务 `ExpertSystemBackend` 的 `AppEnvironmentExtra`：需在发布时（管理员/UAC）追加 `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE` 三项；可参考 `scripts/rotate-backend-credentials.ps1` 的写注册表方式新增 `scripts/set-wecom-env.ps1`（未创建）。
 - `application.yml`：`expert.wecom.corp-id=${WECOM_CORP_ID:}`、`contact-secret=${WECOM_CONTACT_SECRET:}`、`sync-cron="0 30 2 * * ?"`、`sync-cron-enabled: false`（默认关闭，运维稳定后打开）、`login-mode=${AUTH_LOGIN_MODE:NAME}`。
 - **fail-fast 约定**：`sync-cron-enabled=true` 且 corp-id/secret 为空 → 启动失败（对齐 JWT_SECRET 校验风格）。
+
+#### 环境相关路径与 CORS 出口化（方案 B，2026-11-13）
+- `STORAGE_ROOT`：全部存储目录统一根前缀（照片库/照片库_tmp/知识文档库/知识文档库_preview/客户附件库/供应商图库/项目资料库），默认 `<LOCAL_PATH>`；机器迁移/换盘只改此变量，无需改代码重编译。
+- `LIBREOFFICE_PATH`：LibreOffice 可执行文件路径，默认 `<LOCAL_PATH> Files\LibreOffice\program\soffice.com`（Office 预览转换）。
+- `CORS_ALLOWED_ORIGINS`：前端来源白名单（逗号分隔），默认 `http://<PRIVATE_IP>:5173,http://localhost:5173,http://<PRIVATE_IP>:5173`；配置项 `security.cors.allowed-origins`，消费点 `SecurityConfig`。
+- `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `E:/AI助手开发/pp-ocrv5`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
+- 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
+- **上传限额单一真源**（方案 D）：数值唯一定义于 `application.yml expert.upload`（photo/resume/doc-max-bytes），前端经 `GET /api/meta/limits` 登录后拉取做预校验（`frontend/src/utils/limits.js` 带兜底默认值）；调整限额只改 yml 并重启后端。
+- **凭据解析统一**（方案 A）：`backup.ps1`、`db-migrate.ps1`、7 个 apply-migration-*.ps1 的 MYSQL_PASSWORD 解析实现统一收敛到 `scripts/common-credentials.ps1`（环境变量优先 → start-backend.bat 运行时解析），其余脚本沿用会话注入约定不变。
 
 ### 登录模式切换节奏（评审结论）
 - 1.007 上线初始建议 `AUTH_LOGIN_MODE=COMPAT`（姓名/手机号双通道过渡，未绑定用户仍姓名登录）；

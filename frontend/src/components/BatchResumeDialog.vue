@@ -85,6 +85,9 @@ import { ElMessage } from 'element-plus'
 import BatchResumeCard from './BatchResumeCard.vue'
 import { createExpert, getExpert, listExperts, parseResume, updateExpert } from '../api/expert'
 import { createExpertApprovalRequest, submitApprovalRequest, uploadApprovalPhoto } from '../api/approval'
+import { uploadLimits, ensureUploadLimits } from '../utils/limits'
+
+ensureUploadLimits()
 
 const props = defineProps({
   canAdd: Boolean, canEdit: Boolean, targetNames: Array, presetName: String, saveProjectExpert: Function
@@ -97,7 +100,7 @@ const projectFields = ['姓名', '单位', '职称', '联系方式', '简介']
 const projectMode = computed(() => Boolean(props.saveProjectExpert))
 const editableFields = computed(() => projectMode.value ? projectFields : fieldNames)
 const extensions = '.pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png'
-const maxBytes = 20 * 1024 * 1024
+const maxBytes = computed(() => uploadLimits.resumeMaxBytes)
 const statusLabels = { waiting: '待解析', parsing: '解析中', ready: '待提交', failed: '解析失败', saved: '已提交', cancelled: '已取消' }
 const rows = ref([])
 const parsing = ref(false)
@@ -145,7 +148,7 @@ function addFiles(event) {
 
 function acceptedFile(file) {
   return file && extensions.split(',').some(extension => file.name.toLowerCase().endsWith(extension))
-    && file.size > 0 && file.size <= maxBytes
+    && file.size > 0 && file.size <= maxBytes.value
 }
 
 function setTarget(row, name) {

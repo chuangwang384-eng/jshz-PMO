@@ -168,12 +168,12 @@ const fallbackHint = computed(() => {
   border: 1px solid #ebeef5; border-radius: 8px; padding: 10px 12px;
   background: #fff;
 }
-.impact-card__label { font-size: 12px; color: #909399; margin-bottom: 6px; }
-.impact-card__value { font-size: 15px; font-weight: 600; color: #303133; }
-.impact-card__value.is-danger { color: #f56c6c; }
-.impact-card__err { color: #f56c6c; font-weight: 400; }
-.impact-card__hint { font-size: 11px; color: #909399; margin-top: 6px; line-height: 1.5; }
+.impact-card__label { font-size: 12px; color: var(--ui-text-muted); margin-bottom: 6px; }
+.impact-card__value { font-size: 15px; font-weight: 600; color: var(--ui-text-main); }
+.impact-card__value.is-danger { color: var(--ui-danger); }
+.impact-card__err { color: var(--ui-danger); font-weight: 400; }
+.impact-card__hint { font-size: 11px; color: var(--ui-text-muted); margin-top: 6px; line-height: 1.5; }
 .impact-preview__list { margin-top: 10px; border: 1px solid #ebeef5; border-radius: 8px; padding: 8px 12px; max-height: 160px; overflow: auto; }
-.impact-preview__list-title { font-size: 12px; color: #606266; font-weight: 600; margin-bottom: 6px; }
-.impact-preview__list-item { font-size: 12px; color: #303133; line-height: 22px; }
+.impact-preview__list-title { font-size: 12px; color: var(--ui-text-sub); font-weight: 600; margin-bottom: 6px; }
+.impact-preview__list-item { font-size: 12px; color: var(--ui-text-main); line-height: 22px; }
 </style>

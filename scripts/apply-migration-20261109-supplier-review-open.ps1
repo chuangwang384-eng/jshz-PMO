@@ -28,14 +28,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 # ---------- 凭据（不打印值） ----------
-$batText = Get-Content -LiteralPath $startBat -Raw -Encoding Default
-$m = [regex]::Match($batText, '(?im)^[ \t]*set[ \t]+MYSQL_PASSWORD=(.*)$')
-if (-not $m.Success) { throw 'start-backend.bat 缺少 MYSQL_PASSWORD' }
-$pwd = $m.Groups[1].Value.Trim()
-$quote = [char]34
-if ($pwd.Length -ge 2 -and $pwd[0] -eq $quote -and $pwd[$pwd.Length - 1] -eq $quote) { $pwd = $pwd.Substring(1, $pwd.Length - 2) }
-if ([string]::IsNullOrWhiteSpace($pwd)) { throw 'start-backend.bat 中 MYSQL_PASSWORD 为空' }
-$env:MYSQL_PWD = $pwd
+. (Join-Path $PSScriptRoot 'common-credentials.ps1')
+$null = Use-DbPassword
 $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Write-Both '[OK] 凭据已注入会话（值不打印）' Green
 

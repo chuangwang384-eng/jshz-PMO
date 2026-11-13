@@ -146,7 +146,7 @@ function onDragStop({ node }) {
 
 <style scoped>
 .flow-builder__toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.flow-builder__hint { color: #909399; font-size: 12px; }
+.flow-builder__hint { color: var(--ui-text-muted); font-size: 12px; }
 .flow-builder__canvas {
   height: 260px;
   border: 1px solid #e4e7ed;
@@ -163,12 +163,12 @@ function onDragStop({ node }) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: #c0c4cc;
+  color: var(--ui-info);
   font-size: 13px;
 }
 .flow-builder__empty-icon { font-size: 30px; }
 .flow-builder__empty-sub { font-size: 12px; }
-.flow-builder__list-title { font-size: 13px; color: #606266; margin-bottom: 6px; font-weight: 600; }
-.flow-builder__list-empty { color: #c0c4cc; font-size: 12px; padding: 8px 0; }
+.flow-builder__list-title { font-size: 13px; color: var(--ui-text-sub); margin-bottom: 6px; font-weight: 600; }
+.flow-builder__list-empty { color: var(--ui-info); font-size: 12px; padding: 8px 0; }
 .flow-builder__panel { display: flex; gap: 4px; }
 </style>

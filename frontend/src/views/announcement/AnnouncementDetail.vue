@@ -96,16 +96,16 @@ onMounted(loadDetail)
 .detail-title {
   margin: 0 0 0 4px;
   font-size: 20px;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .detail-meta {
   margin: 10px 0 16px;
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 13px;
 }
 .detail-content {
   line-height: 1.8;
-  color: #303133;
+  color: var(--ui-text-main);
   word-break: break-word;
 }
 .detail-content :deep(img) {

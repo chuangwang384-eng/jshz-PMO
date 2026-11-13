@@ -14,7 +14,7 @@
     </div>
 
     <!-- 工具栏：检索 + 上传 -->
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-input
         v-model="keyword"
         :placeholder="isFavoritesMode ? '在收藏中按标题 / 文件名筛选' : '按标题 / 内容关键字检索'"
@@ -698,7 +698,6 @@ watchDashboardFocus(route, 'docId', 'knowledge', handlePreview, message => ElMes
 }
 
 .toolbar {
-  display: flex;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -712,7 +711,7 @@ watchDashboardFocus(route, 'docId', 'knowledge', handlePreview, message => ElMes
 }
 
 .doc-title {
-  color: #303133;
+  color: var(--ui-text-main);
 }
 
 .doc-ext {
@@ -754,7 +753,7 @@ watchDashboardFocus(route, 'docId', 'knowledge', handlePreview, message => ElMes
 
 .preview-info {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
 }
 
 .preview-body {
@@ -784,7 +783,7 @@ watchDashboardFocus(route, 'docId', 'knowledge', handlePreview, message => ElMes
   word-break: break-word;
   font-size: 14px;
   line-height: 1.7;
-  color: #303133;
+  color: var(--ui-text-main);
   background: #f8f9fb;
   border: 1px solid #ebeef5;
   border-radius: 4px;

@@ -266,16 +266,16 @@ async function confirm(action = props.mode) {
   flex-wrap: wrap;
   gap: 18px;
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
   margin-bottom: 6px;
 }
 .diff-meta b {
-  color: #303133;
+  color: var(--ui-text-main);
   font-size: 14px;
 }
 .reason-box {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
   background: #f5f7fa;
   border-radius: 4px;
   padding: 8px 12px;
@@ -284,7 +284,7 @@ async function confirm(action = props.mode) {
 }
 .reason-label {
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .diff-table {
   border: 1px solid #ebeef5;
@@ -302,7 +302,7 @@ async function confirm(action = props.mode) {
 .diff-th {
   background: #f5f7fa;
   font-weight: 600;
-  color: #606266;
+  color: var(--ui-text-sub);
   font-size: 13px;
 }
 .diff-td {
@@ -314,20 +314,20 @@ async function confirm(action = props.mode) {
   min-width: 0;
 }
 .diff-td.field {
-  color: #606266;
+  color: var(--ui-text-sub);
   font-weight: 600;
   gap: 6px;
 }
 .diff-td.old {
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .diff-td.new {
-  color: #303133;
+  color: var(--ui-text-main);
   font-weight: 600;
 }
 .diff-td.arrow {
   justify-content: center;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .muted {
   color: #a8abb2;

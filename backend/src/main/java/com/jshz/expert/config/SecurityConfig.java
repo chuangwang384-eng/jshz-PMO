@@ -4,6 +4,7 @@ import com.jshz.expert.security.DbPermissionFilter;
 import com.jshz.expert.security.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,6 +20,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -34,6 +36,13 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final DbPermissionFilter dbPermissionFilter;
+
+    /**
+     * CORS 白名单：逗号分隔，默认值见 application.yml security.cors.allowed-origins，
+     * 可通过环境变量 CORS_ALLOWED_ORIGINS 覆盖（内网 IP 变更无需改代码重新编译）。
+     */
+    @Value("${security.cors.allowed-origins}")
+    private String corsAllowedOrigins;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -64,13 +73,17 @@ public class SecurityConfig {
     }
 
     /**
-     * CORS：内网固定前端来源（192.168.0.95:5173 / localhost:5173），
+     * CORS：内网固定前端来源（默认 192.168.0.95:5173 / localhost:5173 / 192.168.0.144:5173），
      * 配合 allowCredentials(true) 不得使用 *。
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://192.168.0.95:5173", "http://localhost:5173", "http://192.168.0.144:5173"));
+        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        config.setAllowedOrigins(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

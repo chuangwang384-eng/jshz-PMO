@@ -42,9 +42,9 @@ function onEdit() {
   gap: 4px;
   cursor: pointer;
 }
-.type-node:hover { border-color: #409eff; box-shadow: 0 2px 8px rgba(64, 158, 255, 0.18); }
+.type-node:hover { border-color: var(--ui-primary); box-shadow: 0 2px 8px rgba(64, 158, 255, 0.18); }
 .type-node--empty { border-style: dashed; }
-.type-node__name { font-weight: 600; color: #303133; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-node__name { font-weight: 600; color: var(--ui-text-main); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .type-node__sub { display: flex; align-items: center; gap: 4px; }
-.type-node__count { color: #909399; font-size: 11px; }
+.type-node__count { color: var(--ui-text-muted); font-size: 11px; }
 </style>

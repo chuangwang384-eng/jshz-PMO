@@ -191,12 +191,12 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 .flow-overview__legend { display: flex; gap: 14px; flex-wrap: wrap; }
-.legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #606266; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ui-text-sub); }
 .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.legend-dot--own { background: #67c23a; }
-.legend-dot--global { background: #409eff; }
-.legend-dot--empty { background: #fff; border: 1.5px dashed #c0c4cc; }
-.flow-overview__hint { color: #909399; font-size: 12px; }
+.legend-dot--own { background: var(--ui-success); }
+.legend-dot--global { background: var(--ui-primary); }
+.legend-dot--empty { background: #fff; border: 1.5px dashed var(--ui-info); }
+.flow-overview__hint { color: var(--ui-text-muted); font-size: 12px; }
 .flow-overview__canvas {
   height: 520px;
   border: 1px solid #e4e7ed;

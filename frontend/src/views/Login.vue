@@ -147,7 +147,7 @@ onMounted(fetchLoginMode)
 .login-subtitle {
   text-align: center;
   font-size: 13px;
-  color: #909399;
+  color: var(--ui-text-muted);
   margin: 4px 0 24px;
 }
 .login-btn {
@@ -156,7 +156,7 @@ onMounted(fetchLoginMode)
 .login-tip {
   text-align: center;
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .prefix-icon {
   font-style: normal;

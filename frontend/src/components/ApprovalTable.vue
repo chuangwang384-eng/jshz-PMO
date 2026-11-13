@@ -87,6 +87,6 @@ function ownedByMe(row) {
   color: #a8abb2;
 }
 .return-comment {
-  color: #e6a23c;
+  color: var(--ui-warning);
 }
 </style>

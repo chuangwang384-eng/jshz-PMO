@@ -613,7 +613,7 @@ onBeforeUnmount(() => {
 .filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .kw-input { width: 300px; }
 .filter-select { width: 150px; }
-.reset-btn { color: #606266; }
+.reset-btn { color: var(--ui-text-sub); }
 .filter-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
 /* ---------- 第二行：仅看已评价 + 视图切换 ---------- */
@@ -625,27 +625,27 @@ onBeforeUnmount(() => {
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  color: #909399;
+  color: var(--ui-text-muted);
   padding: 5px 14px;
   border-radius: 8px;
   line-height: 1.4;
   transition: background-color .15s, color .15s;
 }
-.vt-btn:hover { color: #303133; }
-.vt-btn.is-active { background: #f1f2f5; color: #303133; font-weight: 600; }
+.vt-btn:hover { color: var(--ui-text-main); }
+.vt-btn.is-active { background: #f1f2f5; color: var(--ui-text-main); font-weight: 600; }
 
 .panel-divider { margin: 12px 0 4px; }
 
 /* ---------- 汇总行 ---------- */
 .summary-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 8px; }
-.summary-text { font-size: 13px; color: #909399; }
+.summary-text { font-size: 13px; color: var(--ui-text-muted); }
 .sort-select { width: 140px; }
 :deep(.sort-select .el-select__wrapper) {
   box-shadow: none !important;
   background: transparent;
   padding-left: 0;
 }
-:deep(.sort-select .el-select__placeholder) { color: #909399; font-size: 13px; }
+:deep(.sort-select .el-select__placeholder) { color: var(--ui-text-muted); font-size: 13px; }
 
 /* ---------- 列表视图 ---------- */
 .sup-list { min-height: 160px; }
@@ -668,7 +668,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #606266;
+  color: var(--ui-text-sub);
   font-size: 17px;
 }
 .row-main { flex: 1; min-width: 0; }
@@ -676,7 +676,7 @@ onBeforeUnmount(() => {
 .row-name {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -684,17 +684,17 @@ onBeforeUnmount(() => {
 }
 .type-pill {
   font-size: 12px;
-  color: #606266;
+  color: var(--ui-text-sub);
   border: 1px solid #e3e6eb;
   border-radius: 999px;
   padding: 1px 8px;
   line-height: 18px;
 }
-.row-meta { margin-top: 6px; font-size: 13px; color: #909399; }
+.row-meta { margin-top: 6px; font-size: 13px; color: var(--ui-text-muted); }
 .row-rate { margin-top: 6px; display: flex; align-items: center; gap: 4px; font-size: 13px; }
 .star-icon { color: #f5a623; font-size: 14px; }
-.rate-score { color: #303133; font-weight: 600; }
-.rate-count { color: #909399; }
+.rate-score { color: var(--ui-text-main); font-weight: 600; }
+.rate-count { color: var(--ui-text-muted); }
 .rate-empty { color: #b1b5bd; }
 
 .row-side {
@@ -703,7 +703,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   padding-top: 2px;
 }
-.detail-btn { color: #303133; border-color: #dcdfe6; border-radius: 8px; }
+.detail-btn { color: var(--ui-text-main); border-color: #dcdfe6; border-radius: 8px; }
 
 /* ---------- 卡片视图 ---------- */
 .card-grid {
@@ -719,19 +719,19 @@ onBeforeUnmount(() => {
 .cover-img { width: 100%; height: 140px; display: block; }
 .cover-empty {
   height: 140px; display: flex; align-items: center; justify-content: center;
-  color: #c0c4cc; font-size: 13px;
+  color: var(--ui-info); font-size: 13px;
 }
 .card-body { padding: 10px 12px; }
 .card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.card-name { font-weight: 600; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-meta { margin-top: 4px; font-size: 12px; color: #909399; }
+.card-name { font-weight: 600; color: var(--ui-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { margin-top: 4px; font-size: 12px; color: var(--ui-text-muted); }
 .card-rate { margin-top: 6px; display: flex; align-items: center; gap: 6px; }
-.rate-text { font-size: 12px; color: #606266; }
+.rate-text { font-size: 12px; color: var(--ui-text-sub); }
 
-.pagination-wrap { margin-top: 14px; padding-bottom: 6px; display: flex; justify-content: flex-end; }
+.pagination-wrap { margin-top: 14px; padding-bottom: 6px; }
 .dict-add-row { display: flex; align-items: center; }
 .create-file-list { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
 .create-file-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .create-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upload-tip { margin-top: 4px; font-size: 12px; color: #909399; line-height: 1.5; }
+.upload-tip { margin-top: 4px; font-size: 12px; color: var(--ui-text-muted); line-height: 1.5; }
 </style>

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-input
         v-model="keyword"
         placeholder="按姓名 / 单位 / 科室 / 职称 / 联系方式 / 简介检索"
@@ -405,21 +405,11 @@ onMounted(fetchList)
 
 <style scoped>
 .toolbar {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
-.spacer {
-  flex: 1;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
 .photo-tip {
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 12px;
   margin-top: -8px;
 }

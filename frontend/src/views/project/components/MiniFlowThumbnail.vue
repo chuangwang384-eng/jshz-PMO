@@ -110,7 +110,7 @@ const tip = computed(() => {
   line-height: 14px;
   padding: 0 4px;
   border-radius: 7px;
-  background: #409eff;
+  background: var(--ui-primary);
   color: #fff;
   transition: transform 0.18s ease;
   transform-origin: top right;
@@ -118,7 +118,7 @@ const tip = computed(() => {
 .mini-flow__wrap:hover .mini-flow__count { transform: scale(1.85); }
 .mini-flow__label {
   font-size: 11px;
-  color: #909399;
+  color: var(--ui-text-muted);
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;

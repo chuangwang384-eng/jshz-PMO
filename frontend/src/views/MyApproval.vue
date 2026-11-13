@@ -277,20 +277,6 @@ watchDashboardFocus(route, 'applicationId', 'application', row => row.status ===
   align-items: baseline;
   gap: 12px;
 }
-.page-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #303133;
-}
-.page-sub {
-  font-size: 13px;
-  color: #909399;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
 .muted {
   color: #a8abb2;
 }
@@ -300,22 +286,22 @@ watchDashboardFocus(route, 'applicationId', 'application', row => row.status ===
 .progress-expert {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   margin-bottom: 16px;
 }
 .timeline-node {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .timeline-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
   margin-top: 4px;
 }
 .timeline-comment {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
   margin-top: 4px;
 }
 </style>

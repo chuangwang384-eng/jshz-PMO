@@ -386,7 +386,7 @@ onMounted(async () => {
 .project-name:hover { text-decoration: underline; }
 .cell-meta { font-size: 12px; color: #596a82; overflow-wrap: anywhere; }
 .row-actions { gap: 8px; flex-wrap: nowrap; }
-.pagination-wrap { display: flex; justify-content: flex-end; padding: 14px 16px; overflow-x: auto; }
+.pagination-wrap { margin-top: 0; display: flex; justify-content: flex-end; padding: 14px 16px; overflow-x: auto; }
 @media (max-width: 680px) {
   .project-filters { padding: 14px; }
   .primary-filters > .el-input, .filter-actions { flex-basis: 100%; }

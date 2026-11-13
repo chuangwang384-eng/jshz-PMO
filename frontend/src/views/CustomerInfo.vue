@@ -1,7 +1,7 @@
 <template>
   <div class="customer-info-page">
     <el-card shadow="never">
-      <div class="toolbar">
+      <div class="toolbar ui-toolbar">
         <el-input
           v-model="query.keyword"
           placeholder="搜索客户姓名/单位/职位/职级/职务/喜好"
@@ -630,7 +630,7 @@ onMounted(() => {
   height: 28px;
   border-radius: 50%;
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--ui-primary);
   font-size: 13px;
   margin-right: 8px;
   flex-shrink: 0;
@@ -638,7 +638,7 @@ onMounted(() => {
 .customer-name {
   vertical-align: middle;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 
 /* 列表视觉（Owner 2026-11-09）：白底 + 浅横向分隔线，去掉斑马纹与纵向边框 */
@@ -687,11 +687,11 @@ onMounted(() => {
 .drawer-name {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .drawer-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
   margin-top: 2px;
 }
 .drawer-section {
@@ -701,7 +701,7 @@ onMounted(() => {
 .drawer-section-title {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -715,12 +715,12 @@ onMounted(() => {
 .drawer-field label {
   display: block;
   font-size: 11px;
-  color: #909399;
+  color: var(--ui-text-muted);
   margin-bottom: 2px;
 }
 .drawer-field span {
   font-size: 13px;
-  color: #303133;
+  color: var(--ui-text-main);
   overflow-wrap: anywhere;
 }
 .drawer-field-wide {
@@ -749,16 +749,16 @@ onMounted(() => {
   background: #f5f7fa;
   border-radius: 6px;
   font-size: 13px;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .drawer-relations-empty {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .drawer-meta {
   margin-top: 16px;
   font-size: 11px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .drawer-footer {
   margin-top: 14px;
@@ -772,7 +772,7 @@ onMounted(() => {
 .unit-main {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -780,7 +780,7 @@ onMounted(() => {
 }
 .unit-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
   line-height: 16px;
   margin-top: 2px;
   overflow: hidden;
@@ -788,7 +788,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .unit-empty {
-  color: #c0c4cc;
+  color: var(--ui-info);
   font-size: 12px;
 }
 .relation-link {
@@ -803,10 +803,6 @@ onMounted(() => {
   letter-spacing: 1px;
 }
 .toolbar {
-
-
-  display: flex;
-  align-items: center;
   gap: 10px;
   margin-bottom: 14px;
   flex-wrap: wrap;
@@ -840,7 +836,7 @@ onMounted(() => {
 }
 .relation-index {
   font-size: 13px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .relation-form-item {
   margin-bottom: 12px;
