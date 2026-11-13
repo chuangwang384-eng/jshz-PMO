@@ -1,11 +1,5 @@
 <template>
   <el-card shadow="never" class="profile-card">
-    <template #header>
-      <div class="card-header-row">
-        <span class="card-title">个人中心</span>
-      </div>
-    </template>
-
     <el-descriptions :column="1" border class="profile-descriptions">
       <el-descriptions-item label="用户名">
         <span class="username-text">{{ auth.username || '-' }}</span>
@@ -33,8 +27,6 @@
 
     <div class="profile-actions">
       <el-button type="primary" @click="showChangePwd = true">修改密码</el-button>
-      <!-- 企业合规「我的待办」入口（REQ/DES-20261102 D19：个人中心入口） -->
-      <el-button type="success" plain @click="$router.push('/knowledge-planet/enterprise-compliance')">我的待办（企业合规）</el-button>
     </div>
 
     <!-- 修改密码弹窗（复用 ChangePasswordDialog；普通模式：可关闭、无强制改密警示） -->
@@ -75,16 +67,6 @@ function formatTime(value) {
 .profile-card {
   max-width: 640px;
   margin: 0 auto;
-}
-
-.card-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.card-title {
-  font-weight: 600;
 }
 
 .username-text {
