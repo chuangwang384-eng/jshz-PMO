@@ -62,7 +62,7 @@ class ApplicationTransactionBoundaryTest {
     void buildArchivedNameOnlyNamesAndArchiveMovesFile(@TempDir Path dir) throws Exception {
         Path storage = dir.resolve("storage");
         Path temp = dir.resolve("temp");
-        PhotoStorageService service = new PhotoStorageService(storage.toString(), temp.toString());
+        PhotoStorageService service = new PhotoStorageService(storage.toString(), temp.toString(), 5L * 1024 * 1024);
         Files.writeString(temp.resolve("t1.png"), "x");
 
         String archived = service.buildArchivedName("t1.png", 12L, "photo");
