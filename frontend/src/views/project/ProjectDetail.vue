@@ -196,7 +196,7 @@
             <div class="schedule-sub-title">解析候选（请逐条确认后保存）</div>
             <el-table :data="candidateDraft" size="small">
               <el-table-column label="姓名" width="140">
-                <template #default="{ row }"><el-input v-model="row.expertName" size="small" /></template>
+                <template #default="{ row }"><el-input v-model="row.expertName" size="small" @update:model-value="row.expertId = null" /></template>
               </el-table-column>
               <el-table-column label="会议角色" width="140">
                 <template #default="{ row }">
@@ -213,15 +213,18 @@
               </el-table-column>
               <el-table-column label="专家库匹配" min-width="160">
                 <template #default="{ row }">
-                  <el-select v-model="row.expertId" size="small" clearable filterable remote :remote-method="searchExpertOptions" :loading="expertSearchLoading" placeholder="搜索专家库绑定">
-                    <el-option v-for="e in expertOptions" :key="e.id" :label="e.name + (e.unit ? '·' + e.unit : '')" :value="e.id" />
+                  <el-select v-model="row.expertId" size="small" clearable
+                    :disabled="!row.expertName?.trim()" :loading="expertMatchLoading.has(row.expertName?.trim())"
+                    placeholder="选择同名专家" no-data-text="专家库中无同名专家"
+                    @visible-change="open => open && loadExpertMatches(row.expertName)">
+                    <el-option v-for="e in expertMatches(row)" :key="e.id" :label="e.name + (e.unit ? '·' + e.unit : '')" :value="e.id" />
                   </el-select>
                   <el-tag v-if="!row.expertId" size="small" type="warning">库外</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="130" fixed="right">
                 <template #default="{ row }">
-                  <el-button v-if="!row.expertId" link type="primary" size="small" @click="goCreateExpert(row.expertName)">去建档</el-button>
+                  <el-button v-if="!row.expertId && canOperate" link type="primary" size="small" @click="openArchiveDialog(row, true)">去建档</el-button>
                   <el-button link type="danger" size="small" @click="removeCandidateRow(row)">移除</el-button>
                 </template>
               </el-table-column>
@@ -248,7 +251,8 @@
             <el-table-column label="档案关联" min-width="140">
               <template #default="{ row }">
                 <span v-if="row.expertId" class="doc-name">{{ row.expertName }}（{{ row.expertUnit || '已关联' }}）</span>
-                <el-tag v-else size="small" type="warning" class="link-tag" @click="openArchiveDialog(row)">库外专家·去建档</el-tag>
+                <el-tag v-else-if="canOperate" size="small" type="warning" class="link-tag" @click="openArchiveDialog(row)">库外专家·去建档</el-tag>
+                <el-tag v-else size="small" type="warning">库外专家</el-tag>
               </template>
             </el-table-column>
             <el-table-column v-if="canOperate" label="操作" width="80" fixed="right">
@@ -514,7 +518,7 @@
           <template v-else-if="outArchiveCount > 0">
             <div class="todo-item">
               <span class="todo-name">库外专家待入档 {{ outArchiveCount }} 人</span>
-              <el-button link type="warning" size="small" @click="openArchiveDialog(null)">批量建档 →</el-button>
+              <el-button v-if="canOperate" link type="warning" size="small" @click="openArchiveDialog(null)">批量建档 →</el-button>
             </div>
             <div class="hint-text" style="margin-top: 4px">可上传多份简历批量建档并自动回绑参会专家</div>
           </template>
@@ -736,46 +740,16 @@
       </template>
     </el-dialog>
 
-    <!-- 库外专家建档（手动 / 批量简历解析，Owner 2026-11-09） -->
-    <el-dialog v-model="archiveVisible" title="库外专家建档" width="640px" destroy-on-close @closed="resetArchive">
-      <el-alert type="info" :closable="false" style="margin-bottom: 10px"
-        title="方式一：上传简历文件（可多选，系统解析姓名/单位/职称后建档并自动回绑参会专家）；方式二：手动填写建档。建档后专家同时进入下方「专家名单」。" />
-      <div class="archive-upload-row">
-        <el-upload :show-file-list="false" :auto-upload="false" multiple
-          accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
-          :on-change="onArchiveFilePick">
-          <el-button type="primary" plain>选择简历文件（可多选）</el-button>
-        </el-upload>
-        <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png，单份 ≤20MB，一次 ≤10 份</span>
-      </div>
-      <div v-if="archiveFiles.length" class="archive-file-list">
-        <div v-for="(f, i) in archiveFiles" :key="i" class="archive-file-row">
-          <span class="doc-name">{{ f.name }}</span>
-          <span class="doc-meta">{{ (f.size / 1024 / 1024).toFixed(1) }}MB</span>
-          <el-button link type="danger" size="small" @click="archiveFiles.splice(i, 1)">移除</el-button>
-        </div>
-        <el-button type="primary" size="small" :loading="archiveRunning" style="margin-top: 6px" @click="doArchiveResumes">
-          批量建档（{{ archiveFiles.length }} 份）
-        </el-button>
-      </div>
-      <div v-if="archiveResults.length" class="archive-result">
-        <div v-for="(r, i) in archiveResults" :key="'r' + i" class="archive-result-row">
-          <template v-if="r.ok">
-            <el-tag size="small" type="success">成功</el-tag>
-            <span>{{ r.expertName }}（{{ r.fileName }}）</span>
-            <span class="hint-text">回绑参会专家 {{ r.boundSpeakers }} 行</span>
-          </template>
-          <template v-else>
-            <el-tag size="small" type="danger">失败</el-tag>
-            <span>{{ r.fileName }}</span>
-            <span class="hint-text">{{ r.error }}</span>
-          </template>
-        </div>
-      </div>
-      <el-divider content-position="left">手动建档单条</el-divider>
+    <BatchResumeDialog v-model="archiveVisible" :target-names="archiveTargetNames"
+      :preset-name="archivePresetName" :save-project-expert="saveProjectResume" @saved="refreshArchivedExperts">
+      <template #extra>
+        <el-button :disabled="!canOperate" @click="manualArchiveVisible = true">手动建档</el-button>
+      </template>
+    </BatchResumeDialog>
+    <el-dialog v-model="manualArchiveVisible" title="手动建档" width="640px" destroy-on-close>
       <el-form label-width="70px" size="small">
         <el-row :gutter="8">
-          <el-col :span="8"><el-form-item label="姓名"><el-input v-model="archiveForm.name" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="姓名"><el-input v-model="archiveForm.name" :readonly="Boolean(archivePresetName)" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="单位"><el-input v-model="archiveForm.unit" placeholder="待补充" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="职称"><el-input v-model="archiveForm.title" placeholder="待补充" /></el-form-item></el-col>
         </el-row>
@@ -783,7 +757,7 @@
         <el-button size="small" plain :loading="archiveRunning" @click="doArchiveManual">手动建档并回绑</el-button>
       </el-form>
       <template #footer>
-        <el-button @click="archiveVisible = false">完成</el-button>
+        <el-button @click="manualArchiveVisible = false">完成</el-button>
       </template>
     </el-dialog>
 
@@ -832,12 +806,13 @@
 import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { handleProjectComplianceTodo } from '../../api/compliance'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
+import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
 import {
   getProjectDetail, changePhase, cancelProject, restoreProject,
@@ -849,11 +824,10 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveResumes, archiveManual, deleteScheduleDoc, fetchProjectFile
+  archiveManual, deleteScheduleDoc, fetchProjectFile
 } from '../../api/project'
 
 const route = useRoute()
-const router4schedule = useRouter()
 const projectId = route.params.id
 const loading = ref(false)
 const detail = ref({})
@@ -912,7 +886,7 @@ const usageRate = computed(() => {
 
 const sortedPhases = computed(() => [...(detail.value.phases || [])].sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0)))
 
-async function fetchDetail() {
+async function fetchDetail({ refreshSchedule = true } = {}) {
   loading.value = true
   try {
     const previousPhaseId = detail.value.phaseId
@@ -928,7 +902,7 @@ async function fetchDetail() {
       }
     }
     richOfPhase.value = rich
-    fetchSchedule().catch(() => {})
+    if (refreshSchedule) fetchSchedule().catch(() => {})
   } finally {
     loading.value = false
   }
@@ -973,12 +947,21 @@ const scheduleBadgeClass = computed(() => {
   return map[scheduleBadgeText.value] || 'ui-badge-info'
 })
 
-async function fetchSchedule() {
+async function fetchSchedule({ preserveDraft = false } = {}) {
   const data = await getScheduleOverview(projectId)
   schedule.value = data?.schedule || null
   candidates.value = data?.candidates || []
   speakers.value = data?.speakers || []
-  resetCandidateDraft()
+  if (preserveDraft) {
+    const linkedById = new Map(candidates.value.map(row => [row.id, row]))
+    candidateDraft.value = candidateDraft.value.map(row => {
+      const saved = linkedById.get(row.id)
+      if (!saved?.expertId || saved.expertName !== row.expertName || row.expertId) return row
+      return { ...row, expertId: saved.expertId, expertUnit: saved.expertUnit || '' }
+    })
+  } else {
+    resetCandidateDraft()
+  }
 }
 function resetCandidateDraft() {
   candidateDraft.value = candidates.value.map((c) => ({
@@ -988,13 +971,9 @@ function resetCandidateDraft() {
     role: c.role,
     segmentTitle: c.segmentTitle || '',
     segmentTime: c.segmentTime || '',
-    expertId: c.expertId || null
+    expertId: c.expertId || null,
+    expertUnit: c.expertUnit || ''
   }))
-  for (const c of candidates.value) {
-    if (c.expertId && !expertOptions.value.some((e) => e.id === c.expertId)) {
-      expertOptions.value.push({ id: c.expertId, name: c.expertName, unit: c.expertUnit || '' })
-    }
-  }
 }
 
 async function onScheduleFile(file) {
@@ -1049,28 +1028,41 @@ async function doParse() {
   }
 }
 
-// 专家库搜索（改绑/确认用）
-const expertOptions = ref([])
-const expertSearchLoading = ref(false)
-async function searchExpertOptions(kw) {
-  if (!kw || !kw.trim()) return
-  expertSearchLoading.value = true
+const expertMatchesByName = reactive(new Map())
+const expertMatchLoading = reactive(new Set())
+
+function expertMatches(row) {
+  const name = row.expertName?.trim()
+  if (expertMatchesByName.has(name)) return expertMatchesByName.get(name)
+  return row.expertId ? [{ id: row.expertId, name, unit: row.expertUnit }] : []
+}
+
+async function loadExpertMatches(value) {
+  const name = value?.trim()
+  if (!name || expertMatchLoading.has(name)) return
+  expertMatchLoading.add(name)
   try {
-    const data = await request.get('/experts', { params: { keyword: kw.trim(), page: 1, size: 20 } })
-    expertOptions.value = data?.items || []
+    const matches = []
+    const size = 50
+    let page = 1
+    let total
+    do {
+      const data = await request.get('/experts', { params: { keyword: name, page, size } })
+      matches.push(...(data?.items || []).map(expert => ({
+        id: expert.id, name: expert.姓名, unit: expert.单位
+      })).filter(expert => expert.name?.trim() === name))
+      total = data?.total || 0
+    } while (page++ * size < total)
+    expertMatchesByName.set(name, matches)
+  } catch {
+    // 请求层已提示加载失败，再次打开下拉框可重试。
   } finally {
-    expertSearchLoading.value = false
+    expertMatchLoading.delete(name)
   }
 }
 
 function removeCandidateRow(row) {
   candidateDraft.value = candidateDraft.value.filter((r) => r !== row)
-}
-
-function goCreateExpert(name) {
-  // 库外专家去建档：预填姓名跳转专家库（管理员新增免审批；新窗口打开，本项目详情保留上下文便于回绑）
-  const { href } = router4schedule.resolve({ path: '/experts', query: { presetName: name } })
-  window.open(href, '_blank')
 }
 
 async function doConfirm() {
@@ -1104,53 +1096,45 @@ async function doAddSpeaker() {
 // ---- 库外专家建档（手动 / 批量简历，Owner 2026-11-09） ----
 const outArchiveCount = computed(() => speakers.value.filter((sp) => !sp.expertId).length)
 const archiveVisible = ref(false)
-const archiveFiles = ref([])
-const archiveResults = ref([])
+const manualArchiveVisible = ref(false)
 const archiveRunning = ref(false)
 const archiveForm = reactive({ name: '', unit: '', title: '', profile: '' })
-let archiveTargetName = ''
+const archiveTargetNames = computed(() => [...new Set(speakers.value
+  .filter(row => !row.expertId)
+  .map(row => String(row.expertName || '').trim())
+  .filter(Boolean))])
+const archivePresetName = ref('')
+const archiveCandidate = ref(null)
 
-function openArchiveDialog(row) {
-  archiveTargetName = row ? row.expertName || '' : ''
-  // 首次打开也必须重置/预填（@closed 只在关闭后触发，不能依赖它）
-  archiveFiles.value = []
-  archiveResults.value = []
-  archiveForm.name = archiveTargetName
-  archiveForm.unit = ''
-  archiveForm.title = ''
-  archiveForm.profile = ''
-  archiveVisible.value = true
-}
-function resetArchive() {
-  archiveFiles.value = []
-  archiveResults.value = []
-  archiveForm.name = archiveTargetName || ''
-  archiveForm.unit = ''
-  archiveForm.title = ''
-  archiveForm.profile = ''
-}
-function onArchiveFilePick(file) {
-  if (!file || !file.raw) return
-  if (archiveFiles.value.some((f) => f.name === file.name && f.size === file.size)) return
-  archiveFiles.value.push(file.raw)
-}
-async function doArchiveResumes() {
-  if (!archiveFiles.value.length) {
-    ElMessage.warning('请先选择简历文件')
+function openArchiveDialog(row, candidate = false) {
+  archivePresetName.value = row?.expertName?.trim() || ''
+  if (row && !archivePresetName.value) {
+    ElMessage.warning('请先填写参会专家姓名')
     return
   }
-  archiveRunning.value = true
+  archiveCandidate.value = candidate ? row : null
+  Object.assign(archiveForm, { name: archivePresetName.value, unit: '', title: '', profile: '' })
+  archiveVisible.value = true
+}
+
+async function saveProjectResume(fields) {
+  const result = await archiveManual(projectId, {
+    name: fields.姓名,
+    unit: fields.单位,
+    title: fields.职称,
+    profile: fields.简介,
+    contact: fields.联系方式,
+    requirePendingSpeaker: !archiveCandidate.value
+  })
+  if (archiveCandidate.value) archiveCandidate.value.expertId = result.expertId
+  return `已建档，回绑参会记录 ${result.boundSpeakers} 条`
+}
+
+async function refreshArchivedExperts() {
   try {
-    archiveResults.value = await archiveResumes(projectId, archiveFiles.value)
-    const okCnt = archiveResults.value.filter((r) => r.ok).length
-    ElMessage.success(`批量建档完成：成功 ${okCnt} / ${archiveResults.value.length}`)
-    archiveFiles.value = []
-    await fetchSchedule()
-    fetchDetail()
-  } catch (e) {
-    // 错误提示由 request 层统一给出
-  } finally {
-    archiveRunning.value = false
+    await Promise.all([fetchSchedule({ preserveDraft: true }), fetchDetail({ refreshSchedule: false })])
+  } catch {
+    // 接口层已提示刷新失败。
   }
 }
 async function doArchiveManual() {
@@ -1160,16 +1144,16 @@ async function doArchiveManual() {
   }
   archiveRunning.value = true
   try {
-    const r = await archiveManual(projectId, {
+    const result = await archiveManual(projectId, {
       name: archiveForm.name.trim(),
       unit: archiveForm.unit.trim(),
       title: archiveForm.title.trim(),
       profile: archiveForm.profile.trim()
     })
-    archiveResults.value = [r]
+    if (archiveCandidate.value) archiveCandidate.value.expertId = result.expertId
+    manualArchiveVisible.value = false
     ElMessage.success('建档成功，已自动关联项目专家名单')
-    await fetchSchedule()
-    fetchDetail()
+    await refreshArchivedExperts()
   } catch (e) {
     // 错误提示由 request 层统一给出
   } finally {
@@ -1886,11 +1870,6 @@ async function downloadProjectFile(d) {
 
 /* 库外专家建档 */
 .link-tag { cursor: pointer; }
-.archive-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.archive-file-list { margin-top: 8px; }
-.archive-file-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
-.archive-result { margin-top: 8px; border-top: 1px dashed var(--ui-border-weak); padding-top: 8px; }
-.archive-result-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
 
 /* ④.5 日程与参会专家 */
 .schedule-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

@@ -43,15 +43,48 @@ AIGC:
 - MySQL 8.x+（内网实例；当前生产/测试实测 26.7.0）
 - Nginx（生产环境反向代理，可选）
 
-## 2. 数据库初始化
+## 2. 数据库初始化与变更管理
+
+### 2.1 新环境（从零建库）
 
 ```bash
 mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 ```
 
-执行后创建 `expert_system` 库及 **6 张表**（`expert_info` / `sys_user` / `download_log` / `approval_config` / `expert_change_request` / `approval_record`），并写入初始管理员 `admin`（密码 `111111`，部署后立即改密）、示例员工与示例专家数据。**init.sql 不建 RBAC 四表、知识星球两表与 notification**，这些由 `database/migration/` 增量脚本补齐。
+- `init.sql` 已于 2026-11-12 按**生产库实际结构重建**：81 张业务表全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117 / role_permission 53 / supplier_city 349 等 12 张表共 604 行）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
+- 语义：`CREATE TABLE IF NOT EXISTS`，**不含 DROP**、不含 `AUTO_INCREMENT` 计数器，可重复执行。
+- 不含：业务数据、用户口令哈希（仅 admin）、历史备份表（`*_bak_*`）、迁移标记表（`mig_*`）。
+- 建库后初始化版本台账（把 init.sql 与 60 个历史脚本登记为已执行）：
 
-> 说明：`init.sql` 使用 `CREATE TABLE IF NOT EXISTS`（不删旧数据），已包含审批流三表（approval_config / expert_change_request / approval_record），但**不含 RBAC 四表**（RBAC 由 `20261022_add_rbac_tables.sql` 建）；历史环境若仅有三基础表，可执行 `database/migration/20261022_add_approval_tables.sql` 补建审批流三表（approval_config / expert_change_request / approval_record）；RBAC 升级环境执行 `database/migration/20261022_add_rbac_tables.sql` 补建 RBAC 四表（role / permission / role_permission / user_role，幂等可重复执行）；知识星球文档环境执行 `database/migration/20261023_add_knowledge_tables.sql` 补建 knowledge_document / knowledge_doc_version 两表并写入接口权限码 knowledge:manage（绑定 ADMIN，幂等可重复执行）；消息通知中心环境执行 `database/migration/20261023_add_notification_table.sql` 补建 notification 表（幂等可重复执行）；审批模板环境执行 `database/migration/20261026_add_approval_template.sql` 补建 approval_template 表并给 expert_change_request 加 template_id 列、写入模板管理接口权限码与 3 个种子模板（幂等可重复执行）；知识星球增强（C1 内容检索/C3 收藏/C4 下载统计）环境执行 `database/migration/20261026_add_knowledge_c1c3c4.sql` 给 knowledge_document 加 content 列、download_log 加 doc_id 列并补建 knowledge_favorite 收藏表（幂等可重复执行）；B2 审批转办/加签 + 用户操作日志环境执行 `database/migration/20261026_add_b2_transfer_operation_log.sql` 给 expert_change_request 加 current_assignee / extra_approver 两列、新建 operation_log 操作日志表、把历史 download_log 迁移为 operation_log（action_type=DOWNLOAD）并写入转办/加签/可转办用户列表接口权限码（均幂等可重复执行）；「我的申请」改版环境执行 `database/migration/20261026_add_application_table.sql` 新建 application 通用申请主表、把 expert_change_request 全量迁移并入（保留原 id，旧表保留作历史备份）、给 approval_record 加 application_id 列并回填、修正存量通知跳转路径（幂等可重复执行，含 sys_user 与业务表 collation 差异的显式 COLLATE 处理）；供应商管理环境执行 `database/migration/20261026_add_supplier_module.sql` 新建供应商六表、预置 6 类型与 349 城市、写入 supplier:dict 权限码并绑定 ADMIN（幂等可重复执行）；审批「申请前后变化」对比环境执行 `database/migration/20261027_backfill_application_old_data.sql` 回填 application.biz_data.oldData 旧值快照（仅 EXPERT_MODIFY 且 status∈{0,2,3} 的存量单，无 DDL，幂等可重复执行；status=1 已通过单不回填，前端显示历史单提示）；企微通讯录同步与账号体系改造环境执行 `database/migration/20261026_add_wecom_contact_sync.sql` 新建 wecom_department / wecom_user_department / wecom_sync_log 三表、给 sys_user 加 mobile / position 列、建 uk_wecom_userid / uk_mobile 唯一索引、删除 uk_username 前备份为 wecom_migration_uk_username_backup、写入 wecom:sync 权限码（6 条路径绑 ADMIN，幂等可重复执行，已在本机测试库演练 3 遍通过）。以实际库 **74 张表**为准。
+```powershell
+.\scripts\db-migrate.ps1 -Mode Bootstrap
+```
+
+### 2.2 已有环境（接管历史库）
+
+```powershell
+.\scripts\db-migrate.ps1 -Mode Bootstrap   # 一次性回填台账（按现有结构视为已执行）
+.\scripts\db-migrate.ps1 -Mode Status      # 复核：待执行 0、漂移 0
+```
+
+### 2.3 日常变更（唯一正确姿势）
+
+1. 新增 `database\migration\<yyyyMMdd>_<描述>.sql`，必须幂等（`IF NOT EXISTS` / `INSERT IGNORE` / 先判断后 ALTER）；
+2. `.\scripts\db-migrate.ps1 -Mode Status` 查看待执行清单；
+3. `.\scripts\db-migrate.ps1 -Mode Apply` 执行并登记（SHA256 + 时间 + 执行人，日志 `logs\db-migrate-*.log`）；
+4. 已登记脚本若内容被改动 → 状态显示 **DRIFT**，`-Mode Apply` 会中止并要求人工确认，防止"改了脚本以为没执行"。
+
+### 2.4 版本表 `schema_migration`
+
+| 列 | 说明 |
+| --- | --- |
+| `script` | 迁移文件名（唯一键），`init.sql` 作为基线存在一行 |
+| `checksum` | 脚本文件 SHA256，用于漂移检测 |
+| `status` | `APPLIED` 已执行 / `BASELINE` 基线 / `FAILED` 执行失败 |
+| `applied_at` / `applied_by` | 执行时间与执行人（回填记录在 `note` 注明来源） |
+| `note` | 回填说明、失败原因等 |
+
+当前状态（2026-11-12）：`APPLIED` 60 + `BASELINE` 1，待执行 0、漂移 0。其中 7 条 `applied_at` 取自 `logs\migration-*.log` 的真实执行时刻，其余为回填（取脚本落盘时间，`note` 已标注）。
 
 ## 3. 后端部署
 
@@ -138,8 +171,8 @@ server {
 
 ## 6. 验收检查项
 
-- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **6 张表**（expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record）
-- [ ] 按文件名顺序执行 `database/migration/` 全部 50 个增量脚本，`SHOW TABLES` 最终确认 **74 张表**（68 业务表 + 6 历史备份表；其中 RBAC 四表 role / permission / role_permission / user_role 由 `20261022_add_rbac_tables.sql` 建，知识两表由 `20261023_add_knowledge_tables.sql` 建，notification 由 `20261023_add_notification_table.sql` 建）
+- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **81 张业务表**（含 `schema_migration`；不含 `*_bak_*` 与 `mig_*` 历史/标记表）
+- [ ] `.\scripts\db-migrate.ps1 -Mode Bootstrap` 后 `-Mode Status` 显示「已登记 60 / 待执行 0 / 漂移 0」；新环境表结构应与生产一致（列 721、索引 313）
 - [ ] 后端启动无异常，`GET /health` 返回 UP，`/api/expert/list` 可访问
 - [ ] 审批流接口可用：`GET /api/approval/config`、`POST /api/approval/requests`（修改申请）、`POST /api/approval/create-request`（新增专家申请）
 - [ ] 消息通知接口可用：`GET /api/notifications`、`GET /api/notifications/unread-count`、`POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`
@@ -191,7 +224,8 @@ server {
 
 - **一键备份**：`scripts/backup.ps1`（单脚本三模式 Backup/Verify/Drill）。备份产物 `backup\backup_时间戳\`：expert_system 全量 SQL（--single-transaction --set-gtid-purged=OFF）+ 照片库/知识文档库 zip（照片库_tmp 空则跳过）+ 每产物 .sha256 + manifest.txt；保留最近 5 份，超出移入回收站；日志 `logs\backup.log`。
 - **凭据**：优先环境变量 MYSQL_PASSWORD，缺省从本地 start-backend.bat（gitignored）运行时解析，不落盘明文。
-- **自动计划任务**：`jshzPMOBackupWeekly` 每周日 02:00 以当前用户运行 Backup 模式（已注册，NextRun 见 `Get-ScheduledTaskInfo`）。
+- **自动计划任务**：`jshzPMOBackupWeekly` **每周日 02:00，SYSTEM 身份**，执行 `backup.ps1 -Mode Backup -Keep 5`（2026-11-12 重新注册，此前任务已丢失导致 6 天无备份）。注册/删除：`scripts\register-backup-schedule.ps1 [-DryRun|-Unregister]`（管理员）。
+- **保留策略**：只处理 `backup_yyyyMMdd_HHmmss` 目录，超出 -Keep 的最旧者移入回收站；删除前判存在、删除后复核，已不存在的目录只记一行日志不再报错（2026-11-12 修复）。手工目录（如早期 `backup\frontend*`）不在策略范围，已归档到 `builds\archive\legacy-manual-backups-20261112\`。
 - **校验**：`-Mode Verify` 对产物做 SHA256 复核 + zip 全量读取（CRC）校验。
 - **恢复演练**：`-Mode Drill` 自动：校验→重建测试库 expert_system_restore_test（内置护栏仅操作该库）→导入→与生产库对比表数量与每表 COUNT(*) 精确行数→结论自动追加 `docs/guides/2026-10-26-备份与恢复-演练文档.md`（含手动灾难恢复步骤）。首次演练已通过：17 表 / 871 行完全一致（2026-10-26 19:19，耗时 42.8s）。
 
@@ -490,6 +524,10 @@ expert:
 | 2026-11-12 12:29:02 | 1.0.38.13 | 成功 | expert-system.jar |
 | 2026-11-12 13:36:00 | 1.0.38.14 | 成功 | expert-system.jar |
 | 2026-11-12 14:42:39 | 1.0.38.15 | 成功 | expert-system.jar |
+| 2026-11-12 15:44:03 | 1.0.38.16 | 成功 | expert-system.jar |
+| 2026-11-12 16:05:03 | 1.0.38.17 | 成功 | expert-system.jar |
+| 2026-11-12 16:16:14 | 1.0.38.18 | 成功 | expert-system.jar |
+| 2026-11-13 09:40:18 | 1.0.38.19 | 成功 | expert-system.jar |
 
 ## 构建与发布脚本约定（2026-11-06 改造）
 
@@ -609,13 +647,13 @@ powershell -ExecutionPolicy Bypass -File <LOCAL_PATH> -DryRun
 - 回滚：改回 `frontend/release-metadata/<ReleaseId>.rollback.conf.txt` 记录的 root，`nginx -t` + graceful reload。
 - `scripts/deploy-frontend.ps1` 已加护栏：root 不指向 `frontend\dist` 时直接 `[ABORT]` 退出码 2。
 
-### 八、前端目录保留策略（2026-11-06 落地）
+### 八、前端目录保留策略（2026-11-06 落地，2026-11-12 调整默认保留 5）
 
 `frontend/` 下历史目录分三类，由 `scripts/prune-frontend-releases.ps1` 统一清理：
 
 | 类型 | 命名 | 说明 | 策略 |
 | --- | --- | --- | --- |
-| 正式快照 | `releases/<ReleaseId>` | 有 `release-metadata/<ReleaseId>.nginx-before.txt` 的才是真快照 | 保留最近 `-KeepReleases`（默认 3）个 |
+| 正式快照 | `releases/<ReleaseId>` | 有 `release-metadata/<ReleaseId>.nginx-before.txt` 的才是真快照 | 保留最近 `-KeepReleases`（默认 **5**）个 |
 | 回滚副本 | `releases/<ReleaseId>.rollback` | 每次发布复制的上一版完整副本，内容与上一版快照相同 | 仅保留当前 release 对应的那一个 |
 | 失效流程遗留 | `dist_old.*` / `dist-new.*` / `dist-green` / `dist-review-fixes` / `.build-*` | 旧 dist 替换流程产物，从未被 Nginx 服务 | 全部删除 |
 
@@ -627,6 +665,34 @@ powershell -ExecutionPolicy Bypass -File <LOCAL_PATH> -DryRun
 ```
 
 2026-11-06 实测：清理 136 个目录（删除 75 + 61），`releases/` 由 89 个 / 2.8 GB 降至 4 个 / 409 MB，`frontend/` 总占用由约 3.4 GB 降至 727 MB（剩余主要为 `node_modules` 311 MB），释放约 2.5 GB。
+
+### 八之二、统一空间保留策略与月度计划任务（2026-11-12 落地）
+
+历史上 `frontend/releases`、`builds`、`temp` 只有前两者有手动脚本、且从未定时执行，实测累积：
+`frontend/releases` 136 个目录 / **31.2 GB**、`builds`（不含 archive）**16.5 GB**、`temp` 273 项 / 571 MB。
+
+统一入口 `scripts\prune-all.ps1`（一次执行四类清理）：
+
+| 目录 | 脚本 | 保留规则 | 关键护栏 |
+| --- | --- | --- | --- |
+| `frontend\releases` | `prune-frontend-releases.ps1` | 最近 **5** 个正式快照 + 当前 root 的 `.rollback` | Nginx 当前 root、回滚目标、路径必须在 `frontend\` 下 |
+| `builds\` | `prune-builds.ps1`（新增） | 最近 **5** 个构建目录 | `archive\` 永不删除（含被 release 脚本引用的 `smoke-password.dpapi`），路径必须在 `builds\` 下 |
+| `temp\` | `prune-temp.ps1`（新增） | 目录/jar/script/log/other 各类保留最近 **5** 个 | 2 天内修改的跳过；文件名出现在 `docs\`/`scripts\` 文本中的跳过；路径必须在 `temp\` 下 |
+| `logs\` | `prune-logs.ps1` | 见上节 | 活动日志永不删除 |
+
+计划任务：`jshzPMOPruneMonthly`（**每月 1 日 03:30，SYSTEM**，与周日 02:00 备份任务错开），执行
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\prune-all.ps1 -Keep 5`，日志 `logs\prune-<时间戳>.log`。
+
+```powershell
+.\scripts\prune-all.ps1 -DryRun            # 全量预演（不删任何文件）
+.\scripts\prune-all.ps1                    # 立即执行一次
+.\scripts\register-prune-schedule.ps1 -DryRun      # 查看任务定义
+.\scripts\register-prune-schedule.ps1              # 注册/更新（管理员）
+.\scripts\register-prune-schedule.ps1 -Unregister  # 删除任务（管理员）
+```
+
+2026-11-12 预演结果：前端快照将删 130 个目录 ≈ **29.1 GB**；builds 将删 102 个目录 ≈ **15.9 GB**；
+temp 将删 99 项 ≈ 169 MB（27 项因被引用跳过）。
 
 ### 九、1.0.34 前端 root 切换记录（2026-11-06 17:03）
 

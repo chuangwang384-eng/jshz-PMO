@@ -85,6 +85,10 @@ public class ResumeParseService {
 
     /** 解析入口：按扩展名分发；非法格式/超限直接 400。 */
     public ResumeParseResult parse(String fileName, byte[] bytes) {
+        return parse(fileName, bytes, true);
+    }
+
+    public ResumeParseResult parse(String fileName, byte[] bytes, boolean allowFilenameFallback) {
         String ext = extension(fileName);
         if (!ALLOWED_EXTENSIONS.contains(ext)) {
             throw new BusinessException(400, "不支持的简历格式（支持 pdf/doc/docx/ppt/pptx/jpg/png）");
@@ -113,7 +117,7 @@ public class ResumeParseService {
                 result = new ResumeParseResult(cleaned, result.photoCandidates(),
                         cleaned.size(), result.message());
             }
-            if (!result.fields().containsKey("姓名")) {
+            if (allowFilenameFallback && !result.fields().containsKey("姓名")) {
                 String fallbackName = nameFromFileName(fileName);
                 if (fallbackName != null) {
                     Map<String, String> withName = new LinkedHashMap<>(result.fields());

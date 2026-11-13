@@ -1,5 +1,8 @@
 <template>
   <div class="nb-wrap" :class="{ 'nb-wrap-selected': checkedIds.length }">
+    <el-alert type="info" :closable="false" class="nb-intro">
+      <template #title>本记事本由「规范文档库」的收藏自动关联：在文档库中收藏规范文档后，该文档已发布的合规事项会自动出现在这里（按文档分组）；取消收藏即移除对应分组。勾选条目可推送到项目，隐藏仅对自己生效。点击事项标题可展开详情。</template>
+    </el-alert>
     <div class="nb-toolbar">
       <div class="nb-filter">
         <label id="compliance-document-filter">收藏文档</label>
@@ -27,16 +30,31 @@
           :aria-label="'选择事项：' + it.title"
         />
         <div class="nb-item-main">
-          <h3 class="nb-item-title">
+          <h3
+            class="nb-item-title"
+            :class="{ 'nb-item-title-toggle': it.content || it.stage || it.timeNote || it.sourceAnchor }"
+            :aria-expanded="expanded[it.id] ? 'true' : 'false'"
+            role="button"
+            tabindex="0"
+            @click="toggle(it)"
+            @keydown.enter.prevent="toggle(it)"
+            @keydown.space.prevent="toggle(it)"
+          >
+            <el-icon v-if="it.content || it.stage || it.timeNote || it.sourceAnchor" class="nb-item-chevron">
+              <ArrowRight v-if="!expanded[it.id]" />
+              <ArrowDown v-else />
+            </el-icon>
             {{ it.title }}
             <el-tag v-if="it.priority === 'HIGH'" size="small" type="danger">重要</el-tag>
           </h3>
-          <div v-if="it.content" class="nb-item-content">{{ it.content }}</div>
-          <div class="nb-item-meta">
-            <span v-if="it.stage">{{ stageText(it.stage) }}</span>
-            <span v-if="it.timeNote">时间：{{ it.timeNote }}</span>
-            <span v-if="it.sourceAnchor">来源：{{ it.sourceAnchor }}</span>
-          </div>
+          <template v-if="expanded[it.id]">
+            <div v-if="it.content" class="nb-item-content">{{ it.content }}</div>
+            <div class="nb-item-meta">
+              <span v-if="it.stage">{{ stageText(it.stage) }}</span>
+              <span v-if="it.timeNote">时间：{{ it.timeNote }}</span>
+              <span v-if="it.sourceAnchor">来源：{{ it.sourceAnchor }}</span>
+            </div>
+          </template>
         </div>
         <div class="nb-item-ops">
           <el-button v-if="!it.hidden" link size="small" @click="doHide(it)">隐藏</el-button>
@@ -71,8 +89,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import {
   listNotebookItems, hideNotebookItem, unhideNotebookItem,
   listPushableProjects, pushNotebookItems
@@ -83,6 +102,12 @@ const emit = defineEmits(['goto-docs'])
 const groups = ref([])
 const filterDocId = ref(null)
 const hiddenView = ref(false)
+// 事项详情默认折叠，点击标题展开（需求 2026-11-13：减少信息密度）
+const expanded = reactive({})
+
+function toggle(it) {
+  if (it.content || it.stage || it.timeNote || it.sourceAnchor) expanded[it.id] = !expanded[it.id]
+}
 const checked = ref({})
 const pushVisible = ref(false)
 const pushProjectId = ref(null)
@@ -106,6 +131,7 @@ async function load() {
   groups.value = data || []
   if (!groups.value.some(group => group.documentId === filterDocId.value)) filterDocId.value = null
   checked.value = {}
+  Object.keys(expanded).forEach((k) => { delete expanded[k] })
 }
 
 function stageText(v) {
@@ -160,6 +186,7 @@ defineExpose({ reload: load })
 </script>
 
 <style scoped>
+.nb-intro { margin-bottom: 12px; }
 .nb-toolbar {
   display: flex;
   align-items: center;
@@ -205,6 +232,10 @@ defineExpose({ reload: load })
 .nb-item :deep(.el-checkbox) { flex: none; height: 24px; margin-right: 0; }
 .nb-item-main { flex: 1; min-width: 0; }
 .nb-item-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 15px; line-height: 1.6; font-weight: 650; overflow-wrap: anywhere; }
+.nb-item-title-toggle { cursor: pointer; user-select: none; }
+.nb-item-title-toggle:hover { color: var(--el-color-primary); }
+.nb-item-title-toggle:focus-visible { outline: 2px solid var(--el-color-primary-light-5); outline-offset: 2px; border-radius: 4px; }
+.nb-item-chevron { flex: none; color: var(--el-text-color-secondary); font-size: 14px; }
 .nb-item-content { color: var(--el-text-color-regular); margin-top: 4px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .nb-item-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; overflow-wrap: anywhere; }
 .nb-item-meta:empty { display: none; }

@@ -27,6 +27,7 @@
       <template v-else>
         <el-button type="primary" @click="openCreateDialog">新增专家</el-button>
       </template>
+      <el-button type="primary" plain @click="batchResumeVisible = true">批量上传简历</el-button>
       <el-dropdown trigger="click" @command="handleExportCommand">
         <el-button type="success">
           导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -382,6 +383,8 @@
       </template>
     </el-dialog>
 
+    <BatchResumeDialog v-model="batchResumeVisible" :can-add="canAddExpert" :can-edit="canEditExpert" @saved="fetchList" />
+
     <!-- 新增专家申请弹窗（员工：复用可编辑表单字段结构与照片选择，提交审批流） -->
     <el-dialog v-model="createVisible" title="新增专家（需审批）" width="760px" destroy-on-close>
       <el-form :model="createForm" label-width="110px" class="edit-form">
@@ -600,6 +603,7 @@ import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, expor
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { useAuthStore } from '../store/auth'
 import PhotoImage from '../components/PhotoImage.vue'
+import BatchResumeDialog from '../components/BatchResumeDialog.vue'
 import { ArrowDown, Grid, Menu, CopyDocument } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -608,6 +612,7 @@ const authStore = useAuthStore()
 const canAddExpert = computed(() => authStore.hasPermission('expert:add'))
 const canEditExpert = computed(() => authStore.hasPermission('expert:edit'))
 const canExport = computed(() => authStore.hasPermission('expert:export'))
+const batchResumeVisible = ref(false)
 // 统一详情弹窗照片预览：管理员/超管显示 admin 预览，员工显示 edit 预览
 const activePhotoPreview = computed(() => (canEditExpert.value ? adminPhotoPreview : photoPreview))
 const selectedIds = ref(new Set())

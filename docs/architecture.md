@@ -38,6 +38,8 @@ AIGC:
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
 - 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、用户操作日志（operation_log，B2）、审批流配置（approval_config）、通用申请主表（application，「我的申请」改版）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、文档收藏（knowledge_favorite，C3）、消息通知（notification）、供应商管理（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel，2026-10-26）、企微通讯录同步（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **74 张表**（**68 张业务表 + 6 张历史备份表**，2026-11-06 由 `information_schema` 实测）。6 张备份表为 `approval_config_bak_20261102` / `download_log_customer_backup_20261029` / `knowledge_doc_version_customer_backup_20261029` / `knowledge_document_customer_backup_20261029` / `knowledge_favorite_customer_backup_20261029` / `wecom_migration_uk_username_backup`。`expert_change_request` 虽为历史表但仍参与读取，计入业务表（存量 31 条已迁移至 application，新写入全部走 application，旧表保留不动）。
 
+> 2026-11-12 实测：库中 **94 张表**（**81 张业务/结构表** + 10 张 `*_bak_*` 备份表 + 3 张 `mig_*` 迁移标记表）。数据库结构与版本由 `database\init.sql`（全量基线，81 表 + 字典种子）+ `database\migration\*`（60 个增量）+ `schema_migration`（迁移版本表）+ `scripts\db-migrate.ps1`（`-Mode Status/Apply/Bootstrap`）统一管理。
+
 ## 2. 后端分层
 
 | 层 | 职责 | 示例 |
@@ -89,6 +91,10 @@ AIGC:
 | `wecom_sync_log` | 同步审计日志（2026-10-27，每次手动/定时同步一条） | trigger_type（MANUAL/SCHEDULED/DRYRUN）、operator、status（RUNNING/SUCCESS/FAILED）、fetched_users/created_users/updated_users/disabled_users/bound_users/unbound_left、error_msg、detail（DryRun 变更清单 JSON）、start_time/end_time |
 
 > `expert_info.update_by` 写入语义：直接编辑（ExpertService.update，由超管/具备 expert:edit 权限用户调用）记操作者本人；审批通过（ApplicationService.approveModify / approveCreate）记申请单申请人 `application.applicant`（发起修改/新增的人），审批人仅记录于 `approve_by`。`update_time` 由数据库 `ON UPDATE CURRENT_TIMESTAMP` 自动维护。
+
+专家库批量上传简历由前端依次调用已有单份解析接口，每个文件生成一张可编辑候选卡。提交前在本批选中项和库内分页结果中匹配姓名与单位，命中后展示两卡详情。覆盖只提交本次确认的非空字段及选定的证件照。新增按 `expert:add`、覆盖按 `expert:edit` 判断直写权限，否则分别提交新增和修改申请。查重在本次前端流程内执行，独立会话和待审批申请之间不提供唯一性保证。
+
+项目详情「库外专家批量建档」复用该候选卡窗口，按未关联的已确认参会记录提供选人列表。调用 `POST /api/experts/resume/parse?contentNameOnly=true` 关闭文件名补姓名，正文姓名与预填姓名一致后才可勾选。逐条提交既有 `POST /api/project/{id}/speakers/archive-manual`，并带可选布尔字段 `requirePendingSpeaker=true`，在同一事务中检查并锁定待回绑的正式记录，然后建档、入项目专家名单及回绑。沿用项目成员权限和项目建档字段范围。旧项目批量解析并建档接口保留供旧客户端兼容。发布顺序为后端先于前端。
 
 > RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码），但文件流端点会按存储文件名反查文档并校验状态：文档不存在/已永久删除返回业务码 404，已下架且非 `knowledge:maintain` 返回业务码 403，避免下架后旧链接继续可下载（P1-5）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:maintain`（知识星球维护人/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:maintain`（已绑定 KNOWLEDGE_MAINTAINER），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
 
@@ -245,6 +251,15 @@ V4 由两个默认关闭的环境开关及个人确认控制；新增第八张 `
 - POST /api/compliance/documents/{id}/drafts-clear 一次性删除该文档全部草稿候选，expectedCount 集合版本校验（数量不符返回 409），逐条复用单条删除逻辑留修改历史；已发布事项不受影响（维护人，2026-11-11 新增）。
 - GET /api/compliance/items 的 keyword 为字面子串匹配标题或内容：服务端转义 `%`、`_`、`\` LIKE 通配符后按 `%kw%` 查询，特殊字符不再被当作通配符（2026-11-11 行为修正）。
 - 文档永久删除沿用事项清理，项目待办快照保留。项目详情和待办查询基于来源文档是否存在返回 sourceDeleted，无数据库迁移。
+
+### 存储管理与硬删除（2026-11-12，已发布 1.0.38.18）
+
+补充第 7 个范围 `project-deleted`（「项目资料库（已删除资料）」）：`project_doc` 行全部软删且无任何未删引用（未删资料 ∪ 日程 ∪ 合同）的物理文件可回收，`is_deleted IS NULL` 按未删处理；只删磁盘文件、保留 DB 留痕，无迁移（复用 `/orphans` 与 `/orphans/purge`）。解决"删除资料后磁盘文件永久驻留"（实测 27 个 / 109.2 MB）。
+
+孤儿清理已从项目资料库扩展到 6 个可清理目录（v2）：GET `/api/storage-admin/orphans?scope=all|project|knowledge|photo|photo-tmp|customer|supplier` + POST `/orphans/purge`。引用集合：project=doc∪schedule∪contract；knowledge=knowledge_document∪knowledge_doc_version（排除 `_preview/`）；photo=expert.photo/idCardFront/idCardBack（排除 `richtext_*` 内嵌图）；photo-tmp=application.biz_data 中 `TMP:<文件名>`；customer=customer_attachment.storage_name；supplier=supplier_image.file_name ∪ 兼容 supplier.images JSON。统一 `OrphanSpec` 扫描、expectedCount/expectedBytes 校验、`deleteWithin` 防穿越删除，前端按目录展示孤儿数并逐个清理。
+
+
+管理员存储管理工具（权限码 storage:manage，绑定 ADMIN；菜单「管理员设置→存储管理」）：① GET /api/storage-admin/stats 各存储目录（项目资料库/知识文档库/预览缓存/照片库/照片库临时/客户附件库/供应商图库）占用与文件数，单目录阈值 expert.storage.warn/critical-threshold-bytes（10GB/20GB）判 NONE/WARNING/CRITICAL，另报磁盘剩余；② GET /project-orphans + POST /project-orphans/purge 项目资料库孤儿文件（引用集=project_doc∪project_schedule∪project_contract 全表 filePath 含软删）expectedCount/expectedBytes 校验后物理删除；③ POST /preview-cache/purge 清空预览缓存（可再生成）；④ GET/POST /projects/{id}/purge-preview|purge 已取消/已删除项目关联数据硬删除（21 张表级联：project_doc/schedule/speaker/expert/supplier/contract/phase_history/executor/assistant、compliance_project_todo/doc_binding/execution 及 task/event/reminder、compliance_item 及 assignee/hide/history/user_progress、project 主行），confirmName=完整项目名确认，物理文件 afterCommit 全库引用复核后删除，操作日志记 STORAGE_PURGE_*。审批单/操作日志/知识文档/主数据明确保留。无新增业务表。
 
 ### 合规 PDF 候选覆盖
 

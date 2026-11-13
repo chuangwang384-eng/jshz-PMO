@@ -132,6 +132,14 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     /** 下载客户附件 */
     public static final String ACTION_DOWNLOAD_CUSTOMER_ATTACH = "DOWNLOAD_CUSTOMER_ATTACH";
 
+    // ---------------- 存储管理与硬删除（target_type=STORAGE/PROJECT，Owner 2026-11-12） ----------------
+    /** 清理项目资料库孤儿文件（不可恢复） */
+    public static final String ACTION_STORAGE_PURGE_ORPHANS = "STORAGE_PURGE_ORPHANS";
+    /** 清空文档预览缓存（可再生成） */
+    public static final String ACTION_STORAGE_CLEAR_PREVIEW = "STORAGE_CLEAR_PREVIEW";
+    /** 硬删除项目全部关联数据（不可恢复） */
+    public static final String ACTION_STORAGE_PURGE_PROJECT = "STORAGE_PURGE_PROJECT";
+
     /**
      * 统一写入一条操作日志；任何异常仅记 warn，不向上抛（日志失败不影响主业务）。
      *

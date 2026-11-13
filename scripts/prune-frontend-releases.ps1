@@ -16,7 +16,7 @@
   保留规则（四重保护，任何一条命中都不删）：
   - Nginx 当前生效的 root（从 conf 中解析，只认未注释的 root 行）
   - 当前 root 对应的 releases\<ReleaseId>.rollback（回滚目标）
-  - 按最后写入时间最近的 -KeepReleases 个**正式快照**（默认 3 个，含当前 root）
+  - 按最后写入时间最近的 -KeepReleases 个**正式快照**（默认 5 个，含当前 root）
     「正式快照」= 存在 release-metadata\<ReleaseId>.nginx-before.txt。
     没有元数据的目录不占保留名额（如 1.0.34-20261106_165403 是失效的
     deploy-frontend.ps1 留下的 dist 备份，从未被 Nginx 服务过）。
@@ -33,7 +33,7 @@
   Nginx 站点配置，默认 D:\nginx\conf\conf.d\jshz-pmo.conf
 
 .PARAMETER KeepReleases
-  保留最近几个正式快照（含当前生效 root），默认 3
+  保留最近几个正式快照（含当前生效 root），默认 5
 
 .PARAMETER KeepLegacyDist
   保留失效流程遗留目录不删（排查用），默认不保留
@@ -49,7 +49,7 @@
 param(
     [string]$FrontendDir = 'D:\jshz-PMO\frontend',
     [string]$NginxConf = 'D:\nginx\conf\conf.d\jshz-pmo.conf',
-    [int]$KeepReleases = 3,
+    [int]$KeepReleases = 5,
     [switch]$KeepLegacyDist,
     [switch]$DryRun
 )

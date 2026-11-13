@@ -80,8 +80,11 @@ export function expertFilters() {
 }
 
 // 简历解析（新增专家辅助填充）：OCR 场景耗时较长，超时 180s
-export function parseResume(file) {
+export function parseResume(file, { contentNameOnly = false } = {}) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post('/experts/resume/parse', formData, { timeout: 180000 })
+  return request.post('/experts/resume/parse', formData, {
+    timeout: 180000,
+    params: contentNameOnly ? { contentNameOnly: true } : undefined
+  })
 }

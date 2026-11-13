@@ -269,19 +269,31 @@ try {
             $manifest | Out-File -FilePath (Join-Path $dest 'manifest.txt') -Encoding UTF8
             Log ("manifest.txt 已写入；本份备份耗时 {0} 秒，产物 {1} 个" -f [math]::Round($sw.Elapsed.TotalSeconds,1), $artifacts.Count)
 
-            # 4) 保留策略：仅清理 backup_* 时间戳目录，超出 -Keep 的最旧目录移入回收站
-            $all = @(Get-ChildItem -Path $BackupDir -Directory -Filter 'backup_*' | Sort-Object Name -Descending)
+            # 4) 保留策略：仅清理 backup_yyyyMMdd_HHmmss 时间戳目录，超出 -Keep 的最旧目录移入回收站
+            #    只处理真实存在的目录；删除后复核是否真的消失（历史上 DeleteDirectory 会对已不存在目录抛错）
+            $all = @(Get-ChildItem -Path $BackupDir -Directory -Filter 'backup_*' |
+                     Where-Object { $_.Name -match '^backup_\d{8}_\d{6}$' } |
+                     Sort-Object Name -Descending)
             if ($all.Count -gt $Keep) {
                 Add-Type -AssemblyName Microsoft.VisualBasic
-                $toRemove = $all | Select-Object -Skip $Keep
-                foreach ($d in $toRemove) {
+                foreach ($d in ($all | Select-Object -Skip $Keep)) {
+                    if (-not (Test-Path -LiteralPath $d.FullName)) {
+                        Log "保留策略: 目录已不存在（跳过） $($d.Name)"
+                        continue
+                    }
                     try {
                         [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($d.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin')
-                        Log "保留策略: 已移入回收站 $($d.Name)"
+                        if (Test-Path -LiteralPath $d.FullName) {
+                            Log "保留策略: 未真正移除（跳过） $($d.Name)"
+                        } else {
+                            Log "保留策略: 已移入回收站 $($d.Name)"
+                        }
                     } catch {
                         Log "保留策略: 移除失败（跳过，不影响备份结果） $($d.FullName): $($_.Exception.Message)"
                     }
                 }
+            } else {
+                Log "保留策略: 现有 $($all.Count) 份，未超过上限 $Keep"
             }
             Log "==== Backup 完成（$dest） ===="
         }

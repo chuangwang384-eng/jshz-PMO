@@ -1,5 +1,24 @@
 # 最新交接摘要
 
+- 2026-11-13 项目库外专家批量建档复用专家库简历窗口并校验正文姓名。见 [任务交接](tasks/20261113_project_resume_reuse.md)。
+
+- 2026-11-13 审批管理快速审批已完成前端实现及隔离 Edge 回归，待业务验收。见 [任务交接](tasks/20261113_quick_approval.md)。
+
+- 2026-11-13 专家库批量上传简历已完成前端实现，通过构建及隔离 Edge 回归，待业务验收。见 [任务交接](tasks/20261113_expert_batch_resume.md)。
+
+- 2026-11-12 「数据库迁移版本管理 + init.sql 基线重建（无应用发布）」：此前无迁移台账（不知哪些脚本执行过），`database/init.sql` 仅 6 表（生产实际 81 张业务表）。新增 `schema_migration` 版本表（script/checksum/status/applied_at/applied_by/note）与 `scripts\db-migrate.ps1`（`-Mode Status/Apply/Bootstrap`，SHA256 漂移检测、失败即停、日志 `logs\db-migrate-*.log`）；按生产库重建 `database/init.sql`（81 表 + 721 列 + 313 索引逐项一致，12 张字典表 604 行种子 + admin，无 DROP/无 AUTO_INCREMENT）；台账回填 60 个脚本 + init.sql 基线（7 条时间取自真实日志），`-Mode Status` = 已登记 60 / 待执行 0 / 漂移 0。临时库验证差异 0 后已删除，生产仅新增一张表。详见 [变更记录](../releases/20261112-db-migration-management.md)、`database/README.md`、deployment.md 第 2 节。
+
+- 2026-11-12 「自动备份任务恢复 + 保留策略修复（无应用发布）」：复核发现文档记载的 `jshzPMOBackupWeekly` **已不存在**（最近备份停在 11-06，6 天无备份），且 `backup_*` 因 11-06 清理失败 + 一次 `Keep=1000` 跑成了 6 份。已修复 `scripts\backup.ps1` 保留策略（判存在 + 删除后复核 + 未超限日志），新增 `scripts\register-backup-schedule.ps1` 并重新注册任务（每周日 02:00，SYSTEM，`-Keep 5`，NextRun 2026-11-15 02:00）；补跑一次备份 `backup_20261112_170431`（Verify 四项全通过），最旧 2 份移入回收站，现为 5 份；两份手工备份目录归档至 `builds\archive\legacy-manual-backups-20261112\`。详见 [运维变更记录](../releases/20261112-backup-schedule-ops.md)、deployment.md 备份小节。
+
+- 2026-11-12 「统一空间保留策略 + 月度计划任务（无应用发布）」：`frontend/releases`、`builds`、`temp` 此前无自动清理，实测占用 31.2 GB / 16.5 GB / 571 MB。新增 `scripts/prune-builds.ps1`（保留 5 个构建目录，archive 永不删）、`scripts/prune-temp.ps1`（分类各保留 5，近期与引用文件跳过）、`scripts/prune-all.ps1`（统一入口，含 logs），`prune-frontend-releases.ps1` 默认保留数 3→5；注册计划任务 `jshzPMOPruneMonthly`（每月 1 日 03:30，SYSTEM）执行 `prune-all.ps1 -Keep 5`。**已于 2026-11-12 16:32 首次全量执行**：删前端快照 130 个（29.1 GB）、builds 102 个（15.9 GB）、temp 99 项（169 MB），合计释放 ≈45.2 GB；`frontend/releases` 降至 6 个 / 2.06 GB、`builds` 5 个 / 0.6 GB（archive 未动），线上 `/health`=1.0.38.18、Nginx root 为保留快照、路由 200。详见 [运维变更记录](../releases/20261112-prune-schedule-ops.md)、deployment.md「八之二」。
+
+- 2026-11-12 「已删除资料文件回收，已发布 1.0.38.18」：修复"清理孤儿后项目资料库仍有大量文件"——根因是孤儿口径把软删行也算引用。新增范围 `project-deleted`（「项目资料库（已删除资料）」）：`project_doc` 全部行软删且无任何未删引用（未删资料∪日程∪合同）的文件可回收，`is_deleted IS NULL` 按未删处理；只删磁盘文件、保留 DB 留痕，无迁移。当前可回收 **27 个 / 109.2 MB**。核验：健康 UP 1.0.38.18、SPA 200、线上 chunk 含「已删除资料」、端点未登录 401。详见 [发布记录](../releases/20261112-reclaim-deleted-docs-1.0.38.18.md)。
+
+- 2026-11-12 「存储管理：孤儿清理扩展全目录，已发布 1.0.38.17」：孤儿文件清理从项目资料库扩展到 6 个目录（项目资料库/知识文档库/照片库/照片库临时/客户附件库/供应商图库）。新增 GET `/api/storage-admin/orphans?scope=all|…`、POST `/orphans/purge`，页面为可展开表格、逐目录清理（确认词「清理」+ expected 校验）。引用集：知识库=主表∪历史版本（排除 `_preview/`）、照片库=专家三照片（排除 `richtext_*` 内嵌图）、照片临时=审批单 `TMP:` 引用、客户=customer_attachment、供应商=supplier_image∪旧 images JSON。核验：健康 UP 1.0.38.17、SPA 200、线上 chunk 含新接口、权限 `menu=1 api=8 admin_bind=1`。未在生产执行真实清理。详见 [发布记录](../releases/20261112-orphans-all-dirs-1.0.38.17.md)。
+
+- 2026-11-12 「存储管理与硬删除工具（防存储爆炸）已发布生产 1.0.38.16」**已发布，待业务验收**：先执行权限迁移（storage:manage 菜单 1 + 接口 6，绑定 ADMIN，库内实测通过）→ 后端蓝绿（11 阶段，/health=1.0.38.16）→ 前端快照 `frontend/releases/1.0.38.16-storage-admin-20261112` 平滑切换。功能：目录占用统计与 10GB/20GB 阈值预警、项目资料库孤儿文件扫描/清理（expected 集合校验）、预览缓存清空、已取消/已删除项目 21 表级联硬删（完整项目名确认、文件引用复核、操作日志留痕）。核验：SPA 路由 200、线上 chunk 含页面代码、5 新端点未登录 401。未在生产执行真实硬删。回滚与明细见 [发布记录](../releases/20261112-storage-admin-purge-1.0.38.16.md)、[任务交接](tasks/20261112_storage_admin_and_purge.md)。
+
+- 2026-11-12 「存储管理与硬删除工具（防存储爆炸）」**已实施待发布**：管理员权限 storage:manage 下提供 ① 各存储目录占用统计与阈值预警（10GB/20GB）；② 项目资料库孤儿文件扫描/清理（引用集=资料∪日程∪合同全表 filePath，expected 校验）；③ 预览缓存清空；④ 已取消/已删除项目 21 张关联表级联硬删 + 物理文件引用复核后删除（完整项目名确认，不可恢复）。含迁移 SQL（权限码，需随发布执行）。StorageAdminServiceTest 9 用例 + 回归通过、前端构建通过。**发布顺序：迁移 SQL → 后端 → 前端**。见 [设计文档](../design/2026-11-12-存储管理与硬删除工具-设计文档.md)、[任务交接](tasks/20261112_storage_admin_and_purge.md)。
 - 2026-11-12 项目列表调整筛选与表格布局，隔离 Edge 宽窄屏验证通过，生产前端已发布。见 [交接记录](tasks/20261112_project_list_layout.md)。
 
 - 2026-11-12 工作台审批中文化、备选卡片去重并补充两个实际功能卡，前后端 1.0.38.15 已发布。见 [交接记录](tasks/20261112_dashboard_palette_cleanup.md)。
@@ -240,3 +259,5 @@
 - 模板维护页已通过真实 PDF 隔离 Edge 复验并发布生产前端，见 [交接与回退](tasks/20261111_enterprise_compliance_ui.md)。
 
 - 2026-11-12 模板维护搜索移除已通过同版后端隔离 Edge 复验并上线，见 [交接与回退](tasks/20261111_enterprise_compliance_ui.md)。
+
+- 2026-11-13 合规记事本折叠与收藏关联说明已发布 1.0.38.20（仅前端，构建门禁与线上 bundle 核验通过；版本真源由 1.0.38.18 统一至 1.0.38.20，1.0.38.19 后端线上版本号漏回写已补记）。见 [发布记录](../releases/20261113-compliance-notebook-collapse-1.0.38.20.md)。

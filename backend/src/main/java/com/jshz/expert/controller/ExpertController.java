@@ -103,13 +103,14 @@ public class ExpertController {
     @PostMapping("/resume/parse")
     public ApiResponse<ResumeParseService.ResumeParseResult> parseResume(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "false") boolean contentNameOnly,
             @AuthenticationPrincipal AuthUser authUser,
             HttpServletRequest request) throws java.io.IOException {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请上传简历文件");
         }
         ResumeParseService.ResumeParseResult result =
-                resumeParseService.parse(file.getOriginalFilename(), file.getBytes());
+                resumeParseService.parse(file.getOriginalFilename(), file.getBytes(), !contentNameOnly);
         operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 "RESUME_PARSE", "简历解析「" + file.getOriginalFilename() + "」命中 "
                         + result.hitCount() + " 个字段、候选照片 " + result.photoCandidates().size() + " 张",

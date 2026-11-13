@@ -171,7 +171,7 @@ const routes = [
     },
     meta: {
       title: '管理员设置',
-      permissions: ['expert:manage', 'project:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
+      permissions: ['expert:manage', 'project:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage', 'storage:manage']
     },
     children: [
       {
@@ -210,6 +210,12 @@ const routes = [
         name: 'wecom-sync',
         component: () => import('../views/WecomSyncManage.vue'),
         meta: { title: '企微通讯录同步', permissions: ['wecom:sync'] }
+      },
+      {
+        path: 'storage',
+        name: 'storage-manage',
+        component: () => import('../views/admin/StorageManage.vue'),
+        meta: { title: '存储管理', permissions: ['storage:manage'] }
       }
     ]
   },

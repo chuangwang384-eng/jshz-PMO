@@ -14,6 +14,8 @@
           title="加签采用或签语义：您与被加签人任一人审批（通过/驳回）即生效；转办后仅被转办人可审批。"
           style="margin-bottom: 12px"
         />
+        <el-button v-if="pendingTotal > 3" type="primary" :loading="quickLoading"
+          style="margin-bottom: 12px" @click="openQuickApproval">快速审批</el-button>
         <ApprovalTable
           mode="pending"
           :rows="pendingList"
@@ -67,7 +69,10 @@
       v-model="diffVisible"
       :row="diffRow"
       :mode="diffMode"
-      @success="refresh"
+      :queue-index="quickIndex"
+      :queue-size="quickQueue.length"
+      @navigate="navigateQuick"
+      @success="handleDiffSuccess"
     />
 
     <!-- 转办弹窗：选人（仅列出有审批权限的用户） -->
@@ -155,6 +160,9 @@ const doneLoading = ref(false)
 const diffVisible = ref(false)
 const diffRow = ref(null)
 const diffMode = ref('view')
+const quickQueue = ref([])
+const quickIndex = ref(0)
+const quickLoading = ref(false)
 
 // 转办 / 加签（B2）
 const transferVisible = ref(false)
@@ -202,6 +210,61 @@ function openDiff(row, mode = 'view') {
   diffRow.value = row
   diffMode.value = mode
   diffVisible.value = true
+}
+
+async function openQuickApproval() {
+  if (quickLoading.value) return
+  quickLoading.value = true
+  const size = 100
+  const username = authStore.username
+  const queue = new Map()
+  try {
+    let page = 1
+    let total
+    do {
+      const result = await getApprovalRequests({ status: 0, page, size })
+      total = result?.total || 0
+      for (const row of result?.items || []) {
+        if (row.status === 0 && (!row.currentAssignee || row.currentAssignee === username || row.extraApprover === username)) {
+          queue.set(row.id, row)
+        }
+      }
+    } while (page++ * size < total)
+    if (activeTab.value !== 'pending') return
+    if (total <= 3 || !queue.size) {
+      ElMessage.info(total <= 3 ? '待审批超过 3 条时可使用快速审批' : '当前没有可处理的待审批')
+      refresh()
+      return
+    }
+    quickQueue.value = [...queue.values()]
+    quickIndex.value = 0
+    openDiff(quickQueue.value[0], 'quick')
+  } catch {
+    // 接口拦截器已提示加载错误。
+  } finally {
+    quickLoading.value = false
+  }
+}
+
+function navigateQuick(offset) {
+  const nextIndex = quickIndex.value + offset
+  if (!quickQueue.value[nextIndex]) return
+  quickIndex.value = nextIndex
+  diffRow.value = quickQueue.value[nextIndex]
+}
+
+function handleDiffSuccess(id) {
+  if (diffMode.value === 'quick') {
+    quickQueue.value = quickQueue.value.filter(row => row.id !== id)
+    if (quickQueue.value.length) {
+      if (quickIndex.value >= quickQueue.value.length) quickIndex.value = 0
+      diffRow.value = quickQueue.value[quickIndex.value]
+    } else {
+      diffVisible.value = false
+      ElMessage.info('本轮待审批已处理完毕')
+    }
+  }
+  refresh()
 }
 
 // ==================== 转办 / 加签（B2） ====================

@@ -845,12 +845,23 @@ public class ScheduleParseService {
     }
 
     /** 手动建档单条（成员级）：建档 + 按姓名回绑参会专家（含候选）。 */
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public Map<String, Object> archiveManual(Long projectId, Map<String, Object> body, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
         String name = body == null || body.get("name") == null ? "" : String.valueOf(body.get("name")).trim();
         if (name.isEmpty()) {
             throw new BusinessException("姓名不能为空");
+        }
+        if (Boolean.TRUE.equals(body.get("requirePendingSpeaker"))
+                && speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
+                        .select(ProjectSpeaker::getId)
+                        .eq(ProjectSpeaker::getProjectId, projectId)
+                        .eq(ProjectSpeaker::getExpertName, name)
+                        .eq(ProjectSpeaker::getConfirmed, 1)
+                        .isNull(ProjectSpeaker::getExpertId)
+                        .last("FOR UPDATE")).isEmpty()) {
+            throw new BusinessException("该参会专家已建档或不在待建档名单中，请刷新后重试");
         }
         Map<String, Object> normalized = new LinkedHashMap<>();
         normalized.put("name", name);

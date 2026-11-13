@@ -59,5 +59,5 @@
 
 ## 9. 下一位 Agent 的第一步
 1. 提交时把 `tv.txt` 删除一并纳入（避免遗留），不要恢复该文件。
-2. 需要继续清理时从第二档开始：先确认 NSSM 未指向 `backend/target-1.0.22/`，再清理；`temp/` 内业务文档（`dinghuixin.doc` 等）须 Owner 确认归属后再动。
+2. 需要继续清理时从第二档开始：`backend/target-1.0.22/` **已于 2026-11-12 17:00 删除**（删前核对注册表 `HKLM\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters`：`AppParameters=-jar <LOCAL_PATH>`、`AppDirectory=<LOCAL_PATH>`，确认服务未指向该目录；57.3 MB，删后服务 Running、`/health`=UP 1.0.38.18）；`temp/` 内业务文档（`dinghuixin.doc` 等）须 Owner 确认归属后再动。
 3. 未经批准禁止：删除 `backend/target/expert-system.jar`、`*releases*`、`builds/archive/.build-project-config-production-20261104/`（含发布脚本依赖的 dpapi 口令）。

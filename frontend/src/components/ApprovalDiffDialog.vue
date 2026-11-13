@@ -4,6 +4,9 @@
     :title="dialogTitle"
     width="760px"
     destroy-on-close
+    :show-close="!submitting"
+    :close-on-press-escape="!submitting"
+    :close-on-click-modal="!submitting"
     @update:model-value="(v) => emit('update:modelValue', v)"
     @open="comment = ''"
   >
@@ -103,21 +106,32 @@
         <el-button @click="emit('update:modelValue', false)">关 闭</el-button>
       </div>
       <div v-else class="footer-action">
+        <div v-if="mode === 'quick'" class="footer-buttons">
+          <span>剩余 {{ queueSize }} 条 · 第 {{ queueIndex + 1 }} 条</span>
+          <el-button :disabled="submitting || queueIndex <= 0" @click="emit('navigate', -1)">上一条</el-button>
+          <el-button :disabled="submitting || queueIndex >= queueSize - 1" @click="emit('navigate', 1)">下一条</el-button>
+        </div>
         <el-input
           v-model="comment"
+          :disabled="submitting"
           type="textarea"
           :rows="3"
           maxlength="200"
           :show-word-limit="mode === 'reject' || mode === 'return'"
-          :placeholder="mode === 'approve' ? '审批意见（可空）' : (mode === 'return' ? '请填写退回修改意见（必填）' : '请填写驳回意见（必填）')"
+          :placeholder="mode === 'quick' ? '审批意见（通过可空，驳回必填）' : mode === 'approve' ? '审批意见（可空）' : (mode === 'return' ? '请填写退回修改意见（必填）' : '请填写驳回意见（必填）')"
         />
         <div class="footer-buttons">
-          <el-button @click="emit('update:modelValue', false)">取 消</el-button>
+          <el-button :disabled="submitting" @click="emit('update:modelValue', false)">{{ mode === 'quick' ? '退出快速审批' : '取消' }}</el-button>
+          <template v-if="mode === 'quick'">
+            <el-button v-permission="'approval:audit'" type="danger" :disabled="submitting" @click="confirm('reject')">确认驳回</el-button>
+            <el-button v-permission="'approval:audit'" type="success" :disabled="submitting" @click="confirm('approve')">确认通过</el-button>
+          </template>
           <el-button
+            v-else
             v-permission="'approval:audit'"
             :type="actionType"
             :loading="submitting"
-            @click="confirm"
+            @click="confirm()"
           >{{ actionText }}</el-button>
         </div>
       </div>
@@ -126,7 +140,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { approveRequest, rejectRequest, returnRequest } from '../api/approval'
 import { approvalStatusTagType } from '../utils/format'
@@ -138,10 +152,12 @@ import PhotoImage from './PhotoImage.vue'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   row: { type: Object, default: null },
-  mode: { type: String, default: 'view' }
+  mode: { type: String, default: 'view' },
+  queueIndex: { type: Number, default: 0 },
+  queueSize: { type: Number, default: 0 }
 })
 
-const emit = defineEmits(['update:modelValue', 'success'])
+const emit = defineEmits(['update:modelValue', 'success', 'navigate'])
 
 const PHOTO_KEYS = ['照片', '身份证正面', '身份证反面']
 // 字段展示顺序与后端白名单一致（白名单外键兜底排在末尾）
@@ -153,6 +169,7 @@ const FIELD_ORDER = [
 
 const comment = ref('')
 const submitting = ref(false)
+watch(() => props.row?.id, () => { comment.value = '' })
 
 // 底部确认按钮文案/颜色：通过=success、驳回=danger、退回修改=warning
 const actionText = computed(() => {
@@ -167,6 +184,7 @@ const actionType = computed(() => {
 })
 
 const dialogTitle = computed(() => {
+  if (props.mode === 'quick') return '快速审批（变更前后对比）'
   if (props.mode === 'approve') return '审批通过（变更前后对比）'
   if (props.mode === 'reject') return '审批驳回（变更前后对比）'
   if (props.mode === 'return') return '退回修改（变更前后对比）'
@@ -210,25 +228,27 @@ function newPhotoCleaned(key) {
   return !!raw && String(raw).startsWith('TMP:') && props.row.status !== 0
 }
 
-async function confirm() {
-  if ((props.mode === 'reject' || props.mode === 'return') && !comment.value.trim()) {
-    ElMessage.warning(props.mode === 'return' ? '请填写退回修改意见' : '请填写驳回意见')
+async function confirm(action = props.mode) {
+  if (submitting.value || !props.row) return
+  const id = props.row.id
+  if ((action === 'reject' || action === 'return') && !comment.value.trim()) {
+    ElMessage.warning(action === 'return' ? '请填写退回修改意见' : '请填写驳回意见')
     return
   }
   submitting.value = true
   try {
-    if (props.mode === 'approve') {
-      await approveRequest(props.row.id, { comment: comment.value.trim() || undefined })
+    if (action === 'approve') {
+      await approveRequest(id, { comment: comment.value.trim() || undefined })
       ElMessage.success('已通过')
-    } else if (props.mode === 'return') {
-      await returnRequest(props.row.id, comment.value.trim())
+    } else if (action === 'return') {
+      await returnRequest(id, comment.value.trim())
       ElMessage.success('已退回修改，申请人可重新编辑提交')
     } else {
-      await rejectRequest(props.row.id, { comment: comment.value.trim() })
+      await rejectRequest(id, { comment: comment.value.trim() })
       ElMessage.success('已驳回')
     }
-    emit('update:modelValue', false)
-    emit('success')
+    if (props.mode !== 'quick') emit('update:modelValue', false)
+    emit('success', id)
   } catch (e) {
     // 错误提示已由拦截器统一处理
   } finally {

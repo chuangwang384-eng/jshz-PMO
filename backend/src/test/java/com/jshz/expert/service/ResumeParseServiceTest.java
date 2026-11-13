@@ -2,6 +2,8 @@ package com.jshz.expert.service;
 
 import com.jshz.expert.common.BusinessException;
 import org.junit.jupiter.api.Test;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import java.io.ByteArrayOutputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
@@ -59,6 +61,16 @@ class ResumeParseServiceTest {
         assertThrows(BusinessException.class, () -> service.parse("a.exe", new byte[]{1}));
         assertThrows(BusinessException.class, () -> service.parse("a.pdf", new byte[0]));
         assertThrows(BusinessException.class, () -> service.parse("a.pdf", new byte[21 * 1024 * 1024]));
+    }
+
+    @Test void contentOnlyParsingDoesNotUseFilenameForMissingName() throws Exception {
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("工作单位：示例医院");
+            document.write(output);
+            byte[] bytes = output.toByteArray();
+            assertEquals("张晓丽", service.parse("张晓丽简历.docx", bytes).fields().get("姓名"));
+            assertFalse(service.parse("张晓丽简历.docx", bytes, false).fields().containsKey("姓名"));
+        }
     }
 
     @Test void leftoverLinesCollectedIntoProfile() {
