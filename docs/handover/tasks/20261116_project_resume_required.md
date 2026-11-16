@@ -9,4 +9,4 @@
 
 后端执行 `mvn -q -DgitShort=1fa4cf2 -Dtest=ProjectResumeAvatarTest,ScheduleParseServiceTest test`，15 项通过，涵盖空单位拒绝、联系方式格式拒绝、接受「无」及选填字段保持为空。前端 `npm run build -- --outDir ../builds/project-resume-required-final-build-20261116` 和 `git diff --check` 通过。对候选执行 `frontend/tests/project-resume-reuse-browser.mjs` 和 `frontend/tests/expert-batch-resume-browser.mjs`，两组 Edge 模拟接口回归通过。新版验证单位缺失时禁用提交、补单位后可继续、无效号码有具体提示，以及填「无」时省略联系方式并仍可提交头像。旧线上快照在单位缺失提示断言失败。
 
-生产尚未发布，真实建档落库待验收。下一步用李宏原简历确认姓名、单位填妥后可以留空联系方式并提交，核对回绑和头像。获准发布后先更新兼容旧请求结构的后端，再切换前端。回滚先恢复旧前端，再按需回滚后端，无数据库迁移。
+生产于 2026-11-16 09:41 完成发布，后端 `1.0.38.31` 及同版前端快照通过线上检查。真实建档落库待验收。下一步用李宏原简历确认姓名、单位填妥后可以留空联系方式并提交，核对回绑和头像。发布与回滚路径见 [生产发布记录](../../releases/20261116-project-resume-required.md)。

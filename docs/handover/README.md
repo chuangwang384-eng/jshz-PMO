@@ -1,6 +1,6 @@
 # 最新交接摘要
 
-- 2026-11-16 项目建档只要求姓名和单位，联系方式「无」按空值处理。见 [任务交接](tasks/20261116_project_resume_required.md)。
+- 2026-11-16 项目建档只要求姓名和单位，联系方式「无」按空值处理，前后端已上线并通过生产检查。见 [发布记录](../releases/20261116-project-resume-required.md) 和 [任务交接](tasks/20261116_project_resume_required.md)。
 
 - 2026-11-16 项目单人及批量建档复用专家库头像候选预览、选择和入档，前后端已上线并通过生产检查，待业务验收。见 [发布记录](../releases/20261116-project-resume-avatar.md) 和 [任务交接](tasks/20261116_project_resume_avatar.md)。
 
