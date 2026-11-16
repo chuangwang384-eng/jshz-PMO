@@ -246,8 +246,9 @@ export function confirmProjectBudget(id) {
 }
 
 // 收费标准（管理员设置-项目配置）
-export function listBudgetFeeStandards() {
-  return request.get('/project/config/budget-fee-standards')
+export function listBudgetFeeStandards(scene) {
+  const qs = scene ? `?scene=${scene}` : ''
+  return request.get(`/project/config/budget-fee-standards${qs}`)
 }
 
 export function saveBudgetFeeStandards(rows) {

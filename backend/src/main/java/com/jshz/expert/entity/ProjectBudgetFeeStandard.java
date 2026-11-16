@@ -24,6 +24,9 @@ public class ProjectBudgetFeeStandard {
 
     private String name;
 
+    /** 适用大类：ONLINE 线上 / OFFLINE 线下（2026-11-16 分场景，线上项目点选生成报价单） */
+    private String scene;
+
     private String defaultValue;
 
     private String unit;

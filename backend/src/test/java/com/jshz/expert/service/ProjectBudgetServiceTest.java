@@ -15,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -90,6 +91,24 @@ class ProjectBudgetServiceTest {
         List<ProjectBudgetItem> items = (List<ProjectBudgetItem>) result.get("items");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).getSection()).isEqualTo("ONLINE_QUOTE");
+    }
+
+    @Test
+    void onlineSkeletonListsSelectableFeeStandardsWithZeroQuantity() {
+        when(projectService.requireProject(1L)).thenReturn(project("ONLINE"));
+        when(budgetMapper.selectOne(any())).thenReturn(null);
+        ProjectBudgetFeeStandard svc = fee("OL_PLATFORM", "8000", "元/场");
+        svc.setScene("ONLINE");
+        when(feeStandardMapper.selectList(any())).thenReturn(List.of(svc));
+
+        Map<String, Object> result = service.overview(1L, user);
+        @SuppressWarnings("unchecked")
+        List<ProjectBudgetItem> items = (List<ProjectBudgetItem>) result.get("items");
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).getSection()).isEqualTo("ONLINE_QUOTE");
+        assertThat(items.get(0).getItemKey()).isEqualTo("OL_PLATFORM");
+        assertThat(items.get(0).getQuantity()).isEqualByComparingTo(BigDecimal.ZERO); // 默认未选
+        assertThat(items.get(0).getUnitPrice()).isEqualByComparingTo("8000");
     }
 
     @Test

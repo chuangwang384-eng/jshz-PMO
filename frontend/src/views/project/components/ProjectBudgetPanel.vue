@@ -4,30 +4,36 @@
     <template v-else>
       <el-alert v-if="error" :title="error" type="error" :closable="false" style="margin-bottom: 10px"/>
       <el-alert v-if="isOnline" type="info" :closable="false" style="margin-bottom: 10px"
-                title="线上项目 · 简化报价单（模板点选形式待定，当前为手动报价单）"/>
+                title="线上项目 · 点选收费项生成报价单（收费标准由管理员在「管理员设置-项目配置」维护）"/>
       <el-alert v-else type="info" :closable="false" style="margin-bottom: 10px"
                 title="线下项目 · 六类费用明细（搭建/媒体为非必需，礼品需与客户确认；收费标准默认值可在「管理员设置-项目配置」维护）"/>
 
       <div v-for="sec in activeSections" :key="sec.key" class="budget-section">
         <div class="budget-sec-head">
-          <span class="budget-sec-title">{{ sec.label }}</span>
+          <span class="budget-sec-title">{{ isOnline ? '点选收费项（勾选即计入报价）' : sec.label }}</span>
           <span v-if="sec.optional" class="hint-text">非必需</span>
           <span class="budget-sec-total">{{ fmt(sectionTotal(sec.key)) }}</span>
-          <el-button v-if="!readonly && !isOnline" size="small" text type="primary" style="margin-left: auto"
-                     @click="addRow(sec.key)">+ 添加费用项</el-button>
+          <el-button v-if="!readonly" size="small" text type="primary" style="margin-left: auto"
+                     @click="addRow(sec.key)">+ {{ isOnline ? '自定义费用项' : '添加费用项' }}</el-button>
           <el-button v-if="!readonly && !isOnline" size="small" text type="danger"
                      @click="removeSection(sec.key)">移除本节</el-button>
         </div>
         <el-table :data="rowsOf(sec.key)" size="small" :border="true">
+          <el-table-column v-if="isOnline" label="点选" width="60" align="center">
+            <template #default="{ row }">
+              <el-checkbox :model-value="Number(row.quantity) > 0" :disabled="readonly || !row.itemKey"
+                           @update:model-value="togglePick(row, $event)"/>
+            </template>
+          </el-table-column>
           <el-table-column label="费用项" min-width="200">
             <template #default="{ row }">
-              <span v-if="readonly">{{ row.name }}</span>
+              <span v-if="readonly || (isOnline && row.itemKey)">{{ row.name }}</span>
               <el-input v-else v-model="row.name" placeholder="费用项名称" size="small"/>
             </template>
           </el-table-column>
           <el-table-column label="数量" width="110">
             <template #default="{ row }">
-              <span v-if="readonly">{{ row.quantity }}</span>
+              <span v-if="readonly || (isOnline && row.itemKey && Number(row.quantity) <= 1)">{{ row.quantity }}</span>
               <el-input-number v-else v-model="row.quantity" :min="0" :precision="0" :step="1" step-strictly :controls="false" size="small" style="width: 90px"/>
             </template>
           </el-table-column>
@@ -126,6 +132,13 @@ const hiddenSections = computed(() =>
   SECTIONS.filter((s) => s.optional && removedSections.value.includes(s.key)))
 
 const hasItems = computed(() => items.value.some((r) => (r.name || '').trim()))
+// 线上点选：勾选=数量 1（或恢复 1），取消=数量 0（不计入合计）
+function togglePick(row, checked) {
+  row.quantity = checked ? 1 : 0
+  if (checked && Number(row.unitPrice || 0) === 0) {
+    row.unitPrice = null // 提示管理员未配默认单价，用户可手填
+  }
+}
 const amountOf = (row) => Number(row.quantity || 0) * Number(row.unitPrice || 0)
 const sectionTotal = (key) => rowsOf(key).reduce((s, r) => s + amountOf(r), 0)
 const total = computed(() => items.value.reduce((s, r) => s + amountOf(r), 0))

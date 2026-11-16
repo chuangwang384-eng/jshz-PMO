@@ -64,9 +64,11 @@ public class ProjectBudgetController {
 
     // ==================== 收费标准（管理员设置-项目配置） ====================
 
+    /** scene 可选（ONLINE/OFFLINE），缺省全量。 */
     @GetMapping("/config/budget-fee-standards")
-    public ApiResponse<List<ProjectBudgetFeeStandard>> listFeeStandards() {
-        return ApiResponse.ok(budgetService.listFeeStandards());
+    public ApiResponse<List<ProjectBudgetFeeStandard>> listFeeStandards(
+            @RequestParam(required = false) String scene) {
+        return ApiResponse.ok(budgetService.listFeeStandards(scene));
     }
 
     @PutMapping("/config/budget-fee-standards")

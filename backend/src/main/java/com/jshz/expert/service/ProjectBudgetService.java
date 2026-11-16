@@ -66,7 +66,7 @@ public class ProjectBudgetService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("budget", budget);
         result.put("items", items);
-        result.put("feeStandards", activeFeeStandards());
+        result.put("feeStandards", activeFeeStandards(budget.getCategory()));
         return result;
     }
 
@@ -127,9 +127,12 @@ public class ProjectBudgetService {
 
     // ==================== 收费标准（管理员） ====================
 
-    public List<ProjectBudgetFeeStandard> listFeeStandards() {
-        return feeStandardMapper.selectList(new LambdaQueryWrapper<ProjectBudgetFeeStandard>()
-                .orderByAsc(ProjectBudgetFeeStandard::getId));
+    public List<ProjectBudgetFeeStandard> listFeeStandards(String scene) {
+        LambdaQueryWrapper<ProjectBudgetFeeStandard> q = new LambdaQueryWrapper<ProjectBudgetFeeStandard>();
+        if (scene != null && !scene.isBlank()) {
+            q.eq(ProjectBudgetFeeStandard::getScene, scene);
+        }
+        return feeStandardMapper.selectList(q.orderByAsc(ProjectBudgetFeeStandard::getId));
     }
 
     /** 新增/修改收费标准（fee_key 唯一；只允许新增键或改值，不提供删除以防预算引用悬空）。 */
@@ -148,6 +151,10 @@ public class ProjectBudgetService {
             if (value != null && !value.isBlank() && !value.matches("\\d{1,10}(\\.\\d{1,2})?(,\\d{1,10}(\\.\\d{1,2})?)?")) {
                 throw new BusinessException("默认值须为数字或 \"低,高\" 区间：" + value);
             }
+            String scene = str(row.get("scene"));
+            if (scene == null || !("ONLINE".equals(scene) || "OFFLINE".equals(scene))) {
+                scene = "OFFLINE";
+            }
             ProjectBudgetFeeStandard entity = feeStandardMapper.selectOne(
                     new LambdaQueryWrapper<ProjectBudgetFeeStandard>().eq(ProjectBudgetFeeStandard::getFeeKey, key));
             boolean exists = entity != null;
@@ -156,6 +163,7 @@ public class ProjectBudgetService {
                 entity.setFeeKey(key);
             }
             entity.setName(name);
+            entity.setScene(scene);
             entity.setDefaultValue(value == null || value.isBlank() ? null : value);
             entity.setUnit(str(row.get("unit")));
             entity.setRemark(str(row.get("remark")));
@@ -168,7 +176,7 @@ public class ProjectBudgetService {
             }
         }
         log.info("收费标准保存 {} 行 by={}", rows == null ? 0 : rows.size(), user == null ? null : user.getUserId());
-        return listFeeStandards();
+        return listFeeStandards(null);
     }
 
     // ==================== 内部 ====================
@@ -182,9 +190,18 @@ public class ProjectBudgetService {
     }
 
     private Map<String, ProjectBudgetFeeStandard> activeFeeStandards() {
+        return activeFeeStandards(null);
+    }
+
+    /** 按场景取启用收费标准（scene=null 全量；否则 ONLINE/OFFLINE）。 */
+    private Map<String, ProjectBudgetFeeStandard> activeFeeStandards(String scene) {
         Map<String, ProjectBudgetFeeStandard> map = new LinkedHashMap<>();
-        for (ProjectBudgetFeeStandard s : feeStandardMapper.selectList(
-                new LambdaQueryWrapper<ProjectBudgetFeeStandard>().eq(ProjectBudgetFeeStandard::getIsActive, 1))) {
+        LambdaQueryWrapper<ProjectBudgetFeeStandard> q = new LambdaQueryWrapper<ProjectBudgetFeeStandard>()
+                .eq(ProjectBudgetFeeStandard::getIsActive, 1);
+        if (scene != null) {
+            q.eq(ProjectBudgetFeeStandard::getScene, scene);
+        }
+        for (ProjectBudgetFeeStandard s : feeStandardMapper.selectList(q)) {
             map.put(s.getFeeKey(), s);
         }
         return map;
@@ -255,7 +272,22 @@ public class ProjectBudgetService {
         List<ProjectBudgetItem> list = new ArrayList<>();
         int sort = 0;
         if ("ONLINE".equals(budget.getCategory())) {
-            list.add(item(budget, "ONLINE_QUOTE", null, "报价项", null, null, sort++));
+            // 线上=点选收费项生成报价单：骨架列出全部启用线上收费项（未选中 quantity 置 0），
+            // 前端勾选即计入合计；无任何线上收费项时保底一行空报价。
+            Map<String, ProjectBudgetFeeStandard> onlineFees = activeFeeStandards("ONLINE");
+            if (onlineFees.isEmpty()) {
+                list.add(item(budget, "ONLINE_QUOTE", null, "报价项", null, null, sort++));
+                return list;
+            }
+            for (ProjectBudgetFeeStandard std : onlineFees.values()) {
+                ProjectBudgetItem it = feeItem(budget, onlineFees, std.getFeeKey(), std.getName(), null, "ONLINE_QUOTE", sort++);
+                if (it == null) {
+                    continue;
+                }
+                it.setQuantity(BigDecimal.ZERO); // 默认未选
+                it.setAmount(BigDecimal.ZERO);
+                list.add(it);
+            }
             return list;
         }
         // HOTEL 酒店：场地/住宿/用餐/茶歇
