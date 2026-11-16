@@ -1,6 +1,6 @@
 # 最新交接摘要
 
-- 2026-11-16 项目详情右侧卡片滚动时对齐内容区顶部。见 [任务交接](tasks/20261116_project_sidebar_sticky.md)。
+- 2026-11-16 项目详情右侧卡片滚动时对齐内容区顶部，前端已上线。见 [发布记录](../releases/20261116-project-sidebar-sticky.md) 和 [任务交接](tasks/20261116_project_sidebar_sticky.md)。
 
 - 2026-11-16 项目详情的合规要求注意事项增加待完成、已完成视图，隔离验收通过，前端已上线。见 [发布记录](../releases/20261116-project-compliance-views.md) 和 [任务交接](tasks/20261116_project_compliance_views.md)。
 

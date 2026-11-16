@@ -6,4 +6,4 @@
 
 `npm run build -- --outDir ../builds/project-sidebar-flush-build-20261116`、`git diff --check` 和 `node frontend/tests/project-resume-reuse-browser.mjs builds/project-sidebar-flush-build-20261116` 通过。Edge 模拟接口测试在 1191 × 675 下测得旧快照吸顶空白为 88 CSS px，新版贴合误差不超过 1 CSS px，在 1024 × 675 下验证侧栏随单栏页面滚动。合规视图与项目建档回归随同通过。两处新增样式已核对作用域，未新增重复样式或色值。架构说明及交接索引已同步。
 
-生产尚未部署。获准发布后以当前线上前端快照为基线，先对比 `App.vue` 与 `ProjectDetail.vue`，构建后在项目详情验证滚动，再进行纯前端平滑切换。回滚恢复上一前端快照。
+2026-11-16 10:15 已部署生产前端。以原前端快照为基线构建，通过隔离浏览器回归与线上文件哈希验证。真实项目登录态滚动待业务验收。发布和回滚路径见 [生产发布记录](../../releases/20261116-project-sidebar-sticky.md)。
