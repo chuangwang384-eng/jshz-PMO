@@ -17,6 +17,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -89,7 +90,7 @@ class AiAssistantServiceTest {
                 entry("B_TWO", "参会专家确认", "专家怎么确认", null)));
         when(ollamaService.available()).thenReturn(true);
         // 模型返回候选外的键 → 无效，回退关键词头部
-        when(ollamaService.completeJson(any())).thenReturn("{\"entryKey\":\"HACKED\"}");
+        when(ollamaService.completeJson(any(), anyLong())).thenReturn("{\"entryKey\":\"HACKED\"}");
         Map<String, Object> r = service.ask("日程专家", normal);
         assertThat(r.get("matched")).isEqualTo(true);
         assertThat(r.get("mode")).isEqualTo("keyword");
@@ -101,7 +102,7 @@ class AiAssistantServiceTest {
                 entry("A_ONE", "日程上传与解析", "日程怎么传", null),
                 entry("B_TWO", "参会专家确认", "专家怎么确认", null)));
         when(ollamaService.available()).thenReturn(true);
-        when(ollamaService.completeJson(any())).thenReturn("{\"entryKey\":\"B_TWO\"}");
+        when(ollamaService.completeJson(any(), anyLong())).thenReturn("{\"entryKey\":\"B_TWO\"}");
         Map<String, Object> r = service.ask("日程专家", normal);
         assertThat(r.get("entryKey")).isEqualTo("B_TWO");
         assertThat(r.get("mode")).isEqualTo("llm");
