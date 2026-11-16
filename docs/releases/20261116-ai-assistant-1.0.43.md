@@ -28,3 +28,6 @@
 
 ## 追加：1.0.44（2026-11-16 14:25）行动意图自动跳转
 Owner 需求「帮我新建项目 → AI 自动跳转到新建页面」：① 后端识别行动意图（帮我/帮忙/我要/我想/打开/进入/跳转到/去…），命中带链接条目时返回 autoNavigate=true；② 抽屉展示卡片 0.9s 后自动 router.push 并关闭（仅路由导航，不代执行任何业务操作）；③ ProjectList 支持 ?action=create 深链直开新建弹窗（需 project:create 权限，打开后清除 query）；④ CREATE_PROJECT 条目链接改为 /project?action=create（生产库已更新+迁移种子同步）。问"怎么做"类仍只给卡片不自动跳。mvn test 158 通过；实测「帮我新建项目」→ autoNavigate=true + /project?action=create。浏览器复核待 Owner。
+
+## 追加：1.0.45（2026-11-16 14:48）正常闲聊
+Owner 需求「能正常闲聊，只有操作关键词才触发链接」：ask 分流——强匹配（score>=4）或行动句式（帮我/我要/打开…且 score>0）→ 操作卡片（行动句式才 autoNavigate）；其余 → OllamaService.chat 自由对话（20s 超时，persona 约束不编造系统路径/链接，截断 500 字），不产生任何链接与跳转；模型不在线给友好兜底。mvn test 159 通过。实测：「你好，今天心情不错」→ mode=chat 自然回复无链接；「帮我新建项目」→ 卡片+autoNavigate；「怎么新建项目」→ 卡片不自动跳。发布插曲：首轮两次 UAC 被取消，Owner 确认后第三次成功。浏览器复核待 Owner。
