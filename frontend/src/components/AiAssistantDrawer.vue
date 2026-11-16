@@ -10,7 +10,7 @@
         <div ref="listRef" class="ai-msg-list">
           <div v-if="!messages.length" class="ai-welcome">
             <div class="ai-welcome-title">你好，我是系统使用助手</div>
-            <div class="ai-welcome-sub">问我任何系统操作问题，我会给出操作指南和直达入口</div>
+            <div class="ai-welcome-sub">系统操作问题我给指南和直达入口，也可以随便聊聊</div>
             <div class="ai-chips">
               <button v-for="s in suggestions" :key="s" class="ai-chip" @click="send(s)">{{ s }}</button>
             </div>

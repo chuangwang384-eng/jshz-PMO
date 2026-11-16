@@ -202,6 +202,34 @@ public class OllamaService {
         }
     }
 
+    /** 自由文本对话（AI 助手闲聊，2026-11-16）：不限定 JSON 格式；失败/超时返回 null。 */
+    public String chat(String prompt, long timeoutSec) {
+        if (!available() || prompt == null || prompt.isBlank()) return null;
+        String url = baseUrl();
+        String model = modelOrDefault();
+        try {
+            String body = json.writeValueAsString(Map.of(
+                    "model", model,
+                    "prompt", prompt,
+                    "stream", false,
+                    "keep_alive", DEFAULT_KEEP_ALIVE));
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
+                    .timeout(Duration.ofSeconds(timeoutSec))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("Ollama 对话失败：HTTP {}", response.statusCode());
+                return null;
+            }
+            return json.readTree(response.body()).path("response").asText(null);
+        } catch (Exception e) {
+            log.warn("Ollama 对话异常：{}", e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * 合规草稿重要性分类（Owner 2026-11-10）：识别重要事项供解析链标记 priority=HIGH。
      * 判定口径（写入 prompt）：资金/合同/法务/付款/发票/时限截止/监管处罚/证件资质/审计等为重要，

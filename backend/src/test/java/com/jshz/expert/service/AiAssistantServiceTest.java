@@ -91,7 +91,7 @@ class AiAssistantServiceTest {
         when(ollamaService.available()).thenReturn(true);
         // 模型返回候选外的键 → 无效，回退关键词头部
         when(ollamaService.completeJson(any(), anyLong())).thenReturn("{\"entryKey\":\"HACKED\"}");
-        Map<String, Object> r = service.ask("日程专家", normal);
+        Map<String, Object> r = service.ask("帮我日程专家", normal);
         assertThat(r.get("matched")).isEqualTo(true);
         assertThat(r.get("mode")).isEqualTo("keyword");
     }
@@ -103,7 +103,7 @@ class AiAssistantServiceTest {
                 entry("B_TWO", "参会专家确认", "专家怎么确认", null)));
         when(ollamaService.available()).thenReturn(true);
         when(ollamaService.completeJson(any(), anyLong())).thenReturn("{\"entryKey\":\"B_TWO\"}");
-        Map<String, Object> r = service.ask("日程专家", normal);
+        Map<String, Object> r = service.ask("帮我日程专家", normal);
         assertThat(r.get("entryKey")).isEqualTo("B_TWO");
         assertThat(r.get("mode")).isEqualTo("llm");
     }
@@ -117,6 +117,20 @@ class AiAssistantServiceTest {
         assertThat(action.get("autoNavigate")).isEqualTo(true);
         Map<String, Object> howto = service.ask("怎么新建项目", normal);
         assertThat(howto.get("autoNavigate")).isEqualTo(false);
+    }
+
+    @Test
+    void casualChatGoesToLlmWithoutCardOrLink() {
+        when(entryMapper.selectList(any())).thenReturn(List.of(
+                entry("CREATE_PROJECT", "新建项目", "怎么新建项目", null)));
+        when(ollamaService.available()).thenReturn(true);
+        when(ollamaService.chat(any(), anyLong())).thenReturn("你好呀！今天过得怎么样？");
+        Map<String, Object> r = service.ask("你好", normal);
+        assertThat(r.get("matched")).isEqualTo(false);
+        assertThat(r.get("mode")).isEqualTo("chat");
+        assertThat(r.get("answer")).isEqualTo("你好呀！今天过得怎么样？");
+        assertThat(r.get("autoNavigate")).isEqualTo(false);
+        assertThat(r.get("linkUrl")).isNull();
     }
 
     @Test

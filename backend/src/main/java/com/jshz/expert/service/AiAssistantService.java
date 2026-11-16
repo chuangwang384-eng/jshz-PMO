@@ -56,10 +56,19 @@ public class AiAssistantService {
         scored.sort(Comparator.comparingInt((Scored s) -> s.score).reversed());
         List<Scored> candidates = scored.size() > 5 ? scored.subList(0, 5) : scored;
 
-        if (candidates.isEmpty()) {
+        // 分流（Owner 2026-11-16）：只有命中操作关键词（强匹配）或行动句式才出卡片/链接，
+        // 其余走本地模型自由闲聊；闲聊不产生任何链接与跳转。
+        int topScore = candidates.isEmpty() ? 0 : candidates.get(0).score;
+        boolean action = isActionIntent(q);
+        boolean operationRelated = topScore >= 4 || (action && topScore > 0);
+        if (!operationRelated) {
+            String reply = chatReply(q);
             result.put("matched", false);
-            result.put("answer", "抱歉，知识库中暂时没有匹配的内容。你可以换个说法再问，或联系系统管理员获取帮助。");
-            result.put("mode", "none");
+            result.put("mode", reply != null ? "chat" : "none");
+            result.put("autoNavigate", false);
+            result.put("answer", reply != null ? reply
+                    : "你好！我是系统使用助手。系统操作问题（如新建项目、预算、日程上传）我可以给出操作指南；其他问题我的本地模型暂时不在线，请稍后再试。");
+            log.info("AI助手闲聊 mode={} qLen={}", reply != null ? "chat" : "none", q.length());
             return result;
         }
 
@@ -82,7 +91,7 @@ public class AiAssistantService {
         result.put("matched", true);
         result.put("mode", mode);
         // 行动意图（帮我/我要/打开…）且有跳转链接 → 前端自动跳转（仅路由导航，不代执行操作）
-        result.put("autoNavigate", picked.getLinkUrl() != null && isActionIntent(q));
+        result.put("autoNavigate", picked.getLinkUrl() != null && action);
         result.put("entryKey", picked.getEntryKey());
         result.put("title", picked.getTitle());
         result.put("answer", picked.getAnswer());
@@ -141,6 +150,28 @@ public class AiAssistantService {
     }
 
     // ==================== 内部 ====================
+
+    /** 闲聊：本地小模型自由对话；约束不编造系统操作路径。失败返回 null 由上层兜底。 */
+    private String chatReply(String q) {
+        if (!ollamaService.available()) {
+            return null;
+        }
+        String prompt = "你是景帅会展内部管理系统的 AI 助手，语气友好简洁，回答控制在 150 字以内。"
+                + "你可以和用户正常闲聊。注意：不要编造系统功能、操作路径或链接；"
+                + "如果用户问到你不确定的系统操作，请建议他换个说法描述需求或联系系统管理员。"
+                + "不要输出 markdown 链接。\n\n用户说：" + q;
+        try {
+            String raw = ollamaService.chat(prompt, 20);
+            if (raw == null) {
+                return null;
+            }
+            String t = raw.trim();
+            return t.isEmpty() ? null : (t.length() > 500 ? t.substring(0, 500) : t);
+        } catch (Exception e) {
+            log.warn("AI助手闲聊失败：{}", e.getMessage());
+            return null;
+        }
+    }
 
     /** 行动意图识别：用户要求"去做"而非"问怎么做"。 */
     private static boolean isActionIntent(String q) {
