@@ -72,7 +72,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
   WHERE table_schema='expert_system' AND table_type='BASE TABLE';"
 ```
 
-**2026-11-16 核实基线**：Controller 31、Service 58、实体/Mapper 67、页面 43、路由 37、数据库 **101 张表**（85 业务/结构 + 10 历史备份 + 6 迁移标记）、`version.txt=revision=1.0.45`、`frontend/package.json=1.0.45`。
+**2026-11-16 核实基线**：Controller 31、Service 58、实体/Mapper 67、页面 43、路由 37、数据库 **101 张表**（85 业务/结构 + 10 历史备份 + 6 迁移标记）、`version.txt=revision=1.0.46`、`frontend/package.json=1.0.46`。
 
 **⚠️ 表数是最容易写错的一项**：只认 `information_schema` 实测值，且必须排除 `*_bak_*`（历史备份）与 `mig_*`（迁移标记）才是业务表口径。历史上 README 写 39/74、`docs/architecture.md` 写 26/94、`docs/deployment.md` 写 13，四处互相矛盾长达数周，2026-11-16 已统一。
 
