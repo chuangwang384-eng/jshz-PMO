@@ -238,14 +238,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return p == null ? "" : p.getName();
     }
 
-    /** 第一阶段「日程上传」（迁移种子阶段；找不到回退为激活阶段中 sort 最大者）。 */
-    private ProjectPhase agendaUploadPhase() {
+    /**
+     * 项目起始阶段：激活阶段字典中 sort 最小者（2026-11-16 起=「会议预算制作」；
+     * 2026-11-09~15 期间曾固定为「日程上传」，新预算阶段插入其后导致新项目跳过预算，改为按 sort 取首）。
+     */
+    private ProjectPhase firstActivePhase() {
         List<ProjectPhase> phases = phaseMapper.selectList(new LambdaQueryWrapper<ProjectPhase>()
-                .eq(ProjectPhase::getName, "日程上传").orderByAsc(ProjectPhase::getId).last("LIMIT 1"));
+                .eq(ProjectPhase::getIsActive, 1).orderByAsc(ProjectPhase::getSort).last("LIMIT 1"));
         if (!phases.isEmpty()) {
             return phases.get(0);
         }
-        throw new BusinessException("内置阶段「日程上传」缺失，请先执行迁移 20261109_project_schedule_stage.sql");
+        throw new BusinessException("project_phase 无激活阶段，请先执行阶段迁移脚本");
     }
 
     private Map<String, Object> toBriefMap(Project project) {
@@ -376,7 +379,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             throw new BusinessException("总负责人不能为空（默认创建人）");
         }
         // 2026-11-09 流程重塑：项目类型概念删除；新建不可选阶段，固定落第一阶段「日程上传」
-        ProjectPhase phase = agendaUploadPhase();
+        ProjectPhase phase = firstActivePhase();
 
         Project project = new Project();
         project.setName(name.trim());
