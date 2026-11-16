@@ -1,0 +1,132 @@
+# ============================================================================
+# jshz-PMO 专家库系统 - Nginx 站点配置模板
+# 适用: Windows Nginx (D:\nginx)
+# 职责: 80 端口托管前端 dist (SPA) + /api 反向代理到后端 8080
+#
+# 安装方式（二选一）:
+#   A. 将本文件整体内容合入 D:\nginx\conf\nginx.conf 的 http { } 块内
+#   B. 拷贝为 D:\nginx\conf\conf.d\jshz-pmo.conf，
+#      并在 nginx.conf 的 http { } 块内确保存在:
+#          include conf.d/*.conf;
+#
+# 校验:  D:\nginx\nginx.exe -t
+# 生效:  D:\nginx\nginx.exe -s reload
+# ============================================================================
+
+server {
+    # ---- 监听与主机名 ----
+    # 动态 IP 适配说明: server_name 使用 "_" 通配，不绑定具体域名/IP，
+    # 本机 IP 变化时无需修改本文件；浏览器直接访问 http://<本机IP>/
+    listen 80;
+    server_name _;
+
+    charset utf-8;
+
+    # ---- 前端静态资源 (dist) ----
+    root D:/jshz-PMO/frontend/releases/1.0.23.1;
+    index index.html;
+
+    # SPA 路由回退: 直接刷新 /company/experts 等前端路由时落到 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ---- 静态资源缓存建议 ----
+    # vite 构建产物带内容哈希 (assets/*-<hash>.js / .css)，可长缓存；
+    # index.html 不缓存（默认 no-cache），保证每次发布后立即拿到新入口
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    # ---- 后端 API 反向代理 ----
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # 照片上传 / ZIP 导出等长耗时接口超时放宽
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_max_body_size 20m;
+    }
+
+    # ---- gzip 压缩建议 ----
+    gzip on;
+    gzip_min_length 1k;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/javascript application/xml image/svg+xml;
+    gzip_vary on;
+
+    # ---- HTTPS 443 预留（启用时取消注释并按需调整） ----
+    # 证书由 docs/deployment-prod.md 中 OpenSSL 自签命令生成到 D:\nginx\certs\
+    # server {
+    #     listen 443 ssl;
+    #     server_name _;
+    #
+    #     ssl_certificate     D:/nginx/certs/server.crt;
+    #     ssl_certificate_key D:/nginx/certs/server.key;
+    #     ssl_protocols       TLSv1.2 TLSv1.3;
+    #     ssl_ciphers         HIGH:!aNULL:!MD5;
+    #     ssl_prefer_server_ciphers on;
+    #
+    #     charset utf-8;
+    #     root D:/jshz-PMO/frontend/dist;
+    #     index index.html;
+    #
+    #     location / {
+    #         try_files $uri $uri/ /index.html;
+    #     }
+    #
+    #     location /assets/ {
+    #         expires 30d;
+    #         add_header Cache-Control "public, max-age=2592000, immutable";
+    #     }
+    #
+    #     location /api/ {
+    #         proxy_pass http://127.0.0.1:8080;
+    #         proxy_set_header Host $host;
+    #         proxy_set_header X-Real-IP $remote_addr;
+    #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    #         proxy_set_header X-Forwarded-Proto $scheme;
+    #         proxy_http_version 1.1;
+    #         proxy_set_header Connection "";
+    #         proxy_connect_timeout 60s;
+    #         proxy_read_timeout 300s;
+    #         proxy_send_timeout 300s;
+    #         client_max_body_size 20m;
+    #     }
+    #
+    #     gzip on;
+    #     gzip_min_length 1k;
+    #     gzip_comp_level 6;
+    #     gzip_types text/plain text/css application/json application/javascript text/javascript application/xml image/svg+xml;
+    #     gzip_vary on;
+    # }
+    #
+    # 启用 HTTPS 后，建议把上面的 80 端口 server 块改为 301 跳转:
+    #   server {
+    #       listen 80;
+    #       server_name _;
+    #       return 301 https://$host$request_uri;
+    #   }
+    #
+    # 注意: HTTPS 生效后需同步评估 expert_token cookie 的 Secure 属性
+    #       （后端 ResponseCookie 增加 .secure(true)，见部署手册 HTTPS 章节）。
+    # 健康检查别名: 外部 /api/health -> 后端 /health (后端实际健康路径为 /health)
+    location = /api/health {
+        proxy_pass http://127.0.0.1:8080/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+}
