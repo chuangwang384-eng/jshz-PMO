@@ -14,7 +14,7 @@
       <el-tab-pane label="已读" name="read" />
     </el-tabs>
 
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-select
         v-model="typeFilter"
         placeholder="全部类型"
@@ -86,12 +86,15 @@
 </template>
 
 <script setup>
+import { watchDashboardFocus } from '../utils/dashboardFocus'
+import { safeTarget } from '../utils/dashboard'
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchNotifications } from '../api/notification'
 import { useNotificationStore } from '../store/notification'
 
+const route = useRoute()
 const router = useRouter()
 const notificationStore = useNotificationStore()
 
@@ -172,7 +175,10 @@ async function handleRowClick(row, column) {
       fetchList()
     }
     if (row.jumpPath) {
-      router.push(row.jumpPath)
+      const resolved = router.resolve(row.jumpPath)
+      const target = safeTarget(router, { path: resolved.path, query: resolved.query })
+      if(target) router.push(target)
+      else ElMessage.warning('关联目标不可用')
     }
   } catch (e) {
     // 错误提示已由拦截器统一处理
@@ -255,6 +261,12 @@ onMounted(() => {
   notificationStore.loadUnread()
   fetchList()
 })
+watchDashboardFocus(route, 'notificationId', 'notification', async row => {
+ if(row.isRead === 0) { await notificationStore.markRead(row.id); row.isRead=1; await fetchList() }
+ let confirmed=false
+ try { await ElMessageBox.alert(row.content || row.title, row.title, { confirmButtonText:'查看关联事项', dangerouslyUseHTMLString:false }); confirmed=true } catch {}
+ if(confirmed) await handleRowClick(row)
+}, message => ElMessage.warning(message))
 </script>
 
 <style scoped>
@@ -263,18 +275,7 @@ onMounted(() => {
   align-items: baseline;
   gap: 12px;
 }
-.page-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: #303133;
-}
-.page-sub {
-  font-size: 13px;
-  color: #909399;
-}
 .toolbar {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
 }
 .tab-badge {
@@ -282,24 +283,14 @@ onMounted(() => {
   transform: translateY(-2px);
 }
 .row-title {
-  color: #606266;
+  color: var(--ui-text-sub);
 }
 .row-title.is-unread {
-  color: #303133;
+  color: var(--ui-text-main);
   font-weight: 600;
 }
 .unread-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f56c6c;
   margin-right: 6px;
   vertical-align: middle;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
 }
 </style>

@@ -62,6 +62,15 @@ public class ComplianceItem {
     /** 跨版本匹配待维护人确认 */
     private Integer pendingConfirm;
 
+    /** 1=已按文档撤下（历史保留，记事本/列表不再展示） Owner 2026-11-10 */
+    private Integer withdrawn;
+
+    /** 撤下操作人 */
+    private String withdrawnBy;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime withdrawnTime;
+
     /** 预留弱关联 project.id */
     private Long projectId;
 

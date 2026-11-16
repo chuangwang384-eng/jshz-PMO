@@ -13,12 +13,16 @@
 
     <groupId>com.jshz</groupId>
     <artifactId>expert-system</artifactId>
-    <version>1.012</version>
+    <!-- 版本号唯一真源：项目根 version.txt。构建入口（build-all.ps1 / 发布脚本）读取后以 -Drevision 注入。 -->
+    <version>${revision}</version>
     <name>expert-system</name>
-    <description>专家库系统后端服务（正式版 1.010）</description>
+    <description>专家库系统后端服务</description>
 
     <properties>
-        <!-- revision 实际值由 properties-maven-plugin 在 validate 阶段从项目根 version.txt 读取注入，供 version.properties 过滤使用 -->
+        <!-- 下面两个属性由构建脚本在命令行注入：-Drevision=&lt;version.txt 的 revision&gt; -DgitShort=&lt;git 短提交号&gt; -->
+        <!-- 未经脚本注入而直接 mvn 时，revision 落为哨兵值，可用性由构建脚本的制品校验拦截 -->
+        <revision>0.0.0-UNSET</revision>
+        <gitShort></gitShort>
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
     </properties>
@@ -35,12 +39,6 @@
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
-        </dependency>
-
-        <!-- 参数校验 -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
         <!-- 安全框架（内网系统基础权限，可按需调整） -->
@@ -163,6 +161,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <mainClass>com.jshz.expert.ExpertSystemApplication</mainClass>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
@@ -170,6 +169,26 @@
                         </exclude>
                     </excludes>
                 </configuration>
+                <executions>
+                    <!-- 生成 META-INF/build-info.properties：提供 buildTime（构建时间）与 gitShort（短提交号），
+                         供 /health 返回；time 缺省由插件取构建时刻，gitShort 由命令行 -DgitShort 注入。 -->
+                    <execution>
+                        <id>build-info</id>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                        <phase>generate-resources</phase>
+                        <configuration>
+                            <!-- 不显式设置 time 时，插件会回落到 project.build.outputTimestamp 的
+                                 缺省值 1980-02-01T00:00:00Z（可复现构建占位），不是真实构建时间。
+                                 这里显式取 Maven 内置构建时间戳（UTC、ISO-8601），保证 /health.buildTime 准确。 -->
+                            <time>${maven.build.timestamp}</time>
+                            <additionalProperties>
+                                <gitShort>${gitShort}</gitShort>
+                            </additionalProperties>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

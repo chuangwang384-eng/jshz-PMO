@@ -3,6 +3,7 @@ package com.jshz.expert.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.ParamUtils;
+import com.jshz.expert.common.KnowledgeParseStatus;
 import com.jshz.expert.entity.ComplianceItem;
 import com.jshz.expert.entity.ComplianceItemAssignee;
 import com.jshz.expert.entity.ComplianceItemHistory;
@@ -27,9 +28,11 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.Set;
 
 /**
@@ -45,14 +48,17 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ComplianceService {
 
+    private final ComplianceRolloutService rollout;
     private final ComplianceItemMapper itemMapper;
     private final ComplianceItemAssigneeMapper assigneeMapper;
     private final ComplianceUserProgressMapper progressMapper;
     private final ComplianceItemHistoryMapper historyMapper;
     private final KnowledgeFavoriteMapper favoriteMapper;
+    private final OllamaService ollamaService;
     private final KnowledgeDocumentMapper documentMapper;
     private final NotificationService notificationService;
     private final ComplianceParseService parseService;
+    private final KnowledgeDocStorageService storageService;
 
     public static final List<String> STAGES = List.of("INITIATION", "FINANCE", "EXECUTION", "VERIFICATION", "SPECIAL", "OTHER");
     public static final List<String> GLOBAL_STATUS = List.of("PENDING", "IN_PROGRESS", "CONFIRMING", "COMPLETED");
@@ -68,19 +74,36 @@ public class ComplianceService {
         if (status != null && !status.isBlank()) qw.eq(ComplianceItem::getStatus, status);
         if (priority != null && !priority.isBlank()) qw.eq(ComplianceItem::getPriority, priority);
         if (keyword != null && !keyword.isBlank()) {
-            qw.and(w -> w.like(ComplianceItem::getTitle, keyword).or().like(ComplianceItem::getContent, keyword));
+            // 关键词按字面子串匹配：转义 LIKE 通配符（\ % _），避免特殊字符被当通配符导致误匹配（Owner 2026-11-11）
+            String kw = keyword.trim()
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
+            qw.and(w -> w.like(ComplianceItem::getTitle, kw).or().like(ComplianceItem::getContent, kw));
         }
+        qw.and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0));
         if (!includeDraft) {
             qw.eq(ComplianceItem::getIsDraft, 0);
         }
         qw.orderByAsc(ComplianceItem::getDocumentId).orderByAsc(ComplianceItem::getId);
         List<ComplianceItem> all = itemMapper.selectList(qw);
+        // 文档名批量填充（Owner 2026-11-10：模板维护按来源文档名分组展示，非文档编号）
+        Set<Long> docIds = all.stream().map(ComplianceItem::getDocumentId).collect(java.util.stream.Collectors.toSet());
+        Map<Long, String> docTitles = new LinkedHashMap<>();
+        if (!docIds.isEmpty()) {
+            for (KnowledgeDocument d : documentMapper.selectBatchIds(docIds)) {
+                docTitles.put(d.getId(), d.getTitle());
+            }
+        }
         // 内存分页（事项量级可控：单文档 ≤ 数百条）
         int from = (int) Math.max(0, (page - 1) * size);
+        from = Math.min(from, all.size());
         int to = (int) Math.min(all.size(), from + size);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceItem it : all.subList(from, to)) {
-            rows.add(toMap(it));
+            Map<String, Object> m = toMap(it);
+            m.put("documentTitle", docTitles.get(it.getDocumentId()));
+            rows.add(m);
         }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("total", all.size());
@@ -95,6 +118,7 @@ public class ComplianceService {
         // 手动新增：documentId 必填（事项归属文档）
         Long documentId = ParamUtils.parseLong(body.get("documentId"), null);
         if (documentId == null) throw new BusinessException("documentId 不能为空（事项须归属文档）");
+        requireComplianceDocument(documentId, true);
         it.setDocumentId(documentId);
         applyFields(it, body);
         it.setItemCode(nextItemCode());
@@ -103,7 +127,7 @@ public class ComplianceService {
         it.setUpdateByName(ParamUtils.usernameOf(user));
         validateItem(it);
         itemMapper.insert(it);
-        saveAssignees(it.getId(), body.get("assigneeIds"), user);
+        saveAssignees(it.getId(), body.get("assigneeIds"), user, true);
         history(it.getId(), "手动新增", null, it.getTitle(), user, null);
         return it;
     }
@@ -113,6 +137,9 @@ public class ComplianceService {
     public ComplianceItem updateItem(Long id, Map<String, Object> body, AuthUser user) {
         ComplianceItem it = itemMapper.selectById(id);
         if (it == null) throw new BusinessException("事项不存在");
+        requireComplianceDocument(it.getDocumentId(), true);
+        it = itemMapper.selectById(id);
+        if (it == null || Integer.valueOf(1).equals(it.getWithdrawn())) throw new BusinessException("事项已删除或撤下");
         String oldTitle = it.getTitle();
         String oldStatus = it.getStatus();
         String oldDue = it.getDueDate() == null ? null : it.getDueDate().toString();
@@ -122,7 +149,7 @@ public class ComplianceService {
         itemMapper.updateById(it);
         if (body.containsKey("assigneeIds")) {
             List<Long> oldAssignees = assigneeIdsOf(id);
-            saveAssignees(id, body.get("assigneeIds"), user);
+            saveAssignees(id, body.get("assigneeIds"), user, false);
             List<Long> newAssignees = assigneeIdsOf(id);
             // 责任人变更：写历史 + 通知新责任人（旧责任人保留不通知）
             for (Long uid : newAssignees) {
@@ -150,9 +177,124 @@ public class ComplianceService {
     public void deleteItem(Long id, AuthUser user) {
         ComplianceItem it = itemMapper.selectById(id);
         if (it == null) throw new BusinessException("事项不存在");
-        itemMapper.deleteById(id);
+        requireComplianceDocument(it.getDocumentId(), true);
+        if (itemMapper.deleteById(id) == 0) return;
         assigneeMapper.delete(new LambdaQueryWrapper<ComplianceItemAssignee>().eq(ComplianceItemAssignee::getItemId, id));
         history(id, "删除", it.getTitle(), null, user, null);
+    }
+
+    private KnowledgeDocument requireComplianceDocument(Long id, boolean lock) {
+        var query = new LambdaQueryWrapper<KnowledgeDocument>().eq(KnowledgeDocument::getId, id);
+        if (lock) query.last("FOR UPDATE");
+        KnowledgeDocument doc = documentMapper.selectOne(query);
+        if (doc == null || !"enterprise-compliance".equals(doc.getCategory())) {
+            throw new BusinessException("请选择已上传的企业合规文档");
+        }
+        return doc;
+    }
+
+    @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public Map<String, Object> reparse(Long documentId, boolean reset, Long expectedCount, AuthUser user) {
+        KnowledgeDocument source = requireComplianceDocument(documentId, false);
+        checkUploadParsing(source);
+        if (source.getFilePath() == null || source.getFilePath().isBlank()) {
+            throw new BusinessException("文档原件不可用");
+        }
+        var path = storageService.resolveDocument(source.getFilePath());
+        if (!java.nio.file.Files.isRegularFile(path)) throw new BusinessException("文档原件不可用");
+        var parsed = parseService.parse(source.getFileName(), source.getFileType(), path, source.getContent());
+        if (parsed.items().isEmpty()) throw new BusinessException(parsed.message());
+        KnowledgeDocument current = requireComplianceDocument(documentId, true);
+        checkUploadParsing(current);
+        if (!java.util.Objects.equals(source.getVersion(), current.getVersion())) {
+            throw new BusinessException(409, "文档版本已更新，请重新解析");
+        }
+        var active = itemMapper.selectList(new LambdaQueryWrapper<ComplianceItem>()
+                .eq(ComplianceItem::getDocumentId, documentId)
+                .and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0)));
+        if (reset && (expectedCount == null || active.size() != expectedCount)) {
+            throw new BusinessException(409, "事项数量已变化，请重新确认");
+        }
+        for (ComplianceItem item : active) {
+            if (Integer.valueOf(1).equals(item.getIsDraft())) {
+                deleteItem(item.getId(), user);
+            } else if (reset) {
+                markWithdrawn(item, user);
+            }
+        }
+        var version = versionMapper.selectOne(new LambdaQueryWrapper<com.jshz.expert.entity.KnowledgeDocVersion>()
+                .eq(com.jshz.expert.entity.KnowledgeDocVersion::getDocId, documentId)
+                .eq(com.jshz.expert.entity.KnowledgeDocVersion::getVersion, current.getVersion())
+                .last("LIMIT 1"));
+        for (ComplianceItem item : parsed.items()) {
+            item.setDocumentId(documentId);
+            if (version != null) item.setDocumentVersionId(version.getId());
+            item.setItemCode(nextItemCode());
+            item.setIsDraft(1);
+            item.setPendingConfirm(0);
+            item.setCreateByName(ParamUtils.usernameOf(user));
+            itemMapper.insert(item);
+        }
+        return Map.of("parsed", parsed.items().size(), "message", parsed.message());
+    }
+
+    private void checkUploadParsing(KnowledgeDocument doc) {
+        if (KnowledgeParseStatus.PENDING.equals(doc.getParseStatus()) || KnowledgeParseStatus.RUNNING.equals(doc.getParseStatus())) {
+            throw new BusinessException(409, "文档正在执行上传解析，请完成后重试");
+        }
+    }
+
+    public Map<String, Object> resetPreview(Long documentId) {
+        var doc = requireComplianceDocument(documentId, false);
+        Long count = itemMapper.selectCount(new LambdaQueryWrapper<ComplianceItem>()
+                .eq(ComplianceItem::getDocumentId, documentId)
+                .and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0)));
+        return Map.of("documentTitle", doc.getTitle(), "count", count);
+    }
+
+    /** 候选事项清空预览（维护端：文档标题 + 全部草稿条数）。 */
+    public Map<String, Object> clearDraftsPreview(Long documentId) {
+        var doc = requireComplianceDocument(documentId, false);
+        Long count = itemMapper.selectCount(new LambdaQueryWrapper<ComplianceItem>()
+                .eq(ComplianceItem::getDocumentId, documentId)
+                .eq(ComplianceItem::getIsDraft, 1)
+                .and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0)));
+        return Map.of("documentTitle", doc.getTitle(), "count", count);
+    }
+
+    /** 清空候选事项（维护人）：一次性删除指定文档全部草稿，expectedCount 集合版本校验。 */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> clearDrafts(Long documentId, Long expectedCount, AuthUser user) {
+        var doc = requireComplianceDocument(documentId, false);
+        List<ComplianceItem> drafts = itemMapper.selectList(new LambdaQueryWrapper<ComplianceItem>()
+                .eq(ComplianceItem::getDocumentId, documentId)
+                .eq(ComplianceItem::getIsDraft, 1)
+                .and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0)));
+        if (expectedCount != null && drafts.size() != expectedCount) {
+            throw new BusinessException(409, "候选事项数量已变化，请刷新后重试");
+        }
+        for (ComplianceItem item : drafts) {
+            deleteItem(item.getId(), user);
+        }
+        return Map.of("deleted", drafts.size(), "documentTitle", doc.getTitle());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void withdrawItem(Long id, AuthUser user) {
+        var item = itemMapper.selectById(id);
+        if (item == null || !Integer.valueOf(0).equals(item.getIsDraft())) throw new BusinessException("已发布事项不存在");
+        requireComplianceDocument(item.getDocumentId(), true);
+        item = itemMapper.selectById(id);
+        if (item == null) throw new BusinessException("已发布事项不存在");
+        if (!Integer.valueOf(1).equals(item.getWithdrawn())) markWithdrawn(item, user);
+    }
+
+    private void markWithdrawn(ComplianceItem item, AuthUser user) {
+        item.setWithdrawn(1);
+        item.setWithdrawnBy(ParamUtils.usernameOf(user));
+        item.setWithdrawnTime(java.time.LocalDateTime.now());
+        itemMapper.updateById(item);
+        history(item.getId(), "撤下", "已发布", "已撤下", user, null);
     }
 
     /** 批量确认草稿发布（解析产物 → 已发布），发布后通知收藏用户 + 责任人。 */
@@ -164,6 +306,7 @@ public class ComplianceService {
         if (itemIds != null && !itemIds.isEmpty()) {
             qw.in(ComplianceItem::getId, itemIds);
         }
+        requireComplianceDocument(documentId, true);
         List<ComplianceItem> drafts = itemMapper.selectList(qw);
         int published = 0;
         for (ComplianceItem it : drafts) {
@@ -205,6 +348,23 @@ public class ComplianceService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> parseAndCreateDrafts(Long documentId, Long documentVersionId, String fileName,
                                                     String fileType, byte[] bytes, String textContent, AuthUser user) {
+        return parseAndCreateDrafts(documentId, documentVersionId, fileName, fileType, textContent, user,
+                () -> parseService.parse(fileName, fileType, bytes, textContent));
+    }
+
+    /**
+     * P2-7：从磁盘路径解析（异步线程调用），xlsx/xls 不再整文件读入调用方 byte[]。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> parseAndCreateDrafts(Long documentId, Long documentVersionId, String fileName,
+                                                    String fileType, Path path, String textContent, AuthUser user) {
+        return parseAndCreateDrafts(documentId, documentVersionId, fileName, fileType, textContent, user,
+                () -> parseService.parse(fileName, fileType, path, textContent));
+    }
+
+    private Map<String, Object> parseAndCreateDrafts(Long documentId, Long documentVersionId, String fileName,
+                                                     String fileType, String textContent, AuthUser user,
+                                                     Supplier<ComplianceParseService.ParseResult> parser) {
         if (documentId == null) {
             log.warn("合规解析跳过：documentId 为空（fileName={}）", fileName);
             Map<String, Object> empty = new LinkedHashMap<>();
@@ -212,10 +372,13 @@ public class ComplianceService {
             empty.put("message", "documentId 为空，解析跳过");
             return empty;
         }
-        ComplianceParseService.ParseResult pr = parseService.parse(fileName, fileType, bytes, textContent);
+        ComplianceParseService.ParseResult pr = parser.get();
         List<ComplianceItem> parsed = pr.items();
+        markImportantByLlm(parsed, user);
+        requireComplianceDocument(documentId, true);
         List<ComplianceItem> oldPublished = itemMapper.selectList(new LambdaQueryWrapper<ComplianceItem>()
-                .eq(ComplianceItem::getDocumentId, documentId).eq(ComplianceItem::getIsDraft, 0));
+                .eq(ComplianceItem::getDocumentId, documentId).eq(ComplianceItem::getIsDraft, 0)
+                .and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0)));
         Map<String, ComplianceItem> oldByTitle = new LinkedHashMap<>();
         for (ComplianceItem o : oldPublished) oldByTitle.put(o.getTitle(), o);
 
@@ -271,6 +434,38 @@ public class ComplianceService {
         m.put("removed", removed);          // 停用
         m.put("message", pr.message());
         return m;
+    }
+
+    /**
+     * LLM 重要事项标记（Owner 2026-11-10）：解析草稿经本地 Ollama 判定，重要者 priority 置 HIGH
+     * 并在 remark 追加「LLM标记：重要」（维护人确认草稿时可改）。不可用/失败静默回退（保持 MEDIUM），
+     * 异常不阻断解析主流程；日志只记条数不打印事项原文。
+     */
+    void markImportantByLlm(List<ComplianceItem> drafts, AuthUser user) {
+        if (drafts == null || drafts.isEmpty() || ollamaService == null || !ollamaService.available()) {
+            return;
+        }
+        try {
+            List<String> titles = drafts.stream().map(ComplianceItem::getTitle).collect(java.util.stream.Collectors.toList());
+            boolean[] flags = ollamaService.complianceImportance(titles);
+            if (flags == null) {
+                log.info("合规 LLM 重要性标记不可用（回退默认 MEDIUM）count={}", titles.size());
+                return;
+            }
+            int marked = 0;
+            for (int i = 0; i < drafts.size() && i < flags.length; i++) {
+                if (flags[i]) {
+                    ComplianceItem it = drafts.get(i);
+                    it.setPriority("HIGH");
+                    String remark = it.getRemark() == null ? "" : it.getRemark();
+                    it.setRemark(remark.isBlank() ? "LLM标记：重要" : remark + "；LLM标记：重要");
+                    marked++;
+                }
+            }
+            log.info("合规 LLM 重要性标记完成 重要={}/{} by={}", marked, titles.size(), ParamUtils.usernameOf(user));
+        } catch (Exception e) {
+            log.warn("合规 LLM 重要性标记失败（不影响解析）：{}", e.getMessage());
+        }
     }
 
     /** 归一化相同或相似度≥80% 匹配（排除标题完全一致场景）。 */
@@ -451,6 +646,7 @@ public class ComplianceService {
     /** 更新个人进度/备注/阻塞原因（仅本人；INSERT ON DUPLICATE 语义）。 */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> updateMyProgress(Long userId, Long itemId, String progressStatus, String remark, String blockReason) {
+        rollout.requireV3(userId);
         ComplianceItem it = itemMapper.selectById(itemId);
         if (it == null || it.getIsDraft() == 1) throw new BusinessException("事项不存在或未发布");
         if (progressStatus != null && !List.of("UNPROCESSED", "PROCESSING", "COMPLETED").contains(progressStatus)) {
@@ -490,6 +686,7 @@ public class ComplianceService {
     /** 提醒设置（仅本人）。 */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> updateMyReminder(Long userId, Long itemId, Integer remindEnabled, Integer remindDays) {
+        rollout.requireV3(userId);
         if (remindDays != null && (remindDays < 1 || remindDays > 30)) {
             throw new BusinessException("提醒提前天数须在 1-30 之间");
         }
@@ -614,7 +811,7 @@ public class ComplianceService {
         }
     }
 
-    private void saveAssignees(Long itemId, Object assigneeIds, AuthUser user) {
+    private void saveAssignees(Long itemId, Object assigneeIds, AuthUser user, boolean notify) {
         assigneeMapper.delete(new LambdaQueryWrapper<ComplianceItemAssignee>().eq(ComplianceItemAssignee::getItemId, itemId));
         if (assigneeIds instanceof List<?> list) {
             for (Object o : list) {
@@ -627,7 +824,7 @@ public class ComplianceService {
                 a.setItemId(itemId);
                 a.setUserId(uid);
                 assigneeMapper.insert(a);
-                notifyAssignee(uid, itemMapper.selectById(itemId));
+                if (notify) notifyAssignee(uid, itemMapper.selectById(itemId));
             }
         }
     }

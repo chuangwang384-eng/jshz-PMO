@@ -1,0 +1,14 @@
+{
+  "start": "2026-11-03T13:41:56.088Z",
+  "last": "2026-11-03T13:44:33.815Z",
+  "pooled": {
+    "requests": 1815,
+    "failures": 0,
+    "errors": []
+  },
+  "fresh": {
+    "requests": 1815,
+    "failures": 0,
+    "errors": []
+  }
+}

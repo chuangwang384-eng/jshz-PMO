@@ -2,9 +2,13 @@ package com.jshz.expert.service;
 
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.config.WecomProperties;
+import com.jshz.expert.dto.ChangePasswordRequest;
+import com.jshz.expert.dto.LoginResponse;
 import com.jshz.expert.entity.Role;
+import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.mapper.RoleMapper;
 import com.jshz.expert.mapper.SysUserMapper;
+import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,10 +19,13 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,6 +49,8 @@ class AuthServiceTest {
     private JwtTokenProvider jwtTokenProvider;
     @Mock
     private PermissionService permissionService;
+    @Mock
+    private UserAuthStateService userAuthStateService;
     @Mock
     private UserService userService;
     @Mock
@@ -155,5 +164,46 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.toRoleNames(List.of("ADMIN")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("获取角色名称失败");
+    }
+
+    @Test
+    void changePasswordBumpsVersionAndIssuesNewToken() {
+        SysUser before = new SysUser();
+        before.setId(1L);
+        before.setUsername("alice");
+        before.setPassword("old-hash");
+        before.setIsAdmin(false);
+        before.setMustChangePassword(true);
+        before.setTokenVersion(3);
+
+        SysUser after = new SysUser();
+        after.setId(1L);
+        after.setUsername("alice");
+        after.setPassword("new-hash");
+        after.setIsAdmin(false);
+        after.setMustChangePassword(false);
+        after.setTokenVersion(4);
+
+        when(sysUserMapper.selectById(1L)).thenReturn(before, after);
+        when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encode("newpass")).thenReturn("new-hash");
+        when(permissionService.getUserRoles(1L)).thenReturn(Set.of("EMPLOYEE"));
+        when(permissionService.getUserPermissions(1L)).thenReturn(Set.of("project:view"));
+        when(roleMapper.selectByCodes(List.of("EMPLOYEE"))).thenReturn(List.of(role("EMPLOYEE", "普通员工")));
+        when(jwtTokenProvider.createToken(eq(1L), eq("alice"), eq(false), eq(false),
+                anyList(), eq(4L))).thenReturn("new-token");
+
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setOldPassword("old");
+        request.setNewPassword("newpass");
+        AuthUser authUser = new AuthUser(1L, "alice", false, true,
+                Set.of("EMPLOYEE"), Set.of());
+
+        LoginResponse response = authService.changePassword(authUser, request);
+
+        assertThat(response.getToken()).isEqualTo("new-token");
+        assertThat(response.getMustChangePassword()).isFalse();
+        verify(userAuthStateService).bumpAndEvict(1L);
+        verify(sysUserMapper).updateById(any(SysUser.class));
     }
 }

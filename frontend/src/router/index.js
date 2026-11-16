@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { safeLocalPath } from '../utils/dashboard'
 
 const routes = [
   {
@@ -10,8 +11,9 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/experts'
+    redirect: '/dashboard'
   },
+  { path: '/dashboard', name: 'dashboard', component: () => import('../views/dashboard/DashboardView.vue'), meta: { title: '工作台', requiresAuth: true } },
   {
     path: '/experts',
     name: 'experts',
@@ -165,11 +167,11 @@ const routes = [
       if (perms.includes('role:manage')) return '/admin/roles/manage'
       if (perms.includes('audit:view')) return '/admin/audit/downloads'
       if (perms.includes('approval:config')) return '/admin/approval/config'
-      return '/experts'
+      return '/dashboard'
     },
     meta: {
       title: '管理员设置',
-      permissions: ['expert:manage', 'project:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage']
+      permissions: ['expert:manage', 'project:manage', 'audit:view', 'approval:config', 'user:manage', 'role:manage', 'storage:manage']
     },
     children: [
       {
@@ -178,10 +180,11 @@ const routes = [
         component: () => import('../views/ExpertManage.vue'),
         meta: { title: '专家管理', permissions: ['expert:manage'] }
       },
+      // 项目配置页：类型/阶段流程配置已停用（2026-11-09 流程重塑）；2026-11-16 起承载会议预算收费标准。
       {
         path: 'project/config',
         name: 'project-config',
-        component: () => import('../views/project/ProjectConfig.vue'),
+        component: () => import('../views/admin/BudgetFeeConfig.vue'),
         meta: { title: '项目配置', permissions: ['project:manage'] }
       },
       {
@@ -213,6 +216,18 @@ const routes = [
         name: 'wecom-sync',
         component: () => import('../views/WecomSyncManage.vue'),
         meta: { title: '企微通讯录同步', permissions: ['wecom:sync'] }
+      },
+      {
+        path: 'ai-assistant',
+        name: 'ai-assistant-manage',
+        component: () => import('../views/admin/AiAssistantManage.vue'),
+        meta: { title: 'AI 助手知识库', permissions: ['ai:manage'] }
+      },
+      {
+        path: 'storage',
+        name: 'storage-manage',
+        component: () => import('../views/admin/StorageManage.vue'),
+        meta: { title: '存储管理', permissions: ['storage:manage'] }
       }
     ]
   },
@@ -245,7 +260,7 @@ router.beforeEach((to) => {
 
   if (to.meta.public) {
     if (loggedIn && to.path === '/login') {
-      return '/experts'
+      return safeLocalPath(to.query.redirect)
     }
     return true
   }
@@ -266,14 +281,14 @@ router.beforeEach((to) => {
   const required = to.meta?.permissions
   if (Array.isArray(required) && required.length && !required.some((p) => permissions.includes(p))) {
     ElMessage.error('无权限访问该页面')
-    return '/experts'
+    return '/dashboard'
   }
 
   const roles = user?.roles || []
   const requiredRoles = to.meta?.roles
   if (Array.isArray(requiredRoles) && requiredRoles.length && !requiredRoles.some((r) => roles.includes(r))) {
     ElMessage.error('无权限访问该页面')
-    return '/experts'
+    return '/dashboard'
   }
 
   return true

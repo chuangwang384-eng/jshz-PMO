@@ -1,0 +1,12 @@
+{
+  "dataRowsImported": 0,
+  "columns": 219,
+  "environment": "isolated MySQL 13317",
+  "result": "PASS",
+  "tables": 28,
+  "checks": [
+    "Fresh empty database schema bootstrap",
+    "both v3 DDL steps",
+    "column types/nullability/defaults match actual acceptance database"
+  ]
+}

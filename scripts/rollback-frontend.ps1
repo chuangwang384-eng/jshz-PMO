@@ -4,7 +4,7 @@
   R-2 前端回滚脚本（jshz-PMO 专家库系统）
 
 .DESCRIPTION
-  按 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.2.2 改造：
+  按 docs/design/2026-10-24-发布运维体系与侧边栏菜单偏移修复-设计文档.md §4.2.2 改造：
     1) 定位 frontend\releases\ 下最新版本（支持 -Version 指定版本）
     2) 当前 dist 存档为 dist_broken.<时间戳>（backup\frontend\ 下）
     3) 恢复目标版本到 dist
@@ -33,7 +33,8 @@ param(
     [string]$Version = '',
     [switch]$DryRun,
     [string]$DistRoot = 'D:\jshz-PMO\frontend\dist',
-    [string]$ReleasesRoot = 'D:\jshz-PMO\frontend\releases'
+    [string]$ReleasesRoot = 'D:\jshz-PMO\frontend\releases',
+    [string]$NginxConf = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,16 +66,40 @@ Write-Info "指定版本   : $($(if ($Version) { $Version } else { '（最新）
 Write-Info "DistRoot    : $DistRoot"
 Write-Info "ReleasesRoot: $ReleasesRoot"
 
+# ---------- [0/5] 护栏：本脚本只回滚 dist，dist 不被服务时等于空转 ----------
+# 线上已改为 Nginx root 指向 frontend\releases\<ReleaseId>，此时把快照复制回 dist
+# 不会影响线上，却会打印"回滚成功"，比不执行更危险。故 root 不匹配时直接终止。
+if (Test-Path -LiteralPath $NginxConf) {
+    $confText = [IO.File]::ReadAllText($NginxConf)
+    $rootMatch = [regex]::Match($confText, '(?m)^\s*root\s+([^;]+);')
+    if ($rootMatch.Success) {
+        $liveRoot = ($rootMatch.Groups[1].Value.Trim().Trim('"')).Replace('/', '\')
+        $expectRoot = ([IO.Path]::GetFullPath($DistRoot)).TrimEnd('\')
+        if ($liveRoot.TrimEnd('\') -ne $expectRoot) {
+            Write-Host ''
+            Write-Host '[ABORT] Nginx 当前 root 不是 DistRoot，本脚本的回滚不会影响线上' -ForegroundColor Red
+            Write-Host "        线上 root  : $liveRoot" -ForegroundColor Red
+            Write-Host "        本脚本目标: $expectRoot" -ForegroundColor Red
+            Write-Host '        正确回滚方式：改回 release-metadata\<ReleaseId>.rollback.conf.txt 记录的 root，' -ForegroundColor Yellow
+            Write-Host '        然后 nginx -t && D:\nginx\nginx.exe -s reload（graceful，不中断服务）' -ForegroundColor Yellow
+            exit 2
+        }
+    }
+}
+
 # ---------- [1/5] 定位目标版本 ----------
 Write-Step '[1/5] 定位目标版本'
 $Target = $null
 if (Test-Path $ReleasesRoot) {
     if ($Version) {
         $Target = Get-ChildItem -Path $ReleasesRoot -Directory -Filter "$Version-*" |
+            Where-Object { $_.Name -notlike '*.rollback' } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if (-not $Target) { throw "releases 下未找到版本 $Version 的归档目录" }
     } else {
+        # 排除 *.rollback 副本（它们是每次发布自动生成的上一版拷贝，不是发布标签）
         $Target = Get-ChildItem -Path $ReleasesRoot -Directory |
+            Where-Object { $_.Name -notlike '*.rollback' } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
     }
 }

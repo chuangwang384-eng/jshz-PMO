@@ -14,7 +14,7 @@
     </div>
 
     <!-- 工具栏：检索 + 上传 -->
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-input
         v-model="keyword"
         :placeholder="isFavoritesMode ? '在收藏中按标题 / 文件名筛选' : '按标题 / 内容关键字检索'"
@@ -23,6 +23,8 @@
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
+      <el-checkbox v-if="props.category === 'enterprise-compliance' && !isFavoritesMode"
+        v-model="favoritesOnly" @change="handleSearch">仅看收藏</el-checkbox>
       <!-- 需求 2：仅知识星球维护人（knowledge:maintain）显示上传入口 -->
       <el-button v-if="props.allowUpload && canManage && !isFavoritesMode" type="primary" @click="openUpload">上传文档</el-button>
     </div>
@@ -154,7 +156,12 @@
         </div>
         <el-button size="small" type="primary" @click="downloadPreviewRow">下载</el-button>
       </div>
-      <div class="preview-body" v-loading="previewLoading">
+      <KnowledgeWorkbookPreview
+        v-if="previewMode === 'excel' && previewRow"
+        :key="previewRow.filePath"
+        :file-path="previewRow.filePath"
+      />
+      <div v-else class="preview-body" v-loading="previewLoading">
         <img v-if="previewMode === 'image'" :src="previewImageUrl" class="preview-image" alt="文档预览" />
         <canvas v-else-if="previewMode === 'pdf'" ref="previewCanvasRef" class="preview-canvas"></canvas>
         <div v-else-if="previewMode === 'text'" class="preview-text-wrap">
@@ -170,12 +177,15 @@
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
+import { watchDashboardFocus } from '../utils/dashboardFocus'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // 20261103 修复（预览失败的三个叠加原因）：
 // ① pdfDoc 用 shallowRef（见下方说明）——Vue 响应式 Proxy 破坏 pdfjs 私有字段；
 // ② worker 用 blob URL ——独立 .mjs 文件在 nginx 上以 application/octet-stream 返回，浏览器拒绝模块加载；
 // ③ 使用 legacy 兼容构建 ——现代构建依赖 Promise.withResolvers 等新 API，旧浏览器抛错。
+import KnowledgeWorkbookPreview from './KnowledgeWorkbookPreview.vue'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useAuthStore } from '../store/auth'
@@ -209,6 +219,9 @@ const props = defineProps({
   mode: { type: String, default: 'category' }
 })
 
+// 可选事件：收藏状态变更（企业合规页监听以同步待办；其他分类无监听不受影响）
+const emit = defineEmits(['favorite-changed'])
+
 const categoryLabels = {
   'meeting-execution': '会议执行标准',
   'association-compliance': '协会合规要求',
@@ -217,14 +230,17 @@ const categoryLabels = {
 
 const authStore = useAuthStore()
 const canManage = computed(() => authStore.hasPermission('knowledge:maintain'))
-const isFavoritesMode = computed(() => props.mode === 'favorites')
+const route = useRoute()
+const isFavoritesMode = computed(() => props.mode === 'favorites' || route.query.favorites === '1')
 
 const keyword = ref('')
+const favoritesOnly = ref(false)
 const docs = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
+let listRequestId = 0
 
 // 格式筛选：''=全部；pdf/docx/doc/xlsx/pptx=等值；image=图片集合
 const fileTypeFilter = ref('')
@@ -293,13 +309,18 @@ async function toggleFavorite(row) {
       await unfavoriteKnowledgeDoc(row.id)
       row.isFavorite = false
       ElMessage.success('已取消收藏')
+      emit('favorite-changed', { docId: row.id, isFavorite: false })
       if (isFavoritesMode.value) {
         docs.value = docs.value.filter((d) => d.id !== row.id)
+      } else if (favoritesOnly.value) {
+        if (docs.value.length === 1 && page.value > 1) page.value--
+        await fetchList()
       }
     } else {
       await favoriteKnowledgeDoc(row.id)
       row.isFavorite = true
       ElMessage.success('已收藏，文档更新时将通知您')
+      emit('favorite-changed', { docId: row.id, isFavorite: true })
     }
   } catch (e) {
     // 错误提示已由拦截器统一处理
@@ -318,11 +339,13 @@ const versionLoading = ref(false)
 const versions = ref([])
 
 async function fetchList() {
+  const requestId = ++listRequestId
   loading.value = true
   try {
     if (isFavoritesMode.value) {
       // 我的收藏：一次性拉取（含 doc 与 favoriteTime），客户端筛选
       const data = await listMyFavoriteDocs()
+      if (requestId !== listRequestId) return
       docs.value = (Array.isArray(data) ? data : []).map((item) => ({
         ...(item.doc || {}),
         favoriteTime: item.favoriteTime
@@ -332,15 +355,17 @@ async function fetchList() {
       const data = await listKnowledgeDocs({
         category: props.category || undefined,
         keyword: keyword.value || undefined,
+        favoritesOnly: favoritesOnly.value || undefined,
         fileType: fileTypeFilter.value || undefined,
         page: page.value,
         pageSize: pageSize.value
       })
+      if (requestId !== listRequestId) return
       docs.value = data?.items || []
       total.value = data?.total || 0
     }
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loading.value = false
   }
 }
 
@@ -466,6 +491,11 @@ async function handlePreview(row) {
   previewNumPages.value = 0
   previewScale.value = 1
   previewVisible.value = true
+  if (['xls', 'xlsx'].includes((row.fileType || '').toLowerCase())) {
+    previewLoading.value = false
+    previewMode.value = 'excel'
+    return
+  }
   previewLoading.value = true
   try {
     // 需求 3：预览走 ?preview=true 模式，失败时后端返回结构化错误码（PREVIEW_FAILED / CONVERT_FAILED）
@@ -654,6 +684,8 @@ function formatSize(bytes) {
 }
 
 onMounted(fetchList)
+watch(() => route.query.favorites, fetchList)
+watchDashboardFocus(route, 'docId', 'knowledge', handlePreview, message => ElMessage.warning(message))
 </script>
 
 <style scoped>
@@ -666,7 +698,6 @@ onMounted(fetchList)
 }
 
 .toolbar {
-  display: flex;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -680,7 +711,7 @@ onMounted(fetchList)
 }
 
 .doc-title {
-  color: #303133;
+  color: var(--ui-text-main);
 }
 
 .doc-ext {
@@ -722,7 +753,7 @@ onMounted(fetchList)
 
 .preview-info {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-sub);
 }
 
 .preview-body {
@@ -752,7 +783,7 @@ onMounted(fetchList)
   word-break: break-word;
   font-size: 14px;
   line-height: 1.7;
-  color: #303133;
+  color: var(--ui-text-main);
   background: #f8f9fb;
   border: 1px solid #ebeef5;
   border-radius: 4px;

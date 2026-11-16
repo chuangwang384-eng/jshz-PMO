@@ -41,6 +41,52 @@
 
 ---
 
+### 0.4 目录、产物与日志约定（禁止散落）
+
+> 2026-11-06 新增。背景：仓库根目录曾散落 7 个发布日志、`frontend/` 下堆了 44 个 `dist_old.*`，均因约定未成文。
+
+| 类别 | 唯一归属地 | 禁止 |
+| --- | --- | --- |
+| 日志 | `logs/`（应用日志 / 发布日志 / NSSM 重定向 / `logs/legacy/` 历史归档） | 根目录、`scripts/`、`backend/`、`frontend/` 下出现 `*.log` |
+| 构建产物 | `builds/<版本>-build-<时间戳>/`，历史快照进 `builds/archive/` | 根目录 `.build-*`；在 `backend/` 原地 `mvn clean package`（生产进程占用 jar，必失败） |
+| 前端快照 | `frontend/releases/<ReleaseId>/`，切换靠 Nginx root 指针 | 用 `deploy-frontend.ps1` 替换 `dist` 冒充发布（线上 root 不在 dist，替换无效） |
+| 临时文件 | `temp/`（已 gitignore） | 散落在仓库根目录 |
+
+- 日志保留策略：NSSM 轮转产物各留 10 个、发布日志留 20 个，由 `scripts/prune-logs.ps1` 执行，`deploy-backend.ps1` 阶段 11 自动调用。
+- `.gitignore` 覆盖 `*.log` / `logs/` / `temp/` **不等于允许散落**：被忽略的文件照样污染目录、误导后续排查。
+
+### 0.5 数量类事实必须现查（禁止沿用旧基线）
+
+文档中的 Controller 数、Service 数、页面/路由数、表数、版本号等易变信息，写之前必须现查，并注明核实日期与命令：
+
+```bash
+ls backend/src/main/java/com/jshz/expert/controller/*.java | wc -l     # Controller
+ls backend/src/main/java/com/jshz/expert/service/*.java    | wc -l     # Service
+grep -rl '@TableName' backend/src/main/java/com/jshz/expert/entity/*.java | wc -l  # 实体/Mapper
+find frontend/src -name '*.vue' -path '*views*' | wc -l                # 页面
+grep -c 'path:' frontend/src/router/index.js                           # 路由
+cat version.txt                                                        # 版本唯一真源
+grep '"version"' frontend/package.json                                 # 工程元数据，须与 version.txt 一致
+# 数据库表数（必须连库现查，不能数 SQL 脚本行数）
+mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
+  WHERE table_schema='expert_system' AND table_type='BASE TABLE';"
+```
+
+**2026-11-16 核实基线**：Controller 31、Service 58、实体/Mapper 67、页面 43、路由 37、数据库 **101 张表**（85 业务/结构 + 10 历史备份 + 6 迁移标记）、`version.txt=revision=1.0.45`、`frontend/package.json=1.0.45`。
+
+**⚠️ 表数是最容易写错的一项**：只认 `information_schema` 实测值，且必须排除 `*_bak_*`（历史备份）与 `mig_*`（迁移标记）才是业务表口径。历史上 README 写 39/74、`docs/architecture.md` 写 26/94、`docs/deployment.md` 写 13，四处互相矛盾长达数周，2026-11-16 已统一。
+
+**DDL 单一可信来源（2026-11-16 收口）**：`database/init.sql` 是**新环境唯一 DDL 来源**（当前 85 张业务表，一次建齐）；`database/migration/*.sql` 仅服务**既有库增量升级**，新环境不再重放。任何新增结构必须"先写 migration，再并入 init.sql 基线"，并由 `.\\scripts\\check-schema-parity.ps1` 强制校验（只读，校验 init.sql ↔ migration ↔ 生产库三方一致）。修改数据库结构前先跑该脚本确认基线无漂移；未通过不得执行 `db-migrate -Mode Bootstrap`。
+
+### 0.6 环境与运行时配置属于事实源，文档必须服从现实
+
+出现「脚本说改了、文档说生效、实际未生效」时，先查运行时真实状态再改文档：
+
+- Nginx 站点根：`grep -n '^\s*root' D:\nginx\conf\conf.d\jshz-pmo.conf`（不能假设是 `frontend/dist`）
+- 后端实际版本：`curl -s http://127.0.0.1:8080/health`（`version` / `buildTime` / `gitShort`）
+- 前端线上版本：读 Nginx root 指向目录的 `index.html` 引用的主 bundle，搜 `v1.0.xx`
+- NSSM 参数：读 `HKLM\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters`
+
 ## 1. Agent 工作原则
 
 1. 开始工作前先检查项目目录、技术栈、当前分支、未提交改动、相关代码调用链、配置和现有文档。
@@ -374,3 +420,192 @@
 - [ ] 是否明确哪些操作必须先经负责人批准？
 
 > **交接质量的最终判断标准：新 Agent 无需猜测、无需依赖隐含聊天上下文，也不会因误解项目状态而重复开发、破坏数据或错误发布。**
+
+---
+
+## 17. 前端样式规范
+
+> 2026-11-13 新增。背景：样式重复审查（见 `docs/handover/tasks/20261113_style_dedup.md`）发现全局令牌曾被 3/60 文件使用、骨架样式大面积逐字复制，已完成第一轮治理。本节为后续前端样式工作的强制约定。
+
+### 17.1 样式文件组织规则
+
+1. **全局样式的唯一入口是 `frontend/src/styles/ui-tokens.css`**（经 `main.js` 引入）。设计令牌（`--ui-*`）与跨页面公共类只允许定义在这里；不得新建第二个"全局样式文件"，不得在其他 `.vue` 的非 scoped `<style>` 中定义可复用样式。
+2. 组件/页面私有样式一律写在各自 `.vue` 文件的 `<style scoped>` 块内，就近维护；禁止为了"方便"把单页面样式塞进全局文件。
+3. 可复用的视觉模式（卡片、徽标、工具行、分页条、统计卡、红点、空状态等）沉淀为 `ui-tokens.css` 中的公共类；某模式被第 3 处复制时即触发收口，不允许继续复制第 4 份。
+4. 临时实验样式不得进入 `ui-tokens.css`；验证通过后再正式收口并更新本节类清单。
+
+### 17.2 设计令牌与色彩规范
+
+1. **style 块内禁止硬编码与 `--ui-*` 令牌等值的色值**（如 `#409eff`、`#303133`、`#606266`、`#909399`、`#c0c4cc`、`#67c23a`、`#e6a23c`、`#f56c6c`），必须使用 `var(--ui-primary)`、`var(--ui-text-main)`、`var(--ui-text-sub)`、`var(--ui-text-muted)`、`var(--ui-info)`、`var(--ui-success)`、`var(--ui-warning)`、`var(--ui-danger)`。
+2. 令牌未覆盖的色值（如 `#f5f7fa`、`#e4e7ed` 等）暂允许字面量；新增令牌须先确认语义不与现有令牌重叠，并在 `ui-tokens.css` 注释中说明用途。
+3. **两套既有专属色系是受保护的边界**，未经项目负责人批准不得并入或改动：
+   - Dashboard 一族（`DashboardView.vue` 内定义的 `--c-*` 体系及其消费组件 `GlobalSearchBar.vue`、`QuickAccessBar.vue`）；
+   - Supplier 模块的 `#1f2329` 飞书风格色系。
+4. JS/canvas/SVG/内联样式中无法使用 CSS 变量（如 ECharts 配色、头像色板），允许保留字面量，但应与最近令牌值保持同源并在旁注释对应令牌名。
+
+### 17.3 命名约定
+
+1. 跨页面公共类使用 **`ui-` 前缀**（如 `.ui-card`、`.ui-toolbar`、`.ui-page-sub`、`.ui-desc`），与页面私有类明确区隔。
+2. 已收口的同名历史类（`.pagination-wrap`、`.page-sub`、`.page-container`、`.spacer`、`.stat` 系列、`.todo-title`/`.task-title` 等）保持现名并在 `ui-tokens.css` 注释中登记来源，不为迁移而批量改名。
+3. 页面私有类使用语义化 kebab-case（如 `.expert-card`、`.mb-section`），禁止 `style1`、`.box2` 这类无语义命名；同一文件内同义样式优先合并选择器，而不是复制声明。
+4. **新增公共类前必须全库检索该类名**：确认不存在"模板中裸用该类名但无样式定义"的元素（本仓库已发现 `class="muted"`、`class="toolbar"` 的历史裸用），否则必须改用 `ui-` 新名并逐文件追加类，防止全局化后意外改变无样式元素的呈现。
+5. 状态修饰类与语义色对应：成功用 `*-success`/`var(--ui-success)`，警告用 `*-warn`，危险用 `*-danger`/`*-over`，不得为同一语义新造第三种命名。
+
+### 17.4 复用与差异原则
+
+1. **逐字重复的 scoped 规则必须删除并引用全局类**；允许保留的差异（gap、margin、圆角、尺寸等）以局部规则覆盖，scoped 选择器优先级天然高于全局类，无需 `!important`。
+2. 收口以"渲染结果不变"为默认目标：取值不同的同义样式**不强制统一**，保留各页面既有视觉差异；是否统一为全局规范属于视觉决策，须项目负责人批准。
+3. 全局公共类只承载"共同部分"，不夹带某页面特有的属性（如某页的 `margin-top:12px` 应留在该页局部规则中）。
+4. 需要抵消全局默认值的场景，用显式覆盖（如 ProjectList 的 `.pagination-wrap { margin-top: 0; }`）并加注释，不得依赖选择器顺序或 `!important`。
+5. 覆盖 Element Plus 的 `:deep()` 修补（去表格线、去输入框阴影等）目前允许各自维护；同类修补出现 3 处以上时应沉淀为公共类再收口。
+
+### 17.5 AI 助手样式开发约定
+
+1. 修改样式前先读 `ui-tokens.css` 现有令牌与公共类清单，**先复用、后新建**；新建公共类须同步更新本节 17.6 的清单或在 `ui-tokens.css` 注释中登记。
+2. 执行样式收口（删 scoped 规则、改用全局类）前，必须完成三项核实并留痕于交接记录：
+   - 该类名在模板中的全部使用面（含裸用无样式的元素）；
+   - 拟删除规则与全局类的声明级 diff（逐字相同才删，差异部分保留）；
+   - 全局默认值是否会波及未覆盖差异的页面（必要时显式覆盖）。
+3. 样式变更后至少执行：残留重复 grep + 目标色值残留 grep + `cd frontend && npm run build`；结果如实记入交接记录，未执行的验证项标注"未执行"。
+4. 禁止事项：
+   - 禁止把 Dashboard `--c-*` 体系或 Supplier 色系并入 `--ui-*`（需负责人决策）；
+   - 禁止在未核实裸用面的情况下全局化 `.toolbar`、`.muted` 这类通用名；
+   - 禁止为"统一"而改变页面既有视觉（除非获准进入"按全局规范统一"阶段）；
+   - 禁止新增第二套令牌前缀（`--c-*` 之外不得再造 `--d-*`、`--s-*` 等平行体系）。
+5. 大范围样式改动（>10 文件）按高风险变更对待：先列计划获批准，完成后按第 11 节写交接记录，并同步本节清单。
+
+### 17.6 当前全局公共类清单（2026-11-13 核实）
+
+| 类别 | 类名 | 说明 |
+| --- | --- | --- |
+| 容器 | `.ui-card` | 白底卡片（圆角/边框/阴影基准） |
+| 骨架 | `.ui-toolbar` | 工具行 flex 基类（wrap/gap 由局部补充） |
+| 骨架 | `.page-sub` / `.ui-page-sub` | 页面副标题 13px 灰 |
+| 骨架 | `.pagination-wrap` | 分页条右对齐、margin-top:16px（差异页局部覆盖） |
+| 骨架 | `.page-container` | 页面容器 padding:16px |
+| 骨架 | `.spacer` | flex:1 弹性占位 |
+| 徽标 | `.ui-badge` / `.ui-badge-success/info/danger` | 999px 胶囊 |
+| 红点 | `.unread-dot` / `.ann-dot` / `.msg-dot` | 未读红点组（ann-dot 为 8px 变体） |
+| 统计卡 | `.stat` / `.stat-label` / `.stat-value` / `.stat-warn` / `.stat-danger` / `.due-over` | 统计卡基类（ProjectDetail 20px 变体局部覆盖） |
+| 同义组 | `.todo-title,.task-title` / `.todo-sub,.task-sub` | 待办与执行看板同义合并 |
+| 文本 | `.ui-desc` | 12px 辅助说明 |
+
+未收口的已知重复（待视觉决策）：卡片 9+ 处、徽标 7 处、头像 3 处、空状态 5+ 处、`.muted` 裸用点——详见 `docs/handover/tasks/20261113_style_dedup.md` 第 7 节。
+
+### 17.7 状态字典联动约定（2026-11-13 新增）
+
+1. 业务状态（审批状态、解析状态、供应商/合规状态、日程角色枚举等）的**权威定义在后端**（枚举类/permission 数据）；前端 `statusMap`/`roleOptions` 等映射是对权威定义的展示层副本。
+2. **成对修改**：新增或修改任一状态值、状态语义、文案时，必须在**同一次提交**内同时修改后端枚举与对应前端映射文件，并在交接记录的"实际变更"中成对列出两侧文件路径，便于审查确认联动。
+3. 交接检查：涉及状态变更的任务，第 11.5 模板第 5 节必须能回答"前端哪些映射文件已同步"；回答不了的视为未完成。
+4. 暂不引入全局字典中心或动态字典接口（2026-11-13 决策：以流程约束替代架构改造）；若未来状态字典数量或漂移频率显著上升，再评估后端字典接口方案。
+
+---
+
+## 18. 硬编码禁令与环境配置规范
+
+> 2026-11-13 新增。背景：硬编码审查发现约 10 处 Windows 盘符路径写死后端配置、CORS 内网 IP 写死安全配置、上传限额前后端四处各写一份、9 个运维脚本各自复制凭据解析——已完成第一轮治理（交接记录 `docs/handover/tasks/20261113_hardcode_remediation.md`，随 1.0.38.23 发布）。本节为后续所有代码工作的强制约定。
+
+### 18.1 分类禁令
+
+1. **密钥凭据（最高禁令）**：禁止在代码、配置、脚本、日志、交接记录中出现任何真实密码/密钥/token（MYSQL_PASSWORD、JWT_SECRET、WECOM_* 等）。凭据一律环境变量注入（`${ENV:}` 空 default + 启动 fail-fast 模式）；真实值只存本地 `start-backend.bat`（gitignored）与 NSSM 服务环境。发现疑似泄露立即停发布并按第 5 节处置。
+2. **环境相关路径**：禁止在代码/配置/脚本中写死盘符绝对路径（`D:\`、`C:\Program Files`、`E:\` 等）。必须 `${VAR:默认值}` 出口化，默认值仅作本机兜底。判据：换机器/换盘符/迁移数据是否需要改代码重编译——需要 → 必须先出口化再合入。
+3. **URL/IP/端口**：内网 IP、第三方服务地址、端口不得写死在 Java/前端源码。后端用 yml 占位（如 `security.cors.allowed-origins`）、前端用 `VITE_*` 兜底（如 `vite.config.js` proxy、`api/request.js` baseURL 的既有写法）。
+4. **业务配置参数**：限额、阈值、超时、cron、线程池、模型名等默认值只允许定义**一处**（application.yml 或唯一常量），消费方引用单一来源。**前后端共享的数值以后端为唯一真源、前端经接口拉取**（现有样板：`expert.upload` + `GET /api/meta/limits` + `frontend/src/utils/limits.js` 兜底），禁止两侧各写一份字面量。
+5. **业务常量/状态**：状态权威定义在后端（枚举/permission 数据）；前端 statusMap/roleOptions 为展示层副本，必须成对修改并按 17.7 留痕。禁止新增第三套状态命名或与既有语义色冲突的修饰类。
+6. **部署/运维脚本**：新脚本禁止复制粘贴仓库根路径、端口、凭据解析逻辑。凭据解析统一 dot-source `scripts/common-credentials.ps1`（环境变量优先 → bat 运行时解析）；路径/端口引用参数化或读取既有公共定义。`common-credentials.ps1` 必须保持 UTF-8 带 BOM 编码（PS5.1 兼容，已实测踩坑）。
+
+### 18.2 单一真源原则（现行登记）
+
+| 事实源 | 内容 | 消费方 |
+| --- | --- | --- |
+| `version.txt` revision | 版本号 | pom/version.properties、vite 注入、deploy 脚本 |
+| `application.yml expert.upload` | 上传限额（photo/resume/doc-max-bytes） | MetaController → 前端 limits.js |
+| `security.cors.allowed-origins` | CORS 白名单 | SecurityConfig（env：CORS_ALLOWED_ORIGINS） |
+| `STORAGE_ROOT` | 全部存储目录统一根（默认 `D:\jshz-PMO`） | application.yml 各 storage-dir |
+| `start-backend.bat` + NSSM AppEnvironmentExtra | 真实凭据 | 服务启动、deploy-backend 凭据一致性护栏 |
+
+约定：**出口化不改行为**——新增 `${VAR:默认值}` 的默认值必须等于当前生产实际值；新增环境变量必须登记到 `docs/deployment.md` 的"环境变量注入点"小节，否则视为文档不同步。
+
+### 18.3 AI 助手开发约定
+
+1. 新增配置前先检索 yml 与环境变量清单（18.4），**先复用既有配置、后新建**；禁止再造同义配置项或重复默认值。
+2. 代码中出现任何字面量路径/IP/密码/魔法数值前，必须先给出出口化方案并在交接记录中说明环境变量名、默认值与"默认值=当前生产值"核对结论。
+3. 修改既有默认值 = 改变行为，须经项目负责人批准并同步 `docs/deployment.md`；仅做出口化（默认值不变）属低风险，可在交接记录中留痕后直接合入。
+4. 验证最低要求：硬编码模式 grep（盘符路径 / 内网 IP / 密钥赋值 / 重复魔法数字）+ 编译或构建通过 + 残留清单逐条标注"有意保留"理由（如 JS/canvas 无法用 CSS 变量、Windows 惯例兜底），结果记入交接记录第 6 节。
+5. 禁止事项：
+   - 禁止为绕过 grep 复查而拼接路径/凭据（如 `chr()` 组装、"D:" + 字符串），行为等同硬编码；
+   - 禁止把测试用假密码/占位密钥提交进任何入库文件（测试代码用 `System.getenv` 或本地未入库配置）；
+   - 禁止在新增运维脚本中内联 bat 凭据解析正则（必须复用 common-credentials.ps1）。
+
+### 18.4 现行环境变量清单（2026-11-13 登记）
+
+| 变量 | 用途 | 默认/兜底 |
+| --- | --- | --- |
+| `MYSQL_PASSWORD` / `JWT_SECRET` | 数据库凭据 / JWT 签名密钥 | 无默认，空则启动失败（fail-fast） |
+| `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE` | 企微登录与通讯录 | 空占位 / NAME |
+| `STORAGE_ROOT` | 全部存储目录统一根 | `D:\jshz-PMO` |
+| `LIBREOFFICE_PATH` | Office 预览转换可执行文件 | `C:\Program Files\LibreOffice\program\soffice.com` |
+| `CORS_ALLOWED_ORIGINS` | 前端来源白名单（逗号分隔） | 3 个既有内网来源 |
+| `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT` | 抠图正式 Python/venv 出口 | 显式配置 / `ProgramFiles/JSHZ/pp-ocrv5` |
+| `PHOTOMATTE_LEGACY_ROOT` | 抠图历史 E 盘 venv 兜底（可置空跳过） | `E:/AI助手开发/pp-ocrv5` |
+| `OLLAMA_URL` / `OLLAMA_MODEL` / `OLLAMA_TIMEOUT` | 本地语义抽取 | 无（未设停用）/ qwen2.5:7b / 180s |
+| `LOG_DIR` | 应用日志目录 | `D:/jshz-PMO/logs` |
+| `VITE_API_BASE` / `VITE_API_PROXY_TARGET` | 前端请求地址 / 开发代理 | `/api` / `http://127.0.0.1:8080` |
+
+清单与 `docs/deployment.md` 同步维护；新增变量先登记 deployment.md，再更新本表。
+
+---
+
+## 19. 功能复用与封装规范
+
+> 2026-11-13 新增。背景：复用审查发现 5 个存储服务逐字同构、文件名清洗/扩展名解析散落 9 处、前端跨页面字典重复（详见 `docs/handover/tasks/20261113_reuse_consolidation.md`），已按本节完成第一轮收敛。本节约束后续所有功能开发。
+
+### 19.1 可复用功能的识别标准
+
+出现以下任一信号时，必须评估抽取公共实现，禁止直接复制第 N 份：
+
+1. **"第 3 处复制即收口"**（硬阈值）：同一逻辑（逐字或仅参数级差异）第 3 次被复制时，必须抽取为公共实现并回头替换前 2 处；
+2. **安全/一致性敏感逻辑**（防路径穿越、凭据、权限判定、限额校验）即使只出现 2 处也应立即收敛——安全修补不允许在多个副本间"逐个同步"；
+3. **同一后端枚举/配置在多个消费方出现**：展示文案、颜色映射、默认值必须单一来源；
+4. **参数级差异**（白名单集合、前缀、提示文案、阈值）不算实现差异，只是公共实现的配置项——以"差异是否可参数化"判断，而不是以"代码长得像不像"判断。
+
+**不收口的边界**（与 17.4 一致）：枚举域不同的字典（如日程 parseStatus 与合规文档解析状态）、仅单页使用的映射、行为语义不同的同形代码（如 resolve 返回 null 与抛异常是两种契约）不得强行合并；抽象收益低于复杂度时保持现状并在交接记录说明。
+
+### 19.2 封装与调用约定
+
+1. **后端**：跨服务通用逻辑放 `com.jshz.expert.common`（现役：`FileNames` 文件名清洗/扩展名/目录归一化、`UploadGuard` 上传三段校验、`PpOcrRuntime` venv 布局探测、`BusinessException`）；实现形态优先静态工具类（无状态）或抽象基类（模板方法）。
+2. **前端**：跨页面纯函数/字典放 `frontend/src/utils/`（现役：`format.js` 审批展示、`dict.js` 共享字典、`limits.js` 上传限额真源副本、`supplier.js` 供应商映射）；组件级复用用 components/，跨页面状态用 stores/。
+3. **运维脚本**：路径真源 dot-source `scripts/common-paths.ps1`（`$root`，可被 `JSHZ_ROOT` 覆盖），凭据解析 dot-source `scripts/common-credentials.ps1`，构建/版本能力用 `scripts/build-paths.ps1`；禁止在脚本内重复实现这三类逻辑。
+4. **行为不变原则**：收口改造必须保持对外契约（方法签名、返回值语义、异常类型与文案、错误码）不变；公共实现只能合并"逐字相同"的部分，差异行为保留在各消费方。
+5. **配置化差异**：可参数化的差异（扩展名白名单、文件名前缀、大小上限、提示文案）作为公共实现的参数/抽象方法，由消费方声明，禁止为差异化而在公共实现里加 if-else 分支枚举消费方。
+
+### 19.3 命名与接口规范
+
+1. 公共工具类用**语义化名词**（`FileNames`、`UploadGuard`、`PpOcrRuntime`），方法用动词短语；禁止 `Utils`/`Common`/`Helper` 这类无边界垃圾名作为类名。
+2. 公共实现的方法签名以"最窄 sufficient 类型"为准（入参用 `Set<String>`/`Path`/`long`，不接收整个 Service 或整个 MultipartFile 之外的上下文对象）；无状态工具类 final + 私有构造器。
+3. 前端共享字典导出**大写常量 + camelCase 取值函数**（如 `RELATION_DIRECTION_TEXT` + `relationDirectionLabel()`）；共享纯函数文件头注释必须写明消费方清单（样板：`utils/format.js` L1）。
+4. 公共实现的 Javadoc/注释必须包含：用途、行为契约（异常/返回值）、以及"禁止复制本地副本"的提示；脚本公共库 `.SYNOPSIS` 同理。
+5. **禁止复制私有副本**：一旦公共实现存在，消费方出现同名 private 方法即视为违规（编译期无法发现，靠评审与 19.5 检查项拦截）。
+
+### 19.4 依赖管理
+
+1. 依赖方向：`service → common`、`views/components → utils`、`脚本 → scripts 公共库`；**公共实现不得反向依赖业务层**（common 类禁止 import mapper/service，utils 不得 import api/store——保持纯函数/纯工具，可测试、可独立复用）。
+2. 公共实现引入的配置项（如 `expert.upload.*-max-bytes`）必须来自既有单一真源（18.2），不得在公共实现内部再写默认值字面量（`@Value` 缺省值仅作占位兜底并注明真源）。
+3. 新增公共库文件（Java/JS/ps1）时同步更新 19.2 的现役清单与本节版本记录；第三方依赖不得因"写个公共类"而引入（先确认 JDK/Spring/既有 utils 是否已具备）。
+4. 环境变量语义不同的消费方（样板：PHOTOMATTE_* vs COMPLIANCE_PPOCR_ROOT）共享的是**布局/扫描逻辑**而非根目录来源——抽象边界画在"逐字相同"处，不画在"看起来相关"处。
+
+### 19.5 维护更新流程
+
+1. **修改公共实现 = 修改所有消费方**：任何行为变更（哪怕是文案）都必须枚举全部调用方并评估影响，在交接记录"实际变更"中列出消费方清单。
+2. 收口/新建公共实现时，交接记录必须回答三问：消除了几处重复？对外契约是否不变？残留未收口项及理由？
+3. **验证最低要求**：后端 `mvn compile`、前端 `npm run build`、脚本 AST 语法解析、重复残留 grep（如 `private String extension|safeName` 计数），结果如实记入交接记录。
+4. 每次交接时执行"复制检测"核对：`grep -c "private String (safeName|extension)"` 后端应为 0（保留的委托包装除外）、`$root\s*=\s*['\"]D:` 脚本应为 0（common-paths.ps1 自身除外）；发现新增副本当场收口或说明豁免理由。
+5. 本节 19.2 现役清单与 17.6 样式清单同等维护：新增、废弃、改名均需同步；文档与代码不一致时以代码为准并立即修文档。
+
+## Agent skills
+
+### Issue tracker
+任务使用本地 Markdown，见 [任务跟踪约定](docs/agents/issue-tracker.md)。
+
+### Domain docs
+沿用现有术语及决策文档，见 [领域文档约定](docs/agents/domain.md)。

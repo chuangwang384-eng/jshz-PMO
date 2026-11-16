@@ -33,17 +33,26 @@
         </div>
       </el-header>
       <el-main class="main">
-        <router-view />
+        <GlobalModuleResults v-if="globalModule" :module="globalModule" />
+        <DashboardWorkList v-else-if="route.path === '/project' && route.query.mine === '1'" kind="projects" />
+        <DashboardWorkList v-else-if="route.path === '/profile/approval/manage' && route.query.actionable === '1'" kind="approvals" />
+        <router-view v-else />
       </el-main>
     </el-container>
   </el-container>
 
   <!-- 首次登录强制改密弹窗（不可关闭） -->
   <ChangePasswordDialog v-model="showChangePwd" />
+
+  <!-- AI 助手（2026-11-16）：全局悬浮入口，登录后可用 -->
+  <AiAssistantDrawer v-if="!isLoginPage" />
 </template>
 
 <script setup>
-import { computed, onMounted, provide, ref } from 'vue'
+import GlobalModuleResults from './components/GlobalModuleResults.vue'
+import DashboardWorkList from './components/DashboardWorkList.vue'
+
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from './store/auth'
@@ -51,12 +60,35 @@ import { versionPrefix, versionLabel } from './config/version'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
 import SideMenuItem from './components/SideMenuItem.vue'
 import MessageDrawerBell from './components/MessageDrawerBell.vue'
+import AiAssistantDrawer from './components/AiAssistantDrawer.vue'
 import { listAnnouncements, markAnnouncementRead } from './api/announcement'
 import { buildMenuTree } from './utils/menu'
 
 const route = useRoute()
 const router = useRouter()
+const globalModule = computed(() => route.query.searchMode === 'global' ? ({
+ '/experts':'expert','/project':'project','/supplier':'supplier','/knowledge-planet/customer-info':'customer','/knowledge-planet/meeting-execution':'knowledge','/profile/announcements':'announcement'
+})[route.path] || null : null)
 const auth = useAuthStore()
+
+// 登录后空闲时预热工作台懒加载 chunk（vue-router-prefetch/Nuxt 同思路：resolve 后调用懒加载函数，
+// Vite 按 module id 去重，与路由表共用同一 chunk；仅预热网络缓存，不挂载组件、不发业务请求）
+let dashboardPrefetched = false
+function prefetchDashboardChunk() {
+  if (dashboardPrefetched || !auth.isLoggedIn) return
+  dashboardPrefetched = true
+  const warm = () => {
+    try {
+      router.resolve({ path: '/dashboard' }).matched.forEach((record) => {
+        const component = record.components?.default
+        if (typeof component === 'function') Promise.resolve(component()).catch(() => {})
+      })
+    } catch (e) { /* 预热失败静默忽略，不影响正常导航 */ }
+  }
+  if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 3000 })
+  else setTimeout(warm, 1500)
+}
+watch(() => auth.isLoggedIn, prefetchDashboardChunk, { immediate: true })
 
 // 侧边菜单实例：供 SideMenuItem 展开/收起子菜单（点标题跳父路由、点箭头展开）
 const sideMenuRef = ref(null)
@@ -272,7 +304,7 @@ body {
 .header-title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 .user-area {
   display: flex;
@@ -280,10 +312,11 @@ body {
   gap: 12px;
 }
 .username {
-  color: #303133;
+  color: var(--ui-text-main);
   font-weight: 500;
 }
 .main {
-  padding: 16px;
+  --el-main-padding: 16px;
+  padding: var(--el-main-padding);
 }
 </style>

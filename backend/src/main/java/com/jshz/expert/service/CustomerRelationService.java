@@ -194,6 +194,22 @@ public class CustomerRelationService {
      * 以某客户为中心的关系圈脑图：
      * center 中心节点；nodes 中心 + 直接邻居（去重）；links 中心相关的全部有向关系。
      */
+    /** 按客户 ID 批量统计关系数（客户作为任一端均计一次），供列表"关联关系"列使用。 */
+    public Map<Long, Long> countByCustomerIds(java.util.Collection<Long> customerIds) {
+        if (customerIds == null || customerIds.isEmpty()) return java.util.Map.of();
+        List<CustomerRelation> rels = relationMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<CustomerRelation>()
+                .and(w -> w.in(CustomerRelation::getFromCustomerId, customerIds)
+                        .or().in(CustomerRelation::getToCustomerId, customerIds)));
+        Map<Long, Long> counts = new java.util.LinkedHashMap<>();
+        for (CustomerRelation r : rels) {
+            counts.merge(r.getFromCustomerId(), 1L, Long::sum);
+            if (!r.getFromCustomerId().equals(r.getToCustomerId())) {
+                counts.merge(r.getToCustomerId(), 1L, Long::sum);
+            }
+        }
+        return counts;
+    }
+
     public Map<String, Object> centerGraph(Long customerId) {
         Customer center = visibleCustomer(customerId);
         List<CustomerRelation> all = relationMapper.selectList(new LambdaQueryWrapper<CustomerRelation>()

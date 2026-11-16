@@ -6,7 +6,7 @@
 --      （code=customer:manage），使后端权限过滤器对"仅登录"的该接口兜底拦截
 --   2) 不动其它规则；ADMIN / KNOWLEDGE_MAINTAINER 已于 20261029 绑定 customer:manage，
 --      无需重复绑定（SUPER_ADMIN 代码内强制全权）
--- 设计依据：docs/2026-11-02-客户信息板块权限收敛需求文档.md / 设计文档.md
+-- 设计依据：docs/requirements/2026-11-02-客户信息板块权限收敛-需求文档.md / 设计文档.md
 -- =============================================================
 USE `expert_system`;
 

@@ -1,0 +1,41 @@
+{
+  "result": "PASS",
+  "environment": "isolated Edge + Vite + Spring + MySQL 13317/pc_acceptance",
+  "checks": [
+    "stage draft flow preview toggle",
+    "legacy type/flow/binding API compatibility",
+    "legacy empty requests rejected without changing semantics",
+    "legacy dictionary writes deny ordinary users",
+    "real stage material upload and two phase advances",
+    "current stage view follows advancement",
+    "NONE keeps optional upload available",
+    "old snapshot unchanged after configuration publish",
+    "new projects use new phase sequence",
+    "real login",
+    "draft-only stage creation",
+    "three material modes",
+    "employee preview",
+    "single atomic save",
+    "edit reload",
+    "unique rank move",
+    "cancel without writes",
+    "project snapshot read",
+    "anonymous and ordinary-user denial",
+    "table view"
+  ],
+  "pageErrors": [],
+  "configurationMutations": [
+    {
+      "method": "POST",
+      "path": "/api/project/config/definitions/preview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/project/config/definitions"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/project/config/types/order"
+    }
+  ]
+}

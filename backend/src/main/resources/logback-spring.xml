@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  后端日志配置（2026-11-06 引入）。
+
+  目的：
+    1. 应用日志统一以 UTF-8 落盘（expert-app.log），不再依赖 NSSM 捕获的系统默认编码，
+       避免 GBK/UTF-8 混用导致日志乱码。
+    2. 轮转：按天 + 单文件 20MB 切分，gzip 压缩，保留 30 天，总量上限 2GB。
+       历史上 logs/expert-backend.out.log 单文件已增长到 11.9MB 且无轮转。
+
+  说明：
+    - CONSOLE 显式指定 UTF-8（2026-11-06 修正）。原因：logback 的 ConsoleAppender 是
+      自行把日志编码成字节后写入 System.out，走的是 Charset.defaultCharset()；本机
+      file.encoding=GBK，因此不写 charset 时中文会以 GBK 落进 NSSM 重定向的
+      expert-backend.out.log。实测：同一事件 CONSOLE 落 GBK、APP_FILE 落 UTF-8。
+      JVM 参数 -Dsun.stdout.encoding=UTF-8 只管 System.out 的字符输出，管不到 logback
+      的字节编码，不能替代本配置。
+      代价：在 GBK 控制台手工 java -jar 直接看会乱码，先 chcp 65001 即可。
+    - LOG_DIR 可用环境变量覆盖，默认指向项目根 logs 目录（绝对路径，避免依赖启动工作目录）。
+-->
+<configuration>
+
+    <property name="LOG_DIR" value="${LOG_DIR:-D:/jshz-PMO/logs}"/>
+    <property name="APP_PATTERN"
+              value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %-45.45logger{44} : %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <charset>UTF-8</charset>
+            <pattern>${APP_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/expert-app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/expert-app.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <charset>UTF-8</charset>
+            <pattern>${APP_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="APP_FILE"/>
+    </root>
+
+</configuration>

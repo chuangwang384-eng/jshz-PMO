@@ -5,7 +5,7 @@
 --   1) 新增接口权限码 knowledge:maintain（上传/更新/下架/永久删除/上架/版本历史）
 --   2) 新增内置角色「知识星球维护人」KNOWLEDGE_MAINTAINER，绑定 knowledge:maintain
 --   3) 移除旧权限码 knowledge:manage 及其 ADMIN 角色绑定（ADMIN 不再拥有知识星球管理权）
--- 设计依据：docs/2026-10-27-知识星球维护人角色与权限-design.md
+-- 设计依据：docs/design/2026-10-27-知识星球维护人角色与权限-设计文档.md
 -- 注意：执行后需重启后端（PermissionService 缓存 permission/role 表）
 -- =============================================================
 USE `expert_system`;

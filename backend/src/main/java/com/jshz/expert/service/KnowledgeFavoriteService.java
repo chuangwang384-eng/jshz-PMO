@@ -77,6 +77,16 @@ public class KnowledgeFavoriteService extends ServiceImpl<KnowledgeFavoriteMappe
                 .eq(KnowledgeFavorite::getUserId, userId)) > 0;
     }
 
+    /** 当前用户全部收藏文档 ID（合规记事本用；文档上架与否由调用方按访问权限过滤）。 */
+    public java.util.List<Long> myFavoriteDocIds(Long userId) {
+        if (userId == null) {
+            return java.util.Collections.emptyList();
+        }
+        return this.list(new LambdaQueryWrapper<KnowledgeFavorite>()
+                        .eq(KnowledgeFavorite::getUserId, userId))
+                .stream().map(KnowledgeFavorite::getDocId).toList();
+    }
+
     /**
      * 批量查询用户在给定文档集合中已收藏的 docId（列表接口 isFavorite 批量填充用）。
      */

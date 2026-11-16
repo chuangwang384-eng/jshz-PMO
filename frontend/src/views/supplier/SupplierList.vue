@@ -1,69 +1,139 @@
 <template>
-  <div>
-    <div class="page-head">
-      <span class="page-sub">酒店/打印店/媒体/影像/车队/票务档案·行价·评价（全员可直接维护）</span>
-    </div>
+  <div class="supplier-page">
+    <el-card shadow="never" class="supplier-panel">
+      <!-- 第一行：搜索 + 类型 + 城市 + 重置（管理员入口在右侧） -->
+      <div class="filter-row">
+        <el-input
+          v-model="filters.keyword"
+          class="kw-input"
+          placeholder="搜索供应商名称、联系人"
+          clearable
+          :prefix-icon="Search"
+          @input="onKeywordInput"
+          @keyup.enter="handleSearch"
+          @clear="handleSearch"
+        />
+        <el-select
+          v-model="filters.typeId"
+          class="filter-select"
+          placeholder="全部类型"
+          clearable
+          @change="handleSearch"
+        >
+          <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+        <el-select
+          v-model="filters.cityId"
+          class="filter-select"
+          placeholder="全部城市"
+          clearable
+          filterable
+          @change="handleSearch"
+        >
+          <el-option v-for="c in cities" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-button class="reset-btn" @click="resetSearch">重置</el-button>
 
-    <div class="toolbar">
-      <el-input
-        v-model="filters.keyword"
-        placeholder="名称 / 地址 / 联系人"
-        clearable
-        style="width: 200px"
-        @keyup.enter="handleSearch"
-        @clear="handleSearch"
-      />
-      <el-select v-model="filters.typeId" placeholder="全部类型" clearable style="width: 170px; margin-left: 8px" @change="handleSearch">
-        <el-option v-for="t in types" :key="t.id" :label="t.name" :value="t.id" />
-      </el-select>
-      <el-select
-        v-model="filters.cityId"
-        placeholder="全部城市"
-        clearable
-        filterable
-        style="width: 160px; margin-left: 8px"
-        @change="handleSearch"
-      >
-        <el-option v-for="c in cities" :key="c.id" :label="c.name" :value="c.id" />
-      </el-select>
-      <el-button type="primary" style="margin-left: 8px" @click="handleSearch">搜索</el-button>
-      <el-button @click="resetSearch">重置</el-button>
-      <el-button v-permission="'supplier:create'" type="success" plain @click="openCreate">新增供应商</el-button>
-      <el-button v-permission="'supplier:dict'" plain @click="typeDlgVisible = true">类型管理</el-button>
-    </div>
-
-    <div v-loading="loading" class="card-grid">
-      <el-card v-for="s in records" :key="s.id" shadow="hover" class="sup-card" @click="goDetail(s.id)">
-        <div class="card-cover">
-          <el-image v-if="coverOf(s)" :src="imageUrl(coverOf(s))" fit="cover" class="cover-img" />
-          <div v-else class="cover-empty">暂无图片</div>
+        <div class="filter-actions">
+          <el-button v-permission="'supplier:create'" type="primary" @click="openCreate">新增供应商</el-button>
+          <el-button v-permission="'supplier:dict'" @click="typeDlgVisible = true">类型管理</el-button>
         </div>
-        <div class="card-body">
-          <div class="card-title-row">
-            <span class="card-name">{{ s.name }}</span>
-            <el-tag size="small" :type="supplierTypeTagColor(s.typeBizKey)">{{ s.typeName }}</el-tag>
+      </div>
+
+      <!-- 第二行：仅看已评价 + 视图切换 -->
+      <div class="view-row">
+        <el-checkbox v-model="filters.onlyReviewed" class="reviewed-check" @change="handleSearch">
+          仅看已评价
+        </el-checkbox>
+        <div class="view-toggle">
+          <button
+            type="button"
+            class="vt-btn"
+            :class="{ 'is-active': viewMode === 'list' }"
+            @click="setViewMode('list')"
+          >列表视图</button>
+          <button
+            type="button"
+            class="vt-btn"
+            :class="{ 'is-active': viewMode === 'card' }"
+            @click="setViewMode('card')"
+          >卡片视图</button>
+        </div>
+      </div>
+
+      <el-divider class="panel-divider" />
+
+      <!-- 汇总行 -->
+      <div class="summary-row">
+        <span class="summary-text">共 {{ total }} 家供应商</span>
+        <el-select v-model="filters.sort" class="sort-select" size="small" @change="handleSearch">
+          <el-option label="按名称排序" value="name" />
+          <el-option label="按更新时间排序" value="updated" />
+        </el-select>
+      </div>
+
+      <!-- 列表视图 -->
+      <div v-if="viewMode === 'list'" v-loading="loading" class="sup-list">
+        <div v-for="s in records" :key="s.id" class="sup-row" @click="goDetail(s.id)">
+          <div class="row-icon">
+            <el-icon><component :is="typeIcon(s.typeBizKey)" /></el-icon>
           </div>
-          <div class="card-meta">{{ s.province ? s.province + ' · ' : '' }}{{ s.cityName || '-' }}</div>
-          <div class="card-rate">
-            <el-rate :model-value="s.avgStars || 0" disabled size="small" />
-            <span class="rate-text">{{ s.avgStars ? s.avgStars + '（' + s.reviewCount + '条）' : '暂无评分' }}</span>
+          <div class="row-main">
+            <div class="row-title">
+              <span class="row-name">{{ s.name }}</span>
+              <span v-if="s.typeName" class="type-pill">{{ s.typeName }}</span>
+            </div>
+            <div class="row-meta">{{ metaLine(s) }}</div>
+            <div class="row-rate">
+              <template v-if="s.reviewCount">
+                <el-icon class="star-icon"><StarFilled /></el-icon>
+                <span class="rate-score">{{ s.avgStars }}</span>
+                <span class="rate-count">（{{ s.reviewCount }}条评价）</span>
+              </template>
+              <span v-else class="rate-empty">尚无评价</span>
+            </div>
+          </div>
+          <div class="row-side">
+            <el-button class="detail-btn" size="small" @click.stop="goDetail(s.id)">查看详情</el-button>
           </div>
         </div>
-      </el-card>
-      <el-empty v-if="!loading && !records.length" description="暂无供应商，点击右上角新增" style="grid-column: 1 / -1" />
-    </div>
+        <el-empty v-if="!loading && !records.length" description="没有符合条件的供应商" />
+      </div>
 
-    <div class="pagination-wrap">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="size"
-        :total="total"
-        :page-sizes="[12, 24, 48]"
-        layout="total, sizes, prev, pager, next, jumper"
-        @size-change="handleSearch"
-        @current-change="fetchList"
-      />
-    </div>
+      <!-- 卡片视图 -->
+      <div v-else v-loading="loading" class="card-grid">
+        <el-card v-for="s in records" :key="s.id" shadow="hover" class="sup-card" @click="goDetail(s.id)">
+          <div class="card-cover">
+            <el-image v-if="coverOf(s)" :src="imageUrl(coverOf(s))" fit="cover" class="cover-img" />
+            <div v-else class="cover-empty">暂无图片</div>
+          </div>
+          <div class="card-body">
+            <div class="card-title-row">
+              <span class="card-name" :title="s.name">{{ s.name }}</span>
+              <el-tag size="small" :type="supplierTypeTagColor(s.typeBizKey)">{{ s.typeName }}</el-tag>
+            </div>
+            <div class="card-meta">{{ metaLine(s) }}</div>
+            <div class="card-rate">
+              <el-rate :model-value="s.avgStars || 0" disabled size="small" />
+              <span class="rate-text">{{ s.reviewCount ? s.avgStars + '（' + s.reviewCount + '条）' : '暂无评分' }}</span>
+            </div>
+          </div>
+        </el-card>
+        <el-empty v-if="!loading && !records.length" description="没有符合条件的供应商" style="grid-column: 1 / -1" />
+      </div>
+
+      <div class="pagination-wrap">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="size"
+          :total="total"
+          :page-sizes="[10, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSearch"
+          @current-change="fetchList"
+        />
+      </div>
+    </el-card>
 
     <!-- 新增供应商 -->
     <el-dialog v-model="createVisible" title="新增供应商" width="620px" destroy-on-close>
@@ -171,14 +241,16 @@
         </el-table-column>
       </el-table>
     </el-dialog>
-
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Search, StarFilled, OfficeBuilding, Printer, VideoCamera, Camera, Van, Ticket, Files
+} from '@element-plus/icons-vue'
 import {
   listSuppliers, listSupplierTypes, listSupplierCities,
   createSupplier, createSupplierType, updateSupplierType, deleteSupplierType, bindSupplier, uploadSupplierImage,
@@ -188,18 +260,53 @@ import { compressImage } from '../../utils/imageCompress'
 import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
 
 const router = useRouter()
+const route = useRoute()
 
-const filters = ref({ keyword: '', typeId: null, province: null, cityId: null })
+// 筛选条件：keyword/typeId/cityId 与后端 list 接口一一对应，onlyReviewed/sort 为 1.0.37.19 新增
+const filters = ref({ keyword: '', typeId: null, cityId: null, onlyReviewed: false, sort: 'name' })
 const records = ref([])
 const total = ref(0)
 const page = ref(1)
-const size = ref(12)
+const size = ref(10)
 const loading = ref(false)
 
 const types = ref([])
 const cities = ref([])
 const provinceNames = computed(() => provinceList(cities.value))
 const formCities = computed(() => citiesOfProvince(cities.value, form.value.province))
+
+// ==================== 视图切换（列表 / 卡片） ====================
+const VIEW_KEY = 'supplier-view-mode'
+const viewMode = ref('list')
+
+function setViewMode(mode) {
+  if (viewMode.value === mode) return
+  viewMode.value = mode
+  try {
+    localStorage.setItem(VIEW_KEY, mode)
+  } catch (e) {
+    // 隐私模式等场景忽略
+  }
+  syncRouteQuery()
+}
+
+// ==================== 类型图标（按内置业务键映射，自定义类型用通用图标） ====================
+const TYPE_ICONS = {
+  HOTEL: OfficeBuilding,
+  PRINT: Printer,
+  MEDIA: VideoCamera,
+  IMAGING: Camera,
+  FLEET: Van,
+  TICKET: Ticket
+}
+
+function typeIcon(bizKey) {
+  return TYPE_ICONS[bizKey] || Files
+}
+
+function metaLine(s) {
+  return [s.province, s.cityName, s.contact].filter((x) => !!x).join(' · ') || '未填写属地与联系人'
+}
 
 function imageUrl(fileName) {
   return supplierImageUrl(fileName)
@@ -220,13 +327,53 @@ async function fetchDicts() {
   }
 }
 
+// ==================== 查询状态与 URL 双向同步（从详情页返回可还原筛选/页码/视图） ====================
+function toId(v) {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function initFromRoute() {
+  const q = route.query
+  filters.value = {
+    keyword: String(q.keyword || ''),
+    typeId: toId(q.typeId),
+    cityId: toId(q.cityId),
+    onlyReviewed: q.onlyReviewed === '1',
+    sort: q.sort === 'updated' ? 'updated' : 'name'
+  }
+  page.value = toId(q.page) || 1
+  size.value = [10, 20, 50].includes(Number(q.pageSize)) ? Number(q.pageSize) : 10
+  if (q.view === 'card' || q.view === 'list') viewMode.value = q.view
+}
+
+// 只 replace 不 push，避免污染历史栈；默认值不写入 URL，保持地址干净
+function syncRouteQuery() {
+  const next = {
+    keyword: filters.value.keyword || undefined,
+    typeId: filters.value.typeId ? String(filters.value.typeId) : undefined,
+    cityId: filters.value.cityId ? String(filters.value.cityId) : undefined,
+    onlyReviewed: filters.value.onlyReviewed ? '1' : undefined,
+    sort: filters.value.sort !== 'name' ? filters.value.sort : undefined,
+    page: page.value > 1 ? String(page.value) : undefined,
+    pageSize: size.value !== 10 ? String(size.value) : undefined,
+    view: viewMode.value === 'card' ? 'card' : undefined
+  }
+  const keys = ['keyword', 'typeId', 'cityId', 'onlyReviewed', 'sort', 'page', 'pageSize', 'view']
+  const same = keys.every((k) => String(route.query[k] || '') === String(next[k] || ''))
+  if (!same) router.replace({ query: next })
+}
+
 async function fetchList() {
+  syncRouteQuery()
   loading.value = true
   try {
     const data = await listSuppliers({
       keyword: filters.value.keyword || undefined,
       typeId: filters.value.typeId || undefined,
       cityId: filters.value.cityId || undefined,
+      onlyReviewed: filters.value.onlyReviewed ? true : undefined,
+      sort: filters.value.sort || undefined,
       page: page.value,
       size: size.value
     })
@@ -242,8 +389,22 @@ function handleSearch() {
   fetchList()
 }
 
+// 输入即搜（400ms 防抖），回车立即搜
+let keywordTimer = null
+function onKeywordInput() {
+  if (keywordTimer) clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(() => {
+    keywordTimer = null
+    handleSearch()
+  }, 400)
+}
+
 function resetSearch() {
-  filters.value = { keyword: '', typeId: null, cityId: null }
+  if (keywordTimer) {
+    clearTimeout(keywordTimer)
+    keywordTimer = null
+  }
+  filters.value = { keyword: '', typeId: null, cityId: null, onlyReviewed: false, sort: 'name' }
   page.value = 1
   fetchList()
 }
@@ -425,18 +586,128 @@ async function removeType(row) {
 }
 
 onMounted(() => {
+  // 先按 URL 还原（详情页返回），URL 未带视图偏好时回退本地记忆
+  initFromRoute()
+  if (!route.query.view) {
+    try {
+      const saved = localStorage.getItem(VIEW_KEY)
+      if (saved === 'list' || saved === 'card') viewMode.value = saved
+    } catch (e) {
+      // 忽略
+    }
+  }
   fetchDicts()
   fetchList()
+})
+
+onBeforeUnmount(() => {
+  if (keywordTimer) clearTimeout(keywordTimer)
 })
 </script>
 
 <style scoped>
-.page-head { display: flex; align-items: baseline; gap: 12px; }
-.page-title { font-size: 17px; font-weight: 600; color: #303133; }
-.page-sub { font-size: 13px; color: #909399; }
-.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; margin-top: 12px; }
+.supplier-panel { padding: 2px 4px; }
+:deep(.supplier-panel .el-card__body) { padding: 14px 16px 8px; }
+
+/* ---------- 第一行筛选 ---------- */
+.filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.kw-input { width: 300px; }
+.filter-select { width: 150px; }
+.reset-btn { color: var(--ui-text-sub); }
+.filter-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+/* ---------- 第二行：仅看已评价 + 视图切换 ---------- */
+.view-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.reviewed-check { font-size: 14px; }
+.view-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.vt-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ui-text-muted);
+  padding: 5px 14px;
+  border-radius: 8px;
+  line-height: 1.4;
+  transition: background-color .15s, color .15s;
+}
+.vt-btn:hover { color: var(--ui-text-main); }
+.vt-btn.is-active { background: #f1f2f5; color: var(--ui-text-main); font-weight: 600; }
+
+.panel-divider { margin: 12px 0 4px; }
+
+/* ---------- 汇总行 ---------- */
+.summary-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 8px; }
+.summary-text { font-size: 13px; color: var(--ui-text-muted); }
+.sort-select { width: 140px; }
+:deep(.sort-select .el-select__wrapper) {
+  box-shadow: none !important;
+  background: transparent;
+  padding-left: 0;
+}
+:deep(.sort-select .el-select__placeholder) { color: var(--ui-text-muted); font-size: 13px; }
+
+/* ---------- 列表视图 ---------- */
+.sup-list { min-height: 160px; }
+.sup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 8px;
+  border-bottom: 1px solid #eef1f5;
+  cursor: pointer;
+  transition: background-color .15s;
+}
+.sup-row:last-child { border-bottom: none; }
+.sup-row:hover { background: #f7f9fc; }
+.row-icon {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-text-sub);
+  font-size: 17px;
+}
+.row-main { flex: 1; min-width: 0; }
+.row-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ui-text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+.type-pill {
+  font-size: 12px;
+  color: var(--ui-text-sub);
+  border: 1px solid #e3e6eb;
+  border-radius: 999px;
+  padding: 1px 8px;
+  line-height: 18px;
+}
+.row-meta { margin-top: 6px; font-size: 13px; color: var(--ui-text-muted); }
+.row-rate { margin-top: 6px; display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.star-icon { color: #f5a623; font-size: 14px; }
+.rate-score { color: var(--ui-text-main); font-weight: 600; }
+.rate-count { color: var(--ui-text-muted); }
+.rate-empty { color: #b1b5bd; }
+
+.row-side {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+.detail-btn { color: var(--ui-text-main); border-color: #dcdfe6; border-radius: 8px; }
+
+/* ---------- 卡片视图 ---------- */
 .card-grid {
-  margin-top: 16px;
+  margin-top: 4px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;
@@ -444,21 +715,23 @@ onMounted(() => {
 }
 .sup-card { cursor: pointer; }
 :deep(.sup-card .el-card__body) { padding: 0; }
-.card-cover { height: 140px; background: #f5f7fa; }
+.card-cover { position: relative; height: 140px; background: #f5f7fa; }
 .cover-img { width: 100%; height: 140px; display: block; }
 .cover-empty {
   height: 140px; display: flex; align-items: center; justify-content: center;
-  color: #c0c4cc; font-size: 13px;
+  color: var(--ui-info); font-size: 13px;
 }
 .card-body { padding: 10px 12px; }
 .card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.card-name { font-weight: 600; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-meta { margin-top: 4px; font-size: 12px; color: #909399; }
+.card-name { font-weight: 600; color: var(--ui-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { margin-top: 4px; font-size: 12px; color: var(--ui-text-muted); }
 .card-rate { margin-top: 6px; display: flex; align-items: center; gap: 6px; }
-.rate-text { font-size: 12px; color: #606266; }
-.pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
+.rate-text { font-size: 12px; color: var(--ui-text-sub); }
+
+.pagination-wrap { margin-top: 14px; padding-bottom: 6px; }
 .dict-add-row { display: flex; align-items: center; }
 .create-file-list { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
 .create-file-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .create-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-tip { margin-top: 4px; font-size: 12px; color: var(--ui-text-muted); line-height: 1.5; }
 </style>

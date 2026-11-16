@@ -22,11 +22,34 @@ public class Project {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 项目名称（必填） */
+    /** 项目名称（会议名称，必填） */
     private String name;
 
-    /** 大类：ONLINE 线上 / OFFLINE 线下（固定） */
+    /** 大类：ONLINE 线上 / OFFLINE 线下（会议类型，固定） */
     private String category;
+
+    /** 团队：DEPT1 项目一部 / DEPT2 项目二部 / DEPT3 项目三部（必填，服务层校验） */
+    private String team;
+
+    /** 会议城市 supplier_city.id（非必填，复用供应商城市字典） */
+    private Long cityId;
+
+    /** 会议举办开始日期（可单日可多日；单日=与结束同日） */
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate meetingStartDate;
+
+    /** 会议举办结束日期 */
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate meetingEndDate;
+
+    /** 客户单位（非必填） */
+    private String clientCompany;
+
+    /** 客户姓名（非必填） */
+    private String clientName;
+
+    /** 备注（非必填） */
+    private String remark;
 
     /** 类型 project_type.id */
     private Long typeId;

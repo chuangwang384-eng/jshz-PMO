@@ -1,0 +1,34 @@
+[
+  {
+    "endpoint": "/api/dashboard/overview",
+    "concurrency": 1,
+    "requests": 1000,
+    "p95Ms": 25.4,
+    "p99Ms": 37.0,
+    "moduleErrors": 0
+  },
+  {
+    "endpoint": "/api/dashboard/overview",
+    "concurrency": 20,
+    "requests": 1000,
+    "p95Ms": 216.4,
+    "p99Ms": 341.4,
+    "moduleErrors": 0
+  },
+  {
+    "endpoint": "/api/search/global?keyword=工作台",
+    "concurrency": 1,
+    "requests": 1000,
+    "p95Ms": 10.4,
+    "p99Ms": 26.6,
+    "moduleErrors": 0
+  },
+  {
+    "endpoint": "/api/search/global?keyword=工作台",
+    "concurrency": 20,
+    "requests": 1000,
+    "p95Ms": 180.1,
+    "p99Ms": 400.3,
+    "moduleErrors": 0
+  }
+]

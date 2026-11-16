@@ -1,0 +1,13 @@
+{
+  "start": "2026-11-03T07:29:11.946Z",
+  "last": "2026-11-03T07:31:59.848Z",
+  "requests": 4167,
+  "failures": 1,
+  "errors": [
+    {
+      "time": "2026-11-03T07:30:28.429Z",
+      "url": "http://127.0.0.1/api/health",
+      "error": "fetch failed"
+    }
+  ]
+}

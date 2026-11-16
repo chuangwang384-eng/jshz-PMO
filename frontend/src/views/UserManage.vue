@@ -1,6 +1,6 @@
 <template>
   <div v-permission="'user:manage'">
-    <div class="toolbar">
+    <div class="ui-toolbar">
       <el-input
         v-model="keyword"
         placeholder="按姓名搜索"
@@ -275,16 +275,4 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-}
-.spacer {
-  flex: 1;
-}
-.pagination-wrap {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
 </style>

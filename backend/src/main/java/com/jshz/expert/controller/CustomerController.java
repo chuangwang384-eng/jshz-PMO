@@ -40,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 
 /**
@@ -57,6 +58,7 @@ public class CustomerController {
     private final CustomerRelationService relationService;
     private final CustomerAttachmentStorageService attachmentStorageService;
     private final OperationLogService operationLogService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // ==================== 客户档案 ====================
 
@@ -79,7 +81,7 @@ public class CustomerController {
      * deleted 可选：0=正常（默认）；1=已删除（仅维护人可查，用于恢复）；不传=全部。
      */
     @GetMapping
-    public ApiResponse<PageResult<Customer>> list(@RequestParam(required = false) String keyword,
+    public ApiResponse<PageResult<Map<String, Object>>> list(@RequestParam(required = false) String keyword,
                                                   @RequestParam(required = false) Integer deleted,
                                                   @RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "20") long pageSize,
@@ -89,7 +91,17 @@ public class CustomerController {
             requireManage(authUser);
         }
         Page<Customer> p = customerService.pageList(keyword, deleted, page, pageSize);
-        return ApiResponse.ok(PageResult.of(p));
+        // 列表项 = 客户字段 + relationCount（关联关系列摘要）
+        Map<Long, Long> relationCounts = relationService.countByCustomerIds(
+                p.getRecords().stream().map(Customer::getId).toList());
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Customer c : p.getRecords()) {
+            Map<String, Object> item = objectMapper.convertValue(c,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() {});
+            item.put("relationCount", relationCounts.getOrDefault(c.getId(), 0L));
+            items.add(item);
+        }
+        return ApiResponse.ok(PageResult.of(p.getTotal(), items));
     }
 
     /**

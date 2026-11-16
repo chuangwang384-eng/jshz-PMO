@@ -2,7 +2,7 @@
 
 - 日期：2026-10-26
 - 状态：已实现（feature/my-applications 分支，1.005）；迁移已执行并验证；**生产发布阻塞于 UAC 提权确认（两次被取消）**
-- 关联：`database/migration/20261026_add_application_table.sql`、交接记录 `docs/20261026-handover-我的申请通用化改造.md`
+- 关联：`database/migration/20261026_add_application_table.sql`、交接记录 `docs/handover/tasks/2026-10-26-我的申请通用化改造与消息中心-交接记录.md`
 
 ## 1. 目标
 

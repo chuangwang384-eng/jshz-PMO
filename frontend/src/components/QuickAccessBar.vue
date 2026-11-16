@@ -1,0 +1,124 @@
+<template>
+  <div class="quick-access" aria-label="快捷访问">
+    <span class="qa-label">快捷访问</span>
+    <template v-if="!editing">
+      <router-link v-for="item in visible" :key="item.id" :to="item.path" class="qa-item">
+        <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
+      </router-link>
+      <el-dropdown v-if="hidden.length" trigger="click" @command="go">
+        <button type="button" class="qa-item qa-more">更多 <el-icon><ArrowDown/></el-icon></button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item v-for="item in hidden" :key="item.id" :command="item.path">
+              <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </template>
+    <template v-else>
+      <div class="qa-edit-area" @dragover.prevent>
+        <span v-for="(item, index) in draft" :key="item.id" class="qa-item qa-draft" draggable="true"
+              @dragstart="dragIndex=index" @dragover.prevent @drop.prevent="reorder(index)">
+          <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
+          <span role="button" tabindex="0" class="qa-remove" aria-label="移除" @click="draft.splice(index,1)">×</span>
+        </span>
+        <span v-if="!draft.length" class="qa-empty-tip">已全部移除，可从上方「恢复默认」还原</span>
+        <span class="qa-add">
+          <span v-for="item in addable" :key="item.id" role="button" tabindex="0" class="qa-item qa-candidate"
+                @click="draft.push(item)" @keydown.enter.prevent="draft.push(item)">
+            + <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
+          </span>
+          <span v-if="!addable.length" class="qa-empty-tip">{{ draft.length >= MAX_ITEMS ? `最多 ${MAX_ITEMS} 个，请先移除再添加` : '暂无可添加候选' }}</span>
+        </span>
+      </div>
+    </template>
+  </div>
+</template>
+<script setup>
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { ArrowDown, Bell, Checked, Collection, Document, Files, Folder, HomeFilled, Iphone, Message, OfficeBuilding, Shop, Tickets, User } from '@element-plus/icons-vue'
+import { getQuickAccess, saveQuickAccess } from '../api/dashboard'
+
+const router = useRouter()
+
+const props = defineProps({ candidates: { type: Array, required: true }, editing: { type: Boolean, default: false } })
+
+const ICONS = { 'page.project': Folder, 'page.experts': User, 'page.knowledge': Collection, 'page.customer': OfficeBuilding, 'page.supplier': Shop, 'page.myApplications': Tickets, 'page.announcements': Bell, 'page.directory': Iphone, 'page.notifications': Message, 'page.approvalManage': Checked, 'page.complianceAssociation': Document, 'page.complianceEnterprise': Files, 'page.profileHome': HomeFilled }
+const iconOf = id => ICONS[id] || Folder
+
+/** 与后端 QuickAccessService.MAX_ITEMS 对齐：候选集可多于上限，但启用/保存不得超过 10 个。 */
+const MAX_ITEMS = 10
+
+const config = ref(null)          // 服务端已保存配置；null=未配置，用默认顺序
+const draft = ref([]), dragIndex = ref(-1)
+
+// 管理态由外层「自定义布局」驱动：进入时初始化草稿，退出时丢弃未保存改动；
+// 保存/恢复默认统一走页头「保存布局/恢复默认」，本组件不再自带按钮。
+watch(() => props.editing, active => {
+  if (active) draft.value = enabled.value.slice()
+  else dragIndex.value = -1
+})
+
+/** 默认顺序 = 候选集原顺序（旧固定入口），按后端上限截断。 */
+const defaultEnabled = computed(() => props.candidates.slice(0, MAX_ITEMS))
+/** 已启用：过滤掉已撤权的过期配置项，并把候选集中新增的可用入口补到末尾（不超上限）。 */
+const enabled = computed(() => {
+  if (!config.value) return defaultEnabled.value
+  const known = new Map(props.candidates.map(c => [c.id, c]))
+  const ordered = config.value.filter(id => known.has(id)).slice(0, MAX_ITEMS).map(id => known.get(id))
+  const used = new Set(ordered.map(c => c.id))
+  const extra = props.candidates.filter(c => !used.has(c.id)).slice(0, MAX_ITEMS - ordered.length)
+  return [...ordered, ...extra]
+})
+const visible = computed(() => enabled.value.slice(0, 6))
+const hidden = computed(() => enabled.value.slice(6))
+const addable = computed(() => draft.value.length >= MAX_ITEMS
+  ? []
+  : props.candidates.filter(c => !draft.value.some(d => d.id === c.id)).slice(0, MAX_ITEMS - draft.value.length))
+
+function reorder(toIndex) {
+  const from = dragIndex.value
+  if (from < 0 || from === toIndex || toIndex >= draft.value.length) return
+  const [moved] = draft.value.splice(from, 1)
+  draft.value.splice(toIndex, 0, moved)
+  dragIndex.value = -1
+}
+function resetDraft() { draft.value = defaultEnabled.value.slice() }
+/** 由页头「保存布局」调用；失败时抛错交由父级统一提示。 */
+async function saveDraft() {
+  if (!draft.value.length) { ElMessage.warning('至少保留一个快捷入口'); return false }
+  if (draft.value.length > MAX_ITEMS) { ElMessage.warning(`快捷入口最多 ${MAX_ITEMS} 个`); return false }
+  const { items } = await saveQuickAccess(draft.value.map(d => d.id))
+  config.value = items
+  return true
+}
+function go(path) { if (path) router.push(path) }
+
+onMounted(async () => {
+  try {
+    const { items } = await getQuickAccess()
+    if (Array.isArray(items) && items.length) config.value = items
+  } catch (e) { /* 接口失败回退默认入口，不阻塞页面 */ }
+})
+
+const draftIds = computed(() => draft.value.map(item => item.id))
+defineExpose({ saveDraft, resetDraft, draftIds })
+</script>
+<style scoped>
+.quick-access{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--c-border,#e2e8f0)}
+.qa-label{font-size:12px;color:var(--c-text-sub,#64748b);flex-shrink:0}
+.qa-item{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid var(--c-border,#e2e8f0);border-radius:8px;background:var(--c-card-bg,#fff);color:var(--c-text,#0f172a);font-size:12px;text-decoration:none;cursor:pointer;transition:border-color .15s,background .15s}
+.qa-item:hover{border-color:var(--c-primary,#2563eb);background:#eff6ff}
+.qa-icon{width:14px;height:14px;color:var(--c-primary,#2563eb)}
+.qa-more{font-family:inherit}
+.qa-edit-area{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1}
+.qa-draft{cursor:grab}
+.qa-remove{margin-left:2px;color:var(--c-text-sub,#64748b);font-size:13px;line-height:1}
+.qa-remove:hover{color:#dc2626}
+.qa-candidate{border-style:dashed;color:var(--c-text-sub,#64748b)}
+.qa-empty-tip{font-size:11px;color:var(--c-text-sub,#64748b)}
+button:focus-visible,[role="button"]:focus-visible{outline:2px solid #2864d8;outline-offset:2px}
+</style>

@@ -81,6 +81,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { listRelationTypes, createRelationType, updateRelationType } from '../api/customer'
+import { relationDirectionLabel } from '../utils/dict'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -100,8 +101,7 @@ const rules = {
 }
 
 function directionLabel(d) {
-  const map = { DIRECTED: '单向', BIDIRECTED: '双向', UNDIRECTED: '无向' }
-  return map[d] || '单向'
+  return relationDirectionLabel(d)
 }
 
 function directionTagType(d) {
@@ -202,6 +202,6 @@ onMounted(loadTypes)
 .builtin-tip {
   margin-left: 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 </style>

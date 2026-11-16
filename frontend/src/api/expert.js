@@ -73,3 +73,18 @@ export function fetchPhotoBlob(filename) {
 export function fetchTempPhotoBlob(filename) {
   return request.get(`/files-tmp/${encodeURIComponent(filename)}`, { responseType: 'blob' })
 }
+
+// 高级筛选字典：单位/科室/职称去重（登录即可）
+export function expertFilters() {
+  return request.get('/experts/filters', { silent: true })
+}
+
+// 简历解析（新增专家辅助填充）：OCR 场景耗时较长，超时 180s
+export function parseResume(file, { contentNameOnly = false } = {}) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/experts/resume/parse', formData, {
+    timeout: 180000,
+    params: contentNameOnly ? { contentNameOnly: true } : undefined
+  })
+}

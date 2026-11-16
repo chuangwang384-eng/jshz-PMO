@@ -38,3 +38,38 @@
 
 /* 辅助描述（标题去重页面统一说明样式：小字浅灰） */
 .ui-desc { font-size: 12px; color: var(--ui-text-muted); margin: 0 0 10px 0; }
+
+/* ============================================================
+ * 全局去重公共类（样式重复治理 2026-11-13）
+ * 以下类名收口自各页面逐字重复的 scoped 规则；差异属性（gap/wrap/margin 等）
+ * 仍由各页面局部规则补充。取值与原实现一致，不改渲染结果。
+ * ============================================================ */
+
+/* 工具行（新命名：模板中存在无样式定义的同名 .toolbar 使用者，故不直接全局化 .toolbar） */
+.ui-toolbar { display: flex; align-items: center; }
+
+/* 页面副标题（AnnouncementList 的 .page-sub 无样式定义，其模板已改用 ui-page-desc，故 .page-sub 可安全同名收口） */
+.page-sub { font-size: 13px; color: var(--ui-text-muted); }
+
+/* 分页条（10 处列表页逐字重复收口；ProjectList/SupplierList/ExpertList 的上边距差异由局部规则覆盖） */
+.pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
+
+/* 页面容器（三处 .page-container 收口 padding；EnterpriseCompliance 的 max-width/margin 由局部规则保留） */
+.page-container { padding: 16px; }
+
+/* 弹性占位 */
+.spacer { flex: 1; }
+
+/* 未读红点（MessageCenter/AnnouncementList/MessageDrawerBell 三处复制收口） */
+.unread-dot, .ann-dot, .msg-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ui-danger); flex-shrink: 0;
+}
+.ann-dot { width: 8px; height: 8px; }
+
+/* 统计卡（ProjectDetail 等页面共用；20px 变体由局部规则覆盖） */
+.stat { padding: 12px 16px; text-align: center; }
+.stat-label { color: var(--ui-text-muted); font-size: 13px; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--ui-text-main); margin-top: 4px; }
+/* 2026-11-16 清理：.stat-warn、.stat-danger、.due-over、.todo-* 与 .task-* 仅服务于已删除的
+   MyTodoSection / ExecutionBoard（全库使用次数为 0），随组件一并移除；如需复用请先确认模板中确有使用 */

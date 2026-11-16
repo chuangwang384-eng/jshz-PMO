@@ -1,0 +1,9 @@
+{
+  "viteStopped": true,
+  "applicationStopped": true,
+  "credentialFilesRemoved": true,
+  "lastReadyStatus": 200,
+  "environment": "final mysql-data-final / pc_acceptance",
+  "productionJarUnchanged": true,
+  "mysqlStopped": true
+}

@@ -281,8 +281,23 @@ public class ApplicationController {
      */
     @PostMapping("/requests/{id}/resubmit")
     public ApiResponse<Application> resubmit(@PathVariable Long id,
+                                             @RequestBody(required=false) Map<String,Object> body,
                                              @AuthenticationPrincipal AuthUser authUser) {
-        return ApiResponse.ok(applicationService.resubmit(id, authUser));
+        Map<String,Object> patch = null;
+        String reason = null;
+        if(body != null) {
+            Object changes = body.get("changes");
+            if(!(changes instanceof Map<?,?> raw)) throw new com.jshz.expert.common.BusinessException(400,"changes须为文本字段对象");
+            patch = new LinkedHashMap<>();
+            for(var entry:raw.entrySet()) {
+                if(!(entry.getKey() instanceof String key)) throw new com.jshz.expert.common.BusinessException(400,"字段名称无效");
+                patch.put(key,entry.getValue());
+            }
+            Object value=body.get("reason");
+            if(value!=null && !(value instanceof String)) throw new com.jshz.expert.common.BusinessException(400,"申请原因格式无效");
+            reason=(String)value;
+        }
+        return ApiResponse.ok(applicationService.resubmit(id,patch,reason,authUser));
     }
 
     /**

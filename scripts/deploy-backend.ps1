@@ -4,11 +4,12 @@
   R-1 后端蓝绿不停机发布脚本（jshz-PMO 专家库系统）
 
 .DESCRIPTION
-  按 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.1 实现 11 阶段蓝绿发布：
+  按 docs/design/2026-10-24-发布运维体系与侧边栏菜单偏移修复-设计文档.md §4.1 实现 11 阶段蓝绿发布：
     1 预检 -> 2 影子启动8081 -> 3 健康+业务探测 -> 4 备份conf -> 5 改proxy_pass ->
     6 nginx -t -> 7 Restart-Service ExpertSystemNginx -> 8 蓝验证 -> 9 稳态化NSSM ->
     10 切回8080 -> 11 清理+归档
-  Nginx 切流一律 Restart-Service ExpertSystemNginx（NSSM 约束，禁止 nginx -s reload）。
+  -GracefulSwitch 使用已验证的 SYSTEM 单次任务平滑重载，保持 Nginx 主进程并排空连接；
+  未指定时保留历史 Restart-Service 路径。严格不停机生产发布必须指定 -GracefulSwitch。
   阶段9 先停 NSSM 服务再替换 target/*.jar（释放进程锁，历史踩坑：不先停会替换失败）。
   支持 -DryRun（仅打印动作与检查点，不改配置/不动服务/不启动进程）与 -KeepVersions（默认 5）。
 
@@ -17,6 +18,12 @@
 
 .PARAMETER Version
   发布版本号（用于归档目录命名）；缺省从项目根 version.txt 读取（revision 键）。
+
+.PARAMETER RollbackJarPath
+  可选的经审批回滚基线；缺省取当前 target jar。候选和回滚源都必须是可启动 Boot 包。
+
+.PARAMETER DisableComplianceSchedulersOnRollback
+  自动回退旧二进制前关闭两套合规调度，保留个人模式与数据；不代替人工数据兼容评审。
 
 .PARAMETER DryRun
   仅打印各阶段将执行的动作与检查点，不实际修改配置、不动服务、不启动进程。
@@ -31,12 +38,21 @@
 [CmdletBinding()]
 param(
     [string]$JarPath = '',
+    [string]$RollbackJarPath = '',
     [string]$Version = '',
     [switch]$DryRun,
+    [switch]$GracefulSwitch,
+    [switch]$DisableComplianceSchedulersOnRollback,
     [int]$KeepVersions = 5
 )
 
 # ==================== 常量区（按环境调整） ====================
+. (Join-Path $PSScriptRoot 'deployment-http.ps1')
+. (Join-Path $PSScriptRoot 'deployment-artifact.ps1')
+. (Join-Path $PSScriptRoot 'logging.ps1')
+. (Join-Path $PSScriptRoot 'build-paths.ps1')
+# 标准输出切到 UTF-8(无 BOM)：本脚本经 cmd 重定向落盘的日志文件即为 UTF-8，不再产生 GBK 乱码
+Enable-Utf8Console
 $BackendDir      = 'D:\jshz-PMO\backend'
 $TargetJarName   = 'expert-system.jar'   # NSSM AppParameters 固定的正式 jar 名（替换方式保持此名）
 $ReleasesDir     = 'D:\jshz-PMO\backend\releases'
@@ -90,14 +106,14 @@ function Invoke-Check([string]$desc, [scriptblock]$check) {
 
 function Test-HttpOk([string]$url, [int]$timeoutSec = 10) {
     try {
-        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeoutSec
+        $r = Get-DeploymentHttpResponse -Url $url -TimeoutSec $timeoutSec
         return ($r.StatusCode -eq 200)
     } catch { return $false }
 }
 
 function Test-HttpOkOr401([string]$url, [int]$timeoutSec = 10) {
     try {
-        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeoutSec
+        $r = Get-DeploymentHttpResponse -Url $url -TimeoutSec $timeoutSec
         return ($r.StatusCode -eq 200 -or $r.StatusCode -eq 401)
     } catch {
         $code = $_.Exception.Response.StatusCode.value__
@@ -105,7 +121,7 @@ function Test-HttpOkOr401([string]$url, [int]$timeoutSec = 10) {
     }
 }
 function Get-HttpBody([string]$url, [int]$timeoutSec = 10) {
-    try { return (Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeoutSec).Content } catch { return '' }
+    try { return (Get-DeploymentHttpResponse -Url $url -TimeoutSec $timeoutSec).Content } catch { return '' }
 }
 
 function Wait-Healthy([string]$url, [int]$retries, [int]$delaySec, [string]$name) {
@@ -120,19 +136,154 @@ function Wait-Healthy([string]$url, [int]$retries, [int]$delaySec, [string]$name
     return $false
 }
 
+# ==================== 停服确认（进程退出 + 文件解锁） ====================
+# 历史问题：Stop-Service 返回后 JVM 的 SpringApplicationShutdownHook 仍在运行，此时替换 jar 会产生
+# NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy（进程即将退出，不影响业务但污染日志）。
+# 因此停止服务后必须轮询确认「监听进程消失 + jar 文件可独占打开」，再归档与替换制品。
+function Get-PortListenerPids([int]$port) {
+    $pids = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique)
+    return @($pids | Where-Object { $_ -gt 0 })
+}
+
+function Test-FileExclusivelyOpenable([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $true }
+    try {
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $fs.Dispose()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Wait-BackendProcessExit([string]$jarPath, [int]$timeoutSec = 90) {
+    <#
+      轮询直到：8080 无监听进程 且 jar 文件可独占打开。
+      超时返回 $false，由调用方决定中止（不得在锁未释放时替换制品）。
+    #>
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    $round = 0
+    while ($true) {
+        $round++
+        $pids = Get-PortListenerPids $GreenPort
+        $jarFree = Test-FileExclusivelyOpenable $jarPath
+        if ($pids.Count -eq 0 -and $jarFree) {
+            Write-Ok "旧进程已退出且制品已解锁（轮询 ${round} 次）"
+            return $true
+        }
+        if ((Get-Date) -ge $deadline) {
+            $state = @()
+            if ($pids.Count -gt 0) { $state += "端口 ${GreenPort} 仍被 PID $($pids -join ',') 占用" }
+            if (-not $jarFree) { $state += 'jar 文件仍被占用' }
+            Write-Fail "等待旧进程退出超时（${timeoutSec}s）：$($state -join '；')"
+            return $false
+        }
+        if ($round -eq 1 -or $round % 5 -eq 0) {
+            $state = @()
+            if ($pids.Count -gt 0) { $state += "PID $($pids -join ',')" }
+            if (-not $jarFree) { $state += 'jar 锁定中' }
+            Write-Info "等待旧进程退出（${round}）: $($state -join ' / ')"
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+}
+
+# -GracefulSwitch is the reviewed no-Nginx-restart path; legacy default remains unchanged.
+function Invoke-NginxSwitch {
+    [CmdletBinding()] param()
+    if ($GracefulSwitch) {
+        & (Join-Path $PSScriptRoot 'invoke-nginx-graceful.ps1')
+    } else {
+        Restart-Service -Name $NginxSvc -Force
+    }
+}
+
+# 构建产物 zip 时间戳经 reproducible-builds 归一化（LastWriteTime 不可用于比较新旧），
+# jar 的新旧只能以内嵌 build-info.properties 的 build.version 判定。
+function Get-JarBuildVersion([string]$jarPath) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    try {
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($jarPath)
+        try {
+            $e = $zip.GetEntry('META-INF/build-info.properties')
+            if (-not $e) { return '' }
+            $r = New-Object System.IO.StreamReader($e.Open())
+            try { $txt = $r.ReadToEnd() } finally { $r.Dispose() }
+            return [regex]::Match($txt, '(?m)^build\.version=(.*)$').Groups[1].Value.Trim()
+        } finally { $zip.Dispose() }
+    } catch { return '' }
+}
+
 # ==================== 阶段 1: 预检 ====================
+function Wait-PortDrained([int]$port) {
+    if (-not $GracefulSwitch -or $DryRun) { return }
+    $until = (Get-Date).AddSeconds(300)
+    do {
+        $active = @(Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.State -eq 'Established' -and $_.LocalPort -eq $port })
+        if ($active.Count -eq 0) { return }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $until)
+    throw "Port $port still has active requests; preserve backend process and inspect manually."
+}
+
 function Step1-Preflight {
+    if ($GracefulSwitch -and -not $DryRun) {
+        $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+        if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'GracefulSwitch requires elevated PowerShell before any release action.'
+        }
+    }
     Write-Step '1/11 预检（新 jar 存在 + 绿服务健康）'
+    # 期望版本先行解析（唯一真源 version.txt）。
+    # 2026-11-13 事故修复：构建产物时间戳归一化后按 LastWriteTime 选"最新 jar"会随机命中旧构建，
+    # 因此候选包必须通过 build.version 一致性校验，禁止再按时间戳猜测。
+    if ($Version) { $script:NewVersion = $Version }
+    else {
+        $verFile = 'D:\jshz-PMO\version.txt'
+        if (Test-Path $verFile) {
+            $m = [regex]::Match((Get-Content $verFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
+            if ($m.Success) { $script:NewVersion = $m.Groups[1].Value.Trim() }
+            else { throw 'version.txt 缺少 revision 键，无法确定期望版本（禁止按时间戳猜测 jar）' }
+        } else {
+            throw '缺少 version.txt（版本号唯一真源），无法确定期望版本'
+        }
+    }
+    Write-Info "期望版本: $script:NewVersion"
+
     if (-not $JarPath) {
-        $jar = Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $jar) { throw '未找到新 jar，请用 -JarPath 显式指定' }
+        # 构建产物统一在 builds\ 下；排除 archive（历史快照不可作为候选包）。仅在找不到时才回退到 backend\target
+        $candidates = @(Get-ChildItem -Path (Get-BuildsRoot) -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'archive' } |
+            ForEach-Object { Get-ChildItem -Path $_.FullName -Filter 'expert-system.jar' -File -ErrorAction SilentlyContinue })
+        if ($candidates.Count -eq 0) {
+            Write-Info 'builds\ 下无候选包，回退到 backend\target（不推荐，建议先用 build-all.ps1 构建）'
+            $candidates = @(Get-ChildItem (Join-Path $BackendDir 'target') -Filter '*.jar' -File)
+        }
+        $matched = @($candidates | Where-Object { (Get-JarBuildVersion $_.FullName) -eq $script:NewVersion })
+        if ($matched.Count -eq 0) {
+            $listing = (@($candidates | ForEach-Object { "$($_.FullName) => $(Get-JarBuildVersion $_.FullName)" }) -join '; ')
+            throw "无 build.version=$script:NewVersion 的候选包。候选清单: $listing 。请先执行 scripts\build-all.ps1，或用 -JarPath 显式指定"
+        }
+        if ($matched.Count -gt 1) {
+            Write-Info "存在 $($matched.Count) 个同版本候选，取路径字典序最新"
+        }
+        $jar = $matched | Sort-Object FullName -Descending | Select-Object -First 1
         $script:NewJar = $jar.FullName
     } else {
         if (-not (Test-Path $JarPath)) { throw "新 jar 不存在: $JarPath" }
         $script:NewJar = $JarPath
     }
     Write-Info "新 jar: $script:NewJar"
+    $jarVer = Get-JarBuildVersion $script:NewJar
+    if ($jarVer -ne $script:NewVersion) {
+        throw "新 jar 版本不一致: build.version=$jarVer，期望=$script:NewVersion（事故护栏：禁止发布与 version.txt 不符的包）"
+    }
+    Write-Ok "版本一致性: jar build.version=$jarVer == 期望 $script:NewVersion"
+    if(-not (Test-ExecutableBootJar -Path $script:NewJar)){throw 'Candidate JAR is not an executable Spring Boot package.'}
+    $script:RollbackSource = if($RollbackJarPath){(Resolve-Path -LiteralPath $RollbackJarPath).Path}else{Join-Path (Join-Path $BackendDir 'target') $TargetJarName}
+    if(-not (Test-ExecutableBootJar -Path $script:RollbackSource)){throw 'Rollback JAR is not executable. Supply an approved known-good package using -RollbackJarPath before release.'}
 
     if (-not $MysqlPassword) {
         throw '未设置 MYSQL_PASSWORD 环境变量：影子启动(8081)与生产同库依赖该变量，请先注入后再发布'
@@ -163,19 +314,25 @@ function Step1-Preflight {
         Write-Info '未读取到 NSSM AppEnvironmentExtra，跳过一致性比对（首次部署场景）'
     }
 
-    if ($Version) { $script:NewVersion = $Version }
-    else {
-        # jar 已固定名为 expert-system.jar（无版本号），版本号从唯一真源 version.txt 读取
-        $verFile = 'D:\jshz-PMO\version.txt'
-        if (Test-Path $verFile) {
-            $m = [regex]::Match((Get-Content $verFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
-            if ($m.Success) { $script:NewVersion = $m.Groups[1].Value.Trim() }
-            else { $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm') }
-        } else {
-            $script:NewVersion = (Get-Item $script:NewJar).LastWriteTime.ToString('yyyyMMddHHmm')
+    # 版本号已在阶段 1 开头解析（唯一真源 version.txt），此处仅登记
+    Write-Info "发布版本: $script:NewVersion"
+
+    # 日志轮转 + JVM 输出编码（UTF-8）幂等就绪。失败不阻断发布：日志配置问题不应阻塞业务上线。
+    if ($DryRun) {
+        Write-Info '[DRYRUN] 将确保 NSSM 日志轮转（10MB）与 JVM stdout/stderr UTF-8 编码'
+    } else {
+        try {
+            $cfgScript = Join-Path $PSScriptRoot 'configure-backend-logging.ps1'
+            if (Test-Path -LiteralPath $cfgScript) {
+                & $cfgScript -ServiceName $BackendSvc -Quiet | Out-Null
+                Write-Ok '后端日志：NSSM 轮转已启用，JVM 输出编码 UTF-8（下次服务启动生效）'
+            } else {
+                Write-Info '未找到 configure-backend-logging.ps1，跳过日志轮转配置'
+            }
+        } catch {
+            Write-Info "日志轮转配置未应用（非致命，不影响发布）: $($_.Exception.Message)"
         }
     }
-    Write-Info "发布版本: $script:NewVersion"
 
     $ok = Invoke-Check "GET http://127.0.0.1:${GreenPort}/health 应 200（绿在线）" {
         if (-not (Test-HttpOk "http://127.0.0.1:${GreenPort}/health")) { throw '绿服务不健康，中止发布' }
@@ -187,7 +344,7 @@ function Step1-Preflight {
 function Step2-StartShadow {
     Write-Step '2/11 影子启动（新 jar @8081）'
     Invoke-Action "启动影子进程: java -jar $script:NewJar --server.port=${BluePort}（工作目录 $BackendDir，数据库密码经环境变量继承）" {
-        $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}") `
+        $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}", '--server.address=127.0.0.1', '--expert.compliance.due-enabled=false', '--expert.compliance.v4-reminder-enabled=false', '--expert.wecom.sync-cron-enabled=false') `
             -WorkingDirectory $BackendDir -PassThru -WindowStyle Hidden
         $script:ShadowPid = $psi.Id
         Write-Ok "影子进程 PID=$($psi.Id)"
@@ -257,16 +414,16 @@ function Step6-TestNginx {
 
 # ==================== 阶段 7: 重启 Nginx ====================
 function Step7-RestartNginx {
-    Write-Step '7/11 重启 Nginx 服务（NSSM 约束: Restart-Service，禁止 nginx -s reload）'
-    $ok = Invoke-Check "Restart-Service $NginxSvc 成功" {
-        Restart-Service -Name $NginxSvc -Force
+    Write-Step ('7/11 Nginx 切流（GracefulSwitch=' + $GracefulSwitch + '）')
+    $ok = Invoke-Check "Nginx 切流成功（GracefulSwitch=$GracefulSwitch）" {
+        Invoke-NginxSwitch
         Start-Sleep -Seconds 3
         if ((Get-Service -Name $NginxSvc).Status -ne 'Running') { throw "服务未运行: $((Get-Service -Name $NginxSvc).Status)" }
     }
     if (-not $ok) {
         Invoke-Action '回滚：恢复备份配置 + 重启 Nginx（绿继续）' {
             Copy-Item -Path $script:ConfBackup -Destination $NginxConfFile -Force
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw 'Nginx 重启失败，已回滚配置'
     }
@@ -285,7 +442,7 @@ function Step8-VerifyBlue {
         Invoke-Action '回滚：Nginx 切回 8080 + 恢复配置 + 重启服务' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${BluePort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${GreenPort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw '蓝验证失败，已回滚到 8080'
     }
@@ -293,14 +450,20 @@ function Step8-VerifyBlue {
 
 # ==================== 阶段 9: 稳态化 NSSM ====================
 function Step9-StabilizeNssm {
+    Wait-PortDrained $GreenPort
     Write-Step '9/11 稳态化：停 NSSM -> 替换 jar -> 启 NSSM -> 8080 健康'
     $targetJar = Join-Path (Join-Path $BackendDir 'target') $TargetJarName
 
     # 9a 先停服务，释放 target/*.jar 进程锁（历史踩坑：不先停会导致替换失败）
     Invoke-Action "9a 停止 NSSM 服务 $BackendSvc（释放 $targetJar 进程锁）" {
+        $beforePids = Get-PortListenerPids $GreenPort
+        if ($beforePids.Count -gt 0) { Write-Info "停服前 ${GreenPort} 监听进程: $($beforePids -join ',')" }
         Stop-Service -Name $BackendSvc -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
         if ((Get-Service -Name $BackendSvc).Status -ne 'Stopped') { throw "服务停止失败: $((Get-Service -Name $BackendSvc).Status)" }
+        # 关键护栏：服务状态为 Stopped ≠ JVM 已退出，必须等进程消失且 jar 解锁后再动文件
+        if (-not (Wait-BackendProcessExit $targetJar)) {
+            throw '旧进程未在超时内退出或制品仍被占用：已中止，未替换任何文件，线上仍是旧版本'
+        }
     }
 
     # 9b 归档当前旧 jar 到 backend/releases/<版本>-<时间戳>/
@@ -309,7 +472,7 @@ function Step9-StabilizeNssm {
     $script:OldJar = Join-Path $relDir "previous-$TargetJarName"
     Invoke-Action "9b 归档当前旧 jar -> $script:OldJar" {
         New-Item -ItemType Directory -Path $relDir -Force | Out-Null
-        if (Test-Path $targetJar) { Copy-Item -Path $targetJar -Destination $script:OldJar -Force }
+        Copy-Item -LiteralPath $script:RollbackSource -Destination $script:OldJar -Force
     }
 
     # 9c 替换 jar（NSSM AppParameters 固定指向 $TargetJarName，替换方式最稳）
@@ -329,14 +492,25 @@ function Step9-StabilizeNssm {
         Start-Sleep -Seconds 3
     }
 
-    # 9e 健康检查
-    $ok = Invoke-Check "9e 健康检查: 8080/health = UP（新版本）" {
+    # 9e 健康检查（含版本核对：健康 UP ≠ 版本正确，2026-11-13 事故护栏）
+    $ok = Invoke-Check "9e 健康检查: 8080/health = UP 且 build 版本 = $script:NewVersion" {
         if (-not (Wait-Healthy "http://127.0.0.1:${GreenPort}/health" $HealthOkRetries $HealthOkDelay '8080 新版本')) { throw '8080 新版本健康检查失败' }
+        $h = Invoke-RestMethod "http://127.0.0.1:${GreenPort}/health"
+        $live = $h.data.version
+        if (-not $live) { throw "8080 /health 未返回 build 版本，无法核对（响应结构异常）" }
+        if ($live -ne $script:NewVersion) { throw "8080 版本不符: 实际=$live，期望=$script:NewVersion" }
     }
     if (-not $ok) {
         Invoke-Action '回滚：从 releases 恢复旧 jar -> 重启 NSSM' {
             Stop-Service -Name $BackendSvc -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
+            if ($DisableComplianceSchedulersOnRollback) {
+                $parametersKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters'
+                $parameters = (Get-ItemProperty -Path $parametersKey).AppParameters
+                $parameters += ' --expert.compliance.due-enabled=false --expert.compliance.v4-reminder-enabled=false'
+                Set-ItemProperty -Path $parametersKey -Name AppParameters -Value $parameters
+                Write-Info 'Rollback safety: both compliance schedulers disabled; preserve per-user V4 mode.'
+            }
             if ($script:OldJar -and (Test-Path $script:OldJar)) { Copy-Item -Path $script:OldJar -Destination $targetJar -Force }
             Start-Service -Name $BackendSvc -ErrorAction SilentlyContinue
         }
@@ -365,13 +539,13 @@ function Step10-SwitchBack {
         Invoke-Action '回滚：Nginx 指回 8081（蓝仍可服务）' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw '切回 8080 配置校验失败，已回滚 Nginx 指向 8081'
     }
 
-    $okR = Invoke-Check "Restart-Service $NginxSvc" {
-        Restart-Service -Name $NginxSvc -Force
+    $okR = Invoke-Check "Nginx 切流（GracefulSwitch=$GracefulSwitch）" {
+        Invoke-NginxSwitch
         Start-Sleep -Seconds 3
         if ((Get-Service -Name $NginxSvc).Status -ne 'Running') { throw 'Nginx 服务未运行' }
     }
@@ -379,9 +553,9 @@ function Step10-SwitchBack {
         Invoke-Action '回滚：Nginx 指回 8081（蓝仍可服务）' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
-        throw 'Nginx 重启失败，已回滚 Nginx 指向 8081'
+        throw 'Nginx 切流失败，已回滚 Nginx 指向 8081'
     }
 
     $okV = Invoke-Check '验证：经 Nginx /api 走 8080 新版本' {
@@ -394,14 +568,19 @@ function Step10-SwitchBack {
         Invoke-Action '回滚：Nginx 指向 8081（蓝继续服务）' {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
-            Restart-Service -Name $NginxSvc -Force -ErrorAction SilentlyContinue
+            Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
         throw '验证失败，已回滚 Nginx 指向 8081，蓝继续服务'
     }
 }
 
 # ==================== 阶段 11: 清理 + 归档 ====================
+# 发布记录以表格行追加（实现见 scripts\release-record.ps1，可独立单测），
+# 避免每次发布新增一个重复的二级标题（历史遗留了多个同名「## R-1 发布记录」）。
+. (Join-Path $PSScriptRoot 'release-record.ps1')
+
 function Step11-Cleanup {
+    Wait-PortDrained $BluePort
     Write-Step '11/11 清理 + 归档'
     if ($script:ShadowPid -and $script:ShadowPid -gt 0) {
         Invoke-Action "kill 8081 影子进程 PID=$script:ShadowPid" {
@@ -413,14 +592,30 @@ function Step11-Cleanup {
         $dirs = @(Get-ChildItem -Path $ReleasesDir -Directory | Sort-Object LastWriteTime -Descending)
         if ($dirs.Count -gt $KeepVersions) {
             $toRemove = $dirs | Select-Object -Skip $KeepVersions
-            foreach ($d in $toRemove) { Remove-Item -Path $d.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+            foreach ($d in $toRemove) {
+                $releaseRoot = [IO.Path]::GetFullPath($ReleasesDir).TrimEnd('\') + '\'
+                $removePath = [IO.Path]::GetFullPath($d.FullName)
+                if (-not $removePath.StartsWith($releaseRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'Refusing archive cleanup outside releases directory'
+                }
+                Remove-Item -LiteralPath $removePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
             Write-Ok "已清理 $($toRemove.Count) 个旧版本目录"
         } else { Write-Ok "当前 $($dirs.Count) 个版本目录，未超上限" }
     }
 
-    Invoke-Action '记录发布到 docs/deployment.md' {
-        $line = "- $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') R-1 发布 $script:NewVersion 成功（jar: $([IO.Path]::GetFileName($script:NewJar))）"
-        Add-Content -Path $DeployDoc -Value "`n## R-1 发布记录`n$line" -Encoding UTF8
+    Invoke-Action '日志保留: 清理 NSSM 轮转产物与历史发布日志（按个数保留）' {
+        $pruneScript = Join-Path $PSScriptRoot 'prune-logs.ps1'
+        if (Test-Path -LiteralPath $pruneScript) {
+            & $pruneScript -LogDir (Join-Path $RepoRoot 'logs')
+        } else {
+            Write-Info '未找到 prune-logs.ps1，跳过日志保留'
+        }
+    }
+
+    Invoke-Action '记录发布到 docs/deployment.md（表格行）' {
+        Add-ReleaseTableRow -path $DeployDoc -version $script:NewVersion `
+            -jarName ([IO.Path]::GetFileName($script:NewJar)) -result '成功'
     }
 }
 
@@ -448,7 +643,7 @@ try {
     exit 0
 } catch {
     Write-Fail "发布中止: $_"
-    Write-Info '回滚指引：见 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.1.4（后端回滚预案）'
+    Write-Info '回滚指引：见 docs/design/2026-10-24-发布运维体系与侧边栏菜单偏移修复-设计文档.md §4.1.4（后端回滚预案）'
     if ($DryRun) { Write-Host 'DRYRUN 中止：未产生任何副作用' -ForegroundColor Yellow }
     exit 1
 }

@@ -65,3 +65,7 @@ export function unfavoriteKnowledgeDoc(docId) {
 export function listMyFavoriteDocs() {
   return request.get('/knowledge/favorites')
 }
+
+export function fetchKnowledgeWorkbook(fileName, params) {
+  return request.get(`/knowledge/docs/workbooks/${encodeURIComponent(fileName)}`, { params })
+}

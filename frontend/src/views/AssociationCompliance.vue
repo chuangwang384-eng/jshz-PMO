@@ -9,7 +9,4 @@ import KnowledgeDocList from '../components/KnowledgeDocList.vue'
 </script>
 
 <style scoped>
-.page-container {
-  padding: 16px;
-}
 </style>

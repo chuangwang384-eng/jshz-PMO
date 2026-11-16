@@ -80,6 +80,43 @@ public class ComplianceItemController {
         return ApiResponse.ok(null);
     }
 
+    @GetMapping("/documents/{id}/reset-preview")
+    public ApiResponse<Map<String, Object>> resetPreview(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        requireMaintainer(user);
+        return ApiResponse.ok(complianceService.resetPreview(id));
+    }
+
+    /** 候选事项清空预览（维护人）。 */
+    @GetMapping("/documents/{id}/drafts-clear-preview")
+    public ApiResponse<Map<String, Object>> clearDraftsPreview(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        requireMaintainer(user);
+        return ApiResponse.ok(complianceService.clearDraftsPreview(id));
+    }
+
+    /** 清空候选事项（维护人）：一次性删除该文档全部草稿候选。 */
+    @PostMapping("/documents/{id}/drafts-clear")
+    public ApiResponse<Map<String, Object>> clearDrafts(@PathVariable Long id, @RequestBody Map<String, Object> body,
+                                                        @AuthenticationPrincipal AuthUser user) {
+        requireMaintainer(user);
+        return ApiResponse.ok(complianceService.clearDrafts(id,
+                com.jshz.expert.common.ParamUtils.parseLong(body.get("expectedCount"), null), user));
+    }
+
+    @PostMapping("/documents/{id}/reparse")
+    public ApiResponse<Map<String, Object>> reparse(@PathVariable Long id, @RequestBody Map<String, Object> body,
+                                                    @AuthenticationPrincipal AuthUser user) {
+        requireMaintainer(user);
+        return ApiResponse.ok(complianceService.reparse(id, Boolean.TRUE.equals(body.get("reset")),
+                com.jshz.expert.common.ParamUtils.parseLong(body.get("expectedCount"), null), user));
+    }
+
+    @PostMapping("/items/{id}/withdraw")
+    public ApiResponse<Void> withdrawItem(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        requireMaintainer(user);
+        complianceService.withdrawItem(id, user);
+        return ApiResponse.ok(null);
+    }
+
     /** 批量确认草稿发布（维护人）。 */
     @PostMapping("/items/confirm")
     public ApiResponse<Map<String, Object>> confirmDrafts(@RequestBody Map<String, Object> body,

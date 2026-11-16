@@ -72,6 +72,8 @@ scripts/__pycache__/
 # --- build artifacts / tool artifacts (not committed) ---
 frontend/releases/
 !frontend/releases/.gitkeep
+backend/releases/
+!backend/releases/.gitkeep
 .zcode/
 供应商图库/
 
@@ -87,3 +89,5 @@ frontend/dist-*/
 builds/
 .workbuddy/
 .bdv4b.txt
+backend/version.txt
+# 说明：frontend/release-metadata/ 由 main 分支持续入库（发布回滚元数据），不得忽略

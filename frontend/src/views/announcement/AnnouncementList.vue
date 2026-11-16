@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="page-head">
-      <span class="page-sub">系统通知与重要事项（点击查看详情，可标记已读）</span>
+      <span class="ui-page-desc">系统通知与重要事项（点击查看详情，可标记已读）</span>
       <el-switch
         v-if="canManage"
         v-model="manageMode"
@@ -11,7 +11,7 @@
       />
     </div>
 
-    <div class="toolbar">
+    <div class="toolbar ui-toolbar">
       <el-input
         v-model="filters.keyword"
         placeholder="搜索标题 / 内容"
@@ -266,9 +266,7 @@ onMounted(loadList)
 <style scoped>
 .toolbar {
   margin-top: 12px;
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
 }
 .page-head {
   display: flex;
@@ -295,26 +293,21 @@ onMounted(loadList)
 .ann-title {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ui-text-main);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ann-title-read {
   font-weight: 400;
-  color: #909399;
+  color: var(--ui-text-muted);
 }
 .ann-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f56c6c;
   margin-left: 8px;
-  flex-shrink: 0;
 }
 .ann-item-meta {
   margin-top: 6px;
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 12px;
   display: flex;
   flex-wrap: wrap;
@@ -322,7 +315,5 @@ onMounted(loadList)
 }
 .pagination-wrap {
   margin-top: 12px;
-  display: flex;
-  justify-content: flex-end;
 }
 </style>

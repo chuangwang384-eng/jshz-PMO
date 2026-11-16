@@ -1,0 +1,32 @@
+{
+  "status": "PUBLISHED_WITH_WARNING",
+  "version": "1.0.24",
+  "sourceCommit": "1980a66",
+  "strictGate": "FAILED",
+  "warning": "One fresh-connection ECONNRESET during first graceful switch; root cause not proven",
+  "steadyRetest": {
+    "start": "2026-11-04T07:47:19.485Z",
+    "pooled": {
+      "requests": 1518,
+      "failures": 0
+    },
+    "fresh": {
+      "requests": 1516,
+      "failures": 0
+    },
+    "errors": [],
+    "retries": 0,
+    "updated": "2026-11-04T07:50:04.618Z",
+    "end": "2026-11-04T07:50:04.828Z"
+  },
+  "masterUnchanged": true,
+  "assetHeadChecks": 372,
+  "assetFailures": 0,
+  "health": "UP",
+  "frontendRoot": "<LOCAL_PATH>",
+  "migration": false,
+  "jarSha256": "7c1e724e72edd597b02e9c1873de2c249a48f45cb0f85b7212258d302fa4d5d2",
+  "indexSha256": "c8e442437ce02bf6838dadcec191bb4506a1ed68486d42367a4ceb5111424480",
+  "verification": "production-verification.json",
+  "nginxMasterPid": 39504
+}

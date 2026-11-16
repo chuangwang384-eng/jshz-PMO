@@ -1,9 +1,11 @@
 package com.jshz.expert.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.common.BusinessException;
+import com.jshz.expert.common.KnowledgeParseStatus;
 import com.jshz.expert.entity.KnowledgeDocVersion;
 import com.jshz.expert.entity.KnowledgeDocument;
 import com.jshz.expert.entity.SysUser;
@@ -36,7 +38,6 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
             "meeting-execution", "association-compliance", "enterprise-compliance");
 
     private final KnowledgeDocStorageService storageService;
-    private final KnowledgeDocTextExtractor textExtractor;
     private final ComplianceService complianceService;
     private final KnowledgeFavoriteService favoriteService;
     private final DownloadAuditService downloadAuditService;
@@ -46,7 +47,8 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     private final DocPreviewService docPreviewService;
 
     /**
-     * 上传新文档：写主表 version=1，并写版本表第一条记录。登录即可。
+     * 上传新文档：写主表 version=1，并写版本表第一条记录。仅维护人调用（控制器已校验）。
+     * P2-7：请求线程只做流式落盘与入库，正文抽取/合规解析由知识库异步任务执行。
      */
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocument upload(String category, String title, MultipartFile file, AuthUser user) {
@@ -67,7 +69,9 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         doc.setFilePath(storedName);
         doc.setFileType(extensionOf(file.getOriginalFilename()));
         doc.setFileSize(file.getSize());
-        doc.setContent(textExtractor.extract(file));
+        doc.setContent(null);
+        doc.setParseStatus(KnowledgeParseStatus.PENDING);
+        doc.setParseMessage("等待解析");
         doc.setUploadBy(userName);
         doc.setUpdateBy(userName);
         doc.setStatus(1);
@@ -75,30 +79,12 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
 
         saveVersion(doc.getId(), 1, file.getOriginalFilename(), storedName,
                 doc.getFileType(), file.getSize(), userName);
-        // 企业合规分类：上传后自动解析生成事项草稿（REQ/DES-20261102 FR1）
-        if ("enterprise-compliance".equals(category) && complianceService != null) {
-            try {
-                complianceService.parseAndCreateDrafts(doc.getId(), latestVersionId(doc.getId()),
-                        file.getOriginalFilename(), doc.getFileType(), file.getBytes(), doc.getContent(), user);
-            } catch (Exception ex) {
-                // 解析失败不阻断上传（静默跳过，允许手动录入）
-            }
-        }
         return doc;
     }
 
     private String getDocCategory(Long docId) {
         KnowledgeDocument d = getById(docId);
         return d == null ? null : d.getCategory();
-    }
-
-    /** 最新版本 id（企业合规解析联动用；无版本记录返回 null）。 */
-    private Long latestVersionId(Long docId) {
-        var v = versionMapper.selectList(new LambdaQueryWrapper<KnowledgeDocVersion>()
-                .eq(KnowledgeDocVersion::getDocId, docId)
-                .orderByDesc(KnowledgeDocVersion::getId)
-                .last("LIMIT 1"));
-        return v.isEmpty() ? null : v.get(0).getId();
     }
 
     /**
@@ -109,7 +95,17 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
      */
     public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
                                             long page, long pageSize, AuthUser user) {
+        return pageList(category, keyword, fileType, page, pageSize, user, false);
+    }
+
+    public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
+                                            long page, long pageSize, AuthUser user, boolean favoritesOnly) {
         LambdaQueryWrapper<KnowledgeDocument> wrapper = new LambdaQueryWrapper<>();
+        if (favoritesOnly) {
+            if (user == null) throw new BusinessException("未登录");
+            wrapper.apply("EXISTS (SELECT 1 FROM knowledge_favorite f WHERE f.doc_id = knowledge_document.id AND f.user_id = {0})",
+                    user.getUserId());
+        }
         if (StringUtils.hasText(category)) {
             if (!CATEGORIES.contains(category)) {
                 throw new BusinessException("分类不合法");
@@ -163,7 +159,7 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
 
     /**
      * 更新文档：上传新文件覆盖，主表 version+1、更新文件字段与 update_by/update_time，
-     * 并向版本表追加一条历史记录。登录即可。
+     * 并向版本表追加一条历史记录。仅维护人调用；正文抽取/合规解析由异步任务执行（P2-7）。
      */
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocument updateVersion(Long id, String title, MultipartFile file, AuthUser user) {
@@ -181,10 +177,16 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         doc.setFilePath(storedName);
         doc.setFileType(extensionOf(file.getOriginalFilename()));
         doc.setFileSize(file.getSize());
-        doc.setContent(textExtractor.extract(file));
+        doc.setContent(null);
+        doc.setParseStatus(KnowledgeParseStatus.PENDING);
+        doc.setParseMessage("等待解析");
         doc.setUpdateBy(userName);
         // update_time 由数据库 ON UPDATE CURRENT_TIMESTAMP 自动维护
         this.updateById(doc);
+        // MyBatis-Plus 默认忽略 null 字段：显式清空旧正文，避免新版本解析完成前仍按旧内容命中
+        this.update(new LambdaUpdateWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, id)
+                .set(KnowledgeDocument::getContent, null));
 
         saveVersion(id, newVersion, file.getOriginalFilename(), storedName,
                 doc.getFileType(), file.getSize(), userName);
@@ -248,6 +250,37 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         }
         return this.getOne(new LambdaQueryWrapper<KnowledgeDocument>()
                 .eq(KnowledgeDocument::getFilePath, storedName).last("LIMIT 1"));
+    }
+
+    /**
+     * 文件是否可访问（P1-5）：上架文档登录即可；下架文档仅维护人可访问。
+     * 纯函数，便于单元测试与控制器/服务复用。
+     */
+    public static boolean canAccessFile(KnowledgeDocument doc, AuthUser user) {
+        if (doc == null) {
+            return false;
+        }
+        if (user != null && user.hasPermission("knowledge:maintain")) {
+            return true;
+        }
+        return Integer.valueOf(1).equals(doc.getStatus());
+    }
+
+    /**
+     * 文件流访问前的统一授权（P1-5）。
+     * 文档不存在/已永久删除 → 业务码 404；已下架且非维护人 → 业务码 403；
+     * 否则返回文档供审计/预览复用（HTTP 状态沿用项目统一的 200 + body.code 约定）。
+     * 这样下架或删除后旧链接立即失效，不再依赖“只有列表隐藏”。
+     */
+    public KnowledgeDocument requireDownloadable(String storedName, AuthUser user) {
+        KnowledgeDocument doc = findByFilePath(storedName);
+        if (doc == null) {
+            throw new BusinessException(404, "文档不存在或已删除");
+        }
+        if (!canAccessFile(doc, user)) {
+            throw new BusinessException(403, "文档已下架，暂不可访问");
+        }
+        return doc;
     }
 
     /**
@@ -327,7 +360,8 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
         if (!user.hasPermission("knowledge:maintain")) {
             throw new BusinessException("无权限执行该操作");
         }
-        KnowledgeDocument doc = getById(id);
+        KnowledgeDocument doc = getOne(new LambdaQueryWrapper<KnowledgeDocument>()
+                .eq(KnowledgeDocument::getId, id).last("FOR UPDATE"));
         if (doc == null) {
             throw new BusinessException("文档不存在");
         }
@@ -399,10 +433,6 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     private String extensionOf(String fileName) {
-        if (!StringUtils.hasText(fileName)) {
-            return "";
-        }
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        return com.jshz.expert.common.FileNames.extension(fileName);
     }
 }

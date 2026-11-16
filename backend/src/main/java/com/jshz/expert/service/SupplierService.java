@@ -7,6 +7,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.Supplier;
+import com.jshz.expert.entity.ProjectSupplier;
+import com.jshz.expert.mapper.ProjectSupplierMapper;
 import com.jshz.expert.entity.SupplierCity;
 import com.jshz.expert.entity.SupplierHotelPrintRel;
 import com.jshz.expert.entity.SupplierImage;
@@ -28,7 +30,9 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -50,6 +54,7 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     /** 打印店类型业务键 */
     public static final String BIZ_PRINT = "PRINT";
 
+    private final ProjectSupplierMapper projectSupplierMapper;
     private final SupplierTypeMapper typeMapper;
     private final SupplierCityMapper cityMapper;
     private final SupplierPriceItemMapper priceItemMapper;
@@ -150,9 +155,11 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     // ==================== 供应商档案 ====================
 
     /**
-     * 分页列表：keyword（名称/地址/联系人模糊）+ 类型 + 城市组合筛选，附带类型/城市名与评分统计。
+     * 分页列表：keyword（名称/地址/联系人模糊）+ 类型 + 城市 + 仅看已评价 组合筛选，附带类型/城市名与评分统计。
+     * sort：name（默认，按名称升序）/ updated（按更新时间倒序）。
      */
-    public Page<Supplier> pageSuppliers(String keyword, Long typeId, Long cityId, long page, long size) {
+    public Page<Supplier> pageSuppliers(String keyword, Long typeId, Long cityId,
+                                        boolean onlyReviewed, String sort, long page, long size) {
         LambdaQueryWrapper<Supplier> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
@@ -166,7 +173,15 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (cityId != null) {
             wrapper.eq(Supplier::getCityId, cityId);
         }
-        wrapper.orderByDesc(Supplier::getUpdateTime).orderByDesc(Supplier::getId);
+        if (onlyReviewed) {
+            // 仅看已评价：存在 supplier_review 记录（子查询，避免与分页 count 冲突）
+            wrapper.inSql(Supplier::getId, "SELECT supplier_id FROM supplier_review");
+        }
+        if ("updated".equalsIgnoreCase(sort)) {
+            wrapper.orderByDesc(Supplier::getUpdateTime).orderByDesc(Supplier::getId);
+        } else {
+            wrapper.orderByAsc(Supplier::getName).orderByAsc(Supplier::getId);
+        }
         Page<Supplier> result = this.page(new Page<>(page, size), wrapper);
         enrich(result.getRecords());
         return result;
@@ -281,9 +296,13 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
      */
     @Transactional(rollbackFor = Exception.class)
     public void deleteSupplier(Long id) {
-        Supplier s = this.getById(id);
+        Supplier s = baseMapper.selectOne(new LambdaQueryWrapper<Supplier>().eq(Supplier::getId, id).last("FOR UPDATE"));
         if (s == null) {
             throw new BusinessException("供应商不存在");
+        }
+        if (projectSupplierMapper.selectCount(new LambdaQueryWrapper<ProjectSupplier>()
+                .eq(ProjectSupplier::getSupplierId, id)) > 0) {
+            throw new BusinessException("供应商已被项目引用，请先处理项目关联，不能删除");
         }
         priceItemMapper.delete(new LambdaQueryWrapper<SupplierPriceItem>().eq(SupplierPriceItem::getSupplierId, id));
         reviewMapper.delete(new LambdaQueryWrapper<SupplierReview>().eq(SupplierReview::getSupplierId, id));
@@ -303,7 +322,8 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     }
 
     /**
-     * 保存行价（全量替换）：[{itemName, price, unit, remark, sort}]。
+     * 保存行价（全量替换）：[{itemName, price, unit, remark, quoteDate, validUntil, sort}]。
+     * quoteDate/validUntil 为 yyyy-MM-dd，可空（NULL=未填写 / 长期有效）。
      */
     @Transactional(rollbackFor = Exception.class)
     public List<SupplierPriceItem> savePrices(Long supplierId, List<Map<String, Object>> items) {
@@ -335,6 +355,13 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
                 p.setPrice(dec.setScale(2, RoundingMode.HALF_UP));
                 p.setUnit(ParamUtils.str(item.get("unit")));
                 p.setRemark(ParamUtils.str(item.get("remark")));
+                LocalDate quoteDate = parseDate(item.get("quoteDate"), itemName, "报价日期");
+                LocalDate validUntil = parseDate(item.get("validUntil"), itemName, "报价有效期");
+                if (quoteDate != null && validUntil != null && validUntil.isBefore(quoteDate)) {
+                    throw new BusinessException("行价「" + itemName + "」的有效期不能早于报价日期");
+                }
+                p.setQuoteDate(quoteDate);
+                p.setValidUntil(validUntil);
                 Object st = item.get("sort");
                 p.setSort(st instanceof Number n ? n.intValue() : sort);
                 priceItemMapper.insert(p);
@@ -342,6 +369,20 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
             }
         }
         return priceItemsOf(supplierId);
+    }
+
+    /** 行价日期解析：接受 yyyy-MM-dd 或带时间的字符串，空值返回 null。 */
+    private LocalDate parseDate(Object raw, String itemName, String fieldName) {
+        String text = ParamUtils.str(raw);
+        if (!StringUtils.hasText(text)) {
+            return null;
+        }
+        String day = text.trim().length() > 10 ? text.trim().substring(0, 10) : text.trim();
+        try {
+            return LocalDate.parse(day);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException("行价「" + itemName + "」的" + fieldName + "格式应为 yyyy-MM-dd");
+        }
     }
 
     // ==================== 评价 ====================

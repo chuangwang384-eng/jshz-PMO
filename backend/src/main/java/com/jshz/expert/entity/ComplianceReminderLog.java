@@ -33,7 +33,7 @@ public class ComplianceReminderLog {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime sentTime;
 
-    /** PENDING/SENT/FAILED/SKIPPED */
+    /** PENDING/SENDING/SENT/FAILED/SKIPPED */
     private String sendStatus;
 
     /** 重试次数（上限 3） */

@@ -102,4 +102,9 @@ public class Expert {
     @TableField(exist = false)
     @JsonProperty("下载次数")
     private Long downloadCount;
+
+    /** 档案完整性（非数据库列）：照片+身份证正反面+银行卡+联系方式齐全=完整，列表展示与筛选用 */
+    @TableField(exist = false)
+    @JsonProperty("档案完整")
+    private Boolean profileComplete;
 }

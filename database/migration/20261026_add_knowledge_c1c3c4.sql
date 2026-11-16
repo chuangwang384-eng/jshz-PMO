@@ -5,7 +5,7 @@
 --   C1: knowledge_document 加 content 列（上传/更新时抽取正文，检索范围扩展）
 --   C3: 新表 knowledge_favorite（收藏），更新文档时通知收藏者
 --   C4: download_log 加 doc_id 列（文档下载计数，download_type='knowledge_doc'）
--- 设计依据：docs/2026-10-26-知识星球C1C3C4-design.md
+-- 设计依据：docs/design/2026-10-26-知识星球C1C3C4增强-设计文档.md
 -- =============================================================
 USE `expert_system`;
 

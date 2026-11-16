@@ -1,0 +1,24 @@
+{
+  "result": "PASS",
+  "checks": [
+    {
+      "path": "/api/auth/me",
+      "status": "PASS"
+    },
+    {
+      "path": "/api/dashboard/overview",
+      "status": "PASS"
+    },
+    {
+      "path": "/api/search/global?keyword=%E4%B8%8D%E5%AD%98%E5%9C%A8%E7%9A%84%E5%8F%91%E5%B8%83%E9%AA%8C%E6%94%B6%E5%85%B3%E9%94%AE%E8%AF%8D",
+      "status": "PASS"
+    },
+    {
+      "path": "/api/project?page=1&size=5",
+      "status": "PASS"
+    }
+  ],
+  "indexSha256": "c8e442437ce02bf6838dadcec191bb4506a1ed68486d42367a4ceb5111424480",
+  "assets": 2,
+  "scope": "existing authorized test account; read-only business checks; login audit only"
+}

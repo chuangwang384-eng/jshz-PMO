@@ -2,7 +2,7 @@
   <div v-permission="'wecom:sync'">
     <!-- 操作区：DryRun 试算 / 实跑同步 -->
     <el-card shadow="never" class="section-card">
-      <div class="toolbar">
+      <div class="ui-toolbar">
         <div>
           <el-button type="primary" :loading="running" @click="handleDryRun">立即同步（DryRun 试算）</el-button>
           <el-button type="danger" :loading="running" @click="handleRealRun">确认实跑同步</el-button>
@@ -317,22 +317,15 @@ onMounted(refresh)
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-}
-.spacer {
-  flex: 1;
-}
 .section-card {
   margin-bottom: 16px;
 }
 .muted {
-  color: #909399;
+  color: var(--ui-text-muted);
   font-size: 12px;
 }
 .error-text {
-  color: #f56c6c;
+  color: var(--ui-danger);
   font-size: 12px;
 }
 .tree-node {

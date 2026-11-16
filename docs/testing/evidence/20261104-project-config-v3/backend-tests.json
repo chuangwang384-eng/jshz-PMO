@@ -1,0 +1,38 @@
+{
+  "note": "Final: 19 new real-MySQL regressions and 7 existing regressions passed. UI fixture setup case skipped in this run and executed separately.",
+  "suites": [
+    {
+      "failures": 0,
+      "errors": 0,
+      "tests": 20,
+      "skipped": 1,
+      "seconds": "27.057",
+      "name": "com.jshz.expert.ProjectConfigurationAcceptanceIT"
+    },
+    {
+      "failures": 0,
+      "errors": 0,
+      "tests": 4,
+      "skipped": 0,
+      "seconds": "2.487",
+      "name": "com.jshz.expert.service.ProjectAccessRegressionTest"
+    },
+    {
+      "failures": 0,
+      "errors": 0,
+      "tests": 2,
+      "skipped": 0,
+      "seconds": "0.087",
+      "name": "com.jshz.expert.service.ProjectStorageRegressionTest"
+    },
+    {
+      "failures": 0,
+      "errors": 0,
+      "tests": 1,
+      "skipped": 0,
+      "seconds": "0.353",
+      "name": "com.jshz.expert.service.SupplierDeletionRegressionTest"
+    }
+  ],
+  "environment": "Isolated MySQL mysql-data-final, 13317 / pc_acceptance; repository schema fixture"
+}

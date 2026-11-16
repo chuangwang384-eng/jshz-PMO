@@ -58,6 +58,13 @@ public class SysUser {
     @JsonProperty("status")
     private Integer status;
 
+    /**
+     * Token 版本号：停用/删除/改密/改角色时自增，旧 JWT 立即失效。
+     * 由迁移脚本 20261106_add_user_token_version.sql 添加，默认 0；旧数据无感兼容。
+     */
+    @JsonProperty("tokenVersion")
+    private Integer tokenVersion;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @JsonProperty("createTime")
     private LocalDateTime createTime;

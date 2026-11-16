@@ -1,0 +1,6 @@
+{
+  "existing_tables": 7,
+  "column_type_nullability_match": true,
+  "missing_user_mode": true,
+  "unique_keys_match": true
+}

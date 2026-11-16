@@ -28,26 +28,6 @@ export function confirmComplianceDrafts(data) {
   return request.post('/compliance/items/confirm', data)
 }
 
-// 跨版本匹配确认（维护人）：{ oldItemId }
-export function confirmComplianceMatch(itemId, oldItemId) {
-  return request.post(`/compliance/items/${itemId}/match-confirm`, { oldItemId })
-}
-
-// 事项修改历史
-export function complianceItemHistory(itemId) {
-  return request.get(`/compliance/items/${itemId}/history`)
-}
-
-// 某事项全部责任人个人进度（维护人只读）
-export function assigneeProgress(itemId) {
-  return request.get(`/compliance/items/${itemId}/assignee-progress`)
-}
-
-// 某责任人全部事项个人进度（维护人只读）
-export function userProgress(userId) {
-  return request.get(`/compliance/users/${userId}/progress`)
-}
-
 // 我的待办（收藏 ∪ 责任人）
 export function myComplianceTodo() {
   return request.get('/compliance/my-todo')
@@ -61,4 +41,58 @@ export function updateMyComplianceProgress(itemId, data) {
 // 提醒设置（本人）：{ remindEnabled?, remindDays? }
 export function updateMyComplianceReminder(itemId, data) {
   return request.put(`/compliance/my-reminder/${itemId}`, data)
+}
+
+// ==================== 企业合规记事本（Owner 2026-11-10） ====================
+
+// 记事本查询（收藏文档分组；view=hidden 返回已隐藏条目）
+export function listNotebookItems(params) {
+  return request.get('/compliance/notebook/items', { params })
+}
+
+// 隐藏一条（仅影响本人记事本）
+export function hideNotebookItem(itemId) {
+  return request.put(`/compliance/notebook/items/${itemId}/hide`)
+}
+
+// 恢复显示（幂等）
+export function unhideNotebookItem(itemId) {
+  return request.put(`/compliance/notebook/items/${itemId}/unhide`)
+}
+
+// 本人真实参与且文档绑定兼容的项目（推送选择器）
+export function listPushableProjects(documentId) {
+  return request.get('/compliance/notebook/pushable-projects', { params: { documentId } })
+}
+
+// 批量推送（同一文档；首次绑定、快照去重）
+export function pushNotebookItems(projectId, itemIds) {
+  return request.post('/compliance/notebook/push', { projectId, itemIds })
+}
+
+// 撤下预览（维护端：文档标题+全量已发布条数）
+export function withdrawPreview(documentId) {
+  return request.post(`/compliance/notebook/documents/${documentId}/withdraw-preview`)
+}
+
+// ==================== 候选事项清空（Owner 2026-11-11） ====================
+
+// 候选事项清空预览（维护端：文档标题+草稿条数）
+export function clearDraftsPreview(documentId) {
+  return request.get(`/compliance/documents/${documentId}/drafts-clear-preview`)
+}
+
+// 清空候选事项（维护端：expectedCount 集合版本校验）
+export function clearDrafts(documentId, expectedCount) {
+  return request.post(`/compliance/documents/${documentId}/drafts-clear`, { expectedCount })
+}
+
+// 撤下提交（维护端：expectedCount 集合版本校验）
+export function withdrawDocument(documentId, expectedCount) {
+  return request.post(`/compliance/notebook/documents/${documentId}/withdraw`, { expectedCount })
+}
+
+// 处理项目合规待办（row_version 乐观锁）
+export function handleProjectComplianceTodo(todoId, status, rowVersion) {
+  return request.put(`/compliance/notebook/todos/${todoId}`, { status, rowVersion })
 }

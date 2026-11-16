@@ -4,7 +4,7 @@
   R-2 前端原子发布脚本（jshz-PMO 专家库系统）
 
 .DESCRIPTION
-  按 docs/2026-10-24-发布运维体系与UI偏移修复-design.md §4.2.1 原子化改造：
+  按 docs/design/2026-10-24-发布运维体系与侧边栏菜单偏移修复-设计文档.md §4.2.1 原子化改造：
     1) build 输出到临时目录 frontend\dist-new.<时间戳>（vite --outDir），不直接覆盖 dist
     2) 校验临时目录内 index.html 与 assets/ 存在
     3) 备份旧 dist 到 frontend\releases\<版本号>-<时间戳>\（版本号取项目根 version.txt revision + 构建时间戳）
@@ -81,6 +81,29 @@ Write-Host '========================================' -ForegroundColor Cyan
 Write-Info "版本        : $Version"
 Write-Info "DistRoot    : $DistRoot"
 Write-Info "ReleasesRoot: $ReleasesRoot"
+
+# ---------- 前置护栏：本脚本只在 Nginx root 指向 DistRoot 时才有效 ----------
+# 2026-11-06 实测：线上 Nginx root 指向 frontend/releases/<label> 快照目录，
+# 本脚本替换 DistRoot 后线上毫无变化（第 5 步自检必然失败，因为比对的是另一个目录的文件）。
+# 生产前端发布请用 deploy-frontend-graceful.ps1（快照目录 + root 指针切换 + rollback 元数据）。
+$nginxConf = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
+if (Test-Path -LiteralPath $nginxConf) {
+    $confText = [IO.File]::ReadAllText($nginxConf)
+    $rootMatch = [regex]::Match($confText, '(?m)^\s*root\s+([^;]+);')
+    if ($rootMatch.Success) {
+        $liveRoot = ($rootMatch.Groups[1].Value.Trim().Trim('"')).Replace('/', '\')
+        $expectRoot = ([IO.Path]::GetFullPath($DistRoot)).TrimEnd('\')
+        if ($liveRoot.TrimEnd('\') -ne $expectRoot) {
+            Write-Host ''
+            Write-Host '[ABORT] Nginx 当前 root 不是 DistRoot，本脚本的替换不会影响线上' -ForegroundColor Red
+            Write-Host "        线上 root  : $liveRoot" -ForegroundColor Red
+            Write-Host "        本脚本目标: $expectRoot" -ForegroundColor Red
+            Write-Host '        生产前端发布请用 scripts\deploy-frontend-graceful.ps1（-StagedDist + -ReleaseId -Apply）' -ForegroundColor Yellow
+            Write-Host '        若确需切回 dist 模式，请先改 Nginx root 并 graceful reload，再运行本脚本' -ForegroundColor Yellow
+            exit 2
+        }
+    }
+}
 
 $stamp  = Get-Date -Format 'yyyyMMdd_HHmmss'
 $distNew = Join-Path $FrontendDir "dist-new.$stamp"

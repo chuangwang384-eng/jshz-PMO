@@ -40,7 +40,7 @@ public class SupplierStorageService {
     private final Path storageDir;
 
     public SupplierStorageService(@Value("${expert.supplier.storage-dir}") String storageDir) {
-        this.storageDir = Paths.get(storageDir.replace('\\', '/')).toAbsolutePath().normalize();
+        this.storageDir = com.jshz.expert.common.FileNames.normalizeDir(storageDir);
     }
 
     @PostConstruct

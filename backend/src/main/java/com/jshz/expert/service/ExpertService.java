@@ -1,6 +1,8 @@
 package com.jshz.expert.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jshz.expert.common.BusinessException;
@@ -9,10 +11,16 @@ import com.jshz.expert.mapper.ExpertMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,9 +35,24 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
     private final DownloadAuditService downloadAuditService;
 
     /**
+     * 列表高级筛选条件（全部可选，组合生效；Owner 2026-11-07 确认口径）。
+     */
+    public record ExpertFilter(String unit, String department, List<String> titles,
+                               String photo, String complete,
+                               LocalDate updatedFrom, LocalDate updatedTo) {}
+
+    /**
      * 分页列表（R6：返回 {total, items}；R5：附带下载总次数）。
      */
     public Page<Expert> pageList(String keyword, long page, long size) {
+        return pageList(keyword, page, size, null);
+    }
+
+    /**
+     * 分页列表 + 高级筛选（unit/department 精确、titles 多选、photo 照片状态、complete 档案完整性、更新时间范围）。
+     * 筛选参数全部可选；旧调用（仅 keyword）行为不变。
+     */
+    public Page<Expert> pageList(String keyword, long page, long size, ExpertFilter filter) {
         LambdaQueryWrapper<Expert> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
@@ -42,15 +65,58 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
                     .or().like(Expert::getContact, kw)
                     .or().like(Expert::getProfile, kw));
         }
+        if (filter != null) {
+            if (StringUtils.hasText(filter.unit())) {
+                wrapper.eq(Expert::getUnit, filter.unit().trim());
+            }
+            if (StringUtils.hasText(filter.department())) {
+                wrapper.eq(Expert::getDepartment, filter.department().trim());
+            }
+            if (filter.titles() != null && !filter.titles().isEmpty()) {
+                wrapper.in(Expert::getTitle, filter.titles());
+            }
+            if ("uploaded".equals(filter.photo())) {
+                wrapper.and(w -> w.isNotNull(Expert::getPhoto).ne(Expert::getPhoto, ""));
+            } else if ("missing".equals(filter.photo())) {
+                wrapper.and(w -> w.isNull(Expert::getPhoto).or().eq(Expert::getPhoto, ""));
+            }
+            if ("complete".equals(filter.complete())) {
+                wrapper.and(w -> {
+                    for (var column : PROFILE_COMPLETE_COLUMNS) {
+                        w.isNotNull(column).ne(column, "");
+                    }
+                });
+            } else if ("incomplete".equals(filter.complete())) {
+                wrapper.and(w -> {
+                    boolean first = true;
+                    for (var column : PROFILE_COMPLETE_COLUMNS) {
+                        if (!first) w.or();
+                        w.isNull(column).or().eq(column, "");
+                        first = false;
+                    }
+                });
+            }
+            if (filter.updatedFrom() != null) {
+                wrapper.ge(Expert::getUpdateTime, filter.updatedFrom().atStartOfDay());
+            }
+            if (filter.updatedTo() != null) {
+                wrapper.lt(Expert::getUpdateTime, filter.updatedTo().plusDays(1).atStartOfDay());
+            }
+        }
         wrapper.orderByDesc(Expert::getUpdateTime);
         Page<Expert> result = this.page(new Page<>(page, size), wrapper);
         Map<Long, Long> counts = downloadAuditService.countGroupByExpert();
         for (Expert e : result.getRecords()) {
             Long cnt = counts.get(e.getId());
             e.setDownloadCount(cnt == null ? 0L : cnt);
+            e.setProfileComplete(isProfileComplete(e));
         }
         return result;
     }
+
+    /** 档案完整判定列（与 isProfileComplete 口径一致：照片+身份证正反面+银行卡+联系方式）。 */
+    private static final List<SFunction<Expert, ?>> PROFILE_COMPLETE_COLUMNS = List.of(
+            Expert::getPhoto, Expert::getIdCardFront, Expert::getIdCardBack, Expert::getBankCard, Expert::getContact);
 
     /**
      * 详情（需求1：登录用户一律返回明文，full 参数保留兼容调用方；简介拼接展示见 toView）。
@@ -86,6 +152,28 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         this.save(expert);
         savePhotos(expert, request);
         return getById(expert.getId());
+    }
+
+    void attachNewAvatar(Expert expert, MultipartFile photo) {
+        expert.setPhoto(storeNewAvatar(expert, photo));
+        if (!updateById(expert)) {
+            throw new BusinessException("头像保存失败");
+        }
+    }
+
+    private String storeNewAvatar(Expert expert, MultipartFile photo) {
+        String filename = photoStorageService.savePhoto(photo, expert.getId(), "photo");
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) {
+                        photoStorageService.deletePhoto(filename);
+                    }
+                }
+            });
+        }
+        return filename;
     }
 
     /**
@@ -200,7 +288,45 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         // 保留原始简介（数据库原值），编辑弹窗回填用，避免把拼接值写回存储
         expert.setRawProfile(expert.getProfile());
         expert.setProfile(mergeProfile(expert.getProfile(), expert.getResearchDirection(), expert.getExpertiseArea()));
+        expert.setProfileComplete(isProfileComplete(expert));
         return expert;
+    }
+
+    /** 档案完整 = 照片、身份证正反面、银行卡、联系方式均非空（Owner 2026-11-07 定义口径）。 */
+    public static boolean isProfileComplete(Expert e) {
+        return e != null && hasText(e.getPhoto()) && hasText(e.getIdCardFront())
+                && hasText(e.getIdCardBack()) && hasText(e.getBankCard()) && hasText(e.getContact());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /**
+     * 高级筛选字典：单位/科室/职称去重（登录即可），按出现次数降序。
+     */
+    public Map<String, List<String>> filterOptions() {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        result.put("units", distinctValues("unit"));
+        result.put("departments", distinctValues("department"));
+        result.put("titles", distinctValues("title"));
+        return result;
+    }
+
+    private List<String> distinctValues(String column) {
+        List<Map<String, Object>> rows = this.listMaps(new QueryWrapper<Expert>()
+                .select(column + " AS v, COUNT(*) AS cnt")
+                .isNotNull(column).ne(column, "")
+                .groupBy(column)
+                .orderByDesc("cnt"));
+        List<String> values = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Object v = row.get("v");
+            if (v != null && StringUtils.hasText(String.valueOf(v))) {
+                values.add(String.valueOf(v));
+            }
+        }
+        return values;
     }
 
     /**
@@ -282,7 +408,7 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         boolean changed = false;
         MultipartFile photo = request.getFile("photo");
         if (photo != null && !photo.isEmpty()) {
-            expert.setPhoto(photoStorageService.savePhoto(photo, expert.getId(), "photo"));
+            expert.setPhoto(storeNewAvatar(expert, photo));
             changed = true;
         }
         MultipartFile front = request.getFile("idCardFront");
