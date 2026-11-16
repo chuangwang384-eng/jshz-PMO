@@ -227,3 +227,29 @@ export function fetchProjectFile(fileName, download = false, preview = false) {
   const qs = params.toString()
   return request.get(`/project/files/${encodeURIComponent(fileName)}${qs ? '?' + qs : ''}`, { responseType: 'blob' })
 }
+
+// ==================== 会议预算制作（2026-11-16 新阶段，位于日程上传之前） ====================
+
+// 预算单总览（不存在返回骨架草稿，不落库；含 feeStandards 收费默认值）
+export function getProjectBudget(id) {
+  return request.get(`/project/${id}/meeting-budget`)
+}
+
+// 整单保存（confirm=false 草稿 / true 确认报价）
+export function saveProjectBudget(id, data) {
+  return request.put(`/project/${id}/meeting-budget`, data)
+}
+
+// 确认报价（已填草稿直接确认）
+export function confirmProjectBudget(id) {
+  return request.post(`/project/${id}/meeting-budget/confirm`)
+}
+
+// 收费标准（管理员设置-项目配置）
+export function listBudgetFeeStandards() {
+  return request.get('/project/config/budget-fee-standards')
+}
+
+export function saveBudgetFeeStandards(rows) {
+  return request.put('/project/config/budget-fee-standards', { rows })
+}

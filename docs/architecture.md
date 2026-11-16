@@ -290,3 +290,9 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 简历解析优先读取正文明确姓名，排除章节标题，并支持简介新等文件名后缀。大尺寸竖版照片参与候选筛选，在 U²-Net 推理前缩放。
 
 简历解析保留正文单位，缺失时可从文件名提取机构词段。contentNameOnly 仅限制姓名来源。
+
+## 会议预算制作阶段（2026-11-16，开发完成待发布）
+
+项目流程新增「会议预算制作」阶段（`project_phase` sort=98，位于日程上传 sort=99 之前），进入该阶段时项目详情页只展示 生命周期/阶段资料（与日程上传同口径的专用阶段视图）。按项目大类分流：线上（ONLINE）为简化报价单（模板点选形式待定）；线下（OFFLINE）为七节费用明细（酒店=场地/住宿/用餐/茶歇；交通=大交通按专家人数预估+地面交通车队专车/平台专车；搭建=非必需；物料=设计费+公司收取串场/沟通函及延展+日程/台卡上浮+展架+条幅+其他打印+讲台花+桌花；媒体=非必需；礼品=需与客户确认；人员=固定费用+据实报销）。金额=数量×单价由服务端计算，整单覆盖式保存（DRAFT/CONFIRMED，确认后草稿不可再覆盖）。
+
+新增三张表（迁移 `database/migration/20261116_budget_stage.sql`，幂等）：`project_budget`（一项目一份，category 快照）、`project_budget_item`（分节明细行，item_key 关联收费标准）、`project_budget_fee_standard`（收费标准默认值，fee_key 唯一，区间值存"低,高"取低值预填，种子 13 项含串场500/场、沟通函及延展500/场、人员费500/人/天、礼品200-300等）。旧接口 `PUT /api/project/{id}/budget`（登记项目预算金额）不变；新接口为 `GET/PUT /api/project/{id}/meeting-budget`、`POST /{id}/meeting-budget/confirm`、`GET/PUT /api/project/config/budget-fee-standards`（ProjectBudgetController，写权限绑定 project:manage 数据驱动）。前端：ProjectBudgetPanel 组件嵌入 ProjectDetail 阶段资料区；「管理员设置→项目配置」（/admin/project/config，路由恢复）承载收费标准编辑（BudgetFeeConfig，仅新增/改值/启停，无删除）。

@@ -180,7 +180,13 @@ const routes = [
         component: () => import('../views/ExpertManage.vue'),
         meta: { title: '专家管理', permissions: ['expert:manage'] }
       },
-      // 项目配置页已随项目类型概念停用（2026-11-09 项目流程重塑，后端配置接口 410）。
+      // 项目配置页：类型/阶段流程配置已停用（2026-11-09 流程重塑）；2026-11-16 起承载会议预算收费标准。
+      {
+        path: 'project/config',
+        name: 'project-config',
+        component: () => import('../views/admin/BudgetFeeConfig.vue'),
+        meta: { title: '项目配置', permissions: ['project:manage'] }
+      },
       {
         path: 'audit/downloads',
         name: 'audit-downloads',

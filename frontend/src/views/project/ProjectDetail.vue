@@ -45,7 +45,7 @@
       <!-- 主内容列 -->
       <div class="pd-main">
         <!-- ② 核心数据卡（日程上传阶段隐藏，Owner 2026-11-09） -->
-        <div v-if="!isAgendaStage" class="pd-stats">
+        <div v-if="!isFlowStage" class="pd-stats">
           <div class="pd-stat ui-card">
             <div class="pd-stat-label">项目预算总额</div>
             <div class="pd-stat-value">¥ {{ fmt(budgetAmount) }}</div>
@@ -98,8 +98,12 @@
             <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
           </div>
 
+          <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
+          <template v-if="isBudgetViewing && phaseState(viewPhaseObj) !== 'future'">
+            <ProjectBudgetPanel :project-id="projectId" :readonly="!canOperatePhase"/>
+          </template>
           <!-- 日程上传阶段：上传即替换当前日程（不做历史版本）并自动解析参会专家 -->
-          <template v-if="isAgendaStage && isViewingCurrent">
+          <template v-else-if="isAgendaStage && isViewingCurrent">
             <div class="schedule-upload-row">
               <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,.xlsx,.xls">
                 <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程（替换当前份）' : '上传日程文件' }}</el-button>
@@ -275,7 +279,7 @@
         </div>
 
         <!-- ⑥ 基本信息（4 分组卡；日程上传阶段隐藏） -->
-        <div v-if="!isAgendaStage" class="pd-info-grid">
+        <div v-if="!isFlowStage" class="pd-info-grid">
           <div class="ui-card pd-info-card">
             <div class="pd-sec-title">项目属性</div>
             <div class="info-row"><span class="info-k">会议名称</span><span class="info-v">{{ detail.name }}</span></div>
@@ -311,13 +315,13 @@
         </div>
 
         <!-- ⑥.1 备注 -->
-        <div v-if="!isAgendaStage && detail.remark" class="ui-card pd-info-card" style="margin-top: 10px">
+        <div v-if="!isFlowStage && detail.remark" class="ui-card pd-info-card" style="margin-top: 10px">
           <div class="pd-sec-title">备注</div>
           <div class="remark-text">{{ detail.remark }}</div>
         </div>
 
         <!-- ⑧ 预算与实际支出（日程上传阶段隐藏） -->
-        <div v-if="!isAgendaStage" class="ui-card pd-budget">
+        <div v-if="!isFlowStage" class="ui-card pd-budget">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">预算与实际支出</span>
             <el-button v-if="canOperate" link type="primary" @click="openBudget">登记预算金额</el-button>
@@ -343,7 +347,7 @@
         </div>
 
         <!-- ⑨ 业务明细（日程上传阶段隐藏） -->
-        <template v-if="!isAgendaStage">
+        <template v-if="!isFlowStage">
         <div class="ui-card pd-block">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">专家名单（全局一份）</span>
@@ -498,7 +502,7 @@
 
       <!-- ⑦ 右侧辅助栏（日程上传阶段隐藏，Owner 2026-11-09） -->
       <div class="pd-side">
-        <div v-if="!isAgendaStage" class="ui-card side-card">
+        <div v-if="!isFlowStage" class="ui-card side-card">
           <div class="pd-sec-title">项目成员</div>
           <div class="member-row"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}<span class="ui-badge ui-badge-primary" style="margin-left: auto">负责人</span></div>
           <div v-for="(n, i) in assistantList" :key="'s' + i" class="member-row">
@@ -580,7 +584,7 @@
           </div>
         </section>
 
-        <div v-if="!isAgendaStage" class="ui-card side-card">
+        <div v-if="!isFlowStage" class="ui-card side-card">
           <div class="pd-sec-title">项目动态</div>
           <template v-if="detail.timeline && detail.timeline.length">
             <div v-for="(log, i) in detail.timeline.slice(0, 6)" :key="i" class="side-log">
@@ -820,6 +824,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { handleProjectComplianceTodo } from '../../api/compliance'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
+import ProjectBudgetPanel from './components/ProjectBudgetPanel.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
 import { uploadLimits, ensureUploadLimits, toMb } from '../../utils/limits'
@@ -1205,6 +1210,16 @@ const isAgendaStage = computed(() => {
   const name = currentPhase.value?.name || detail.value.phaseName || ''
   return name === AGENDA_PHASE_NAME
 })
+// 2026-11-16 新增「会议预算制作」阶段（位于日程上传之前）：与日程上传同口径的专用阶段视图
+const BUDGET_PHASE_NAME = '会议预算制作'
+const isBudgetStage = computed(() => {
+  const name = currentPhase.value?.name || detail.value.phaseName || ''
+  return name === BUDGET_PHASE_NAME
+})
+// 专用阶段（日程上传/会议预算制作）只展示 生命周期/阶段资料/参会专家，其余模块待阶段推进后再展示
+const isFlowStage = computed(() => isAgendaStage.value || isBudgetStage.value)
+// 阶段资料区当前查看的是预算阶段（含查看历史/未来阶段时的只读预览；future 由上层空态拦截）
+const isBudgetViewing = computed(() => viewPhaseObj.value?.name === BUDGET_PHASE_NAME)
 // 非当前阶段只读（隐藏编辑/上传/删除入口）；2026-11-09 起资料/预算/合同操作=项目成员级（负责人/创建人/协助人）
 const authStoreForDetail = useAuthStore()
 const isMember = computed(() => {
