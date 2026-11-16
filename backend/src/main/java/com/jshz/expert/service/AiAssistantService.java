@@ -195,7 +195,7 @@ public class AiAssistantService {
                     .append(" 问法样例=").append(firstLines(s.entry.getQuestions(), 3)).append('\n');
         }
         try {
-            String raw = ollamaService.completeJson(sb.toString());
+            String raw = ollamaService.completeJson(sb.toString(), 20); // 交互场景短超时，失败回退关键词
             if (raw == null) {
                 return null;
             }

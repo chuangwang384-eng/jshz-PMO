@@ -170,6 +170,11 @@ public class OllamaService {
      * 不可用/失败/超时返回 null，调用方回退规则结果；不再各方法重复 HTTP 样板。
      */
     public String completeJson(String prompt) {
+        return completeJson(prompt, resolveTimeoutSeconds());
+    }
+
+    /** 指定超时的 JSON 补全（AI 助手等交互场景用短超时，避免用户干等冷加载）。 */
+    public String completeJson(String prompt, long timeoutSec) {
         if (!available() || prompt == null || prompt.isBlank()) return null;
         String url = baseUrl();
         String model = modelOrDefault();
@@ -180,7 +185,6 @@ public class OllamaService {
                     "stream", false,
                     "format", "json",
                     "keep_alive", DEFAULT_KEEP_ALIVE));
-            long timeoutSec = resolveTimeoutSeconds();
             HttpRequest request = HttpRequest.newBuilder(URI.create(url + "/api/generate"))
                     .timeout(Duration.ofSeconds(timeoutSec))
                     .header("Content-Type", "application/json")
