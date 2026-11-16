@@ -25,3 +25,6 @@
 
 ## 回滚
 后端归档 1.0.42/1.0.41 可回；前端 rollback.conf 备份齐；数据库 DROP TABLE ai_assistant_entry + 删 ai:manage 权限行（SQL 头注释）。
+
+## 追加：1.0.44（2026-11-16 14:25）行动意图自动跳转
+Owner 需求「帮我新建项目 → AI 自动跳转到新建页面」：① 后端识别行动意图（帮我/帮忙/我要/我想/打开/进入/跳转到/去…），命中带链接条目时返回 autoNavigate=true；② 抽屉展示卡片 0.9s 后自动 router.push 并关闭（仅路由导航，不代执行任何业务操作）；③ ProjectList 支持 ?action=create 深链直开新建弹窗（需 project:create 权限，打开后清除 query）；④ CREATE_PROJECT 条目链接改为 /project?action=create（生产库已更新+迁移种子同步）。问"怎么做"类仍只给卡片不自动跳。mvn test 158 通过；实测「帮我新建项目」→ autoNavigate=true + /project?action=create。浏览器复核待 Owner。
