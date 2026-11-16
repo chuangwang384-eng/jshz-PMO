@@ -503,7 +503,7 @@
 
       <!-- ⑦ 右侧辅助栏（日程上传阶段隐藏，Owner 2026-11-09） -->
       <div class="pd-side">
-        <div v-if="!isFlowStage" class="ui-card side-card">
+        <div class="ui-card side-card">
           <div class="pd-sec-title">项目成员</div>
           <div class="member-row"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}<span class="ui-badge ui-badge-primary" style="margin-left: auto">负责人</span></div>
           <div v-for="(n, i) in assistantList" :key="'s' + i" class="member-row">
@@ -513,7 +513,7 @@
         </div>
 
         <!-- 2026-11-16 Owner 口径：会议预算制作阶段只展示 生命周期/阶段资料，右侧待办/文件/合规均隐藏 -->
-        <div v-if="!isBudgetStage" class="ui-card side-card">
+        <div class="ui-card side-card">
           <div class="pd-sec-title">当前待办</div>
           <template v-if="missingRequiredTemplates.length">
             <div v-for="(m, i) in missingRequiredTemplates" :key="i" class="todo-item">
@@ -533,7 +533,7 @@
 
         <!-- 项目文件快速访问（Owner 2026-11-12）：所有阶段上传的文件均可快速下载/预览
              2026-11-16 Owner 口径：会议预算制作阶段隐藏 -->
-        <div v-if="!isBudgetStage" class="ui-card side-card">
+        <div class="ui-card side-card">
           <div class="pd-sec-title">项目文件（{{ allDocs.length }}）</div>
           <template v-if="allDocs.length">
             <div v-for="d in allDocs.slice(0, 10)" :key="d.id" class="side-doc">
@@ -549,7 +549,7 @@
           <div v-else class="hint-text">暂无附件资料</div>
         </div>
 
-        <section v-if="!isBudgetStage && (detail.complianceBoundDocTitle || detail.complianceTodos?.length)" class="ui-card side-card pd-compliance">
+        <section v-if="detail.complianceBoundDocTitle || detail.complianceTodos?.length" class="ui-card side-card pd-compliance">
           <div class="pd-sec-title">合规要求注意事项</div>
           <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
             来源文档：{{ detail.complianceBoundDocTitle }}
@@ -587,7 +587,7 @@
           </div>
         </section>
 
-        <div v-if="!isFlowStage" class="ui-card side-card">
+        <div class="ui-card side-card">
           <div class="pd-sec-title">项目动态</div>
           <template v-if="detail.timeline && detail.timeline.length">
             <div v-for="(log, i) in detail.timeline.slice(0, 6)" :key="i" class="side-log">

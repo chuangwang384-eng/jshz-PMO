@@ -28,7 +28,7 @@
           <el-table-column label="数量" width="110">
             <template #default="{ row }">
               <span v-if="readonly">{{ row.quantity }}</span>
-              <el-input-number v-else v-model="row.quantity" :min="0" :precision="2" :controls="false" size="small" style="width: 90px"/>
+              <el-input-number v-else v-model="row.quantity" :min="0" :precision="0" :step="1" step-strictly :controls="false" size="small" style="width: 90px"/>
             </template>
           </el-table-column>
           <el-table-column label="单位" width="100">
