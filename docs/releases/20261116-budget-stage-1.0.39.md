@@ -1,0 +1,31 @@
+# 2026-11-16 会议预算制作阶段 发布记录（后端 1.0.39 / 前端 1.0.39）
+
+## 发布内容
+- 项目流程新增「会议预算制作」阶段（project_phase id=10, sort=98，位于日程上传之前）
+- 新表：project_budget / project_budget_item / project_budget_fee_standard（种子 13 条）
+- 后端 1.0.39（gitShort 9513801），蓝绿 GracefulSwitch 发布，11/11 阶段全绿
+- 前端 1.0.39-budget-stage-20261116，graceful root 切换，master PID 8036 未变，旧 root 保留可回退
+- 功能明细见 [交接记录](../handover/tasks/20261116_budget_stage.md)
+
+## 迁移执行记录
+- `scripts/apply-migration-20261116-budget-stage.ps1` 首轮执行曾因 PS5.1 管道缺 `$OutputEncoding=UTF8` 导致中文变 `?`（phase id=9、fee 种子名乱码）；
+  已确认新表无业务数据后清除乱码行，脚本补 UTF-8 修复（同 20261109 脚本写法）后重跑成功（phase id=10 正常）。
+- 校验：活跃阶段=会议预算制作(98)/日程上传(99)；3 表就绪；种子 13 条中文正常。
+
+## 验证结果（2026-11-16 11:30-11:50）
+| 项 | 结果 |
+| --- | --- |
+| /health（8080 直连 + Nginx） | UP，version=1.0.39，gitShort=9513801 |
+| 前端新 bundle | index-5432wUA5.js 经 Nginx 200 |
+| 登录（测试/111111） | code=0 |
+| GET /config/budget-fee-standards | 13 条正常 |
+| ONLINE 项目(54) 预算骨架/保存并确认 | 1 行 ONLINE_QUOTE；确认后 total=8000.00，状态 CONFIRMED |
+| 已确认单再存草稿 | 400「报价单已确认…」拦截 ✓ |
+| OFFLINE 项目(56 新建"测试-线下预算") 骨架 | 24 行七节，收费标准预填区间取低值（日程5-10→5、台卡10-20→10、讲台花300-400→300、礼品200-300→200）✓ |
+| OFFLINE 草稿保存合计 | 20000+10×500+4×500=27000.00 服务端计算 ✓ |
+| 浏览器人工验收 | 未执行（待负责人，验收条目见交接记录 §2） |
+
+## 回滚
+- 后端：backend/releases/ 内 1.0.38.31 归档 + deploy-backend.ps1 -RollbackJarPath（迁移向后兼容：1.0.38 代码不读新表，可不回滚库）
+- 前端：Nginx root 切回 1.0.38.31-project-sidebar-sticky-20261116（rollback.conf 备份于 frontend/release-metadata/1.0.39-budget-stage-20261116.rollback.conf.txt）
+- 数据库（如需彻底回退）：DROP 三表 + DELETE phase id=10（SQL 头回滚预案；注意 54/56 两个测试项目已产生 budget 数据，回退前备份）
