@@ -29,3 +29,6 @@
 - 后端：backend/releases/ 内 1.0.38.31 归档 + deploy-backend.ps1 -RollbackJarPath（迁移向后兼容：1.0.38 代码不读新表，可不回滚库）
 - 前端：Nginx root 切回 1.0.38.31-project-sidebar-sticky-20261116（rollback.conf 备份于 frontend/release-metadata/1.0.39-budget-stage-20261116.rollback.conf.txt）
 - 数据库（如需彻底回退）：DROP 三表 + DELETE phase id=10（SQL 头回滚预案；注意 54/56 两个测试项目已产生 budget 数据，回退前备份）
+
+## 追加：1.0.39.1（仅前端，2026-11-16 12:00）
+Owner 口径调整：会议预算制作阶段只展示 生命周期+阶段资料（预算面板）；参会专家卡片仅日程上传阶段展示；右侧「当前待办/项目文件/合规要求注意事项」在预算阶段隐藏。ReleaseId 1.0.39.1-budget-stage-ui-20261116，graceful 切换验证通过（index-C9emcdCy.js 经 Nginx 200）。浏览器人工复核待 Owner。
