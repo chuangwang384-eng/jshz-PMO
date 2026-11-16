@@ -43,6 +43,9 @@
 
   <!-- 首次登录强制改密弹窗（不可关闭） -->
   <ChangePasswordDialog v-model="showChangePwd" />
+
+  <!-- AI 助手（2026-11-16）：全局悬浮入口，登录后可用 -->
+  <AiAssistantDrawer v-if="!isLoginPage" />
 </template>
 
 <script setup>
@@ -57,6 +60,7 @@ import { versionPrefix, versionLabel } from './config/version'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
 import SideMenuItem from './components/SideMenuItem.vue'
 import MessageDrawerBell from './components/MessageDrawerBell.vue'
+import AiAssistantDrawer from './components/AiAssistantDrawer.vue'
 import { listAnnouncements, markAnnouncementRead } from './api/announcement'
 import { buildMenuTree } from './utils/menu'
 

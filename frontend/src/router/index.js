@@ -218,6 +218,12 @@ const routes = [
         meta: { title: '企微通讯录同步', permissions: ['wecom:sync'] }
       },
       {
+        path: 'ai-assistant',
+        name: 'ai-assistant-manage',
+        component: () => import('../views/admin/AiAssistantManage.vue'),
+        meta: { title: 'AI 助手知识库', permissions: ['ai:manage'] }
+      },
+      {
         path: 'storage',
         name: 'storage-manage',
         component: () => import('../views/admin/StorageManage.vue'),
