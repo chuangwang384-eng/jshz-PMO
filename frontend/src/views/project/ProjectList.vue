@@ -353,6 +353,11 @@ async function confirmDelete(row) {
 }
 
 onMounted(async () => {
+  // AI 助手行动意图深链（2026-11-16）：?action=create 直开新建弹窗（需 project:create 权限）
+  if (route.query.action === 'create' && auth.hasPermission('project:create')) {
+    openEdit(null)
+    router.replace({ path: '/project', query: {} })
+  }
   fetchList()
   listPhaseOptions().then((data) => { phases.value = data || [] }).catch(() => {})
   listProjectUsers().then((data) => { users.value = data || [] }).catch(() => {})

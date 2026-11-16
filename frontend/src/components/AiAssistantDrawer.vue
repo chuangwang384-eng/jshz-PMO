@@ -75,6 +75,11 @@ async function send(text) {
       linkUrl: data?.linkUrl || null,
       linkLabel: data?.linkLabel || null
     })
+    // 行动意图（帮我新建项目…）：展示卡片后自动跳转（仅导航，不代执行）
+    if (data?.autoNavigate && data?.linkUrl) {
+      const target = data.linkUrl
+      setTimeout(() => goto(target), 900)
+    }
   } catch (e) {
     messages.value.push({ role: 'bot', text: e?.response?.data?.message || '助手暂时不可用，请稍后再试。' })
   } finally {

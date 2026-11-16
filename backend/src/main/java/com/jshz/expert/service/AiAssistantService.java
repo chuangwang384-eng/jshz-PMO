@@ -81,6 +81,8 @@ public class AiAssistantService {
         }
         result.put("matched", true);
         result.put("mode", mode);
+        // 行动意图（帮我/我要/打开…）且有跳转链接 → 前端自动跳转（仅路由导航，不代执行操作）
+        result.put("autoNavigate", picked.getLinkUrl() != null && isActionIntent(q));
         result.put("entryKey", picked.getEntryKey());
         result.put("title", picked.getTitle());
         result.put("answer", picked.getAnswer());
@@ -139,6 +141,11 @@ public class AiAssistantService {
     }
 
     // ==================== 内部 ====================
+
+    /** 行动意图识别：用户要求"去做"而非"问怎么做"。 */
+    private static boolean isActionIntent(String q) {
+        return q.matches(".*(帮我|帮忙|替我|给我|我要|我想|我想去|打开|进入|跳转到|导航到|带我去|^去|^到).*");
+    }
 
     private boolean canSee(AiAssistantEntry e, AuthUser user) {
         String perm = e.getPermCode();

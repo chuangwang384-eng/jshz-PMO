@@ -109,6 +109,17 @@ class AiAssistantServiceTest {
     }
 
     @Test
+    void actionIntentSetsAutoNavigateButHowToDoesNot() {
+        when(entryMapper.selectList(any())).thenReturn(List.of(
+                entry("CREATE_PROJECT", "新建项目", "怎么新建项目", null)));
+        lenient().when(ollamaService.available()).thenReturn(false);
+        Map<String, Object> action = service.ask("帮我新建项目", normal);
+        assertThat(action.get("autoNavigate")).isEqualTo(true);
+        Map<String, Object> howto = service.ask("怎么新建项目", normal);
+        assertThat(howto.get("autoNavigate")).isEqualTo(false);
+    }
+
+    @Test
     void askRejectsEmptyOrTooLongQuestion() {
         assertThatThrownBy(() -> service.ask("  ", normal)).isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> service.ask("x".repeat(201), normal)).isInstanceOf(BusinessException.class);
