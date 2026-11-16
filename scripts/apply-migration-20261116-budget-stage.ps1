@@ -1,4 +1,4 @@
-# 20261116 「会议预算制作」阶段迁移（幂等，可重复执行）
+﻿# 20261116 「会议预算制作」阶段迁移（幂等，可重复执行）
 # 用法（管理员 PowerShell）：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\apply-migration-20261116-budget-stage.ps1
 # 内容：project_phase 新增「会议预算制作」(sort=98，位于日程上传之前) + 新表
 #       project_budget / project_budget_item / project_budget_fee_standard（含收费标准种子）
@@ -6,6 +6,8 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
+# PS5.1 管道给原生命令默认 ASCII，中文会变 '?'（20261109 脚本同款修复）
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 . (Join-Path $PSScriptRoot 'common-paths.ps1')
 $sqlPath = Join-Path $root 'database\migration\20261116_budget_stage.sql'
 $logPath = Join-Path $root 'logs\migration-20261116-budget-stage.log'
