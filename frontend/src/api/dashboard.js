@@ -8,5 +8,3 @@ export const saveDashboardLayout = (revision, items) => request.put('/dashboard/
 
 export const getQuickAccess = () => request.get('/dashboard/quick-access', { silent: true })
 export const saveQuickAccess = items => request.put('/dashboard/quick-access', { items }, { silent: true })
-
-export const getLegacyDashboardLayout = () => request.get('/dashboard/layout', { silent: true })

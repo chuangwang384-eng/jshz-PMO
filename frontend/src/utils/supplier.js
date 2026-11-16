@@ -13,8 +13,8 @@ export function supplierTypeTagColor(bizKey) {
   return map[bizKey] || 'info'
 }
 
-// 城市平铺列表 -> 按省份分组（保持字典预置顺序），供省→市两级联动/展示共用
-export function groupCitiesByProvince(cities) {
+// 城市平铺列表 -> 按省份分组（保持字典预置顺序），仅供本文件 provinceList/citiesOfProvince 使用
+function groupCitiesByProvince(cities) {
   const groups = []
   const map = {}
   for (const c of cities || []) {

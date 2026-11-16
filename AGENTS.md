@@ -72,9 +72,11 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
   WHERE table_schema='expert_system' AND table_type='BASE TABLE';"
 ```
 
-**2026-11-06 核实基线**：Controller 26、Service 47、实体/Mapper 57、页面 41、路由 35、数据库 **74 张表**（68 业务 + 6 历史备份）、`version.txt=revision=1.0.34`、`frontend/package.json=1.0.34`。
+**2026-11-16 核实基线**：Controller 31、Service 58、实体/Mapper 67、页面 43、路由 37、数据库 **101 张表**（85 业务/结构 + 10 历史备份 + 6 迁移标记）、`version.txt=revision=1.0.45`、`frontend/package.json=1.0.45`。
 
-**⚠️ 表数是最容易写错的一项**：`database/` 下 51 个 SQL 脚本定义的 distinct 表名恰为 **74** 个，与库中一致（含 6 张备份表）；但 `init.sql` 只建 **6 张表**，其余 68 张全靠 `migration/` 增量脚本。历史上 README 写 39、`docs/architecture.md` 写 26、`docs/deployment.md` 写 13，三处互相矛盾长达数周。**只认 `information_schema` 实测值。**
+**⚠️ 表数是最容易写错的一项**：只认 `information_schema` 实测值，且必须排除 `*_bak_*`（历史备份）与 `mig_*`（迁移标记）才是业务表口径。历史上 README 写 39/74、`docs/architecture.md` 写 26/94、`docs/deployment.md` 写 13，四处互相矛盾长达数周，2026-11-16 已统一。
+
+**DDL 单一可信来源（2026-11-16 收口）**：`database/init.sql` 是**新环境唯一 DDL 来源**（当前 85 张业务表，一次建齐）；`database/migration/*.sql` 仅服务**既有库增量升级**，新环境不再重放。任何新增结构必须"先写 migration，再并入 init.sql 基线"，并由 `.\\scripts\\check-schema-parity.ps1` 强制校验（只读，校验 init.sql ↔ migration ↔ 生产库三方一致）。修改数据库结构前先跑该脚本确认基线无漂移；未通过不得执行 `db-migrate -Mode Bootstrap`。
 
 ### 0.6 环境与运行时配置属于事实源，文档必须服从现实
 

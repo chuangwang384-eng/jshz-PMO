@@ -1,6 +1,5 @@
 import request from './request'
 import { listKnowledgeDocs } from './knowledge'
-import { listProjects } from './project'
 async function allPages(fetch) {
   const rows = []
   for (let page = 1; ; page++) {
@@ -10,64 +9,12 @@ async function allPages(fetch) {
     if (!batch.length || rows.length >= (d.total || 0)) return rows
   }
 }
+// 企业合规 v4（/api/compliance/v4/*，REQ/DES-COMPLIANCE-V4）
+// 2026-11-16 清理：「我的执行」UI（ExecutionBoard）已按需求规则6于 1.0.37.34 移除，
+// 其后端写接口同步关闭，此处一并删除已无调用方的 executions/tasks/模板草稿接口封装。
 export const listAllComplianceDocuments = () => allPages(page => listKnowledgeDocs({ category: 'enterprise-compliance', page, pageSize: 100 }))
-export const listAllReadableProjects = () => allPages(page => listProjects({ page, size: 100 }))
 export const getComplianceMode = () => request.get('/compliance/v4/mode')
-export const enableComplianceV4 = () => request.post('/compliance/v4/mode/enable', { confirmed: true })
 export const listLegacyHistory = () => request.get('/compliance/v4/legacy-history')
-export const listTemplateDrafts = id => request.get(`/compliance/v4/documents/${id}/drafts`)
-
-// 企业合规 v4（可复用清单，/api/compliance/v4/*，REQ/DES-COMPLIANCE-V4）
-// 权限：执行对象 owner=当前登录用户；模板发布需 knowledge:maintain
-
-export function listPublishedTemplates(documentId) {
-  return request.get(`/compliance/v4/documents/${documentId}/templates`)
-}
-export function createTemplateDraft(documentId, data) {
-  return request.post(`/compliance/v4/documents/${documentId}/templates/drafts`, data)
-}
-export function generateTemplateDraft(documentId) {
-  return request.post(`/compliance/v4/documents/${documentId}/templates/generate-draft`)
-}
 export function getTemplateDetail(templateVersionId) {
   return request.get(`/compliance/v4/templates/${templateVersionId}`)
-}
-export function patchTemplate(templateVersionId, data) {
-  return request.patch(`/compliance/v4/templates/${templateVersionId}`, data)
-}
-export function publishTemplate(templateVersionId) {
-  return request.post(`/compliance/v4/templates/${templateVersionId}/publish`)
-}
-export function createExecution(data) {
-  return request.post('/compliance/v4/executions', data)
-}
-export function startExecution(id, data) {
-  return request.post(`/compliance/v4/executions/${id}/start`, data || {})
-}
-export function listMyExecutions(params) {
-  return request.get('/compliance/v4/executions', { params })
-}
-export function getExecutionDetail(id) {
-  return request.get(`/compliance/v4/executions/${id}`)
-}
-export function reuseExecution(id, data) {
-  return request.post(`/compliance/v4/executions/${id}/reuse`, data)
-}
-export function pauseExecution(id) {
-  return request.post(`/compliance/v4/executions/${id}/pause`)
-}
-export function archiveExecution(id) {
-  return request.post(`/compliance/v4/executions/${id}/archive`)
-}
-export function patchTask(taskId, data) {
-  return request.patch(`/compliance/v4/tasks/${taskId}`, data)
-}
-export function listMyTasks(params) {
-  return request.get('/compliance/v4/my-tasks', { params })
-}
-export function taskEvents(taskId) {
-  return request.get(`/compliance/v4/tasks/${taskId}/events`)
-}
-export function createDraftFromV3(documentId, title) {
-  return request.post('/compliance/v4/migration/templates/from-v3', { documentId, title })
 }

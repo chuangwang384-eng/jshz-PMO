@@ -1,5 +1,6 @@
 # 最新交接摘要
 
+- 2026-11-16 全项目冗余清理 + DDL 单一可信来源收口：**已完成待验收**：释放 20.6 GB 可重建产物；删除 4 个零引用组件、34 处无调用 `export`；`init.sql` 补齐至 85 张业务表并新增 `check-schema-parity.ps1` 守卫；后端 159 测试通过、前端构建通过、27 项接口冒烟与匿名 401 通过；**生产未发布**。见 [任务交接](tasks/20261116_redundancy_cleanup.md)。
 - 2026-11-16 项目详情右侧卡片滚动时对齐内容区顶部，前端已上线。见 [发布记录](../releases/20261116-project-sidebar-sticky.md) 和 [任务交接](tasks/20261116_project_sidebar_sticky.md)。
 
 - 2026-11-16 项目详情的合规要求注意事项增加待完成、已完成视图，隔离验收通过，前端已上线。见 [发布记录](../releases/20261116-project-compliance-views.md) 和 [任务交接](tasks/20261116_project_compliance_views.md)。

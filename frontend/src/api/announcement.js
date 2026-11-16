@@ -3,11 +3,6 @@ import request from './request'
 // 系统公告接口（对应后端 /api/announcement/*）
 // 列表/详情/标记已读登录即可；创建/编辑/删除/上下架/置顶/已读统计需 announcement:manage
 
-// 首页生效列表：最多 5 条，置顶优先 + 发布时间倒序
-export function getEffectiveAnnouncements(limit = 5) {
-  return request.get('/announcement/effective', { params: { limit } })
-}
-
 // 分页列表：管理视角含已读进度；员工视角仅 ONLINE
 export function listAnnouncements(params) {
   return request.get('/announcement', { params })

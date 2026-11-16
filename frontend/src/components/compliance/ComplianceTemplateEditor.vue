@@ -113,7 +113,7 @@ import {ref,computed,watch,nextTick,onMounted,onBeforeUnmount} from 'vue'
 import {onBeforeRouteLeave} from 'vue-router'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import request from '../../api/request'
-import {listAllComplianceDocuments} from '../../api/complianceV4'
+import {listAllComplianceDocuments,getTemplateDetail} from '../../api/complianceV4'
 const docs=ref([]),documentId=ref(null),workspace=ref(null),content=ref(null),loading=ref(false),activating=ref(false),dirty=ref(false),failed=ref(false),conflict=ref(false),candidates=ref([]),selectedId=ref(null),chosen=ref(null),currentStage=ref('未分组'),preview=ref(false),canActivate=ref(false)
 const panel=ref('candidates')
 const legacyPreviewVisible=ref(false),legacyPreview=ref(null)
@@ -240,7 +240,7 @@ function copy(n){checkpoint();const c=JSON.parse(JSON.stringify(n));c.nodeCode=k
 async function remove(n){try{await ElMessageBox.confirm('删除此事项？已有员工清单不受影响。','删除事项');checkpoint();content.value.nodes.splice(content.value.nodes.indexOf(n),1);if(chosen.value===n)chosen.value=null}catch{}}
 function citation(n){try{return JSON.parse(n.sourceAnchor || 'null')}catch{return null}}
 
-async function previewLegacy(c){try{legacyPreview.value=await request.get('/compliance/v4/templates/'+c.id);legacyPreviewVisible.value=true}catch{}}
+async function previewLegacy(c){try{legacyPreview.value=await getTemplateDetail(c.id);legacyPreviewVisible.value=true}catch{}}
 function checkpoint(){undoStack.value.push(JSON.stringify(content.value));if(undoStack.value.length>20)undoStack.value.shift()}
 async function clearItems(){
   const title=docs.value.find(doc=>doc.id===documentId.value)?.title || content.value.title

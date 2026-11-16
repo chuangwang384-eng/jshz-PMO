@@ -67,14 +67,9 @@
 }
 .ann-dot { width: 8px; height: 8px; }
 
-/* 统计卡（MyTodoSection/ExecutionBoard 逐字重复收口；ProjectDetail 的 20px 变体由局部规则覆盖） */
+/* 统计卡（ProjectDetail 等页面共用；20px 变体由局部规则覆盖） */
 .stat { padding: 12px 16px; text-align: center; }
 .stat-label { color: var(--ui-text-muted); font-size: 13px; }
 .stat-value { font-size: 22px; font-weight: 700; color: var(--ui-text-main); margin-top: 4px; }
-.stat-warn { color: var(--ui-warning); }
-.stat-danger { color: var(--ui-danger); }
-.due-over { color: var(--ui-danger); font-weight: 600; }
-
-/* 同义异名合并（MyTodoSection 的 todo-* 与 ExecutionBoard 的 task-*） */
-.todo-title, .task-title { font-weight: 600; color: var(--ui-text-main); display: flex; align-items: center; gap: 6px; }
-.todo-sub, .task-sub { font-size: 12px; color: var(--ui-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 2026-11-16 清理：.stat-warn、.stat-danger、.due-over、.todo-* 与 .task-* 仅服务于已删除的
+   MyTodoSection / ExecutionBoard（全库使用次数为 0），随组件一并移除；如需复用请先确认模板中确有使用 */

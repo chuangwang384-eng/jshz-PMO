@@ -1,6 +1,6 @@
 # 景帅会展内部管理库系统（Expert Library System）
 
-> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线（2026-11-06 核实）：后端 Controller **26** 个、Service **47** 个、`@TableName` 实体 **57** 个；前端页面 41 个、路由 35 条；数据库 **74** 张表（**68 张业务表 + 6 张历史备份表**，由 `information_schema` 实测，见下方「事实基线的核实方式」）。
+> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线（2026-11-16 核实）：后端 Controller **31** 个、Service **58** 个、`@TableName` 实体 **67** 个；前端页面 43 个、路由 37 条；数据库 **101** 张表（**85 张业务/结构表 + 10 张历史备份表 + 6 张迁移标记表**，由 `information_schema` 实测，见下方「事实基线的核实方式」）。
 >
 > **事实基线的核实方式**（写文档前请重跑，勿把历史基线当永久事实）：
 >
@@ -14,7 +14,9 @@
 > grep -rl "@TableName" backend/src/main/java/com/jshz/expert/entity/*.java | wc -l
 > ```
 >
-> 历史偏差记录：本文档曾长期写「数据库 39 张表」，实际为 74 张（`docs/architecture.md` 另写 26 张、`docs/deployment.md` 写 13 张，三处互相矛盾）；`init.sql` 实际只建 **6 张表**，其余由 `database/migration/` 50 个增量脚本补齐。
+> 历史偏差记录：本文档曾长期写「数据库 39 张表 / 74 张表」，`docs/architecture.md` 另写 26 张、`docs/deployment.md` 写 13 张，三处互相矛盾。2026-11-16 统一口径为 `information_schema` 实测值（101 张 = 85 业务 + 10 备份 + 6 迁移标记）。
+>
+> `init.sql` 是**新环境唯一 DDL 来源**（2026-11-16 已补齐至 85 张业务表，含 AI 助手与会议预算四表）；`database/migration/` 的 63 个脚本是**既有库的增量历史**，新环境不需要重放。两者一致性由 `scripts/check-schema-parity.ps1` 强制校验。
 
 ## 项目定位
 
@@ -36,7 +38,7 @@
 | --- | ---------------------------------------- | ----------- |
 | 后端  | Java 17 + Spring Boot 3.2.5 + MyBatis-Plus 3.5.7 + Spring Security + jjwt 0.11.5 | `backend/` |
 | 前端  | Vue 3.4 + Vite 5 + Element Plus + Pinia + vue-router + axios | `frontend/` |
-| 数据库 | MySQL 8.x（expert_system 库 **74 张表** = 68 业务表 + 6 历史备份表。按模块：合规 17 / 项目 16 / 供应商 7 / 客户 4 / 审批与申请 4 / 知识 3 / 企微 3 / 认证与权限 6 / 其他 8；完整字段说明见 `docs/architecture.md` §4） | `database/` |
+| 数据库 | MySQL 8.x（expert_system 库 **85 张业务/结构表**，另有 10 张历史备份表、6 张迁移标记表；模块分布与字段说明见 `docs/architecture.md` §4） | `database/` |
 | 照片存储 | 本地磁盘照片库（三类照片 + 静态资源映射） | `照片库/` |
 | 文档  | 设计、架构、部署、验收报告 | `docs/`     |
 
@@ -48,9 +50,9 @@ jshz-PMO/
 ├── AGENTS.md              # 开发与 Agent 交接规范（文档同步铁律）
 ├── version.txt            # 版本号唯一真源（revision=x.y.z）
 ├── .gitignore             # Git 忽略规则（*.log / logs/ / temp/ 已忽略）
-├── backend/               # 后端服务（Spring Boot 3.2.5 + MyBatis-Plus，26 个 Controller / 47 个 Service）
-├── frontend/              # 前端应用（Vue 3.4 + Vite 5；线上目录是 releases/<ReleaseId>，dist 仅为构建输出，41 页面 / 35 路由）
-├── database/              # 数据库脚本（init.sql 建 6 张基础表；migration/ 50 个增量脚本补齐至 74 表）
+├── backend/               # 后端服务（Spring Boot 3.2.5 + MyBatis-Plus，31 个 Controller / 58 个 Service）
+├── frontend/              # 前端应用（Vue 3.4 + Vite 5；线上目录是 releases/<ReleaseId>，dist 仅为构建输出，43 页面 / 37 路由）
+├── database/              # 数据库脚本（init.sql = 唯一 DDL 来源，建全部 85 张业务表；migration/ 63 个脚本为既有库升级历史）
 ├── scripts/               # 构建、发布、回滚、备份、迁移脚本（PowerShell + Python）
 ├── docs/                  # 项目文档（设计/架构/部署/验收/交接）
 ├── builds/                # 构建产物根目录（见下方「产物与日志存放约定」）
@@ -62,7 +64,7 @@ jshz-PMO/
 
 ## 快速开始（概要）
 
-1. 初始化数据库：创建 `expert_system` 库 → 执行 `database/init.sql`（建 6 张基础表：expert_info / sys_user / download_log / approval_config / expert_change_request / approval_record，并写入 admin 与示例数据）→ 按文件名顺序执行 `database/migration/` 全部 50 个增量脚本，最终 **74 张表**（68 业务表 + 6 历史备份表）
+1. 初始化数据库：创建 `expert_system` 库 → 执行 `database/init.sql`（**唯一 DDL 来源**，一次建齐 85 张业务表并写入字典种子与 admin）。**新环境不需要再重放 `database/migration/` 的历史脚本**（它们只服务既有库升级，用 `scripts/db-migrate.ps1 -Mode Apply` 执行）；建库后用 `scripts/check-schema-parity.ps1` 校验基线与库结构一致
 2. 启动后端：配置数据库环境变量后 `cd backend && mvn spring-boot:run`（默认端口 8080）
 3. 启动前端：`cd frontend && npm install && npm run dev`（默认端口 5173）
 

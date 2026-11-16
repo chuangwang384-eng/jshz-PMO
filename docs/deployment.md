@@ -51,13 +51,14 @@ AIGC:
 mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 ```
 
-- `init.sql` 已于 2026-11-12 按**生产库实际结构重建**：81 张业务表全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117 / role_permission 53 / supplier_city 349 等 12 张表共 604 行）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
+- `init.sql` 是**新环境唯一 DDL 来源**：2026-11-12 按生产库实际结构重建，2026-11-16 补齐 AI 助手与会议预算 4 表，现为 **85 张业务表**全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117+ / role_permission 53+ / supplier_city 349 等）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
 - 语义：`CREATE TABLE IF NOT EXISTS`，**不含 DROP**、不含 `AUTO_INCREMENT` 计数器，可重复执行。
 - 不含：业务数据、用户口令哈希（仅 admin）、历史备份表（`*_bak_*`）、迁移标记表（`mig_*`）。
-- 建库后初始化版本台账（把 init.sql 与 60 个历史脚本登记为已执行）：
+- 新环境**不需要重放** `database/migration/` 的 63 个历史脚本；建库后先校验基线完整性，再登记版本台账：
 
 ```powershell
-.\scripts\db-migrate.ps1 -Mode Bootstrap
+.\scripts\check-schema-parity.ps1 -NoDatabase   # 基线必须覆盖全部 migration，否则不得 Bootstrap
+.\scripts\db-migrate.ps1 -Mode Bootstrap        # 把 init.sql 与 63 个历史脚本登记为已执行
 ```
 
 ### 2.2 已有环境（接管历史库）
@@ -171,7 +172,7 @@ server {
 
 ## 6. 验收检查项
 
-- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **81 张业务表**（含 `schema_migration`；不含 `*_bak_*` 与 `mig_*` 历史/标记表）
+- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **85 张业务表**（含 `schema_migration`；不含 `*_bak_*` 与 `mig_*` 历史/标记表）
 - [ ] `.\scripts\db-migrate.ps1 -Mode Bootstrap` 后 `-Mode Status` 显示「已登记 60 / 待执行 0 / 漂移 0」；新环境表结构应与生产一致（列 721、索引 313）
 - [ ] 后端启动无异常，`GET /health` 返回 UP，`/api/expert/list` 可访问
 - [ ] 审批流接口可用：`GET /api/approval/config`、`POST /api/approval/requests`（修改申请）、`POST /api/approval/create-request`（新增专家申请）

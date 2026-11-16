@@ -28,26 +28,6 @@ export function confirmComplianceDrafts(data) {
   return request.post('/compliance/items/confirm', data)
 }
 
-// 跨版本匹配确认（维护人）：{ oldItemId }
-export function confirmComplianceMatch(itemId, oldItemId) {
-  return request.post(`/compliance/items/${itemId}/match-confirm`, { oldItemId })
-}
-
-// 事项修改历史
-export function complianceItemHistory(itemId) {
-  return request.get(`/compliance/items/${itemId}/history`)
-}
-
-// 某事项全部责任人个人进度（维护人只读）
-export function assigneeProgress(itemId) {
-  return request.get(`/compliance/items/${itemId}/assignee-progress`)
-}
-
-// 某责任人全部事项个人进度（维护人只读）
-export function userProgress(userId) {
-  return request.get(`/compliance/users/${userId}/progress`)
-}
-
 // 我的待办（收藏 ∪ 责任人）
 export function myComplianceTodo() {
   return request.get('/compliance/my-todo')
@@ -110,11 +90,6 @@ export function clearDrafts(documentId, expectedCount) {
 // 撤下提交（维护端：expectedCount 集合版本校验）
 export function withdrawDocument(documentId, expectedCount) {
   return request.post(`/compliance/notebook/documents/${documentId}/withdraw`, { expectedCount })
-}
-
-// 项目合规待办列表
-export function listProjectComplianceTodos(projectId) {
-  return request.get(`/compliance/notebook/projects/${projectId}/todos`)
 }
 
 // 处理项目合规待办（row_version 乐观锁）

@@ -45,16 +45,6 @@ export function restoreProject(id) {
   return request.put(`/project/${id}/restore`)
 }
 
-// 时间线（operation_log 同源，倒序）
-export function getProjectTimeline(id) {
-  return request.get(`/project/${id}/timeline`)
-}
-
-// 专家名单
-export function listProjectExperts(id) {
-  return request.get(`/project/${id}/experts`)
-}
-
 // 调派专家
 export function addProjectExpert(id, data) {
   return request.post(`/project/${id}/experts`, data)
@@ -68,11 +58,6 @@ export function removeProjectExpert(id, expertId) {
 // 新建专家卡并自动关联（留痕）
 export function createExpertCard(id, data) {
   return request.post(`/project/${id}/experts/new-card`, data)
-}
-
-// 供应商名单
-export function listProjectSuppliers(id) {
-  return request.get(`/project/${id}/suppliers`)
 }
 
 // 关联供应商（用途自动带出）
@@ -93,11 +78,6 @@ export function saveExpertFee(id, expertId, fee) {
 // 填写供应商费用
 export function saveSupplierFee(id, supplierId, fee) {
   return request.put(`/project/${id}/suppliers/${supplierId}/fee`, { fee })
-}
-
-// 分阶段资料列表
-export function listProjectDocs(id, params) {
-  return request.get(`/project/${id}/docs`, { params })
 }
 
 // 上传分阶段资料
@@ -121,11 +101,6 @@ export function saveRichText(id, data) {
 // 登记预算金额
 export function registerBudget(id, amount) {
   return request.put(`/project/${id}/budget`, { amount })
-}
-
-// 合同列表
-export function listProjectContracts(id) {
-  return request.get(`/project/${id}/contracts`)
 }
 
 // 登记合同（自动带出专家敏感字段）
@@ -238,11 +213,6 @@ export function getProjectBudget(id) {
 // 整单保存（confirm=false 草稿 / true 确认报价）
 export function saveProjectBudget(id, data) {
   return request.put(`/project/${id}/meeting-budget`, data)
-}
-
-// 确认报价（已填草稿直接确认）
-export function confirmProjectBudget(id) {
-  return request.post(`/project/${id}/meeting-budget/confirm`)
 }
 
 // 收费标准（管理员设置-项目配置）
