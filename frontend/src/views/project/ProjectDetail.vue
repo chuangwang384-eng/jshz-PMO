@@ -186,8 +186,9 @@
           </template>
         </div>
 
-        <!-- ④.5 参会专家（2026-11-09 流程重塑：日程在「阶段资料」上传后自动解析） -->
-        <div class="ui-card pd-block pd-schedule">
+        <!-- ④.5 参会专家（2026-11-09 流程重塑：日程在「阶段资料」上传后自动解析）
+             2026-11-16 Owner 口径：仅日程上传阶段展示，会议预算制作阶段不展示 -->
+        <div v-if="isAgendaStage" class="ui-card pd-block pd-schedule">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">参会专家</span>
             <span :class="'ui-badge ' + scheduleBadgeClass">{{ scheduleBadgeText }}</span>
@@ -511,7 +512,8 @@
           <div v-if="!assistantList.length" class="hint-text" style="padding-left: 34px">暂无协助人</div>
         </div>
 
-        <div class="ui-card side-card">
+        <!-- 2026-11-16 Owner 口径：会议预算制作阶段只展示 生命周期/阶段资料，右侧待办/文件/合规均隐藏 -->
+        <div v-if="!isBudgetStage" class="ui-card side-card">
           <div class="pd-sec-title">当前待办</div>
           <template v-if="missingRequiredTemplates.length">
             <div v-for="(m, i) in missingRequiredTemplates" :key="i" class="todo-item">
@@ -529,8 +531,9 @@
           <div v-else class="side-done">当前阶段必填配置已完成</div>
         </div>
 
-        <!-- 项目文件快速访问（Owner 2026-11-12）：始终显示，所有阶段上传的文件均可快速下载/预览 -->
-        <div class="ui-card side-card">
+        <!-- 项目文件快速访问（Owner 2026-11-12）：所有阶段上传的文件均可快速下载/预览
+             2026-11-16 Owner 口径：会议预算制作阶段隐藏 -->
+        <div v-if="!isBudgetStage" class="ui-card side-card">
           <div class="pd-sec-title">项目文件（{{ allDocs.length }}）</div>
           <template v-if="allDocs.length">
             <div v-for="d in allDocs.slice(0, 10)" :key="d.id" class="side-doc">
@@ -546,7 +549,7 @@
           <div v-else class="hint-text">暂无附件资料</div>
         </div>
 
-        <section v-if="detail.complianceBoundDocTitle || detail.complianceTodos?.length" class="ui-card side-card pd-compliance">
+        <section v-if="!isBudgetStage && (detail.complianceBoundDocTitle || detail.complianceTodos?.length)" class="ui-card side-card pd-compliance">
           <div class="pd-sec-title">合规要求注意事项</div>
           <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
             来源文档：{{ detail.complianceBoundDocTitle }}
