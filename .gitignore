@@ -93,3 +93,4 @@ builds/
 .workbuddy/
 .bdv4b.txt
 temp/
+backend/version.txt
