@@ -1,5 +1,6 @@
 # 最新交接摘要
 
+- 2026-11-16 **已合并到 main 并发布生产（1.0.45 / gitShort=fc173ce）**：`codex/personal-dashboard-v11` → `main`（合并提交 `c962ea2`），后端蓝绿发布 + 前端不可变发布（`1.0.45-cleanup-20261116`）均通过；发布后经 Nginx 验证首页/主包/13 个核心接口/匿名 401/旧包 hash 资产全部正常，失败项 0。后续开发一律在 `main` 进行。**未推送 origin/main**。见 [发布记录](../releases/20261116-main-merge-cleanup-deploy.md) 与 [任务交接](tasks/20261116_redundancy_cleanup.md)。
 - 2026-11-16 全项目冗余清理 + DDL 单一可信来源收口：**已完成待验收**：释放 20.6 GB 可重建产物；删除 4 个零引用组件、34 处无调用 `export`；`init.sql` 补齐至 85 张业务表并新增 `check-schema-parity.ps1` 守卫；后端 159 测试通过、前端构建通过、27 项接口冒烟与匿名 401 通过；**生产未发布**。见 [任务交接](tasks/20261116_redundancy_cleanup.md)。
 - 2026-11-16 项目详情右侧卡片滚动时对齐内容区顶部，前端已上线。见 [发布记录](../releases/20261116-project-sidebar-sticky.md) 和 [任务交接](tasks/20261116_project_sidebar_sticky.md)。
 

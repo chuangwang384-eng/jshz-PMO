@@ -8,7 +8,7 @@
 | 任务名称 | 全项目冗余清理（代码/文档/产物）与 init.sql–migration DDL 收口 |
 | 主责 Agent | CodeBuddy（单 Agent 执行） |
 | 交接时间 | 2026-11-16 |
-| 当前状态 | **已完成待验收**（生产未发布，见第 7 节） |
+| 当前状态 | **已验收（已合并 main 并发布生产）**，见 [发布记录](../../releases/20261116-main-merge-cleanup-deploy.md) |
 | 优先级 | P1 |
 
 ## 2. 目标与验收条件
@@ -32,7 +32,7 @@
 | --- | --- |
 | 分支 | `codex/personal-dashboard-v11` |
 | 提交号 | `69074c8`（清理前，工作区干净） |
-| 运行后端 | `1.0.45`，buildTime `2026-11-16 14:33:19`，gitShort `bf275ca`（**运行包早于 HEAD**，本次未重新构建/部署） |
+| 运行后端 | 发布后：`1.0.45`，buildTime `2026-11-16 16:08:04`，gitShort `fc173ce`（= HEAD）；发布前为 `bf275ca` |
 | 生产库 | `expert_system` @ 127.0.0.1:3306，实测 **101 张表**（85 业务 + 10 `*_bak_*` + 6 `mig_*`） |
 | 线上前端 | `frontend/releases/1.0.45-ai-chat-20261116`（Nginx root） |
 | 核实时间 | 2026-11-16 15:30–16:10 |
@@ -93,14 +93,16 @@
 | 核心接口冒烟 | 27 项（专家/项目/看板/知识/供应商/客户/公告/消息/审批/RBAC/企微/审计/合规） | 通过 | 全部 200；先期 7 项 4xx/5xx 经复核为**本人路径写错**（如 `/api/supplier`→`/api/supplier/list`、`/api/compliance/mode`→`/api/compliance/v4/mode`） |
 | 权限边界 | 匿名访问 `/api/experts`、`/api/dashboard/overview`、`/api/roles` | 通过 | 均返回 **401** |
 | 页面级人工复验 | 浏览器点检 | **未执行** | 本次无浏览器环境，需业务侧配合（见第 7 节） |
+| 发布后生产复验 | 经 Nginx（80）：首页/主包/13 接口/匿名 401/旧包 hash 资产 | **通过** | 失败项 0；详见 [发布记录](../../releases/20261116-main-merge-cleanup-deploy.md) |
 
 ## 7. 未完成事项与阻塞
 
 | 事项 | 原因 | 影响 | 下一步 | 责任方 |
 | --- | --- | --- | --- | --- |
-| 前端改动未上线 | 生产发布属高风险操作，需负责人批准 | 线上仍是 1.0.45 旧包；死代码删除仅存在于工作区 | 批准后走 `deploy-frontend.ps1` + 冒烟；或随下个版本发布 | 项目负责人 |
+| ~~前端改动未上线~~ | 2026-11-16 16:18 已发布 `1.0.45-cleanup-20261116` | 已解决 | — | — |
 | `schema_migration` 台账异常 | `-Mode Status` 显示 **待执行 3**（`20261116_ai_assistant|budget_stage|budget_fee_scene`）、**漂移 18** | 台账与实际结构不符；`-Mode Apply` 会因漂移中止 | 负责人批准后重登记（写库操作，本次未执行） | 项目负责人 + DBA |
-| 运行包与 HEAD 不一致 | 线上 jar 为 `bf275ca`，HEAD 为 `69074c8` | 无法证明 HEAD 代码已上线 | 下次发布时以 HEAD 构建并核对 `/health.gitShort` | 发布执行人 |
+| ~~运行包与 HEAD 不一致~~ | 2026-11-16 16:15 已重新构建部署，`/health.gitShort=fc173ce` = HEAD | 已解决 | — | — |
+| 未推送 origin/main | 未获推送授权，且需先 fetch 核对远端 | 远端 main 仍为 `287257b`，其他人拉不到本次合并 | 授权后 `git push origin main`（先 `git fetch` 确认无他人提交） | 项目负责人 |
 | 三处文档解析实现未合并 | 输出结构/降级策略不同（`String` / `ResumeParseResult` / `Extracted`，含 OCR 与图片抽取差异），强制合并属高风险重构 | 维护需改三处 | 单独立项：抽 `DocumentTextExtractor` 并补样例回归 | 后端负责人 |
 | 三个兼容层保留 | `UserInfoCompatController`（旧缓存页兼容）、`ExportCompatController`（`/api/export` 无前端调用但属已发布能力）、`ComplianceLegacyService`（V3 页面仍在用） | 少量死表面 | 由负责人确认下线窗口后单独任务处理 | 项目负责人 |
 
