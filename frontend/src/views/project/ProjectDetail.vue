@@ -547,8 +547,13 @@
           <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
             来源文档：{{ detail.complianceBoundDocTitle }}
           </div>
-          <ul v-if="detail.complianceTodos?.length" class="pd-compliance-items">
-            <li v-for="todo in detail.complianceTodos" :key="todo.id">
+          <el-radio-group v-if="detail.complianceTodos?.length" v-model="complianceView" size="small"
+            class="pd-compliance-switch" aria-label="合规事项视图">
+            <el-radio-button value="PENDING">待完成</el-radio-button>
+            <el-radio-button value="DONE">已完成</el-radio-button>
+          </el-radio-group>
+          <ul v-if="visibleComplianceTodos.length" :key="complianceView" class="pd-compliance-items">
+            <li v-for="todo in visibleComplianceTodos" :key="todo.id">
               <div class="pd-compliance-heading">
                 <strong>{{ todo.title }}</strong>
                 <el-tag :type="todo.status === 'DONE' ? 'success' : 'warning'" size="small">
@@ -564,12 +569,15 @@
                   link
                   :type="todo.status === 'PENDING' ? 'primary' : 'info'"
                   size="small"
+                  :disabled="complianceUpdating"
                   @click="handleComplianceTodo(todo, todo.status === 'PENDING' ? 'DONE' : 'PENDING')"
                 >{{ todo.status === 'PENDING' ? '完成' : '重开' }}</el-button>
               </div>
             </li>
           </ul>
-          <div v-else class="hint-text">暂无推送的合规待办</div>
+          <div v-else class="hint-text">
+            {{ detail.complianceTodos?.length ? (complianceView === 'DONE' ? '暂无已完成事项' : '暂无待完成事项') : '暂无推送的合规待办' }}
+          </div>
         </section>
 
         <div v-if="!isAgendaStage" class="ui-card side-card">
@@ -834,6 +842,10 @@ const route = useRoute()
 const projectId = route.params.id
 const loading = ref(false)
 const detail = ref({})
+const complianceView = ref('PENDING')
+const complianceUpdating = ref(false)
+const visibleComplianceTodos = computed(() =>
+  (detail.value.complianceTodos ?? []).filter(todo => todo.status === complianceView.value))
 // 查看阶段（Stepper 点击切换，仅影响展示层，不触发流转）；初始=当前阶段
 const viewPhaseId = ref('')
 
@@ -913,13 +925,18 @@ async function fetchDetail({ refreshSchedule = true } = {}) {
 
 // ---- 合规要求注意事项（Owner 2026-11-10 记事本：项目待办处理，row_version 乐观锁） ----
 async function handleComplianceTodo(row, status) {
+  if (complianceUpdating.value) return
+  complianceUpdating.value = true
   try {
-    await handleProjectComplianceTodo(row.id, status, row.rowVersion)
-    ElMessage.success(status === 'DONE' ? '待办已完成' : '待办已重开')
-    fetchDetail()
-  } catch (e) {
-    // 冲突（他人已更新）或权限问题由拦截器提示；刷新拿最新状态
-    fetchDetail()
+    try {
+      await handleProjectComplianceTodo(row.id, status, row.rowVersion)
+      ElMessage.success(status === 'DONE' ? '待办已完成' : '待办已重开')
+    } catch {
+      // 接口层提示失败。刷新详情以获取其他用户的最新操作。
+    }
+    await fetchDetail({ refreshSchedule: false }).catch(() => {})
+  } finally {
+    complianceUpdating.value = false
   }
 }
 
@@ -1795,6 +1812,7 @@ async function downloadProjectFile(d) {
 .pd-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
 .pd-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .pd-compliance-source { margin-bottom: 6px; overflow-wrap: anywhere; }
+.pd-compliance-switch { margin-bottom: 6px; }
 .pd-compliance-items { list-style: none; margin: 0; padding: 0; max-height: 38vh; overflow-y: auto; }
 .pd-compliance-items li { padding: 10px 2px; border-top: 1px solid var(--el-border-color-lighter); }
 .pd-compliance-heading, .pd-compliance-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
@@ -1802,7 +1820,8 @@ async function downloadProjectFile(d) {
 .pd-compliance-content { margin: 5px 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pd-compliance-footer { overflow-wrap: anywhere; }
 .pd-compliance-footer .el-button { margin-left: auto; }
-.pd-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 72px; }
+/* 吸顶时抵消主滚动区的内边距，贴齐应用顶栏下缘。 */
+.pd-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: calc(-1 * var(--el-main-padding, 0px)); }
 
 /* ② 核心数据卡 */
 .pd-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }

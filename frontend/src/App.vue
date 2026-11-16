@@ -312,6 +312,7 @@ body {
   font-weight: 500;
 }
 .main {
-  padding: 16px;
+  --el-main-padding: 16px;
+  padding: var(--el-main-padding);
 }
 </style>

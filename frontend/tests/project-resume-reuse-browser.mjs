@@ -12,6 +12,11 @@ const speaker = { id: 11, expertName: '张医生', role: 'SPEAKER', expertId: nu
 const other = { id: 12, expertName: '王医生', role: 'SPEAKER', expertId: null }
 const candidate = { id: 13, expertName: '李医生', role: 'SPEAKER', expertId: null }
 const writes = []
+const complianceWrites = []
+const complianceTodos = [
+  { id: 71, title: '签到表', status: 'DONE', rowVersion: 2 },
+  { id: 72, title: '现场照片', status: 'PENDING', rowVersion: 1 }
+]
 const sample = name => ({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF fixture') })
 let parses = 0
 try {
@@ -30,7 +35,17 @@ try {
     let data = []
     if (url.pathname.endsWith('/me')) data = user
     if (url.pathname === '/api/project/55') {
-      data = { id: 55, name: '示例项目', canManage: true, phaseId: 1, phaseName: '日程上传', phases: [{ id: 1, name: '日程上传' }] }
+      data = { id: 55, name: '示例项目', canManage: true, canOperate: true, phaseId: 1, phaseName: '日程上传',
+        phases: [{ id: 1, name: '日程上传' }], complianceTodos }
+    }
+    if (url.pathname === '/api/compliance/notebook/todos/72' && request.method() === 'PUT') {
+      const todo = complianceTodos[1]
+      const body = request.postDataJSON()
+      assert.equal(body.rowVersion, todo.rowVersion)
+      complianceWrites.push(body)
+      todo.status = body.status
+      todo.rowVersion++
+      data = null
     }
     if (url.pathname === '/api/project/55/schedule') data = { speakers: [speaker, other], candidates: [candidate] }
     if (url.pathname === '/api/experts') {
@@ -68,7 +83,35 @@ try {
     }
     return route.fulfill({ json: { code: 0, data } })
   })
+  await page.setViewportSize({ width: 1191, height: 675 })
   await page.goto(origin + '/project/55')
+  const compliance = page.locator('.pd-compliance')
+  const item = compliance.getByRole('listitem').filter({ hasText: '现场照片' })
+  await item.waitFor()
+  const sidebar = page.locator('.pd-side')
+  const sidebarScroll = await sidebar.evaluate(side => {
+    const main = side.closest('main')
+    const mainTop = main.getBoundingClientRect().top
+    const before = side.getBoundingClientRect().top - mainTop
+    main.scrollTop += before + 8
+    return { gap: side.getBoundingClientRect().top - mainTop, before, scroll: main.scrollTop,
+      max: main.scrollHeight - main.clientHeight, stickyTop: getComputedStyle(side).top }
+  })
+  assert.ok(Math.abs(sidebarScroll.gap) <= 1, `Expected sidebar flush with scroll container, ${JSON.stringify(sidebarScroll)}`)
+  await page.setViewportSize({ width: 1024, height: 675 })
+  assert.equal(await sidebar.evaluate(side => getComputedStyle(side).position), 'static')
+  await page.setViewportSize({ width: 1191, height: 675 })
+  assert.equal(await compliance.getByRole('listitem').filter({ hasText: '签到表' }).count(), 0)
+  await item.getByRole('button', { name: '完成', exact: true }).click()
+  await compliance.getByText('暂无待完成事项', { exact: true }).waitFor()
+  const views = compliance.getByRole('radiogroup', { name: '合规事项视图' })
+  await views.getByText('已完成', { exact: true }).click()
+  await item.getByRole('button', { name: '重开', exact: true }).click()
+  await item.waitFor({ state: 'hidden' })
+  await views.getByText('待完成', { exact: true }).click()
+  await item.getByRole('button', { name: '完成', exact: true }).waitFor()
+  assert.deepEqual(complianceWrites, [{ status: 'DONE', rowVersion: 1 }, { status: 'PENDING', rowVersion: 2 }])
+  await page.setViewportSize({ width: 1440, height: 950 })
   await page.getByText('选择同名专家', { exact: true }).click()
   await page.getByRole('option', { name: '李医生·甲医院' }).waitFor()
   await page.getByRole('option', { name: '李医生·乙医院' }).waitFor()
@@ -118,7 +161,7 @@ try {
   await single.getByRole('button', { name: '确认建档' }).click()
   await single.getByText('已建档，回绑参会记录 1 条').waitFor()
   assert.deepEqual(writes.at(-1), { name: '李医生', unit: '测试医院', requirePendingSpeaker: false, hasPhoto: true })
-  console.log('PASS: project batch resume reuse, strict name matching, replacement, submission, refresh and single-speaker preset.')
+  console.log('PASS: project batch resume reuse, single-speaker archiving, and project compliance views, completion and reopen. Sidebar aligns with scroll top.')
 } finally {
   await browser.close()
 }

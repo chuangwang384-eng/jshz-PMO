@@ -102,6 +102,10 @@ AIGC:
 
 项目单人、批量及手动建档均要求姓名和单位，职称、简介、联系方式及头像可空。联系方式「无」按空值处理，其他非空联系方式沿用专家库的手机号或邮箱校验。旧批量简历建档接口遇到缺少姓名或单位的简历时逐条返回失败。
 
+项目详情右侧的「合规要求注意事项」默认显示待完成事项，可切换查看已完成事项。完成或重开后重新读取项目详情，事项按服务端状态出现在对应视图。沿用原事项写入权限和 `rowVersion` 冲突检查。
+
+项目详情双栏布局滚动时，右侧卡片组吸附在主内容滚动区顶部，紧贴顶栏下缘。单栏布局中卡片随页面正常滚动。
+
 > RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码），但文件流端点会按存储文件名反查文档并校验状态：文档不存在/已永久删除返回业务码 404，已下架且非 `knowledge:maintain` 返回业务码 403，避免下架后旧链接继续可下载（P1-5）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:maintain`（知识星球维护人/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:maintain`（已绑定 KNOWLEDGE_MAINTAINER），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
 
 > 知识文档异步解析（2026-11-06，P2-7）：上传/更新请求只流式落盘并写入 `parse_status=PENDING`，随后提交 `knowledgeParseExecutor` 异步任务；正文抽取（PDFBox/POI）与企业合规 Excel 草稿解析均在线程池内完成，状态/正文更新带 `id+version` 条件，旧任务不会覆盖新版本。解析失败只记录 `FAILED` 与原因，不回滚已上传文件；PDF/DOC/DOCX 抽取为空按失败处理（可能损坏、加密或为扫描件），其余不支持正文的格式标记成功但不参与正文检索；线程池拒绝时同步标记失败，上传本身仍成功。线程池参数见 `expert.knowledge.parse.*`，队列满时采用 AbortPolicy。历史数据 `parse_status=NULL`（接口原样返回，不做批量回填）。
