@@ -749,11 +749,11 @@
     <el-dialog v-model="manualArchiveVisible" title="手动建档" width="640px" destroy-on-close>
       <el-form label-width="70px" size="small">
         <el-row :gutter="8">
-          <el-col :span="8"><el-form-item label="姓名"><el-input v-model="archiveForm.name" :readonly="Boolean(archivePresetName)" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="单位"><el-input v-model="archiveForm.unit" placeholder="待补充" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="职称"><el-input v-model="archiveForm.title" placeholder="待补充" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="姓名" required><el-input v-model="archiveForm.name" :readonly="Boolean(archivePresetName)" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="单位" required><el-input v-model="archiveForm.unit" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="职称"><el-input v-model="archiveForm.title" /></el-form-item></el-col>
         </el-row>
-        <el-form-item label="简介"><el-input v-model="archiveForm.profile" type="textarea" :rows="2" placeholder="待补充" /></el-form-item>
+        <el-form-item label="简介"><el-input v-model="archiveForm.profile" type="textarea" :rows="2" /></el-form-item>
         <el-button size="small" plain :loading="archiveRunning" @click="doArchiveManual">手动建档并回绑</el-button>
       </el-form>
       <template #footer>
@@ -1120,7 +1120,7 @@ function openArchiveDialog(row, candidate = false) {
   archiveVisible.value = true
 }
 
-async function saveProjectResume(fields) {
+async function saveProjectResume(fields, photo) {
   const result = await archiveManual(projectId, {
     name: fields.姓名,
     unit: fields.单位,
@@ -1128,7 +1128,7 @@ async function saveProjectResume(fields) {
     profile: fields.简介,
     contact: fields.联系方式,
     requirePendingSpeaker: !archiveCandidate.value
-  })
+  }, photo)
   if (archiveCandidate.value) archiveCandidate.value.expertId = result.expertId
   return `已建档，回绑参会记录 ${result.boundSpeakers} 条`
 }
@@ -1143,6 +1143,10 @@ async function refreshArchivedExperts() {
 async function doArchiveManual() {
   if (!archiveForm.name.trim()) {
     ElMessage.warning('姓名必填')
+    return
+  }
+  if (!archiveForm.unit.trim()) {
+    ElMessage.warning('单位必填')
     return
   }
   archiveRunning.value = true

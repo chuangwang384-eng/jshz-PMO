@@ -11,6 +11,8 @@ import com.jshz.expert.mapper.ExpertMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
@@ -150,6 +152,28 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         this.save(expert);
         savePhotos(expert, request);
         return getById(expert.getId());
+    }
+
+    void attachNewAvatar(Expert expert, MultipartFile photo) {
+        expert.setPhoto(storeNewAvatar(expert, photo));
+        if (!updateById(expert)) {
+            throw new BusinessException("头像保存失败");
+        }
+    }
+
+    private String storeNewAvatar(Expert expert, MultipartFile photo) {
+        String filename = photoStorageService.savePhoto(photo, expert.getId(), "photo");
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) {
+                        photoStorageService.deletePhoto(filename);
+                    }
+                }
+            });
+        }
+        return filename;
     }
 
     /**
@@ -384,7 +408,7 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         boolean changed = false;
         MultipartFile photo = request.getFile("photo");
         if (photo != null && !photo.isEmpty()) {
-            expert.setPhoto(photoStorageService.savePhoto(photo, expert.getId(), "photo"));
+            expert.setPhoto(storeNewAvatar(expert, photo));
             changed = true;
         }
         MultipartFile front = request.getFile("idCardFront");

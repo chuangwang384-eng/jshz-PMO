@@ -539,6 +539,12 @@ expert:
 | 2026-11-13 09:40:18 | 1.0.38.19 | 成功 | expert-system.jar |
 | 2026-11-13 13:44:46 | 1.0.38.23 | 成功 | expert-system.jar |
 | 2026-11-13 14:53:11 | 1.0.38.24 | 成功 | expert-system.jar |
+| 2026-11-13 15:53:04 | 1.0.38.25 | 成功 | expert-system.jar |
+| 2026-11-13 16:05:48 | 1.0.38.26 | 成功 | expert-system.jar |
+| 2026-11-13 16:50:33 | 1.0.38.27 | 成功 | expert-system.jar |
+| 2026-11-13 17:07:10 | 1.0.38.28 | 成功 | expert-system.jar |
+| 2026-11-13 17:19:17 | 1.0.38.29 | 成功 | expert-system.jar |
+| 2026-11-16 09:24:03 | 1.0.38.30 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
@@ -727,3 +733,7 @@ temp 将删 99 项 ≈ 169 MB（27 项因被引用跳过）。
 - 回滚目标：`frontend/releases/1.0.34-20261106_1705.rollback`（内容 = 1.0.31-ui-fix，索引页 SHA256 一致）
 - Nginx master PID **39504 未变**（graceful reload 只换 worker）
 - 验证：远端 `GET /` 的 `index.html` SHA256 = `247924033f3c5f9de84636a643e6627cace0b5e9ee05b90c3d46474fc11ba197`，与本地快照一致；主包 `assets/index-xoNP1tM1.js` 内 `Moe="v1.0.34"`；`/`、主包、CSS、旧 chunk（`AnnouncementDetail-2ZueWjIJ.js`）均 200；`/api/health` 200
+
+### 本地 AI 模型目录迁移（2026-11-13，待切换）
+
+迁移候选以 <LOCAL_PATH> 为模型权重根目录。Ollama 通过 OLLAMA_MODELS 读取 ollama/models。后端通过 COMPLIANCE_PPOCR_MODELS、U2NET_HOME、TESSDATA_DIR 分别指定 PP-OCRv5、抠图和语言模型目录。程序与解释器保留现有安装位置。切换、验证和回滚见 [迁移交接](handover/tasks/20261113_ai_model_migration.md)。

@@ -1,5 +1,19 @@
 # 最新交接摘要
 
+- 2026-11-16 项目建档只要求姓名和单位，联系方式「无」按空值处理。见 [任务交接](tasks/20261116_project_resume_required.md)。
+
+- 2026-11-16 项目单人及批量建档复用专家库头像候选预览、选择和入档，前后端已上线并通过生产检查，待业务验收。见 [发布记录](../releases/20261116-project-resume-avatar.md) 和 [任务交接](tasks/20261116_project_resume_avatar.md)。
+
+- 2026-11-16 项目单人及批量建档统一使用专家库默认简历解析，前端已上线并通过生产静态检查，待业务验收。见 [发布记录](../releases/20261116-project-resume-parity.md) 和 [任务交接](tasks/20261116_project_resume_parity.md)。
+
+- 2026-11-13 专家库批量简历解析后默认展开卡片字段，待业务验收。见 [交接](tasks/20261113_batch_resume_expanded.md)。
+
+- 2026-11-13 简历解析复用 U²-Net 并行处理，发布候选已验证，待管理员切换。见 [交接](tasks/20261113_resume_speed.md)。
+
+- 2026-11-13 本地 AI 模型权重已复制到 D 盘并完成对照测试，生产切换等待管理员执行。见 [迁移交接](tasks/20261113_ai_model_migration.md)。
+
+- 2026-11-13 专家简历姓名兜底修复通过原件回归及发布预演，生产切换待管理员执行。见 [任务交接](tasks/20261113_resume_name_fallback.md)。
+
 - 2026-11-13 「docs 失效文档清理 + prune-all 散落文件告警」**已完成待验收**：删除 7 份会误导 agent 的文档（旧版部署手册 `deployment-prod.md`、指向已删除 `demo/`+SQLite 的 4 份 Demo 期文档、2 份 dist 覆盖式发布计划/方案，均以 git rm 保留历史）；`prune-all.ps1` 新增 `-ScatterThreshold`（默认 160）散落文件告警（只告警不删除，退出码不变），两条路径已实测。见 [任务交接](tasks/20261113_docs_cleanup_prune_alert.md)。
 
 - 2026-11-13 「temp/ 临时目录清理」**已执行（待 2026-11-20 最终删除确认）**：清理前 2958 文件/432.1 MB，A 类 2861 文件入 `temp\.quarantine-20261113\`（7 天观察）、B 类 31 文件归档（`builds\archive\` 两个 1.0.21 jar + `temp\archive\{codex-review,java-probes,ppocr-benchmark,installers}`）、C 类已授权项 51 文件入隔离区、`login.json`（含明文凭据）已直接删除并留 SHA256；9 个个人信息样本未授权保留。执行前已校验零引用依赖、`supplier_image` 121 行导入已生效、`docs/data/` 留档齐全。见 [审计记录](tasks/20261113_temp_cleanup_audit.md) / [方案](tasks/20261113_temp_cleanup_plan.md)。

@@ -210,8 +210,13 @@ export function deleteSpeaker(id, speakerId) {
 }
 
 // 手动建档单条（成员级）：建档并按姓名回绑参会专家
-export function archiveManual(id, data) {
-  return request.post(`/project/${id}/speakers/archive-manual`, data)
+export function archiveManual(id, data, photo) {
+  const url = `/project/${id}/speakers/archive-manual`
+  if (!photo) return request.post(url, data)
+  const form = new FormData()
+  form.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }))
+  form.append('photo', photo)
+  return request.post(url, form)
 }
 
 // 项目文件流（Owner 2026-11-12 在线预览/下载）：blob 响应；preview=true Office 转 PDF，失败返回 JSON {code,message}

@@ -16,6 +16,11 @@ class PhotoMatteServiceTest {
 
     private final PhotoMatteService service = new PhotoMatteService();
 
+    @org.junit.jupiter.api.AfterEach
+    void stopWorker() {
+        service.close();
+    }
+
     private byte[] samplePng() throws Exception {
         BufferedImage img = new BufferedImage(200, 240, BufferedImage.TYPE_INT_RGB);
         var g = img.createGraphics();
@@ -47,5 +52,7 @@ class PhotoMatteServiceTest {
         BufferedImage back = ImageIO.read(new java.io.ByteArrayInputStream(out));
         assertNotNull(back, "抠图输出必须可解析");
         assertTrue(out.length >= 1000, "输出不应为空图");
+        assertTrue(back.getColorModel().hasAlpha(), "抠图结果应保留透明通道");
+        assertNotNull(service.removeBackground(samplePng()), "同一工作进程应能继续处理下一张图片");
     }
 }

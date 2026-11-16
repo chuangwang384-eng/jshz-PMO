@@ -50,7 +50,7 @@ public class ResumeParseService {
 
     /** 简历单文件上限：单一真源 application.yml expert.upload.resume-max-bytes。 */
     @Value("${expert.upload.resume-max-bytes:20971520}")
-    private long resumeMaxBytes;
+    private long resumeMaxBytes = 20L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS = List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
 
     /** 职称词表（精确匹配，优先级从高到低）。 */
@@ -73,11 +73,11 @@ public class ResumeParseService {
 
     /** 姓名启发式排除词（首行含这些词时不视为姓名）。 */
     private static final List<String> NAME_EXCLUDE_WORDS = List.of(
-            "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历", "某某");
+            "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历", "某某", "基本情况", "学术任职", "学术成就");
 
     private static final Pattern PHONE = Pattern.compile("1[3-9]\\d{9}");
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-    private static final Pattern CHINESE_NAME = Pattern.compile("^[\\u4e00-\\u9fa5·]{2,4}$");
+    private static final Pattern CHINESE_NAME = Pattern.compile("^[\\u4e00-\\u9fa5]{2,4}$|^(?=.{3,20}$)[\\u4e00-\\u9fa5]+(?:·[\\u4e00-\\u9fa5]+)+$");
 
     /** 证件照候选：base64 + mime + 是否已抠透明背景（rembg 成功=true，回退白底 JPG=false） */
     public record PhotoCandidate(String base64, String mime, boolean transparent) {}
@@ -111,25 +111,8 @@ public class ResumeParseService {
                 case "jpg", "jpeg", "png" -> parseImage(bytes);
                 default -> throw new BusinessException(400, "不支持的简历格式");
             };
-            // 兜底：内容未命中姓名，或语义层返回占位/排除词姓名（如"某某"）时，从文件名提取（Owner 2026-11-07）
-            String parsedName = result.fields().get("姓名");
-            if (parsedName != null && NAME_EXCLUDE_WORDS.stream()
-                    .anyMatch(w -> parsedName.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))) {
-                Map<String, String> cleaned = new LinkedHashMap<>(result.fields());
-                cleaned.remove("姓名");
-                result = new ResumeParseResult(cleaned, result.photoCandidates(),
-                        cleaned.size(), result.message());
-            }
-            if (allowFilenameFallback && !result.fields().containsKey("姓名")) {
-                String fallbackName = nameFromFileName(fileName);
-                if (fallbackName != null) {
-                    Map<String, String> withName = new LinkedHashMap<>(result.fields());
-                    withName.put("姓名", fallbackName);
-                    result = new ResumeParseResult(withName, result.photoCandidates(),
-                            result.hitCount() + 1, result.message());
-                }
-            }
-            return result;
+            result = resolveName(result, fileName, allowFilenameFallback);
+            return resolveUnit(result, fileName);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -142,20 +125,52 @@ public class ResumeParseService {
      * 姓名兜底（Owner 2026-11-07）：内容解析未命中姓名时，从文件名分词中提取。
      * 兼容"1 广州荔湾中心医院 何展鹏.pptx"（序号+单位+姓名）与"何展鹏-某医院.pdf"等命名。
      */
+    ResumeParseResult resolveName(ResumeParseResult result, String fileName, boolean allowFilenameFallback) {
+        String parsedName = result.fields().get("姓名");
+        if (isCandidateName(parsedName)) return result;
+        Map<String, String> fields = new LinkedHashMap<>(result.fields());
+        fields.remove("姓名");
+        String fallback = allowFilenameFallback ? nameFromFileName(fileName) : null;
+        if (fallback != null) fields.put("姓名", fallback);
+        return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
+    }
+
+    private boolean isCandidateName(String value) {
+        return value != null && CHINESE_NAME.matcher(value).matches()
+                && NAME_EXCLUDE_WORDS.stream().noneMatch(value::contains)
+                && ORG_SUFFIXES.stream().noneMatch(value::endsWith)
+                && DEPT_SUFFIXES.stream().noneMatch(value::endsWith)
+                && !value.matches(".*(博士|硕士|学士|医师|教授|主任)$");
+    }
+
     String nameFromFileName(String fileName) {
         if (fileName == null || fileName.isBlank()) return null;
         String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
         // 去掉常见后缀词后再分词
         base = base.replaceAll("(简历|的简历|专家简介|简介)+$", "").trim();
-        String[] tokens = base.split("[\\s\\-_.（）()·、，,]+");
+        String[] tokens = base.split("[\\s\\-_.（）()、，,]+");
         for (String token : tokens) {
-            String t = token.trim();
-            if (!CHINESE_NAME.matcher(t).matches()) continue;
-            if (NAME_EXCLUDE_WORDS.stream().anyMatch(w -> t.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))) continue;
-            if (ORG_SUFFIXES.stream().anyMatch(t::endsWith) || DEPT_SUFFIXES.stream().anyMatch(t::endsWith)) continue;
-            return t;
+            String t = token.replaceFirst("^(?:副本)+", "")
+                    .replaceFirst("(?:的简历|专家简介|简历|简介)+(?:新版|更新版|最新版|新)?$", "");
+            if (isCandidateName(t)) return t;
         }
         return null;
+    }
+
+    private ResumeParseResult resolveUnit(ResumeParseResult result, String fileName) {
+        String unit = result.fields().get("单位");
+        if ((unit != null && !unit.isBlank()) || fileName == null) return result;
+        String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
+        for (String token : base.split("[\\s\\-_.、，,]+")) {
+            String candidate = token.replaceFirst("^(?:副本|[0-9]+)+", "");
+            if (candidate.length() < 4 || candidate.length() > 40
+                    || candidate.contains("某") || NAME_EXCLUDE_WORDS.stream().anyMatch(candidate::contains)
+                    || ORG_SUFFIXES.stream().noneMatch(candidate::endsWith)) continue;
+            Map<String, String> fields = new LinkedHashMap<>(result.fields());
+            fields.put("单位", candidate);
+            return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
+        }
+        return result;
     }
 
     // ==================== 格式分发 ====================
@@ -260,6 +275,8 @@ public class ResumeParseService {
     // ==================== 字段解析 ====================
 
     private ResumeParseResult buildResult(String text, List<BufferedImage> images) {
+        var photos = photoMatteService == null || images == null || images.isEmpty() ? null
+                : photoMatteService.candidates(() -> buildPhotoCandidates(images, true));
         Map<String, String> fields = new LinkedHashMap<>();
         String message = "";
         if (text == null || text.isBlank()) {
@@ -269,9 +286,20 @@ public class ResumeParseService {
             extractFields(text, fields);
             Map<String, String> semantic = ollamaService.extractResumeFields(text);
             if (semantic != null && !semantic.isEmpty()) {
-                fields.putAll(semantic);   // 语义结果优先覆盖，启发式仅补缺
+                String normalizedText = text.replaceAll("\\s+", "");
+                semantic.forEach((key, value) -> {
+                    if ("单位".equals(key) && (fields.containsKey(key) || value == null
+                            || ORG_SUFFIXES.stream().noneMatch(value.strip()::endsWith)
+                            || !normalizedText.contains(value.replaceAll("\\s+", "")))) return;
+                    if (!"姓名".equals(key) || (!isCandidateName(fields.get("姓名"))
+                            && isCandidateName(value) && normalizedText.contains(value))) {
+                        fields.put(key, value);
+                    }
+                });
                 if (!fields.isEmpty()) message = "已结合本地语义模型解析";
             }
+            // 无效姓名不算已归入结构化字段，原文仍应进入简介。
+            if (!isCandidateName(fields.get("姓名"))) fields.remove("姓名");
             if (fields.isEmpty()) {
                 message = "已识别文本但未命中可填充字段，请手动填写";
             }
@@ -283,11 +311,19 @@ public class ResumeParseService {
                 fields.put("简介", profile);
             }
         }
+        List<PhotoCandidate> photoCandidates = photos == null ? List.of() : photos.join();
+        if (photoCandidates.isEmpty()) photoCandidates = buildPhotoCandidates(images, false);
+        return new ResumeParseResult(fields, photoCandidates, fields.size(), message);
+    }
+
+    private List<PhotoCandidate> buildPhotoCandidates(List<BufferedImage> images, boolean matte) {
         // 头像候选：先取"头像特征"过滤结果；若全部被过滤，回退为文档内所有图片
         //（Owner 2026-11-07：doc 等格式内所有图片都可能是头像）
         List<PhotoCandidate> photoCandidates = new ArrayList<>();
         List<BufferedImage> safeImages = images == null ? List.of() : images;
-        List<BufferedImage> pool = safeImages.stream().filter(this::isAvatarLike).toList();
+        List<BufferedImage> pool = safeImages.stream().filter(this::isAvatarLike)
+                .sorted(java.util.Comparator.comparing(img -> img.getWidth() > img.getHeight()))
+                .toList();
         if (pool.isEmpty()) pool = safeImages;
         for (BufferedImage img : pool) {
             if (photoCandidates.size() >= 3) break;
@@ -295,8 +331,7 @@ public class ResumeParseService {
             try {
                 // Owner 2026-11-11：先转无损 PNG 保留原始像素 → rembg 抠图 → 透明证件照；
                 // 抠图失败（运行时未装/超时）回退白底 JPG（原行为）
-                byte[] png = toPngBytes(img);
-                byte[] matted = photoMatteService == null ? null : photoMatteService.removeBackground(png);
+                byte[] matted = matte ? photoMatteService.removeBackground(toPngBytes(resizePortraitInput(img))) : null;
                 if (matted != null) {
                     // 抠图后按最长边 600px 缩放（保持透明通道；避免文档大图 base64 过大）
                     byte[] scaled = downscalePng(matted, 600);
@@ -312,16 +347,34 @@ public class ResumeParseService {
                 // 单张候选失败不影响其余
             }
         }
-        return new ResumeParseResult(fields, photoCandidates, fields.size(), message);
+        return photoCandidates;
     }
 
-    /** 头像特征：尺寸 80~4000px、宽高比 0.5~1.8。 */
+    /** 头像特征：最短边 80px、宽高比 0.5~1.8。大图在推理前缩放。 */
     private boolean isAvatarLike(BufferedImage img) {
         if (img == null) return false;
         int w = img.getWidth(), h = img.getHeight();
-        if (w < 80 || h < 80 || w > 4000 || h > 4000) return false;
+        if (w < 80 || h < 80) return false;
         double ratio = (double) w / h;
         return ratio >= 0.5 && ratio <= 1.8;
+    }
+
+    private BufferedImage resizePortraitInput(BufferedImage image) {
+        int longest = Math.max(image.getWidth(), image.getHeight());
+        if (longest <= 1200) return image;
+        double scale = 1200.0 / longest;
+        int width = Math.max(1, (int) Math.round(image.getWidth() * scale));
+        int height = Math.max(1, (int) Math.round(image.getHeight() * scale));
+        BufferedImage resized = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        var graphics = resized.createGraphics();
+        try {
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.drawImage(image, 0, 0, width, height, null);
+        } finally {
+            graphics.dispose();
+        }
+        return resized;
     }
 
     /** 解码图片字节并收集（解码失败或 0 尺寸异常图跳过）。 */
@@ -349,7 +402,7 @@ public class ResumeParseService {
             String v = line == null ? "" : line.replaceAll("[ \\t]+", " ").trim();
             if (v.isEmpty() || v.matches("\\d{1,3}") || v.matches("-?\\d+页?")
                     || v.matches("第\\d+页.*共\\d+页")) continue;
-            if (values.stream().anyMatch(v::contains)) continue;
+            if (values.contains(v)) continue;
             if (CONSUMED_LABELS.stream().anyMatch(v::contains)) continue;
             if (!leftover.contains(v)) leftover.add(v);
         }
@@ -375,14 +428,22 @@ public class ResumeParseService {
         String full = text.replaceAll("[ \\t]", "");
 
         String name = extractByLabel(cleaned, "姓名", "Name", 2, 20);
+        if (!isCandidateName(name)) {
+            name = null;
+            for (int i = 1; i < cleaned.size(); i++) {
+                if (!cleaned.get(i).matches("个人简介|个人简历")) continue;
+                String preceding = cleaned.get(i - 1).replaceAll("\\s+", "");
+                if (isCandidateName(preceding)) {
+                    name = preceding;
+                    break;
+                }
+            }
+        }
         if (name == null) {
             // 无标签简历：前 3 行内寻找 2~4 汉字人名（首行常为"个人简历"类标题）
             for (int i = 0; i < Math.min(3, cleaned.size()) && name == null; i++) {
                 String line = cleaned.get(i);
-                if (CHINESE_NAME.matcher(line).matches()
-                        && NAME_EXCLUDE_WORDS.stream().noneMatch(w -> line.toLowerCase(Locale.ROOT).contains(w.toLowerCase()))
-                        && ORG_SUFFIXES.stream().noneMatch(line::endsWith)
-                        && DEPT_SUFFIXES.stream().noneMatch(line::endsWith)) {
+                if (isCandidateName(line)) {
                     name = line;
                 }
             }

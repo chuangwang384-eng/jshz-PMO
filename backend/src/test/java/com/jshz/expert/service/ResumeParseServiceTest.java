@@ -104,9 +104,27 @@ class ResumeParseServiceTest {
         assertEquals("何展鹏", service.nameFromFileName("何展鹏-广州市荔湾中心医院.pdf"));
         assertEquals("李测试", service.nameFromFileName("3、李测试_某某医院.docx"));
         assertEquals("张三", service.nameFromFileName("张三简历.docx"));
+        assertEquals("陈珂", service.nameFromFileName("河南省肿瘤医院-陈珂简介新.pptx"));
         assertNull(service.nameFromFileName("1 广州荔湾中心医院.pptx"));
         assertNull(service.nameFromFileName("个人简历.docx"));
         assertNull(service.nameFromFileName(null));
+    }
+
+    @Test void spacedNameBeforePersonalIntroductionBeatsSectionHeading() {
+        assertEquals("陈珂", parse("基本情况\n副主任护师\n学术任职\n  陈  珂\n个人简介\n").get("姓名"));
+    }
+
+    @Test void filenameUnitOnlyFillsMissingUnitInBothNameModes() throws Exception {
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("姓名：谷培利");
+            document.write(output);
+            assertEquals("郑州市人民医院", service.parse("郑州市人民医院-谷培利.docx", output.toByteArray(), false).fields().get("单位"));
+        }
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("单位：测试医院");
+            document.write(output);
+            assertEquals("测试医院", service.parse("郑州市人民医院-谷培利.docx", output.toByteArray()).fields().get("单位"));
+        }
     }
 
     @Test void profileTruncatesAt2000Chars() {
@@ -114,5 +132,35 @@ class ResumeParseServiceTest {
         for (int i = 0; i < 250; i++) longText.append("这是一段很长的未归位简介内容。\n");
         String profile = service.collectProfileLines(longText.toString(), Map.of());
         assertTrue(profile.length() <= 2000);
+    }
+    @Test void invalidNameFallsBackToDecoratedFilenameOnlyWhenAllowed() {
+        String filename = "副本李宏简介-湖北省肿瘤医院 1.pptx";
+        var result = new ResumeParseService.ResumeParseResult(
+                Map.of("姓名", "华中科技大学同济医学院医学博士", "单位", "湖北省肿瘤医院"),
+                java.util.List.of(), 2, "");
+        assertEquals(Map.of("姓名", "李宏", "单位", "湖北省肿瘤医院"),
+                service.resolveName(result, filename, true).fields());
+        var contentOnly = service.resolveName(result, filename, false);
+        assertEquals(Map.of("单位", "湖北省肿瘤医院"), contentOnly.fields());
+        assertEquals(1, contentOnly.hitCount());
+    }
+
+    @Test void optionalLocalPptxRegression() throws Exception {
+        String sample = System.getenv("RESUME_NAME_TEST_PPTX");
+        org.junit.jupiter.api.Assumptions.assumeTrue(sample != null && !sample.isBlank());
+        var path = java.nio.file.Path.of(sample);
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of("姓名", "华中科技大学同济医学院医学博士", "单位", "湖北省肿瘤医院");
+            }
+        }, null);
+        byte[] bytes = java.nio.file.Files.readAllBytes(path);
+        var result = parser.parse(path.getFileName().toString(), bytes);
+        var fields = result.fields();
+        assertEquals("李宏", fields.get("姓名"));
+        assertTrue(fields.get("简介").contains("华中科技大学同济医学院医学博士"));
+        assertTrue(result.photoCandidates().stream().anyMatch(photo ->
+                "image/jpeg".equals(photo.mime()) && !photo.base64().isBlank()));
+        assertFalse(parser.parse(path.getFileName().toString(), bytes, false).fields().containsKey("姓名"));
     }
 }

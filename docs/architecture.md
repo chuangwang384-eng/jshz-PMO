@@ -92,9 +92,15 @@ AIGC:
 
 > `expert_info.update_by` 写入语义：直接编辑（ExpertService.update，由超管/具备 expert:edit 权限用户调用）记操作者本人；审批通过（ApplicationService.approveModify / approveCreate）记申请单申请人 `application.applicant`（发起修改/新增的人），审批人仅记录于 `approve_by`。`update_time` 由数据库 `ON UPDATE CURRENT_TIMESTAMP` 自动维护。
 
+简历解析在收集简介之前校验姓名候选，排除学历、职称、机构和占位文本。未被有效字段占用的学历原文可以进入简介。默认模式下，正文姓名缺失或无效时允许从文件名提取，并去除「副本」「简介」等前后缀。接口保留可选的 `contentNameOnly=true` 参数，供需要限定姓名来源的旧客户端使用。
+
 专家库批量上传简历由前端依次调用已有单份解析接口，每个文件生成一张可编辑候选卡。提交前在本批选中项和库内分页结果中匹配姓名与单位，命中后展示两卡详情。覆盖只提交本次确认的非空字段及选定的证件照。新增按 `expert:add`、覆盖按 `expert:edit` 判断直写权限，否则分别提交新增和修改申请。查重在本次前端流程内执行，独立会话和待审批申请之间不提供唯一性保证。
 
-项目详情「库外专家批量建档」复用该候选卡窗口，按未关联的已确认参会记录提供选人列表。调用 `POST /api/experts/resume/parse?contentNameOnly=true` 关闭文件名补姓名，正文姓名与预填姓名一致后才可勾选。逐条提交既有 `POST /api/project/{id}/speakers/archive-manual`，并带可选布尔字段 `requirePendingSpeaker=true`，在同一事务中检查并锁定待回绑的正式记录，然后建档、入项目专家名单及回绑。沿用项目成员权限和项目建档字段范围。旧项目批量解析并建档接口保留供旧客户端兼容。发布顺序为后端先于前端。
+项目详情的单人和批量建档复用专家库候选卡窗口，统一调用默认的 `POST /api/experts/resume/parse`，包含文件名补姓名。解析姓名与所选参会专家一致后才可提交。批量建档按未关联的已确认参会记录提供选人列表，逐条提交既有 `POST /api/project/{id}/speakers/archive-manual` 并带 `requirePendingSpeaker=true`，在同一事务中检查并锁定待回绑的正式记录，然后建档、入项目专家名单及回绑。沿用项目成员权限和项目建档字段范围。旧项目批量解析并建档接口保留供旧客户端兼容。
+
+项目建档也展示同一解析响应中的头像候选，由用户预览并选择。未选择时沿用 JSON 提交。选中头像时，同一建档地址收取 `multipart/form-data`，`data` 为原有字段的 JSON 部件，`photo` 为选中的照片文件。服务端校验项目操作权限和参会记录条件后，按专家库头像的文件大小、格式白名单、存储与命名规则入档。建档、项目关联和回绑沿用同一事务，回滚时清理此次保存的头像。
+
+项目单人、批量及手动建档均要求姓名和单位，职称、简介、联系方式及头像可空。联系方式「无」按空值处理，其他非空联系方式沿用专家库的手机号或邮箱校验。旧批量简历建档接口遇到缺少姓名或单位的简历时逐条返回失败。
 
 > RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码），但文件流端点会按存储文件名反查文档并校验状态：文档不存在/已永久删除返回业务码 404，已下架且非 `knowledge:maintain` 返回业务码 403，避免下架后旧链接继续可下载（P1-5）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:maintain`（知识星球维护人/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:maintain`（已绑定 KNOWLEDGE_MAINTAINER），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
 
@@ -274,3 +280,9 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 正文按段落保留内容，标题根据段落主题及义务关键词生成。表格优先使用项目名称作为标题。表格坐标识别发现明显乱码时，对对应单元格裁剪后使用本地 Tesseract 重识别，每页最多补识别六个单元格。无法确认的行标注需核对原文，其他行及有效比例、金额、比较符号按原识别结果保留。无新增依赖、接口或数据库迁移。
 
 - 合规 PDF 候选识别独立版面标题，主题标题覆盖适用对象与段内义务。本地模型仅在无法生成原文候选时兜底，其提示包含封面排除、金额保真及 OCR 核对规则。
+
+简历解析在候选后端 1.0.38.27 中并行运行文字抽取和照片处理。每个后端进程复用本机 U²-Net 工作进程，启动时预热，抠图失败时回退原图 JPEG。见 [交接](handover/tasks/20261113_resume_speed.md)。
+
+简历解析优先读取正文明确姓名，排除章节标题，并支持简介新等文件名后缀。大尺寸竖版照片参与候选筛选，在 U²-Net 推理前缩放。
+
+简历解析保留正文单位，缺失时可从文件名提取机构词段。contentNameOnly 仅限制姓名来源。

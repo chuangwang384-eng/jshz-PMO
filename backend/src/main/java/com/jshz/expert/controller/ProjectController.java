@@ -18,6 +18,7 @@ import com.jshz.expert.service.ProjectService;
 import com.jshz.expert.service.ScheduleParseService;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -506,7 +508,7 @@ public class ProjectController {
     }
 
     /**
-     * 批量简历建档（库外专家入档）：多份简历解析→建档（姓名/单位/职称/简介，缺省补「待补充」）
+     * 批量简历建档（库外专家入档）：多份简历解析→建档（姓名和单位必填）
      * →自动关联项目专家名单→按姓名回绑本项目参会专家。单份失败不影响其余，逐条返回结果。
      */
     @PostMapping("/{id}/speakers/archive-resumes")
@@ -517,11 +519,19 @@ public class ProjectController {
     }
 
     /** 手动建档单条（成员级；与批量同一条建档路径，只收姓名/单位/职称/简介/联系方式）。 */
-    @PostMapping("/{id}/speakers/archive-manual")
+    @PostMapping(value = "/{id}/speakers/archive-manual", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<Map<String, Object>> archiveManual(@PathVariable Long id,
                                                           @RequestBody Map<String, Object> body,
                                                           @AuthenticationPrincipal AuthUser user) {
-        return ApiResponse.ok(scheduleParseService.archiveManual(id, body, user));
+        return ApiResponse.ok(scheduleParseService.archiveManual(id, body, null, user));
+    }
+
+    @PostMapping(value = "/{id}/speakers/archive-manual", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Object>> archiveWithPhoto(@PathVariable Long id,
+                                                            @RequestPart("data") Map<String, Object> body,
+                                                            @RequestPart("photo") MultipartFile photo,
+                                                            @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(scheduleParseService.archiveManual(id, body, photo, user));
     }
 
     @PutMapping("/{id}/experts/{expertId}/fee")

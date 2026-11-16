@@ -12,11 +12,21 @@
       <span>PDF / Word / PPT / 图片，单份最多 20 MB</span>
       <slot v-if="!busy" name="extra" />
     </div>
-    <p v-if="presetName" class="message">参会专家：{{ presetName }}。简历正文姓名一致后才能提交建档。</p>
-    <p v-else-if="projectMode" class="message">为每份简历选择对应的参会专家。正文姓名一致后才能提交建档。</p>
+    <p v-if="presetName" class="message">参会专家：{{ presetName }}。解析出的姓名一致后才能提交建档。</p>
+    <p v-else-if="projectMode" class="message">为每份简历选择对应的参会专家。解析出的姓名一致后才能提交建档。</p>
     <el-empty v-if="!rows.length" :description="presetName ? '上传一份简历后开始解析' : '选择简历后，每份文件会生成一张待核对的专家卡'" />
     <div v-else class="cards" :class="{ 'single-card': presetName }">
       <BatchResumeCard v-for="row in rows" :key="row.id" :fields="row.fields" :photo-url="row.photo?.url" :label="row.file.name">
+        <template #header-actions>
+          <div v-if="row.photos.length && !finished(row)" class="row-actions portrait-picker" role="group" aria-label="选择证件照">
+            <span>选择证件照</span>
+            <button v-for="(photo, index) in row.photos" :key="photo.url" type="button" class="photo-choice"
+              :aria-label="`候选证件照 ${index + 1}`" :aria-pressed="row.photo === photo" :disabled="busy"
+              @click="row.photo = row.photo === photo ? null : photo">
+              <img :src="photo.url" alt="" />
+            </button>
+          </div>
+        </template>
         <el-select v-if="projectMode && !presetName" :model-value="row.targetName" placeholder="选择参会专家" aria-label="对应参会专家"
           :disabled="busy || finished(row)" @change="name => setTarget(row, name)">
           <el-option v-for="name in targetNames" :key="name" :label="name" :value="name"
@@ -39,18 +49,11 @@
         <p v-if="row.message" class="message" role="status">{{ row.message }}</p>
         <p v-if="row.status === 'ready' && !valid(row)" class="message">请补全姓名和单位</p>
         <el-form v-if="row.editing" label-width="92px" :disabled="busy || finished(row)">
-          <el-form-item v-for="field in editableFields" :key="field" :label="field" :required="projectMode ? field === '姓名' : requiredFields.includes(field)">
+          <el-form-item v-for="field in editableFields" :key="field" :label="field" :required="requiredFields.includes(field)">
             <el-input v-model="row.fields[field]" :readonly="projectMode && field === '姓名'"
               :type="field === '简介' ? 'textarea' : 'text'" @input="edit(row)" />
           </el-form-item>
         </el-form>
-        <div v-if="row.photos.length && !finished(row)" class="row-actions">
-          <span>选择证件照</span>
-          <button v-for="photo in row.photos" :key="photo.url" type="button" class="photo-choice"
-            :aria-pressed="row.photo === photo" :disabled="busy" @click="row.photo = row.photo === photo ? null : photo">
-            <img :src="photo.url" alt="候选证件照" />
-          </button>
-        </div>
       </BatchResumeCard>
     </div>
     <template #footer>
@@ -108,12 +111,12 @@ const submitting = ref(false)
 const conflict = ref(null)
 const currentMatch = computed(() => conflict.value?.matches[conflict.value.index])
 const busy = computed(() => parsing.value || submitting.value)
-const selectedRows = computed(() => rows.value.filter(row => row.selected && row.status === 'ready' && valid(row)))
+const selectedRows = computed(() => rows.value.filter(row => (props.presetName || row.selected) && row.status === 'ready' && valid(row)))
 let nextId = 0
 
 function valid(row) {
-  if (projectMode.value) return row.status === 'ready' && hasTarget(row)
-  return requiredFields.every(field => String(row.fields[field] ?? '').trim())
+  return (!projectMode.value || hasTarget(row))
+    && requiredFields.every(field => String(row.fields[field] ?? '').trim())
 }
 
 function hasTarget(row) {
@@ -195,23 +198,24 @@ function edit(row) {
 async function parseRow(row) {
   row.status = 'parsing'
   try {
-    const result = await parseResume(row.file, { contentNameOnly: projectMode.value })
+    const result = await parseResume(row.file)
     if (projectMode.value) {
       const parsedName = String(result?.fields?.姓名 ?? '').trim()
       if (!parsedName || parsedName !== row.targetName) {
         row.status = 'failed'
         row.selected = false
         row.editing = false
-        row.message = parsedName ? `正文姓名「${parsedName}」与所选专家「${row.targetName}」不一致` : '未从简历正文识别到姓名'
+        row.message = parsedName ? `解析姓名「${parsedName}」与所选专家「${row.targetName}」不一致` : '未从简历识别到姓名'
         return
       }
     }
     for (const field of editableFields.value) {
       if (!String(row.fields[field] ?? '').trim() && result?.fields?.[field] != null) {
-        row.fields[field] = String(result.fields[field])
+        row.fields[field] = projectMode.value && field === '联系方式'
+          ? fieldValue(field, result.fields[field]) : String(result.fields[field])
       }
     }
-    row.photos = (projectMode.value ? [] : result?.photoCandidates || []).filter(Boolean).map(candidate => {
+    row.photos = (result?.photoCandidates || []).filter(Boolean).map(candidate => {
       const base64 = typeof candidate === 'string' ? candidate : candidate.base64
       const mime = candidate.mime === 'image/png' ? 'image/png' : 'image/jpeg'
       return { mime, base64, url: `data:${mime};base64,${base64}` }
@@ -219,7 +223,7 @@ async function parseRow(row) {
     row.status = projectMode.value || result?.hitCount || row.photos.length || valid(row) ? 'ready' : 'failed'
     row.message = result?.message || (row.status === 'failed' ? '未识别到可用内容，可重试或手动补填' : '')
     row.selected = row.status === 'ready' && Boolean(valid(row))
-    row.editing = projectMode.value || !valid(row)
+    row.editing = true
   } catch (error) {
     row.status = 'failed'
     row.selected = false
@@ -288,18 +292,23 @@ async function findMatches(row) {
 }
 
 function confirmedFields(row) {
-  return Object.fromEntries(editableFields.value.map(field => [field, String(row.fields[field] ?? '').trim()]).filter(([, value]) => value))
+  return Object.fromEntries(editableFields.value.map(field => [field, fieldValue(field, row.fields[field])]).filter(([, value]) => value))
+}
+
+function fieldValue(field, raw) {
+  const value = String(raw ?? '').trim()
+  return projectMode.value && field === '联系方式' && value === '无' ? '' : value
 }
 
 async function saveRow(row, target) {
   const changes = confirmedFields(row)
-  if (projectMode.value) return props.saveProjectExpert(changes)
-  const direct = target ? props.canEdit : props.canAdd
   const photo = row.photo && new File(
     [Uint8Array.from(atob(row.photo.base64), character => character.charCodeAt(0))],
     row.photo.mime === 'image/png' ? 'resume-photo.png' : 'resume-photo.jpg',
     { type: row.photo.mime }
   )
+  if (projectMode.value) return props.saveProjectExpert(changes, photo)
+  const direct = target ? props.canEdit : props.canAdd
   if (direct) {
     let payload = changes
     if (photo) {
@@ -322,9 +331,8 @@ async function saveRow(row, target) {
 }
 
 function invalidField(row) {
-  if (projectMode.value) return ''
   const fields = confirmedFields(row)
-  if (!/^[\u4e00-\u9fa5·]{2,20}$/.test(fields.姓名)) return '姓名格式不正确（2–20 个汉字，可含间隔号）'
+  if (!projectMode.value && !/^[\u4e00-\u9fa5·]{2,20}$/.test(fields.姓名)) return '姓名格式不正确（2–20 个汉字，可含间隔号）'
   if (fields.身份证号 && !/^\d{17}[\dXx]$/.test(fields.身份证号)) return '身份证号格式不正确'
   if (fields.银行卡号 && !/^\d{13,19}$/.test(fields.银行卡号)) return '银行卡号格式不正确'
   if (fields.联系方式 && !/^1\d{10}$|^[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}$/.test(fields.联系方式)) return '联系方式须为手机号或邮箱'
@@ -337,14 +345,14 @@ async function submit() {
   try {
     const candidates = []
     for (const row of selectedRows.value) {
-      if (projectMode.value) {
-        candidates.push(row)
-        continue
-      }
       const validationMessage = invalidField(row)
       if (validationMessage) {
         row.message = validationMessage
         row.editing = true
+        continue
+      }
+      if (projectMode.value) {
+        candidates.push(row)
         continue
       }
       const duplicates = candidates.filter(item => sameExpert(item.fields, row.fields))
@@ -404,7 +412,8 @@ async function submit() {
         saved++
       } catch (error) {
         row.selected = false
-        row.message = error?.response?.data?.message || '未能确认提交结果，请核对专家库或我的申请后再重试'
+        row.message = error?.response?.data?.message || (typeof error?.code === 'number' && error.message)
+          || '未能确认提交结果，请核对专家库或我的申请后再重试'
       }
     }
   } finally {
@@ -428,6 +437,7 @@ async function submit() {
 .message { color: var(--el-text-color-secondary); overflow-wrap: anywhere; }
 .match-select { width: 100%; margin-bottom: 12px; }
 .photo-choice { background: none; border: 2px solid transparent; padding: 2px; cursor: pointer; }
+.portrait-picker { margin-inline-start: auto; }
 .photo-choice[aria-pressed='true'] { border-color: var(--el-color-primary); }
 .photo-choice img { display: block; width: 44px; height: 44px; object-fit: cover; }
 @media (max-width: 640px) {

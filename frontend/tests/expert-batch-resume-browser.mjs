@@ -32,7 +32,8 @@ async function exercise(permissions) {
       parsed++
       const name = parsed <= 3 ? '张医生' : '王医生'
       data = parsed === 5 ? { fields: {}, hitCount: 0, message: '解析失败' } : {
-        fields: { 姓名: name, 单位: '示例医院', 职称: '新职称' }, hitCount: 3
+        fields: { 姓名: name, 单位: '示例医院', 职称: '新职称' }, hitCount: 3,
+        photoCandidates: parsed === 1 ? [{ mime: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=' }] : []
       }
     } else if (url.pathname === '/api/experts' && method === 'GET') {
       const items = url.searchParams.get('keyword') === '王医生' ? [] : [existing]
@@ -52,6 +53,15 @@ async function exercise(permissions) {
     await page.getByRole('button', { name: '批量上传简历' }).click()
     await page.locator('input[type=file][multiple]').setInputFiles(['覆盖.pdf', '保留.pdf', '取消.pdf', '新增.pdf', '失败.pdf'].map(document))
     await page.getByRole('button', { name: '开始解析' }).click()
+    await page.getByRole('button', { name: '提交已选（4）' }).waitFor()
+    const cards = page.locator('.resume-card')
+    assert.equal(await cards.locator('.el-form').count(), 5)
+    const portrait = cards.first().locator('header').getByRole('button', { name: '候选证件照 1' })
+    await portrait.click()
+    assert.equal(await portrait.getAttribute('aria-pressed'), 'true')
+    await portrait.click()
+    await cards.first().getByRole('button', { name: '收起', exact: true }).click()
+    assert.equal(await cards.first().locator('.el-form').count(), 0)
     await page.getByRole('button', { name: '提交已选（4）' }).click()
     const compare = page.getByRole('dialog', { name: '发现同名同单位专家' })
     // Three candidates share one identity. Keep the first two and cancel the third.

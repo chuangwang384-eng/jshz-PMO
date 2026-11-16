@@ -793,11 +793,11 @@ public class ScheduleParseService {
                 }
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("name", name);
-                body.put("unit", orDefault(fields.get("单位"), "待补充"));
-                body.put("title", orDefault(fields.get("职称"), "待补充"));
-                body.put("profile", orDefault(fields.get("简介"), "来自项目日程批量简历建档"));
+                body.put("unit", fields.get("单位"));
+                body.put("title", fields.get("职称"));
+                body.put("profile", fields.get("简介"));
                 body.put("contact", fields.get("联系方式"));
-                Expert saved = createExpertForProject(project, body, user);
+                Expert saved = createExpertForProject(project, body, null, user);
                 r.put("ok", true);
                 r.put("expertId", saved.getId());
                 r.put("expertName", saved.getName());
@@ -814,21 +814,29 @@ public class ScheduleParseService {
     /**
      * 项目内建档（成员级，Owner 2026-11-09「库外专家随时建档」口径）：
      * 与 ProjectService.createExpertCard 的区别——权限为项目成员而非 project:manage，
-     * 且**只接受 姓名/单位/职称/简介/联系方式**，不接受身份证/银行卡等敏感字段
+     * 接受姓名、单位、职称、简介、联系方式及可选头像，不接受身份证或银行卡字段
      * （敏感字段仍须在专家库模块按既有管控维护）。
      */
-    private Expert createExpertForProject(Project project, Map<String, Object> body, AuthUser user) {
+    private Expert createExpertForProject(Project project, Map<String, Object> body, MultipartFile photo, AuthUser user) {
         String name = body.get("name") == null ? "" : String.valueOf(body.get("name")).trim();
         if (name.isEmpty()) {
             throw new BusinessException("姓名不能为空");
         }
+        String unit = strOf(body.get("unit"));
+        if (unit.isEmpty()) {
+            throw new BusinessException("单位不能为空");
+        }
+        String contact = strOf(body.get("contact"));
         Expert expert = new Expert();
         expert.setName(name);
-        expert.setUnit(strOf(body.get("unit")));
-        expert.setTitle(strOf(body.get("title")));
-        expert.setProfile(strOf(body.get("profile")));
-        expert.setContact(strOf(body.get("contact")));
+        expert.setUnit(unit);
+        expert.setTitle(blankToNull(strOf(body.get("title"))));
+        expert.setProfile(blankToNull(strOf(body.get("profile"))));
+        expert.setContact("无".equals(contact) ? null : blankToNull(contact));
         Expert saved = expertService.create(expert, user);
+        if (photo != null) {
+            expertService.attachNewAvatar(saved, photo);
+        }
 
         com.jshz.expert.entity.ProjectExpert rel = new com.jshz.expert.entity.ProjectExpert();
         rel.setProjectId(project.getId());
@@ -848,7 +856,7 @@ public class ScheduleParseService {
 
     /** 手动建档单条（成员级）：建档 + 按姓名回绑参会专家（含候选）。 */
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> archiveManual(Long projectId, Map<String, Object> body, AuthUser user) {
+    public Map<String, Object> archiveManual(Long projectId, Map<String, Object> body, MultipartFile photo, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
         String name = body == null || body.get("name") == null ? "" : String.valueOf(body.get("name")).trim();
@@ -865,13 +873,7 @@ public class ScheduleParseService {
                         .last("FOR UPDATE")).isEmpty()) {
             throw new BusinessException("该参会专家已建档或不在待建档名单中，请刷新后重试");
         }
-        Map<String, Object> normalized = new LinkedHashMap<>();
-        normalized.put("name", name);
-        normalized.put("unit", strOf(body.get("unit")).isEmpty() ? "待补充" : strOf(body.get("unit")));
-        normalized.put("title", strOf(body.get("title")).isEmpty() ? "待补充" : strOf(body.get("title")));
-        normalized.put("profile", strOf(body.get("profile")).isEmpty() ? "来自项目日程建档" : strOf(body.get("profile")));
-        normalized.put("contact", strOf(body.get("contact")));
-        Expert saved = createExpertForProject(project, normalized, user);
+        Expert saved = createExpertForProject(project, body, photo, user);
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("ok", true);
         r.put("fileName", "手动录入");
@@ -892,10 +894,6 @@ public class ScheduleParseService {
             speakerMapper.updateById(sp);
         }
         return targets.size();
-    }
-
-    private String orDefault(String v, String def) {
-        return v == null || v.isBlank() ? def : v;
     }
 
     // ==================== 确认 / 手动补录 / 删除 ====================

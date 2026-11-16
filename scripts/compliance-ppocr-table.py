@@ -1,4 +1,5 @@
 """Recognize a scanned table page with installed local PP-OCRv5 ONNX models."""
+import os
 import sys
 from pathlib import Path
 
@@ -7,7 +8,8 @@ from rapidocr import ModelType, OCRVersion, RapidOCR
 
 def main():
     image = Path(sys.argv[1])
-    models = Path(__file__).resolve().parent / "models"
+    configured = os.environ.get("COMPLIANCE_PPOCR_MODELS")
+    models = Path(configured) if configured else Path(__file__).resolve().parent / "models"
     detector = models / "ch_PP-OCRv5_det_server.onnx"
     recognizer = models / "ch_PP-OCRv5_rec_server.onnx"
     if not detector.is_file() or not recognizer.is_file():

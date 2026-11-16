@@ -42,12 +42,26 @@ try {
       ] }
     }
     if (url.pathname === '/api/experts/resume/parse') {
-      assert.equal(url.searchParams.get('contentNameOnly'), 'true')
       parses++
-      data = { fields: parses === 1 ? { 姓名: '其他人' } : parses === 2 ? {} : { 姓名: parses === 4 ? '李医生' : '张医生', 单位: '测试医院' } }
+      const filenameFallbackDisabled = url.searchParams.get('contentNameOnly') === 'true'
+      data = { fields: parses === 1 ? { 姓名: '其他人' }
+        : parses === 2 || (parses === 4 && filenameFallbackDisabled) ? {}
+        : parses === 4 ? { 姓名: '李医生', 联系方式: '无' }
+        : { 姓名: '张医生', 单位: '测试医院' },
+        photoCandidates: [{ mime: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jH1sAAAAASUVORK5CYII=' }] }
     }
     if (url.pathname === '/api/project/55/speakers/archive-manual') {
-      writes.push(request.postDataJSON())
+      const contentType = request.headers()['content-type']
+      if (contentType.startsWith('multipart/form-data')) {
+        const form = await new Response(request.postDataBuffer(), { headers: { 'content-type': contentType } }).formData()
+        const photo = form.get('photo')
+        assert.equal(photo.name, 'resume-photo.png')
+        assert.equal(photo.type, 'image/png')
+        assert.deepEqual([...new Uint8Array(await photo.arrayBuffer()).slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
+        writes.push({ ...JSON.parse(await form.get('data').text()), hasPhoto: true })
+      } else {
+        writes.push(request.postDataJSON())
+      }
       const target = writes.at(-1).name === '李医生' ? candidate : speaker
       target.expertId = 100 + writes.length
       data = { expertId: target.expertId, boundSpeakers: 1 }
@@ -70,8 +84,8 @@ try {
     await page.locator(`[id="${listId}"]`).getByRole('option', { name, exact: true }).click()
   }
   await dialog.getByRole('button', { name: '开始解析' }).click()
-  await cards.nth(0).getByText(/正文姓名.*不一致/).waitFor()
-  await cards.nth(1).getByText('未从简历正文识别到姓名').waitFor()
+  await cards.nth(0).getByText(/姓名.*不一致/).waitFor()
+  await cards.nth(1).getByText(/未从简历.*识别到姓名/).waitFor()
   assert.equal(await dialog.getByRole('button', { name: '提交已选（0）' }).isDisabled(), true)
   await cards.nth(0).locator('input[type=file]').setInputFiles(sample('正确简历.pdf'))
   await dialog.getByRole('button', { name: '提交已选（1）' }).click()
@@ -86,12 +100,24 @@ try {
   await single.locator('.resume-card strong').getByText('王医生').waitFor()
   await single.getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('button', { name: '去建档', exact: true }).click()
-  await single.locator('input[type=file]:not([multiple])').setInputFiles(sample('候选.pdf'))
+  await single.locator('input[type=file]:not([multiple])').setInputFiles(sample('副本李医生简介-测试医院.pdf'))
   await single.locator('.resume-card strong').getByText('李医生').waitFor()
   await single.getByRole('button', { name: '开始解析' }).click()
+  await single.getByText('请补全姓名和单位').waitFor()
+  assert.equal(await single.getByRole('button', { name: '确认建档' }).isDisabled(), true)
+  const contact = single.locator('.el-form-item').filter({ hasText: '联系方式' }).getByRole('textbox')
+  assert.equal(await contact.inputValue(), '')
+  await single.locator('.el-form-item').filter({ hasText: '单位' }).getByRole('textbox').fill('测试医院')
+  await contact.fill('错误号码')
+  await single.getByRole('button', { name: '确认建档' }).click()
+  await single.getByText('联系方式须为手机号或邮箱').waitFor()
+  assert.equal(writes.length, 1)
+  await contact.fill('无')
+  await single.getByRole('button', { name: '候选证件照 1' }).click({ timeout: 5000 })
+  assert.equal(await single.getByRole('button', { name: '候选证件照 1' }).getAttribute('aria-pressed'), 'true')
   await single.getByRole('button', { name: '确认建档' }).click()
   await single.getByText('已建档，回绑参会记录 1 条').waitFor()
-  assert.deepEqual(writes.at(-1), { name: '李医生', unit: '测试医院', requirePendingSpeaker: false })
+  assert.deepEqual(writes.at(-1), { name: '李医生', unit: '测试医院', requirePendingSpeaker: false, hasPhoto: true })
   console.log('PASS: project batch resume reuse, strict name matching, replacement, submission, refresh and single-speaker preset.')
 } finally {
   await browser.close()

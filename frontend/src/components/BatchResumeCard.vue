@@ -8,6 +8,7 @@
         <strong>{{ fields.姓名 || '待填写姓名' }}</strong>
         <span>{{ fields.单位 || '待填写单位' }}</span>
       </div>
+      <slot name="header-actions" />
     </header>
     <slot />
     <dl v-if="details">
@@ -33,7 +34,7 @@ const detailFields = ['科室', '职称', '联系方式', '简介', '身份证�
 
 <style scoped>
 .resume-card { background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: 10px; padding: 14px; min-width: 0; }
-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
 header img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; }
 header strong, header span, header small { display: block; }
 header strong { font-size: 16px; color: var(--el-text-color-primary); }
