@@ -1,0 +1,417 @@
+﻿-- A3 orphan children backup 2026-11-17 (parent executions no longer exist; unreachable, 0 PENDING reminders)
+[compliance_execution_task orphans]
+7	4	ASSOC	{"stage": null, "title": "协会选择", "options": [{"label": "协会A", "guidance": "适用于华东区域", "optionCode": "A"}, {"label": "协会B", "guidance": "适用于华南区域", "optionCode": "B"}], "nodeCode": "ASSOC", "required": 1, "timeRule": null, "inputType": "SINGLE", "materials": null, "acceptance": null, "instruction": "选择本次合作适用的协会"}	{"optionCode": "A"}	APPLICABLE	2026-11-30	MEDIUM	COMPLETED	备注	NULL	NULL	NULL	1	3	6	2026-11-04 10:51:16	6	2026-11-04 08:16:42	2026-11-04 10:51:15
+8	4	MATERIAL	{"stage": null, "title": "材料提交", "nodeCode": "MATERIAL", "required": 1, "timeRule": "会前7天提交", "inputType": "TEXT", "materials": null, "acceptance": null, "instruction": "提交全部媒体资料清单"}	{"text": "1"}	APPLICABLE	2026-11-30	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	5	2026-11-05 14:03:58	7	2026-11-04 08:16:42	2026-11-05 14:03:58
+9	4	CHECK1	{"stage": null, "title": "现场照片采集", "nodeCode": "CHECK1", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": null, "instruction": "各展位现场照片采集并归档"}	NULL	APPLICABLE	2026-11-30	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-04 08:19:15	3	2026-11-04 08:16:42	2026-11-04 08:19:15
+10	5	extract-2	{"stage": null, "title": "系列会纯线上项目，不予立项，必须有线下会议场次", "nodeCode": "extract-2", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "系列会纯线上项目，不予立项，必须有线下会议场次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+11	5	extract-3	{"stage": null, "title": "线上会劳务占比上限 70%", "nodeCode": "extract-3", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "线上会劳务占比上限 70%", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+12	5	extract-4	{"stage": null, "title": "线下会劳务占比上限 50%", "nodeCode": "extract-4", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "线下会劳务占比上限 50%", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+13	5	extract-5	{"stage": null, "title": "捐赠类项目劳务占比上限 30%", "nodeCode": "extract-5", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "捐赠类项目劳务占比上限 30%", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+14	5	extract-6	{"stage": null, "title": "劳务专家：听众 1:5 （线下场次的线上听众同样计入比例）", "nodeCode": "extract-6", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "劳务专家：听众 1:5 （线下场次的线上听众同样计入比例）", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+15	5	extract-7	{"stage": null, "title": "必须满足基金会要求的讲课、讨论时长、主席主持符合基金会劳务标", "nodeCode": "extract-7", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "必须满足基金会要求的讲课、讨论时长、主席主持符合基金会劳务标", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+16	5	extract-8	{"stage": null, "title": "线上会议必须提供线上回放（讲者 PPT 内容严禁出现企业名称、药品", "nodeCode": "extract-8", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "线上会议必须提供线上回放（讲者 PPT 内容严禁出现企业名称、药品", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+17	5	extract-9	{"stage": null, "title": "商品名称，LOGO权益不包括）", "nodeCode": "extract-9", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "商品名称，LOGO权益不包括）", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+18	5	extract-10	{"stage": null, "title": "北京融和医学发展基金会住宿、交通及劳务标准试行", "nodeCode": "extract-10", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "北京融和医学发展基金会住宿、交通及劳务标准试行", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+19	5	extract-11	{"stage": null, "title": "院士:5000元/次", "nodeCode": "extract-11", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "院士:5000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+20	5	extract-12	{"stage": null, "title": "专家讲课费 正高(教授/主任医师) :和3000元/次", "nodeCode": "extract-12", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "专家讲课费 正高(教授/主任医师) :和3000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+21	5	extract-13	{"stage": null, "title": "副高(副教授/副主任医师) : 和2000元/次", "nodeCode": "extract-13", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "副高(副教授/副主任医师) : 和2000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+22	5	extract-14	{"stage": null, "title": ": (S204 4b tk) 主治医师及以下: 入1000元/次", "nodeCode": "extract-14", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": ": (S204 4b tk) 主治医师及以下: 入1000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+23	5	extract-15	{"stage": null, "title": "院士:<5000元/次", "nodeCode": "extract-15", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "院士:<5000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+24	5	extract-16	{"stage": null, "title": "本 主持费用 正高(教授/主任医师) :科3000元/次", "nodeCode": "extract-16", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "本 主持费用 正高(教授/主任医师) :科3000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+25	5	extract-17	{"stage": null, "title": "(]24 4 BL =) 副高(副教授/副主任医师) : 委2000元次", "nodeCode": "extract-17", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "(]24 4 BL =) 副高(副教授/副主任医师) : 委2000元次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+26	5	extract-18	{"stage": null, "title": "院士:入5000元/次", "nodeCode": "extract-18", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "院士:入5000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+27	5	extract-19	{"stage": null, "title": "3 大会主席 正高(教授/主任医师) :科3000元/次", "nodeCode": "extract-19", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "3 大会主席 正高(教授/主任医师) :科3000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+28	5	extract-20	{"stage": null, "title": "(开场讲话+结束总结， 需全程在会) 副高(副教授/副主任医师) : 委2000元次", "nodeCode": "extract-20", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "(开场讲话+结束总结， 需全程在会) 副高(副教授/副主任医师) : 委2000元次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+29	5	extract-21	{"stage": null, "title": "e+: <5000 0/2", "nodeCode": "extract-21", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "e+: <5000 0/2", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+30	5	extract-22	{"stage": null, "title": "iE (AH / EE EIT): <3000 0/7", "nodeCode": "extract-22", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "iE (AH / EE EIT): <3000 0/7", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+31	5	extract-23	{"stage": null, "title": "副高(副教授/副主任医师) : <20007%K", "nodeCode": "extract-23", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "副高(副教授/副主任医师) : <20007%K", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+32	5	extract-24	{"stage": null, "title": "5 现场手术或案例示教 、- _", "nodeCode": "extract-24", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "5 现场手术或案例示教 、- _", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+33	5	extract-25	{"stage": null, "title": ". 主治医师: <10007/*", "nodeCode": "extract-25", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": ". 主治医师: <10007/*", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+34	5	extract-26	{"stage": null, "title": "| 500元-1000元/份 (按照实际媒体发布确定)", "nodeCode": "extract-26", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "| 500元-1000元/份 (按照实际媒体发布确定)", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+35	5	extract-27	{"stage": null, "title": "评审劳务费 <3000元/天(根据工作内容和工作量确定) Gi", "nodeCode": "extract-27", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "评审劳务费 <3000元/天(根据工作内容和工作量确定) Gi", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+36	5	extract-28	{"stage": null, "title": "fa, WAS,", "nodeCode": "extract-28", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "fa, WAS,", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:43
+37	5	extract-29	{"stage": null, "title": "BA RAS 1000 76/B (S100 76/ Fry", "nodeCode": "extract-29", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "BA RAS 1000 76/B (S100 76/ Fry", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+38	5	extract-30	{"stage": null, "title": "PPT设计制作 医药专业PPT <3000 7/4 (S200 70/ »", "nodeCode": "extract-30", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "PPT设计制作 医药专业PPT <3000 7/4 (S200 70/ »", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+39	5	extract-31	{"stage": null, "title": "加 REAR 过1000元/份〔以调研数量及内容复杂程度确定) Ly", "nodeCode": "extract-31", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "加 REAR 过1000元/份〔以调研数量及内容复杂程度确定) Ly", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+40	5	extract-32	{"stage": null, "title": "备注: 同天同场会议产生的劳务费不可赤加(如: 某专家在某天同一场会议中担任两种及以上角", "nodeCode": "extract-32", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "备注: 同天同场会议产生的劳务费不可赤加(如: 某专家在某天同一场会议中担任两种及以上角", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+41	5	extract-33	{"stage": null, "title": "色，劳务费按一次计算) 。", "nodeCode": "extract-33", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "色，劳务费按一次计算) 。", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+42	5	extract-34	{"stage": null, "title": "1 (院士、全国知名专家) 可商务舱，需特殊申请", "nodeCode": "extract-34", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "1 (院士、全国知名专家) 可商务舱，需特殊申请", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+43	5	extract-35	{"stage": null, "title": "专家 (院士、全国知名专家) 可商务舱，需特殊申请", "nodeCode": "extract-35", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "专家 (院士、全国知名专家) 可商务舱，需特殊申请", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+44	5	extract-36	{"stage": null, "title": "鼓励使用网约专车", "nodeCode": "extract-36", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "鼓励使用网约专车", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+45	5	extract-37	{"stage": null, "title": "[ie Jowe [imei entitntenne", "nodeCode": "extract-37", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "[ie Jowe [imei entitntenne", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+46	5	extract-38	{"stage": null, "title": "住宿 住宿费 委800元/人北上广深一线城市(无论专家级别只可住标准房或", "nodeCode": "extract-38", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "住宿 住宿费 委800元/人北上广深一线城市(无论专家级别只可住标准房或", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:29:42	2026-11-05 10:29:44
+47	6	extract-2	{"stage": null, "title": "系列会纯线上项目，不予立项，必须有线下会议场次", "nodeCode": "extract-2", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "系列会纯线上项目，不予立项，必须有线下会议场次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-05 15:44:54	3	2026-11-05 10:31:07	2026-11-05 15:44:53
+48	6	extract-3	{"stage": null, "title": "线上会劳务占比上限 70%", "nodeCode": "extract-3", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "线上会劳务占比上限 70%", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-05 15:44:58	3	2026-11-05 10:31:07	2026-11-05 15:44:58
+49	6	extract-4	{"stage": null, "title": "线下会劳务占比上限 50%", "nodeCode": "extract-4", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "线下会劳务占比上限 50%", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-05 15:45:02	3	2026-11-05 10:31:07	2026-11-05 15:45:01
+50	6	extract-5	{"stage": null, "title": "捐赠类项目劳务占比上限 30%", "nodeCode": "extract-5", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "捐赠类项目劳务占比上限 30%", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-05 15:45:04	3	2026-11-05 10:31:07	2026-11-05 15:45:03
+51	6	extract-6	{"stage": null, "title": "劳务专家：听众 1:5 （线下场次的线上听众同样计入比例）", "nodeCode": "extract-6", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "劳务专家：听众 1:5 （线下场次的线上听众同样计入比例）", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	2	2026-11-06 11:37:40	2	2026-11-05 10:31:07	2026-11-06 11:37:40
+52	6	extract-7	{"stage": null, "title": "必须满足基金会要求的讲课、讨论时长、主席主持符合基金会劳务标", "nodeCode": "extract-7", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "必须满足基金会要求的讲课、讨论时长、主席主持符合基金会劳务标", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 11:37:43	3	2026-11-05 10:31:07	2026-11-06 11:37:42
+53	6	extract-8	{"stage": null, "title": "线上会议必须提供线上回放（讲者 PPT 内容严禁出现企业名称、药品", "nodeCode": "extract-8", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "线上会议必须提供线上回放（讲者 PPT 内容严禁出现企业名称、药品", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 11:37:45	3	2026-11-05 10:31:07	2026-11-06 11:37:44
+54	6	extract-9	{"stage": null, "title": "商品名称，LOGO权益不包括）", "nodeCode": "extract-9", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "商品名称，LOGO权益不包括）", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 11:37:47	3	2026-11-05 10:31:07	2026-11-06 11:37:46
+55	6	extract-10	{"stage": null, "title": "北京融和医学发展基金会住宿、交通及劳务标准试行", "nodeCode": "extract-10", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "北京融和医学发展基金会住宿、交通及劳务标准试行", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	2	2026-11-05 15:44:48	2	2026-11-05 10:31:07	2026-11-05 15:44:48
+56	6	extract-11	{"stage": null, "title": "院士:5000元/次", "nodeCode": "extract-11", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "院士:5000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-05 15:44:50	3	2026-11-05 10:31:07	2026-11-05 15:44:50
+57	6	extract-12	{"stage": null, "title": "专家讲课费 正高(教授/主任医师) :和3000元/次", "nodeCode": "extract-12", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "专家讲课费 正高(教授/主任医师) :和3000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	2	2026-11-06 16:11:20	2	2026-11-05 10:31:07	2026-11-06 16:11:19
+58	6	extract-13	{"stage": null, "title": "副高(副教授/副主任医师) : 和2000元/次", "nodeCode": "extract-13", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "副高(副教授/副主任医师) : 和2000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:11:22	3	2026-11-05 10:31:07	2026-11-06 16:11:22
+59	6	extract-14	{"stage": null, "title": ": (S204 4b tk) 主治医师及以下: 入1000元/次", "nodeCode": "extract-14", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": ": (S204 4b tk) 主治医师及以下: 入1000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:11:24	3	2026-11-05 10:31:07	2026-11-06 16:11:24
+60	6	extract-15	{"stage": null, "title": "院士:<5000元/次", "nodeCode": "extract-15", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "院士:<5000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:11:27	3	2026-11-05 10:31:07	2026-11-06 16:11:27
+61	6	extract-16	{"stage": null, "title": "本 主持费用 正高(教授/主任医师) :科3000元/次", "nodeCode": "extract-16", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "本 主持费用 正高(教授/主任医师) :科3000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:11:38	3	2026-11-05 10:31:07	2026-11-06 16:11:38
+62	6	extract-17	{"stage": null, "title": "(]24 4 BL =) 副高(副教授/副主任医师) : 委2000元次", "nodeCode": "extract-17", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "(]24 4 BL =) 副高(副教授/副主任医师) : 委2000元次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:20:00	3	2026-11-05 10:31:07	2026-11-06 16:20:00
+63	6	extract-18	{"stage": null, "title": "院士:入5000元/次", "nodeCode": "extract-18", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "院士:入5000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:20:06	3	2026-11-05 10:31:07	2026-11-06 16:20:05
+64	6	extract-19	{"stage": null, "title": "3 大会主席 正高(教授/主任医师) :科3000元/次", "nodeCode": "extract-19", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "3 大会主席 正高(教授/主任医师) :科3000元/次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:20:12	3	2026-11-05 10:31:07	2026-11-06 16:20:11
+65	6	extract-20	{"stage": null, "title": "(开场讲话+结束总结， 需全程在会) 副高(副教授/副主任医师) : 委2000元次", "nodeCode": "extract-20", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "(开场讲话+结束总结， 需全程在会) 副高(副教授/副主任医师) : 委2000元次", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:20:18	3	2026-11-05 10:31:07	2026-11-06 16:20:18
+66	6	extract-21	{"stage": null, "title": "e+: <5000 0/2", "nodeCode": "extract-21", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "e+: <5000 0/2", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:20:21	3	2026-11-05 10:31:07	2026-11-06 16:20:20
+67	6	extract-22	{"stage": null, "title": "iE (AH / EE EIT): <3000 0/7", "nodeCode": "extract-22", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "iE (AH / EE EIT): <3000 0/7", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	2	2026-11-06 16:33:33	2	2026-11-05 10:31:07	2026-11-06 16:33:32
+68	6	extract-23	{"stage": null, "title": "副高(副教授/副主任医师) : <20007%K", "nodeCode": "extract-23", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "副高(副教授/副主任医师) : <20007%K", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-06 16:33:35	3	2026-11-05 10:31:07	2026-11-06 16:33:34
+69	6	extract-24	{"stage": null, "title": "5 现场手术或案例示教 、- _", "nodeCode": "extract-24", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "5 现场手术或案例示教 、- _", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	COMPLETED	NULL	NULL	NULL	NULL	1	3	3	2026-11-09 11:12:19	3	2026-11-05 10:31:08	2026-11-09 11:12:18
+70	6	extract-25	{"stage": null, "title": ". 主治医师: <10007/*", "nodeCode": "extract-25", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": ". 主治医师: <10007/*", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	PROCESSING	NULL	NULL	NULL	NULL	1	3	2	NULL	2	2026-11-05 10:31:08	2026-11-09 11:12:19
+71	6	extract-26	{"stage": null, "title": "| 500元-1000元/份 (按照实际媒体发布确定)", "nodeCode": "extract-26", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "| 500元-1000元/份 (按照实际媒体发布确定)", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+72	6	extract-27	{"stage": null, "title": "评审劳务费 <3000元/天(根据工作内容和工作量确定) Gi", "nodeCode": "extract-27", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "评审劳务费 <3000元/天(根据工作内容和工作量确定) Gi", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+73	6	extract-28	{"stage": null, "title": "fa, WAS,", "nodeCode": "extract-28", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "fa, WAS,", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+74	6	extract-29	{"stage": null, "title": "BA RAS 1000 76/B (S100 76/ Fry", "nodeCode": "extract-29", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "BA RAS 1000 76/B (S100 76/ Fry", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+75	6	extract-30	{"stage": null, "title": "PPT设计制作 医药专业PPT <3000 7/4 (S200 70/ »", "nodeCode": "extract-30", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "PPT设计制作 医药专业PPT <3000 7/4 (S200 70/ »", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+76	6	extract-31	{"stage": null, "title": "加 REAR 过1000元/份〔以调研数量及内容复杂程度确定) Ly", "nodeCode": "extract-31", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "加 REAR 过1000元/份〔以调研数量及内容复杂程度确定) Ly", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+77	6	extract-32	{"stage": null, "title": "备注: 同天同场会议产生的劳务费不可赤加(如: 某专家在某天同一场会议中担任两种及以上角", "nodeCode": "extract-32", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "备注: 同天同场会议产生的劳务费不可赤加(如: 某专家在某天同一场会议中担任两种及以上角", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+78	6	extract-33	{"stage": null, "title": "色，劳务费按一次计算) 。", "nodeCode": "extract-33", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "色，劳务费按一次计算) 。", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:08
+79	6	extract-34	{"stage": null, "title": "1 (院士、全国知名专家) 可商务舱，需特殊申请", "nodeCode": "extract-34", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "1 (院士、全国知名专家) 可商务舱，需特殊申请", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:09
+80	6	extract-35	{"stage": null, "title": "专家 (院士、全国知名专家) 可商务舱，需特殊申请", "nodeCode": "extract-35", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "专家 (院士、全国知名专家) 可商务舱，需特殊申请", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:09
+81	6	extract-36	{"stage": null, "title": "鼓励使用网约专车", "nodeCode": "extract-36", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "鼓励使用网约专车", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:09
+82	6	extract-37	{"stage": null, "title": "[ie Jowe [imei entitntenne", "nodeCode": "extract-37", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "[ie Jowe [imei entitntenne", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:09
+83	6	extract-38	{"stage": null, "title": "住宿 住宿费 委800元/人北上广深一线城市(无论专家级别只可住标准房或", "nodeCode": "extract-38", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": "住宿 住宿费 委800元/人北上广深一线城市(无论专家级别只可住标准房或", "instruction": null}	NULL	APPLICABLE	2026-11-06	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 10:31:08	2026-11-05 10:31:09
+84	7	ASSOC	{"stage": null, "title": "协会选择", "options": [{"label": "协会A", "guidance": "适用于华东区域", "optionCode": "A"}, {"label": "协会B", "guidance": "适用于华南区域", "optionCode": "B"}], "nodeCode": "ASSOC", "required": 1, "timeRule": null, "inputType": "SINGLE", "materials": null, "acceptance": null, "instruction": "选择本次合作适用的协会"}	NULL	APPLICABLE	2026-11-13	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 14:04:17	2026-11-05 14:04:17
+85	7	MATERIAL	{"stage": null, "title": "材料提交", "nodeCode": "MATERIAL", "required": 1, "timeRule": "会前7天提交", "inputType": "TEXT", "materials": null, "acceptance": null, "instruction": "提交全部媒体资料清单"}	NULL	APPLICABLE	2026-11-13	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 14:04:17	2026-11-05 14:04:17
+86	7	CHECK1	{"stage": null, "title": "现场照片采集", "nodeCode": "CHECK1", "required": 0, "timeRule": null, "inputType": "CHECK", "materials": null, "acceptance": null, "instruction": "各展位现场照片采集并归档"}	NULL	APPLICABLE	2026-11-13	MEDIUM	UNPROCESSED	NULL	NULL	NULL	NULL	1	3	1	NULL	1	2026-11-05 14:04:17	2026-11-05 14:04:17
+[compliance_execution_event orphans]
+29	4	NULL	2	CREATE	{"name": "6月执行"}	2026-11-04 08:16:42
+30	4	7	2	DUE	{"new": "2026-11-30", "old": "null"}	2026-11-04 08:16:42
+31	4	7	2	UPDATE	{"fields": ["dueDate"]}	2026-11-04 08:16:42
+32	4	8	2	DUE	{"new": "2026-11-30", "old": "null"}	2026-11-04 08:16:42
+33	4	8	2	UPDATE	{"fields": ["dueDate"]}	2026-11-04 08:16:42
+34	4	9	2	DUE	{"new": "2026-11-30", "old": "null"}	2026-11-04 08:16:42
+35	4	9	2	UPDATE	{"fields": ["dueDate"]}	2026-11-04 08:16:42
+36	4	NULL	2	START	NULL	2026-11-04 08:16:49
+37	4	7	2	ANSWER	{"new": {"optionCode": "A"}, "old": null}	2026-11-04 08:17:32
+38	4	7	2	NOTE	{"new": "备注", "old": null}	2026-11-04 08:17:32
+39	4	7	2	UPDATE	{"fields": ["answer", "note", "reminder"]}	2026-11-04 08:17:32
+40	4	7	2	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-04 08:17:38
+41	4	7	2	UPDATE	{"fields": ["progress"]}	2026-11-04 08:17:38
+42	4	7	2	PROGRESS	{"new": "UNPROCESSED", "old": "COMPLETED"}	2026-11-04 08:17:42
+43	4	7	2	UPDATE	{"fields": ["progress"]}	2026-11-04 08:17:42
+44	4	9	2	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-04 08:19:15
+45	4	9	2	UPDATE	{"fields": ["progress"]}	2026-11-04 08:19:15
+46	4	8	2	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-04 08:19:17
+47	4	8	2	UPDATE	{"fields": ["progress"]}	2026-11-04 08:19:17
+48	4	7	2	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-04 10:51:15
+49	4	7	2	UPDATE	{"fields": ["progress"]}	2026-11-04 10:51:15
+50	5	NULL	1	CREATE	{"name": "测试"}	2026-11-05 10:29:42
+51	5	10	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:42
+52	5	10	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+53	5	11	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+54	5	11	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+55	5	12	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+56	5	12	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+57	5	13	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+58	5	13	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+59	5	14	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+60	5	14	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+61	5	15	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+62	5	15	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+63	5	16	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+64	5	16	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+65	5	17	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+66	5	17	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+67	5	18	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+68	5	18	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+69	5	19	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+70	5	19	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+71	5	20	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+72	5	20	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+73	5	21	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+74	5	21	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+75	5	22	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+76	5	22	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+77	5	23	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+78	5	23	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+79	5	24	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+80	5	24	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+81	5	25	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+82	5	25	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+83	5	26	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+84	5	26	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+85	5	27	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+86	5	27	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+87	5	28	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+88	5	28	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+89	5	29	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+90	5	29	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+91	5	30	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+92	5	30	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+93	5	31	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+94	5	31	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+95	5	32	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+96	5	32	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+97	5	33	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+98	5	33	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+99	5	34	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+100	5	34	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+101	5	35	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+102	5	35	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+103	5	36	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:43
+104	5	36	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:43
+105	5	37	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+106	5	37	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+107	5	38	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+108	5	38	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+109	5	39	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+110	5	39	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+111	5	40	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+112	5	40	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+113	5	41	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+114	5	41	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+115	5	42	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+116	5	42	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+117	5	43	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+118	5	43	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+119	5	44	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+120	5	44	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+121	5	45	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+122	5	45	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+123	5	46	1	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:29:44
+124	5	46	1	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:29:44
+129	6	NULL	6	CREATE	{"name": "测试"}	2026-11-05 10:31:07
+130	6	47	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+131	6	47	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+132	6	48	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+133	6	48	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+134	6	49	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+135	6	49	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+136	6	50	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+137	6	50	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+138	6	51	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+139	6	51	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+140	6	52	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+141	6	52	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+142	6	53	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+143	6	53	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+144	6	54	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+145	6	54	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+146	6	55	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+147	6	55	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+148	6	56	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+149	6	56	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+150	6	57	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+151	6	57	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+152	6	58	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+153	6	58	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+154	6	59	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+155	6	59	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+156	6	60	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+157	6	60	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+158	6	61	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+159	6	61	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+160	6	62	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+161	6	62	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+162	6	63	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+163	6	63	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+164	6	64	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+165	6	64	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+166	6	65	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+167	6	65	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+168	6	66	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+169	6	66	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+170	6	67	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+171	6	67	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+172	6	68	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+173	6	68	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+174	6	69	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+175	6	69	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+176	6	70	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+177	6	70	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+178	6	71	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+179	6	71	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+180	6	72	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+181	6	72	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+182	6	73	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+183	6	73	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+184	6	74	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+185	6	74	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+186	6	75	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+187	6	75	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+188	6	76	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+189	6	76	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+190	6	77	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+191	6	77	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+192	6	78	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+193	6	78	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:08
+194	6	79	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:08
+195	6	79	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:09
+196	6	80	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:09
+197	6	80	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:09
+198	6	81	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:09
+199	6	81	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:09
+200	6	82	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:09
+201	6	82	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:09
+202	6	83	6	DUE	{"new": "2026-11-06", "old": "null"}	2026-11-05 10:31:09
+203	6	83	6	UPDATE	{"fields": ["dueDate"]}	2026-11-05 10:31:09
+204	6	NULL	6	START	NULL	2026-11-05 10:31:11
+206	4	8	2	ANSWER	{"new": {"text": "1"}, "old": null}	2026-11-05 14:03:55
+207	4	8	2	UPDATE	{"fields": ["answer", "reminder"]}	2026-11-05 14:03:55
+208	4	8	2	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-05 14:03:58
+209	4	8	2	UPDATE	{"fields": ["progress"]}	2026-11-05 14:03:58
+210	4	NULL	2	ARCHIVE	NULL	2026-11-05 14:04:03
+211	7	NULL	2	CREATE	{"name": "1"}	2026-11-05 14:04:17
+212	7	84	2	DUE	{"new": "2026-11-13", "old": "null"}	2026-11-05 14:04:17
+213	7	84	2	UPDATE	{"fields": ["dueDate"]}	2026-11-05 14:04:17
+214	7	85	2	DUE	{"new": "2026-11-13", "old": "null"}	2026-11-05 14:04:17
+215	7	85	2	UPDATE	{"fields": ["dueDate"]}	2026-11-05 14:04:17
+216	7	86	2	DUE	{"new": "2026-11-13", "old": "null"}	2026-11-05 14:04:17
+217	7	86	2	UPDATE	{"fields": ["dueDate"]}	2026-11-05 14:04:17
+274	7	NULL	2	START	NULL	2026-11-05 14:30:57
+275	6	55	6	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-05 15:44:48
+276	6	55	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:48
+277	6	56	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-05 15:44:49
+278	6	56	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:49
+279	6	56	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-05 15:44:50
+280	6	56	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:50
+281	6	47	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-05 15:44:52
+282	6	47	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:52
+283	6	47	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-05 15:44:53
+284	6	47	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:53
+285	6	48	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-05 15:44:56
+286	6	48	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:56
+287	6	48	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-05 15:44:58
+288	6	48	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:44:58
+289	6	49	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-05 15:45:00
+290	6	49	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:45:00
+291	6	49	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-05 15:45:01
+292	6	49	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:45:01
+293	6	50	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-05 15:45:02
+294	6	50	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:45:02
+295	6	50	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-05 15:45:03
+296	6	50	6	UPDATE	{"fields": ["progress"]}	2026-11-05 15:45:03
+297	6	51	6	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-06 11:37:40
+298	6	51	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:40
+299	6	52	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 11:37:41
+300	6	52	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:41
+301	6	52	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 11:37:42
+302	6	52	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:42
+303	6	53	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 11:37:43
+304	6	53	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:43
+305	6	53	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 11:37:44
+306	6	53	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:44
+307	6	54	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 11:37:45
+308	6	54	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:45
+309	6	54	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 11:37:46
+310	6	54	6	UPDATE	{"fields": ["progress"]}	2026-11-06 11:37:46
+311	6	57	6	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-06 16:11:19
+312	6	57	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:19
+313	6	58	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:11:21
+314	6	58	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:21
+315	6	58	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:11:22
+316	6	58	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:22
+317	6	59	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:11:23
+318	6	59	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:23
+319	6	59	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:11:24
+320	6	59	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:24
+321	6	60	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:11:25
+322	6	60	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:25
+323	6	60	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:11:27
+324	6	60	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:27
+325	6	61	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:11:34
+326	6	61	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:34
+327	6	61	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:11:38
+328	6	61	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:38
+329	6	62	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:11:39
+330	6	62	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:11:39
+331	6	62	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:20:00
+332	6	62	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:00
+333	6	63	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:20:03
+334	6	63	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:03
+335	6	63	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:20:05
+336	6	63	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:05
+337	6	64	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:20:08
+338	6	64	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:08
+339	6	64	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:20:11
+340	6	64	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:11
+341	6	65	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:20:16
+342	6	65	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:16
+343	6	65	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:20:18
+344	6	65	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:18
+345	6	66	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:20:19
+346	6	66	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:19
+347	6	66	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:20:20
+348	6	66	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:20:20
+349	6	67	6	COMPLETE	{"new": "COMPLETED", "old": "UNPROCESSED"}	2026-11-06 16:33:32
+350	6	67	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:33:32
+351	6	68	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:33:33
+352	6	68	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:33:33
+353	6	68	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-06 16:33:34
+354	6	68	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:33:34
+355	6	69	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-06 16:33:36
+356	6	69	6	UPDATE	{"fields": ["progress"]}	2026-11-06 16:33:36
+358	6	69	6	COMPLETE	{"new": "COMPLETED", "old": "PROCESSING"}	2026-11-09 11:12:18
+359	6	69	6	UPDATE	{"fields": ["progress"]}	2026-11-09 11:12:18
+360	6	70	6	PROGRESS	{"new": "PROCESSING", "old": "UNPROCESSED"}	2026-11-09 11:12:19
+361	6	70	6	UPDATE	{"fields": ["progress"]}	2026-11-09 11:12:19
+[compliance_execution_reminder orphans]
+3	4	7	2	due_before	2026-11-27 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-04 08:16:49	2026-11-04 08:17:32
+4	4	7	2	due_today	2026-11-30 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-04 08:16:49	2026-11-04 08:17:32
+5	4	8	2	due_before	2026-11-27 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-04 08:16:49	2026-11-04 08:19:17
+6	4	8	2	due_today	2026-11-30 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-04 08:16:49	2026-11-04 08:19:17
+7	4	9	2	due_before	2026-11-27 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-04 08:16:49	2026-11-04 08:19:15
+8	4	9	2	due_today	2026-11-30 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-04 08:16:49	2026-11-04 08:19:15
+9	4	7	2	due_before	2026-11-27 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-04 08:17:32	2026-11-04 08:17:38
+10	4	7	2	due_today	2026-11-30 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-04 08:17:32	2026-11-04 08:17:38
+11	4	7	2	due_before	2026-11-27 08:30:00	4	CANCELLED	NULL	0	NULL	2026-11-04 08:17:42	2026-11-04 10:51:15
+12	4	7	2	due_today	2026-11-30 08:30:00	4	CANCELLED	NULL	0	NULL	2026-11-04 08:17:42	2026-11-04 10:51:15
+13	4	8	2	due_before	2026-11-27 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-04 08:19:17	2026-11-05 14:03:55
+14	4	8	2	due_today	2026-11-30 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-04 08:19:17	2026-11-05 14:03:55
+15	6	47	6	due_today	2026-11-06 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 10:31:11	2026-11-05 15:44:52
+16	6	48	6	due_today	2026-11-06 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 10:31:11	2026-11-05 15:44:56
+17	6	49	6	due_today	2026-11-06 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 10:31:11	2026-11-05 15:45:00
+18	6	50	6	due_today	2026-11-06 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 10:31:11	2026-11-05 15:45:02
+19	6	51	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+20	6	52	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+21	6	53	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+22	6	54	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+23	6	55	6	due_today	2026-11-06 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 10:31:11	2026-11-05 15:44:48
+24	6	56	6	due_today	2026-11-06 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 10:31:11	2026-11-05 15:44:49
+25	6	57	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+26	6	58	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+27	6	59	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+28	6	60	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:00	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+29	6	61	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+30	6	62	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+31	6	63	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+32	6	64	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+33	6	65	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+34	6	66	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+35	6	67	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+36	6	68	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+37	6	69	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+38	6	70	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+39	6	71	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+40	6	72	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+41	6	73	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+42	6	74	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+43	6	75	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+44	6	76	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+45	6	77	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+46	6	78	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+47	6	79	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+48	6	80	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+49	6	81	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+50	6	82	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+51	6	83	6	due_today	2026-11-06 08:30:00	1	SENT	2026-11-06 08:30:01	0	NULL	2026-11-05 10:31:11	2026-11-05 10:31:11
+52	4	8	2	due_before	2026-11-27 08:30:00	3	CANCELLED	NULL	0	NULL	2026-11-05 14:03:55	2026-11-05 14:03:58
+53	4	8	2	due_today	2026-11-30 08:30:00	3	CANCELLED	NULL	0	NULL	2026-11-05 14:03:55	2026-11-05 14:03:58
+103	7	84	2	due_before	2026-11-10 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 14:30:57	2026-11-05 14:30:57
+104	7	84	2	due_today	2026-11-13 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 14:30:57	2026-11-05 14:30:57
+105	7	85	2	due_before	2026-11-10 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 14:30:57	2026-11-05 14:30:57
+106	7	85	2	due_today	2026-11-13 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 14:30:57	2026-11-05 14:30:57
+107	7	86	2	due_before	2026-11-10 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 14:30:57	2026-11-05 14:30:57
+108	7	86	2	due_today	2026-11-13 08:30:00	1	CANCELLED	NULL	0	NULL	2026-11-05 14:30:57	2026-11-05 14:30:57
+109	6	56	6	due_today	2026-11-06 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-05 15:44:49	2026-11-05 15:44:50
+110	6	47	6	due_today	2026-11-06 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-05 15:44:52	2026-11-05 15:44:53
+111	6	48	6	due_today	2026-11-06 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-05 15:44:56	2026-11-05 15:44:58
+112	6	49	6	due_today	2026-11-06 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-05 15:45:00	2026-11-05 15:45:01
+113	6	50	6	due_today	2026-11-06 08:30:00	2	CANCELLED	NULL	0	NULL	2026-11-05 15:45:02	2026-11-05 15:45:03
