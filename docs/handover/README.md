@@ -2,6 +2,8 @@
 
 > 🗺️ 接手前先读 [仓库地图](../repo-map.md)（目录总览/模块地图/关键链路/接手路径），规则见根目录 [AGENTS.md](../../AGENTS.md)。
 
+- 2026-11-17 **微盘×知识星球集成需求作废（A8 清除）**：负责人决定不实施（Step 1~3 不施工）；需求提案 R17 已同步移除该子项。调研报告与交接记录留档备查（含已核实事实：解析触发硬编码仅 enterprise-compliance、PPTX 正文抽取缺失——若未来重提知识库解析增强仍有效）。见 [调研交接](tasks/20261104_wedrive_knowledge_integration_research.md)。
+
 - 2026-11-17 **复用审查 #6/#7 观察项处置（A7）关闭**：#6 外部进程模式**不排期**——四处调用（PhotoMatte/LocalTableOcr/DocPreview/KnowledgeDocTextExtractor）行为契约各异（常驻 worker/一次性调用/格式转换/丢 stderr），按 AGENTS §19.1 不强行合并，且抠图链路刚随 1.0.51 修稳；#7 列表页加载模式**并入需求提案 R08**（列表页一致性三件套）随其实施统一。见 [需求提案 R08](../requirements/2026-11-17-全项目产品审查与优化需求提案-需求文档.md)。
 
 - 2026-11-17 **样式统一第一批已随 1.0.53 发布上线，待业务验收**：卡片 6 处挂 ui-card（圆角 10px/边框阴影统一）、供应商 type-pill/state-pill 挂 ui-badge、`.muted` 全局化（4 文件 #a8abb2→#909399）；Dashboard --c-* 与 Supplier 色系受保护未动，登录页无变化。发布后核验：线上入口含 1.0.53、样式 chunk 200、四路由 200。见 [发布记录](../releases/20261117-style-unification-1.0.53.md) 与 [交接记录](tasks/20261117_style_unification.md)。
