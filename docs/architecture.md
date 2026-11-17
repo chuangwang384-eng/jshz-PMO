@@ -301,6 +301,10 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 
 「会议预算制作」推进前须完成「生成报价文件」待办。项目详情通过 `missingRequiredTemplates` 返回待办，推进接口复用同一校验。完成条件是本项目至少一份报价版本关联到当前预算阶段的有效资料，且文件可读取。内部确认是生成报价的前提，客户确认可在推进后登记。报价生成成功后详情刷新，推进按钮随待办更新。见 [报价待办与预览交接](handover/tasks/20261117_budget_quote_phase_gate.md)。
 
+「日程上传」推进前须完成日程上传与专家全匹配（2026-11-17）：无当前日程（`project_schedule.is_current=1`）时待办为「上传日程」；当前日程下 `project_speaker.expert_id` 存在 NULL（库外专家）时待办为「专家匹配入库（N 位库外专家）」。详情与推进接口共用同一校验，回退不受限。前端待办入口分别定位到日程上传行（`#schedule-upload`）与参会专家表（`#schedule-speakers`）。
+
+项目文件预览中的 Excel（xls/xlsx，含报价文件）改用知识星球表格预览方案（2026-11-17）：新端点 `GET /api/project/files/{fileName}/workbook`（参数 sheet/rowPage/columnPage 与知识库一致），后端复用同一 `ExcelPreviewService`（POI 100行×40列分页），前端复用 `KnowledgeWorkbookPreview` 组件（新增可选 `fetcher` prop 注入 `fetchProjectWorkbook`，默认仍走知识库 API，无第二份渲染逻辑）。权限与 `GET /files/{fileName}` 同口径：报价文件（`project_quote_` 前缀）走项目阅读权限，非 Excel 返回业务错误。PDF/图片/其余 Office 预览链路不变。
+
 2026-11-17 开发分支修复。线上标准项勾选后可编辑正整数数量，取消勾选后数量为零。独立确认接口 `POST /api/project/{id}/meeting-budget/confirm` 无请求体，沿用项目写权限，仅确认已保存草稿并登记更新人。响应继续包含 `budget` 和 `items`，金额、备注、明细及其 ID 保留。重复确认返回当前已确认单。尚未保存草稿时返回业务错误。保存和确认在事务内锁定同一预算记录。页面继续使用原有 PUT 整单保存接口。详见 [流程对照与验收记录](handover/tasks/20261117_budget_workflow_fixes.md)。
 
 项目流程新增「会议预算制作」阶段（`project_phase` sort=98，位于日程上传 sort=99 之前），进入该阶段时项目详情页只展示 生命周期/阶段资料（与日程上传同口径的专用阶段视图）。按项目大类分流：线上（ONLINE）为简化报价单（模板点选形式待定）；线下（OFFLINE）为七节费用明细（酒店=场地/住宿/用餐/茶歇；交通=大交通按专家人数预估+地面交通车队专车/平台专车；搭建=非必需；物料=设计费+公司收取串场/沟通函及延展+日程/台卡上浮+展架+条幅+其他打印+讲台花+桌花；媒体=非必需；礼品=需与客户确认；人员=固定费用+据实报销）。金额=数量×单价由服务端计算，整单覆盖式保存（DRAFT/CONFIRMED，确认后草稿不可再覆盖）。

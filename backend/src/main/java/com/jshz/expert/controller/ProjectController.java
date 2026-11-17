@@ -167,6 +167,32 @@ public class ProjectController {
                 headers, org.springframework.http.HttpStatus.OK);
     }
 
+    /**
+     * 项目文件 Excel 工作簿分页预览（2026-11-17）：复用知识星球 ExcelPreviewService（POI 100行×40列分页），
+     * 权限口径与 GET /files/{fileName} 一致（报价文件走项目阅读权限），前端复用 KnowledgeWorkbookPreview。
+     */
+    @GetMapping("/files/{fileName}/workbook")
+    public ApiResponse<com.jshz.expert.service.ExcelPreviewService.Preview> projectWorkbook(
+            @PathVariable String fileName,
+            @RequestParam(required = false) Integer sheet,
+            @RequestParam(defaultValue = "0") int rowPage,
+            @RequestParam(defaultValue = "0") int columnPage,
+            @AuthenticationPrincipal AuthUser user) {
+        if (fileName.regionMatches(true, 0, "project_quote_", 0, "project_quote_".length())) {
+            projectService.requireQuoteFileReadable(fileName, user);
+        }
+        java.nio.file.Path path = projectService.resolveStoredFile(fileName);
+        if (path == null || !java.nio.file.Files.exists(path) || !java.nio.file.Files.isRegularFile(path)) {
+            throw new BusinessException("文件不存在或已失效");
+        }
+        int dot = fileName.lastIndexOf('.');
+        String ext = dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        if (!"xls".equals(ext) && !"xlsx".equals(ext)) {
+            throw new BusinessException("该文件不是 Excel 工作簿");
+        }
+        return ApiResponse.ok(excelPreviewService.read(path, sheet, rowPage, columnPage));
+    }
+
     private org.springframework.http.MediaType projectFileMediaType(String ext) {
         return switch (ext) {
             case "pdf" -> org.springframework.http.MediaType.APPLICATION_PDF;
@@ -451,6 +477,7 @@ public class ProjectController {
 
     private final ScheduleParseService scheduleParseService;
     private final com.jshz.expert.service.DocPreviewService docPreviewService;
+    private final com.jshz.expert.service.ExcelPreviewService excelPreviewService;
 
     /** 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤20MB；覆盖当前生效份）。 */
     @PostMapping("/{id}/schedule")

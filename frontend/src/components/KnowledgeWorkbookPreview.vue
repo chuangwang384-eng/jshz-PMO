@@ -41,7 +41,12 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { fetchKnowledgeWorkbook } from '../api/knowledge'
 
-const props = defineProps({ filePath: { type: String, required: true } })
+// fetcher 可选注入（2026-11-17）：默认走知识库 API；项目文件预览传入 fetchProjectWorkbook（同签名），
+// 渲染与分页逻辑完全复用，不复制第二份
+const props = defineProps({
+  filePath: { type: String, required: true },
+  fetcher: { type: Function, default: null }
+})
 const preview = ref(null)
 const loading = ref(true)
 const failed = ref(false)
@@ -52,7 +57,8 @@ async function load(sheet, rowPage = 0, columnPage = 0) {
   loading.value = true
   failed.value = false
   try {
-    preview.value = await fetchKnowledgeWorkbook(props.filePath, { sheet, rowPage, columnPage })
+    const load = props.fetcher || fetchKnowledgeWorkbook
+    preview.value = await load(props.filePath, { sheet, rowPage, columnPage })
     await nextTick()
     viewport.value?.scrollTo(0, 0)
   } catch {

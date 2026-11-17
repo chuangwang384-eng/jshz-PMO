@@ -203,6 +203,12 @@ export function fetchProjectFile(fileName, download = false, preview = false) {
   return request.get(`/project/files/${encodeURIComponent(fileName)}${qs ? '?' + qs : ''}`, { responseType: 'blob' })
 }
 
+// 项目文件 Excel 工作簿分页预览（2026-11-17）：后端复用知识星球 ExcelPreviewService，
+// 返回结构与 fetchKnowledgeWorkbook 一致（消费方：ProjectDetail 预览抽屉）
+export function fetchProjectWorkbook(fileName, params) {
+  return request.get(`/project/files/${encodeURIComponent(fileName)}/workbook`, { params })
+}
+
 // ==================== 会议预算制作（2026-11-16 新阶段，位于日程上传之前） ====================
 
 // 预算单总览（不存在返回骨架草稿，不落库；含 feeStandards 收费默认值）

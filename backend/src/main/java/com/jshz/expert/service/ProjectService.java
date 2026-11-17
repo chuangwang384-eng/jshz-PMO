@@ -1955,6 +1955,25 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .noneMatch(path -> storageService.resolveFile(path) != null)) {
             missing.add("生成报价文件");
         }
+        // 2026-11-17 需求：日程上传阶段须上传日程且全部参会专家匹配到专家库（project_speaker.expert_id 非空）
+        if ("日程上传".equals(phaseName)) {
+            ProjectSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ProjectSchedule>()
+                    .eq(ProjectSchedule::getProjectId, project.getId())
+                    .eq(ProjectSchedule::getIsCurrent, 1)
+                    .orderByDesc(ProjectSchedule::getId)
+                    .last("LIMIT 1"));
+            if (schedule == null) {
+                missing.add("上传日程");
+            } else {
+                Long unmatched = speakerMapper.selectCount(new LambdaQueryWrapper<ProjectSpeaker>()
+                        .eq(ProjectSpeaker::getProjectId, project.getId())
+                        .eq(ProjectSpeaker::getScheduleId, schedule.getId())
+                        .isNull(ProjectSpeaker::getExpertId));
+                if (unmatched != null && unmatched > 0) {
+                    missing.add("专家匹配入库（" + unmatched + " 位库外专家）");
+                }
+            }
+        }
         // 新流程项目无快照模板，仍执行阶段业务材料校验。
         if (snapshotOrNull(project) == null) {
             return missing;

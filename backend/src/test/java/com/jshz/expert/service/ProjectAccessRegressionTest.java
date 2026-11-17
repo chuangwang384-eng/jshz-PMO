@@ -112,4 +112,63 @@ class ProjectAccessRegressionTest {
         verify(projects).updateById(project);
         verify(phaseHistory).insert(any(ProjectPhaseHistory.class));
     }
+
+    // ==================== 日程上传阶段：专家全匹配推进校验（2026-11-17） ====================
+
+    @Mock ProjectScheduleMapper scheduleMapper;
+    @Mock ProjectSpeakerMapper speakerMapper;
+
+    private Project setupScheduleStage() {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        Project project = project();
+        project.setPhaseId(11L);
+        when(projects.selectById(1L)).thenReturn(project);
+        when(phases.selectById(11L)).thenReturn(phase(11L, "日程上传", 99));
+        when(phases.selectById(12L)).thenReturn(phase(12L, "下一阶段", 100));
+        return project;
+    }
+
+    private ProjectSchedule schedule(long id) {
+        ProjectSchedule s = new ProjectSchedule();
+        s.setId(id);
+        s.setProjectId(1L);
+        s.setIsCurrent(1);
+        return s;
+    }
+
+    @Test void scheduleAdvancementRequiresUploadedSchedule() {
+        setupScheduleStage();
+        when(scheduleMapper.selectOne(any())).thenReturn(null);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.changePhase(1L, 12L, null, user(2L)));
+
+        assertTrue(error.getMessage().contains("上传日程"));
+        verify(projects, never()).updateById(any(Project.class));
+    }
+
+    @Test void unmatchedSpeakerBlocksScheduleAdvancement() {
+        setupScheduleStage();
+        when(scheduleMapper.selectOne(any())).thenReturn(schedule(30L));
+        when(speakerMapper.selectCount(any())).thenReturn(2L);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.changePhase(1L, 12L, null, user(2L)));
+
+        assertTrue(error.getMessage().contains("专家匹配入库"));
+        assertTrue(error.getMessage().contains("2"));
+        verify(projects, never()).updateById(any(Project.class));
+    }
+
+    @Test void fullyMatchedSpeakersAllowScheduleAdvancement() {
+        Project project = setupScheduleStage();
+        when(scheduleMapper.selectOne(any())).thenReturn(schedule(30L));
+        when(speakerMapper.selectCount(any())).thenReturn(0L);
+
+        service.changePhase(1L, 12L, null, user(2L));
+
+        assertEquals(12L, project.getPhaseId());
+        verify(projects).updateById(project);
+        verify(phaseHistory).insert(any(ProjectPhaseHistory.class));
+    }
 }

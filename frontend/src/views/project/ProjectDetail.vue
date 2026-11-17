@@ -105,7 +105,7 @@
           </template>
           <!-- 日程上传阶段：上传即替换当前日程（不做历史版本）并自动解析参会专家 -->
           <template v-else-if="isAgendaStage && isViewingCurrent">
-            <div class="schedule-upload-row">
+            <div id="schedule-upload" class="schedule-upload-row">
               <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,.xlsx,.xls">
                 <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程（替换当前份）' : '上传日程文件' }}</el-button>
               </el-upload>
@@ -242,7 +242,7 @@
           </template>
 
           <!-- 正式参会专家 -->
-          <div class="schedule-sub-title">参会专家（已确认 {{ speakers.length }} 人）</div>
+          <div id="schedule-speakers" class="schedule-sub-title">参会专家（已确认 {{ speakers.length }} 人）</div>
           <el-table v-if="speakers.length" :data="speakers" size="small" stripe>
             <el-table-column prop="expertName" label="姓名" width="120" />
             <el-table-column label="会议角色" width="110">
@@ -808,6 +808,9 @@
         @pointermove="moveFilePreviewPan" @pointerup="stopFilePreviewPan"
         @pointercancel="stopFilePreviewPan" @lostpointercapture="stopFilePreviewPan">
         <img v-if="filePreviewMode === 'image'" :src="filePreviewImageUrl" class="preview-image" draggable="false" alt="文件预览" :style="filePreviewImageWidth ? { width: filePreviewImageWidth * filePreviewScale + 'px' } : {}" @load="sizeFilePreviewImage" />
+        <div v-else-if="filePreviewMode === 'excel'" class="preview-excel">
+          <KnowledgeWorkbookPreview :file-path="filePreviewWorkbookFile" :fetcher="fetchProjectWorkbook" />
+        </div>
         <canvas v-else-if="filePreviewMode === 'pdf'" ref="filePreviewCanvasRef" class="preview-canvas"></canvas>
         <el-empty v-else-if="filePreviewMode === 'failed'" description="预览失败，可下载查看">
           <el-button type="primary" size="small" @click="downloadProjectFile(filePreviewRow)">下载</el-button>
@@ -844,8 +847,9 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveManual, deleteScheduleDoc, fetchProjectFile
+  archiveManual, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
 } from '../../api/project'
+import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
 
 const route = useRoute()
 const projectId = route.params.id
@@ -1305,8 +1309,11 @@ function isTemplateFulfilled(t) {
 }
 
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
+const SCHEDULE_UPLOAD_TASK = '上传日程'
 function resolveLabel(m) {
   if (m === BUDGET_QUOTE_TASK) return '去处理报价'
+  if (m === SCHEDULE_UPLOAD_TASK) return '去上传日程'
+  if (m.startsWith('专家匹配入库')) return '去匹配专家'
   if (m.includes('预算')) return '去登记预算'
   if (m.includes('附件')) return '去上传附件'
   if (m.includes('专家')) return '去调派专家'
@@ -1319,6 +1326,14 @@ async function resolveMissing(m) {
     viewPhaseId.value = String(detail.value.phaseId)
     await nextTick()
     document.getElementById('budget-quote-versions')?.scrollIntoView({ block: 'center' })
+    return
+  }
+  // 日程阶段待办（2026-11-17）：定位到日程上传行 / 参会专家匹配表
+  if (m === SCHEDULE_UPLOAD_TASK || m.startsWith('专家匹配入库')) {
+    viewPhaseId.value = String(detail.value.phaseId)
+    await nextTick()
+    const anchor = m === SCHEDULE_UPLOAD_TASK ? 'schedule-upload' : 'schedule-speakers'
+    document.getElementById(anchor)?.scrollIntoView({ block: 'center' })
     return
   }
   if (m.includes('预算')) { openBudget(); return }
@@ -1634,10 +1649,11 @@ onMounted(async () => {
 pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([pdfWorkerCode], { type: 'text/javascript' }))
 const filePreviewVisible = ref(false)
 const filePreviewLoading = ref(false)
-const filePreviewMode = ref('') // image | pdf | failed
+const filePreviewMode = ref('') // image | excel | pdf | failed
 const filePreviewTitle = ref('')
 const filePreviewRow = ref(null)
 const filePreviewImageUrl = ref('')
+const filePreviewWorkbookFile = ref('')
 const filePreviewBlobUrl = ref('')
 // pdfDoc 必须 shallowRef：Vue Proxy 会破坏 pdfjs 私有字段（知识星球 20261103 同口径修复）
 const filePdfDoc = shallowRef(null)
@@ -1727,6 +1743,13 @@ async function openFilePreview(d) {
   filePreviewVisible.value = true
   filePreviewLoading.value = true
   try {
+    // Excel 走表格分页预览（复用知识星球方案，2026-11-17）；其余 Office 仍转 PDF
+    const ext = fileExtOf(d.fileName || d.filePath)
+    if (ext === 'xls' || ext === 'xlsx') {
+      filePreviewWorkbookFile.value = d.filePath
+      filePreviewMode.value = 'excel'
+      return
+    }
     const response = await fetchProjectFile(d.filePath, false, true)
     const blob = response.data
     if (blob && blob.type === 'application/json') {
@@ -1736,7 +1759,6 @@ async function openFilePreview(d) {
       ElMessage.warning(err && err.code === 'CONVERT_FAILED' ? '文档转换失败，可下载查看' : '预览失败，可下载查看')
       return
     }
-    const ext = fileExtOf(d.fileName || d.filePath)
     if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) {
       filePreviewMode.value = 'image'
       filePreviewImageUrl.value = URL.createObjectURL(blob)
@@ -1956,6 +1978,8 @@ async function downloadProjectFile(d) {
 .preview-body.is-pannable :is(.preview-image, .preview-canvas) { cursor: grab; }
 .preview-body.is-panning, .preview-body.is-panning :is(.preview-image, .preview-canvas) { cursor: grabbing; user-select: none; }
 .preview-image, .preview-canvas { display: block; max-width: none; margin-inline: auto; }
+/* Excel 表格预览：宽度撑满抽屉，内层自滚动（复用 KnowledgeWorkbookPreview） */
+.preview-excel { min-width: 0; }
 .preview-canvas { box-shadow: 0 2px 12px rgba(0,0,0,.12); }
 .side-log { padding: 6px 0; border-bottom: 1px dashed var(--ui-border-weak); }
 .side-log-desc { font-size: 13px; color: var(--ui-text-main); }
