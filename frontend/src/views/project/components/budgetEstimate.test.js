@@ -76,3 +76,29 @@ test('unknown traveler count is distinct from explicit zero', () => {
   const result = byKey(estimateChanges(rows(), { ...estimateDefaults, travelers: 0 }, fees, true))
   assert.equal(result.HOTEL_ROOM.changes.quantity, 2)
 })
+
+test('estimate rules read from fee standards config and fall back to constants when absent', () => {
+  const configured = {
+    ...fees,
+    EST_TEA_RATIO: { defaultValue: '80' },
+    EST_FLIGHT_FARE: { defaultValue: '2500' },
+    EST_PLATFORM_FIRST: { defaultValue: '260' },
+    EST_PLATFORM_OTHER: { defaultValue: '120' },
+    EST_HOTEL_ROOMS: { defaultValue: '3' }
+  }
+  const result = byKey(estimateChanges(rows(), input, configured, true))
+  assert.equal(result.HOTEL_TEA.changes.quantity, 45)
+  assert.match(result.HOTEL_TEA.basis, /80%/)
+  assert.equal(result.TRAFFIC_MAIN.changes.unitPrice, 2500)
+  assert.equal(result.TRAFFIC_PLATFORM.changes.unitPrice, 260)
+  const other = byKey(estimateChanges(rows(), { ...input, city: 'OTHER' }, configured, true))
+  assert.equal(other.TRAFFIC_PLATFORM.changes.unitPrice, 120)
+  const zero = byKey(estimateChanges(rows(), { ...estimateDefaults, travelers: 0 }, configured, true))
+  assert.equal(zero.HOTEL_ROOM.changes.quantity, 3)
+  assert.match(zero.HOTEL_ROOM.basis, /预留 3 间/)
+  // 无 EST_* 配置（含非法值）时回退常量，行为与并入前一致
+  const invalid = { ...fees, EST_FLIGHT_FARE: { defaultValue: 'abc' } }
+  const fallback = byKey(estimateChanges(rows(), input, invalid, true))
+  assert.equal(fallback.HOTEL_TEA.changes.quantity, 40)
+  assert.equal(fallback.TRAFFIC_MAIN.changes.unitPrice, 2000)
+})

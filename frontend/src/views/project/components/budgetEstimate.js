@@ -31,38 +31,55 @@ function standard(fees, key) {
   return { low, text: high == null ? String(low) : `${low}–${high}` }
 }
 
-// 估算规则常量（对客报价口径；调整须经业务负责人确认，2026-11-17 审查提取）
-// 是否并入管理员 feeStandards 配置待决策，故暂以命名常量集中维护
+// 估算规则兑底常量（2026-11-17 A1 决策：真源已迁入管理员「收费标准配置」feeStandards 的 EST_* 键，
+// 管理员可在线调价；本常量仅作接口缺失/未启用时的兑底，值须与 init.sql / migration 种子保持一致）
 export const ESTIMATE_RULES = {
-  HOTEL_DEFAULT_ROOMS: 2,            // 无外埠人员时住宿预留间数
-  TEA_RATIO_NUM: 7,                  // 茶歇人数比例 70%：用 7/50 整数运算
-  TEA_RATIO_DEN: 50,                 //   避免 attendees × 0.7 的浮点误差（×5 倍数取整）
-  TEA_ROUND_TO: 5,
-  PLATFORM_PRICE: { FIRST: 200, OTHER: 100 }, // 平台专车单价（元/人），按城市档位
-  FLIGHT_FARE: 2000                  // 机票估算单价（元/人）
+  HOTEL_DEFAULT_ROOMS: 2,            // EST_HOTEL_ROOMS：无外埠人员时住宿预留间数
+  TEA_RATIO: 70,                     // EST_TEA_RATIO：茶歇人数比例（%），向上取 5 的倍数
+  PLATFORM_PRICE: { FIRST: 200, OTHER: 100 }, // EST_PLATFORM_FIRST / EST_PLATFORM_OTHER：平台专车单价（元/人）
+  FLIGHT_FARE: 2000                  // EST_FLIGHT_FARE：机票估算单价（元/人）
+}
+
+// 供收费标准管理页展示估算参数类键的标签（不参与估算逻辑，与 quantityRules 分离）
+export const estimateRuleMeta = {
+  EST_TEA_RATIO: { label: '估算参数', unit: '%' },
+  EST_FLIGHT_FARE: { label: '估算参数', unit: '元/人' },
+  EST_PLATFORM_FIRST: { label: '估算参数', unit: '元/人' },
+  EST_PLATFORM_OTHER: { label: '估算参数', unit: '元/人' },
+  EST_HOTEL_ROOMS: { label: '估算参数', unit: '间' }
+}
+
+/** 从收费标准取估算参数；缺失/非法时回退 ESTIMATE_RULES 兑底值。 */
+function estimateParam(fees, key, fallback) {
+  const value = standard(fees, key)
+  return value && Number.isFinite(value.low) ? value.low : fallback
 }
 
 export function estimateChanges(items, input, fees, first, previousInput = {}) {
-  const room = input.travelers || ESTIMATE_RULES.HOTEL_DEFAULT_ROOMS
-  const tea = Math.ceil((input.attendees * ESTIMATE_RULES.TEA_RATIO_NUM) / ESTIMATE_RULES.TEA_RATIO_DEN) * ESTIMATE_RULES.TEA_ROUND_TO
+  const defaultRooms = estimateParam(fees, 'EST_HOTEL_ROOMS', ESTIMATE_RULES.HOTEL_DEFAULT_ROOMS)
+  const teaRatio = estimateParam(fees, 'EST_TEA_RATIO', ESTIMATE_RULES.TEA_RATIO)
+  const flightFare = estimateParam(fees, 'EST_FLIGHT_FARE', ESTIMATE_RULES.FLIGHT_FARE)
+  const platformFirst = estimateParam(fees, 'EST_PLATFORM_FIRST', ESTIMATE_RULES.PLATFORM_PRICE.FIRST)
+  const platformOther = estimateParam(fees, 'EST_PLATFORM_OTHER', ESTIMATE_RULES.PLATFORM_PRICE.OTHER)
+  const room = input.travelers || defaultRooms
+  const tea = Math.ceil((input.attendees * teaRatio) / 500) * 5
   const flight = input.longDistance === 'FLIGHT'
   const rail = input.longDistance === 'RAIL'
   const fleet = input.localTransport === 'FLEET'
   const platform = input.localTransport === 'PLATFORM'
-  const platformPrice = input.city === 'FIRST' ? ESTIMATE_RULES.PLATFORM_PRICE.FIRST
-    : input.city === 'OTHER' ? ESTIMATE_RULES.PLATFORM_PRICE.OTHER : undefined
+  const platformPrice = input.city === 'FIRST' ? platformFirst : input.city === 'OTHER' ? platformOther : undefined
   const suggestions = [
-    ['HOTEL_ROOM', room, undefined, '间', input.travelers ? `外埠人数 ${input.travelers} × 1 间` : '无外埠人员，预留 2 间'],
-    ['HOTEL_TEA', tea, undefined, '人', `参会总人数 ${input.attendees} × 70%，向上取 5 的倍数`],
+    ['HOTEL_ROOM', room, undefined, '间', input.travelers ? `外埠人数 ${input.travelers} × 1 间` : `无外埠人员，预留 ${defaultRooms} 间`],
+    ['HOTEL_TEA', tea, undefined, '人', `参会总人数 ${input.attendees} × ${teaRatio}%，向上取 5 的倍数`],
     ['TRAFFIC_FLEET', fleet ? input.attendees * 2 : 0, undefined, '次', fleet ? `参会总人数 ${input.attendees} × 2 次，单价待填` : '未选择车队专车'],
     ['TRAFFIC_PLATFORM', platform ? input.attendees : 0, platform ? platformPrice : undefined, '人',
       platform && platformPrice != null ? `参会总人数 ${input.attendees} × ${platformPrice} 元/人`
         : platform ? '按参会总人数，选择城市档位后可估算单价' : '未选择平台专车']
   ]
   if (flight || rail) {
-    const fare = flight ? ESTIMATE_RULES.FLIGHT_FARE : previousInput.longDistance === 'FLIGHT' ? null : undefined
+    const fare = flight ? flightFare : previousInput.longDistance === 'FLIGHT' ? null : undefined
     suggestions.push(['TRAFFIC_MAIN', input.travelers, fare, '人',
-      flight ? `外埠人数 ${input.travelers} × ${ESTIMATE_RULES.FLIGHT_FARE} 元/人` : `外埠人数 ${input.travelers}，高铁按一等座询价`])
+      flight ? `外埠人数 ${input.travelers} × ${flightFare} 元/人` : `外埠人数 ${input.travelers}，高铁按一等座询价`])
   }
   for (const [key, rule] of Object.entries(quantityRules)) {
     const value = standard(fees, key)

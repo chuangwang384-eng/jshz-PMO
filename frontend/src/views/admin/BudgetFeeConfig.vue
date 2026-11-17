@@ -27,8 +27,8 @@
         <el-table-column label="用途与默认值" min-width="174">
           <template #default="{ row }">
             <div class="fee-default">
-              <span class="ui-badge" :class="!isOnline && quantityRules[row.feeKey] ? 'ui-badge-primary' : 'ui-badge-info'">
-                {{ !isOnline && quantityRules[row.feeKey] ? quantityRules[row.feeKey].label : '参考单价' }}
+              <span class="ui-badge" :class="(!isOnline && quantityRules[row.feeKey]) || estimateRuleMeta[row.feeKey] ? 'ui-badge-primary' : 'ui-badge-info'">
+                {{ !isOnline && quantityRules[row.feeKey] ? quantityRules[row.feeKey].label : estimateRuleMeta[row.feeKey] ? '估算参数' : '参考单价' }}
               </span>
               <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'" size="small"/>
             </div>
@@ -38,6 +38,7 @@
           <template #default="{ row }">
             <span v-if="!isOnline && quantityRules[row.feeKey]">{{ quantityRules[row.feeKey].unit }}</span>
             <span v-else-if="!isOnline && row.feeKey === 'STAFF_DAY'">元/人天</span>
+            <span v-else-if="estimateRuleMeta[row.feeKey]">{{ estimateRuleMeta[row.feeKey].unit }}</span>
             <el-input v-else v-model="row.unit" placeholder="元/场 等" size="small"/>
           </template>
         </el-table-column>
@@ -72,7 +73,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBudgetFeeStandards, saveBudgetFeeStandards } from '../../api/project'
-import { quantityRules } from '../project/components/budgetEstimate'
+import { quantityRules, estimateRuleMeta } from '../project/components/budgetEstimate'
 import { apiErrorMessage } from '../../utils/common'
 
 const scene = ref('OFFLINE')
