@@ -1,5 +1,11 @@
 # 最新交接摘要
 
+- 2026-11-16 **Docker Desktop 已升级到 4.97.0 并汉化**，中文窗口、Linux 容器运行和 AnythingLLM 恢复均已验证。见 [升级与汉化交接](tasks/20261116_docker_desktop_cn.md)。
+
+- 2026-11-16 **AnythingLLM 已在本机 Docker 部署**，应用数据在 D 盘，网页、容器健康和宿主机 Ollama 推理已验证。见 [本机部署交接](tasks/20261116_anythingllm_local.md)。
+
+- 2026-11-16 **AI 助手本机向量检索评估已完成**。当前硬件具备小规模系统操作资料试点条件，检索精度与并发容量待隔离实测。见 [可行性评估](tasks/20261116_ai_assistant_rag_feasibility.md)。
+
 - 2026-11-16 **版本 1.0.46 已上线（gitShort=6370c0b）**：版本号 1.0.45 → 1.0.46（`version.txt` 唯一真源 + `package.json` 同步），`build-all.ps1 -BackendOnly` 构建后完成前后端发布；前端发布点 `1.0.46-version-bump-20261116`（主包 `index-BD4elGqA.js` 内嵌 v1.0.46），后端 `/health` = `1.0.46 / 6370c0b`；经 Nginx 验证 21 项全通过、失败 0。**业务侧 8 项页面点检待确认**（见发布记录第 4 节表格）。见 [发布记录](../releases/20261116-v1.0.46-version-bump.md)。
 - 2026-11-16 **已合并到 main 并推送 origin（1.0.45 / gitShort=fc173ce）**：`codex/personal-dashboard-v11` → `main`（合并提交 `c962ea2`），后端蓝绿发布 + 前端不可变发布（`1.0.45-cleanup-20261116`）均通过；`main` 已快进推送至 `origin/main`（`56c31ed..700fa37`，无冲突）。后续开发一律在 `main` 进行。见 [发布记录](../releases/20261116-main-merge-cleanup-deploy.md) 与 [任务交接](tasks/20261116_redundancy_cleanup.md)。
 - 2026-11-16 全项目冗余清理 + DDL 单一可信来源收口：**已验收并上线**：释放 20.6 GB 可重建产物；删除 4 个零引用组件、34 处无调用 `export`；`init.sql` 补齐至 85 张业务表并新增 `check-schema-parity.ps1` 守卫；后端 159 测试通过、前端构建通过、接口冒烟与匿名 401 通过。见 [任务交接](tasks/20261116_redundancy_cleanup.md)。
