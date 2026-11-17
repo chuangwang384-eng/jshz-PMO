@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
 
 os.environ.setdefault("U2NET_HOME", str(Path.cwd() / "models"))
@@ -17,4 +18,6 @@ for line in sys.stdin:
             remove(image.convert("RGBA"), session=session).save(target, format="PNG")
         print("OK", flush=True)
     except Exception:
+        # traceback 进 stderr：后端把 stderr 落盘并在失败日志中带出，便于定位（2026-11-17）
+        traceback.print_exc()
         print("ERROR", flush=True)
