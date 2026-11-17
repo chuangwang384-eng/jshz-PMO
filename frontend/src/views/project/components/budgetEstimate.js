@@ -31,14 +31,26 @@ function standard(fees, key) {
   return { low, text: high == null ? String(low) : `${low}–${high}` }
 }
 
+// 估算规则常量（对客报价口径；调整须经业务负责人确认，2026-11-17 审查提取）
+// 是否并入管理员 feeStandards 配置待决策，故暂以命名常量集中维护
+export const ESTIMATE_RULES = {
+  HOTEL_DEFAULT_ROOMS: 2,            // 无外埠人员时住宿预留间数
+  TEA_RATIO_NUM: 7,                  // 茶歇人数比例 70%：用 7/50 整数运算
+  TEA_RATIO_DEN: 50,                 //   避免 attendees × 0.7 的浮点误差（×5 倍数取整）
+  TEA_ROUND_TO: 5,
+  PLATFORM_PRICE: { FIRST: 200, OTHER: 100 }, // 平台专车单价（元/人），按城市档位
+  FLIGHT_FARE: 2000                  // 机票估算单价（元/人）
+}
+
 export function estimateChanges(items, input, fees, first, previousInput = {}) {
-  const room = input.travelers || 2
-  const tea = Math.ceil((input.attendees * 7) / 50) * 5
+  const room = input.travelers || ESTIMATE_RULES.HOTEL_DEFAULT_ROOMS
+  const tea = Math.ceil((input.attendees * ESTIMATE_RULES.TEA_RATIO_NUM) / ESTIMATE_RULES.TEA_RATIO_DEN) * ESTIMATE_RULES.TEA_ROUND_TO
   const flight = input.longDistance === 'FLIGHT'
   const rail = input.longDistance === 'RAIL'
   const fleet = input.localTransport === 'FLEET'
   const platform = input.localTransport === 'PLATFORM'
-  const platformPrice = input.city === 'FIRST' ? 200 : input.city === 'OTHER' ? 100 : undefined
+  const platformPrice = input.city === 'FIRST' ? ESTIMATE_RULES.PLATFORM_PRICE.FIRST
+    : input.city === 'OTHER' ? ESTIMATE_RULES.PLATFORM_PRICE.OTHER : undefined
   const suggestions = [
     ['HOTEL_ROOM', room, undefined, '间', input.travelers ? `外埠人数 ${input.travelers} × 1 间` : '无外埠人员，预留 2 间'],
     ['HOTEL_TEA', tea, undefined, '人', `参会总人数 ${input.attendees} × 70%，向上取 5 的倍数`],
@@ -48,9 +60,9 @@ export function estimateChanges(items, input, fees, first, previousInput = {}) {
         : platform ? '按参会总人数，选择城市档位后可估算单价' : '未选择平台专车']
   ]
   if (flight || rail) {
-    const fare = flight ? 2000 : previousInput.longDistance === 'FLIGHT' ? null : undefined
+    const fare = flight ? ESTIMATE_RULES.FLIGHT_FARE : previousInput.longDistance === 'FLIGHT' ? null : undefined
     suggestions.push(['TRAFFIC_MAIN', input.travelers, fare, '人',
-      flight ? `外埠人数 ${input.travelers} × 2000 元/人` : `外埠人数 ${input.travelers}，高铁按一等座询价`])
+      flight ? `外埠人数 ${input.travelers} × ${ESTIMATE_RULES.FLIGHT_FARE} 元/人` : `外埠人数 ${input.travelers}，高铁按一等座询价`])
   }
   for (const [key, rule] of Object.entries(quantityRules)) {
     const value = standard(fees, key)

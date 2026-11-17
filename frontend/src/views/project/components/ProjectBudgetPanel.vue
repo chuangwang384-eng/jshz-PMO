@@ -102,6 +102,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjectBudget, saveProjectBudget } from '../../../api/project'
+import { apiErrorMessage, formatMoney as fmt } from '../../../utils/common'
 import ProjectBudgetEstimate from './ProjectBudgetEstimate.vue'
 import ProjectBudgetQuotes from './ProjectBudgetQuotes.vue'
 
@@ -157,7 +158,6 @@ function togglePick(row, checked) {
 const amountOf = (row) => Number(row.quantity || 0) * Number(row.unitPrice || 0)
 const sectionTotal = (key) => rowsOf(key).reduce((s, r) => s + amountOf(r), 0)
 const total = computed(() => items.value.reduce((s, r) => s + amountOf(r), 0))
-const fmt = (n) => Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function addRow(section) {
   items.value.push({ section, itemKey: null, name: '', quantity: 1, unit: '', unitPrice: 0, remark: '' })
@@ -184,7 +184,7 @@ async function load() {
     feeStandards.value = data?.feeStandards || {}
     applySaved(data)
   } catch (e) {
-    error.value = e?.response?.data?.message || e?.message || '预算单加载失败'
+    error.value = apiErrorMessage(e, '预算单加载失败')
   } finally {
     loading.value = false
   }
@@ -230,7 +230,7 @@ async function save(confirm) {
     ElMessage.success(confirm ? '报价单已确认' : '草稿已保存')
     emit('saved', budget.value)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
+    ElMessage.error(apiErrorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }

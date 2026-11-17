@@ -73,6 +73,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBudgetFeeStandards, saveBudgetFeeStandards } from '../../api/project'
 import { quantityRules } from '../project/components/budgetEstimate'
+import { apiErrorMessage } from '../../utils/common'
 
 const scene = ref('OFFLINE')
 const loading = ref(false)
@@ -110,7 +111,7 @@ async function load() {
     rows.value = (Array.isArray(data) ? data : []).map((r) => ({ ...r }))
     original.value = JSON.stringify(stripped(rows.value))
   } catch (e) {
-    error.value = e?.response?.data?.message || e?.message || '收费标准加载失败'
+    error.value = apiErrorMessage(e, '收费标准加载失败')
   } finally {
     loading.value = false
   }
@@ -133,7 +134,7 @@ async function save() {
     original.value = JSON.stringify(stripped(rows.value))
     ElMessage.success('收费标准已保存')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
+    ElMessage.error(apiErrorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }

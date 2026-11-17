@@ -5,7 +5,7 @@
 - 任务名称：提交工作区变更 + 今日（2026-11-17）代码硬编码与冗余审查
 - 主责 Agent：CodeBuddy
 - 交接时间：2026-11-17
-- 当前状态：已完成待验收（审查报告已产出，问题修复未开始）
+- 当前状态：已完成待验收（审查报告已产出；同日修复实施已完成，见第 11 节）
 - 优先级：P2
 
 ## 2. 目标与验收条件
@@ -95,3 +95,43 @@
 3. 验收标准：每条修复附 diff 与验证证据；`backend` 测试通过；前端 `npm run build` 通过。
 4. 未经确认禁止：直接修改生产 `feeStandards` 数据、改动阶段名字典、重启生产 Ollama 服务。
 5. 需要负责人决策：估算金额常量（茶歇 70%、机票 2000 等）是保持前端写死还是并入管理员收费配置（涉及对客报价口径）。
+
+---
+
+## 11. 修复实施记录（2026-11-17 同日，CodeBuddy）
+
+按第 6 节清单实施，**行为不变的重构**，估算金额以命名常量收口（并入 feeStandards 待负责人决策）。
+
+### 11.1 实际变更
+| 文件 | 改动 |
+| --- | --- |
+| `scripts/ollama-health-watch.ps1` | 修正 ：61 注释（180s→120s）与 ：79 文案（90s→120s）；全部阈值收拢到顶部参数区（`$probeTimeoutSec`/`$recoverLoops`/`$warmupTimeoutSec` 等）；日志/锁路径由 `$PSScriptRoot` 推导仓库根；URL 支持 `OLLAMA_BASE_URL` 环境变量（URL 无法由脚本路径推导，故参数化）；探测请求体提取 `Invoke-Probe($timeoutSec)` 消除两处重复 |
+| `frontend/.../budgetEstimate.js` | 新增 `ESTIMATE_RULES` 常量（默认 2 间、茶歇 7/50×5（保留整数运算形态避免 0.7 浮点误差）、平台专车 200/100、机票 2000），文案引用常量 |
+| `frontend/src/utils/projectConfigRequestId.js` | 新增 `createUuidRequestId()`（带连字符 UUIDv4；后端 `request_key VARCHAR(36)` 且做 `UUID.fromString` 校验，不能直接用 32 位 hex 版本） |
+| `frontend/src/utils/common.js`（新增） | `downloadBlob`（统一此前两种不一致实现，立即回收）、`formatMoney`、`apiErrorMessage` |
+| `ProjectBudgetQuotes.vue` | 删除手写 UUID 5 行改用 `createUuidRequestId()`；下载改用 `downloadBlob`；错误文案改用 `apiErrorMessage` |
+| `ProjectBudgetPanel.vue`、`BudgetFeeConfig.vue`、`ProjectDetail.vue` | 接入 `formatMoney as fmt` / `apiErrorMessage`；ProjectDetail 下载改用 `downloadBlob`（消除 `setTimeout(1000)` 魔法数字） |
+| `frontend/src/api/project.js` | `listBudgetFeeStandards` 改用 `{ params: { scene } }`（axios 空值自动省略，与 `fetchProjectWorkbook` 对齐） |
+| `backend/.../ProjectStorageService.java` | 新增 `QUOTE_FILE_PREFIX` 常量并在生成处引用 |
+| `backend/.../ProjectService.java` | 新增 `PHASE_BUDGET_MAKING` 常量并在 ：1953 引用；删除保护改用 `QUOTE_FILE_PREFIX` |
+| `backend/.../ProjectBudgetQuoteService.java` | 前缀/阶段名改用常量（错误文案拼接常量）；提取 `requireConfirmed(budget, message)` 合并 generate/restore 重复校验（保持原加锁顺序不变） |
+| `backend/.../ProjectController.java` | 两个文件端点重复的前置校验提取 `resolveReadableStoredFile()`；报价判定统一为大小写敏感 `startsWith(QUOTE_FILE_PREFIX)`（落盘文件名全为小写，原 `regionMatches(true,…)` 多余宽松） |
+| `backend/.../ProjectBudgetController.java` | 提取 `mapList(Object raw)` 合并两处类型窄化 |
+
+### 11.2 验证证据
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| 估算单元测试 | `node --test frontend/src/views/project/components/budgetEstimate.test.js` | 6/6 通过 |
+| 后端全量测试 | `mvn -q -f backend/pom.xml test "-Drevision=1.0.49" "-DgitShort=<head>"`（注入 `$env:JWT_SECRET` 测试占位值） | 通过：0 失败 0 错误（32 项按既有开关跳过） |
+| contextLoads 环境说明 | 首次运行报 `WeakKeyException: 0 bits` | 本机未注入 `JWT_SECRET`（application.yml 设计为 fail-fast），与本次改动无关；注入占位密钥后通过 |
+| 前端构建 | `npm run build` | 通过（45.28s，仅既有 chunk 体积告警） |
+| ps1 语法 | PowerShell `Parser::ParseFile` | 0 错误 |
+
+### 11.3 未实施项
+- 估算金额并入管理员 `feeStandards` 配置：**待负责人决策**（涉及对客报价口径），当前以 `ESTIMATE_RULES` 常量集中维护。
+- `budget-quote-versions` 锚点 id 常量化：属跨文件约定，本次未动（建议后续任务处理）。
+- `legacyNames` 中文契约：按审查结论登记"有意保留"。
+- ps1 已注册计划任务指向脚本路径，本次修改未改文件位置，无需重新注册；修改**尚未在计划任务下实测一轮**（重启服务类验证需负责人批准）。
+
+### 11.4 部署状态
+- **未发布**：本次为代码重构修复，仅仓库内提交；生产后端/前端/计划任务均未变更。发布需走 `build-all.ps1` + `deploy-backend.ps1` 流程并经负责人批准。

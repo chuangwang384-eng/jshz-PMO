@@ -2,7 +2,7 @@
 
 > 🗺️ 接手前先读 [仓库地图](../repo-map.md)（目录总览/模块地图/关键链路/接手路径），规则见根目录 [AGENTS.md](../../AGENTS.md)。
 
-- 2026-11-17 **今日改动代码审查（硬编码/冗余）已完成待修复**：覆盖预算报价 1.0.47–1.0.49 与 Ollama 看门狗全部代码改动，发现看门狗脚本注释/文案与实际等待时长不一致（180s 注释 vs 120s 实际）、URL/盘符路径硬编码、`project_quote_` 前缀 5 处散布且大小写口径不一、阶段名“会议预算制作”两处硬编码、前端手写 UUID 与已有工具重复、估算金额魔法数字（茶歇 70%/机票 2000 等）等问题，附逐条文件:行号证据与清理建议，**修复未开始**。见 [审查交接](tasks/20261117_code_review_hardcode_redundancy.md)。
+- 2026-11-17 **今日改动代码审查（硬编码/冗余）已完成，同日修复实施完毕待验收**：覆盖预算报价 1.0.47–1.0.49 与 Ollama 看门狗全部改动。已修复：看门狗脚本 180s/90s 文案与实际不符（改 120s）、阈值收拢参数区、路径改 `$PSScriptRoot` 推导、`project_quote_`/阶段名常量化并统一大小写口径、`mapList`/`requireConfirmed`/`downloadBlob`/`formatMoney`/`apiErrorMessage` 提取复用、前端手写 UUID 改用工具函数、估算金额提为 `ESTIMATE_RULES` 常量、api 改 `{ params }`。验证：估算测试 6/6、后端 mvn test 0 失败 0 错误（32 项按既有开关跳过）、前端 vite build 通过、ps1 Parser 0 错误。**未发布**；估算金额并入 feeStandards 待负责人决策。见 [审查与修复交接](tasks/20261117_code_review_hardcode_redundancy.md)。
 
 - 2026-11-17 **Ollama 看门狗已上线**：计划任务每 5 分钟真实推理探测，60s 无响应自动重启服务。见 [交接记录](tasks/20261117_ollama_watchdog.md)。
 

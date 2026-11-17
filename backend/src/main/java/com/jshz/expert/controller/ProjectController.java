@@ -15,6 +15,7 @@ import com.jshz.expert.entity.ProjectSchedule;
 import com.jshz.expert.entity.ProjectSpeaker;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ProjectService;
+import com.jshz.expert.service.ProjectStorageService;
 import com.jshz.expert.service.ScheduleParseService;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -130,11 +131,8 @@ public class ProjectController {
         if (user == null) {
             return org.springframework.http.ResponseEntity.status(401).build();
         }
-        if (fileName.regionMatches(true, 0, "project_quote_", 0, "project_quote_".length())) {
-            projectService.requireQuoteFileReadable(fileName, user);
-        }
-        java.nio.file.Path path = projectService.resolveStoredFile(fileName);
-        if (path == null || !java.nio.file.Files.exists(path) || !java.nio.file.Files.isRegularFile(path)) {
+        java.nio.file.Path path = resolveReadableStoredFile(fileName, user);
+        if (path == null) {
             return org.springframework.http.ResponseEntity.notFound().build();
         }
         boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
@@ -178,11 +176,8 @@ public class ProjectController {
             @RequestParam(defaultValue = "0") int rowPage,
             @RequestParam(defaultValue = "0") int columnPage,
             @AuthenticationPrincipal AuthUser user) {
-        if (fileName.regionMatches(true, 0, "project_quote_", 0, "project_quote_".length())) {
-            projectService.requireQuoteFileReadable(fileName, user);
-        }
-        java.nio.file.Path path = projectService.resolveStoredFile(fileName);
-        if (path == null || !java.nio.file.Files.exists(path) || !java.nio.file.Files.isRegularFile(path)) {
+        java.nio.file.Path path = resolveReadableStoredFile(fileName, user);
+        if (path == null) {
             throw new BusinessException("文件不存在或已失效");
         }
         int dot = fileName.lastIndexOf('.');
@@ -191,6 +186,15 @@ public class ProjectController {
             throw new BusinessException("该文件不是 Excel 工作簿");
         }
         return ApiResponse.ok(excelPreviewService.read(path, sheet, rowPage, columnPage));
+    }
+
+    /** 报价文件鉴权 + 解析存储文件（防穿越后不存在/非普通文件返回 null）；/files 两个端点共用。 */
+    private java.nio.file.Path resolveReadableStoredFile(String fileName, AuthUser user) {
+        if (fileName.startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)) {
+            projectService.requireQuoteFileReadable(fileName, user);
+        }
+        java.nio.file.Path path = projectService.resolveStoredFile(fileName);
+        return path != null && java.nio.file.Files.exists(path) && java.nio.file.Files.isRegularFile(path) ? path : null;
     }
 
     private org.springframework.http.MediaType projectFileMediaType(String ext) {

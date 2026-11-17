@@ -92,6 +92,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     public static final String STATUS_CANCELED = "CANCELED";
     public static final String STATUS_DELETED = "DELETED";
 
+    /** 会议预算制作阶段名（阶段字典 data-driven；missingRequiredTemplates 推进校验与报价服务共用）。 */
+    public static final String PHASE_BUDGET_MAKING = "会议预算制作";
+
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -904,7 +907,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (doc == null || !doc.getProjectId().equals(id)) {
             throw new BusinessException("资料不存在");
         }
-        if (doc.getFilePath() != null && doc.getFilePath().startsWith("project_quote_")) {
+        if (doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)) {
             throw new BusinessException("已生成的对客报价随版本保留");
         }
         doc.setIsDeleted(1);
@@ -1950,7 +1953,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 返回当前阶段缺少的业务材料及必填模板。 */
     private List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
         List<String> missing = new ArrayList<>();
-        if ("会议预算制作".equals(phaseName)
+        if (PHASE_BUDGET_MAKING.equals(phaseName)
                 && docMapper.listBudgetQuotePaths(project.getId(), phaseId).stream()
                 .noneMatch(path -> storageService.resolveFile(path) != null)) {
             missing.add("生成报价文件");

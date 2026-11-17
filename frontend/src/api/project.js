@@ -243,8 +243,7 @@ export function restoreBudgetQuote(id, versionId) {
 
 // 收费标准（管理员设置-项目配置）
 export function listBudgetFeeStandards(scene) {
-  const qs = scene ? `?scene=${scene}` : ''
-  return request.get(`/project/config/budget-fee-standards${qs}`)
+  return request.get('/project/config/budget-fee-standards', { params: { scene } })
 }
 
 export function saveBudgetFeeStandards(rows) {

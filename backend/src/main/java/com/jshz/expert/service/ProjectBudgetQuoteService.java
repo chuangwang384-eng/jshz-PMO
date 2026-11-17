@@ -73,9 +73,7 @@ public class ProjectBudgetQuoteService {
             return existing;
         }
         requireBudgetPhase(project);
-        if (budget == null || !"CONFIRMED".equals(budget.getStatus())) {
-            throw new BusinessException("请先完成内部确认");
-        }
+        requireConfirmed(budget, "请先完成内部确认");
         List<ProjectBudgetItem> items = budgetService.lockedItems(budget.getId());
         List<ProjectBudgetItem> exported = items.stream().filter(i -> i.getQuantity().signum() > 0).toList();
         if (exported.isEmpty()) {
@@ -141,7 +139,7 @@ public class ProjectBudgetQuoteService {
             ProjectDoc evidence = docs.selectById(request.evidenceDocId());
             if (evidence == null || !projectId.equals(evidence.getProjectId())
                     || !Integer.valueOf(0).equals(evidence.getIsDeleted())
-                    || evidence.getFilePath() == null || evidence.getFilePath().startsWith("project_quote_")
+                    || evidence.getFilePath() == null || evidence.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
                     || evidence.getFilePath().startsWith("_richtext/")) {
                 throw new BusinessException("请选择本项目有效的确认凭证");
             }
@@ -162,9 +160,7 @@ public class ProjectBudgetQuoteService {
         projects.requireOperable(project, user);
         requireBudgetPhase(project);
         ProjectBudget budget = budgetService.lockBudget(projectId);
-        if (budget == null || !"CONFIRMED".equals(budget.getStatus())) {
-            throw new BusinessException("已有编辑中的草稿，请先处理当前草稿");
-        }
+        requireConfirmed(budget, "已有编辑中的草稿，请先处理当前草稿");
         Snapshot snapshot;
         try {
             snapshot = json.readValue(requireQuote(projectId, versionId, false).getSnapshot(), Snapshot.class);
@@ -181,8 +177,15 @@ public class ProjectBudgetQuoteService {
     }
 
     private void requireBudgetPhase(Project project) {
-        if (!"会议预算制作".equals(projects.phaseNameOf(project))) {
-            throw new BusinessException("请在会议预算制作阶段执行此操作");
+        if (!ProjectService.PHASE_BUDGET_MAKING.equals(projects.phaseNameOf(project))) {
+            throw new BusinessException("请在" + ProjectService.PHASE_BUDGET_MAKING + "阶段执行此操作");
+        }
+    }
+
+    /** 报价生成/恢复的前置状态校验：预算单存在且已内部确认（文案按场景区分）。 */
+    private void requireConfirmed(ProjectBudget budget, String message) {
+        if (budget == null || !"CONFIRMED".equals(budget.getStatus())) {
+            throw new BusinessException(message);
         }
     }
 

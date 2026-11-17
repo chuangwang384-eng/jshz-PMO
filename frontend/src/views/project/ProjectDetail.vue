@@ -835,6 +835,7 @@ import ProjectBudgetPanel from './components/ProjectBudgetPanel.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
 import { uploadLimits, ensureUploadLimits, toMb } from '../../utils/limits'
+import { downloadBlob, formatMoney as fmt } from '../../utils/common'
 
 ensureUploadLimits()
 import {
@@ -1350,11 +1351,6 @@ async function resolveMissing(m) {
   viewPhaseId.value = String(detail.value.phaseId)
 }
 
-function fmt(v) {
-  if (v === null || v === undefined || v === '') return '0'
-  return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
 function statusText(s) {
   return { DRAFT: '草稿', PENDING: '审批中', APPROVED: '已通过', REJECTED: '已驳回' }[s] || s
 }
@@ -1832,14 +1828,7 @@ async function downloadProjectFile(d) {
   if (!d || !d.filePath) return
   try {
     const response = await fetchProjectFile(d.filePath, true)
-    const url = URL.createObjectURL(response.data)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = d.fileName || d.filePath
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(response.data, d.fileName || d.filePath)
   } catch (e) {
     ElMessage.error('下载失败，请重试')
   }

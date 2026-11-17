@@ -22,6 +22,9 @@ import java.util.UUID;
 @Service
 public class ProjectStorageService {
 
+    /** 对客报价文件名前缀（生成与鉴权/删除保护判定共用；实际落盘全小写，判定统一用大小写敏感 startsWith）。 */
+    public static final String QUOTE_FILE_PREFIX = "project_quote_";
+
     private final Path storageDir;
 
     public ProjectStorageService(@Value("${expert.project.storage-dir}") String storageDir) {
@@ -62,7 +65,7 @@ public class ProjectStorageService {
 
     /** 保存不可覆盖的对客报价文件，事务回滚时清理。 */
     public String saveBudgetQuote(byte[] content) {
-        String fileName = "project_quote_" + UUID.randomUUID().toString().replace("-", "") + ".xlsx";
+        String fileName = QUOTE_FILE_PREFIX + UUID.randomUUID().toString().replace("-", "") + ".xlsx";
         try {
             Files.write(storageDir.resolve(fileName), content, java.nio.file.StandardOpenOption.CREATE_NEW);
         } catch (IOException e) {

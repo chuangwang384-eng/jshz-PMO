@@ -39,9 +39,7 @@ public class ProjectBudgetController {
                                                  @RequestBody Map<String, Object> body,
                                                  @AuthenticationPrincipal AuthUser user) {
         Object items = body == null ? null : body.get("items");
-        List<Map<String, Object>> list = items instanceof List<?> l
-                ? l.stream().filter(o -> o instanceof Map).map(o -> (Map<String, Object>) o).toList()
-                : List.of();
+        List<Map<String, Object>> list = mapList(items);
         String remark = body == null || body.get("remark") == null ? null : String.valueOf(body.get("remark"));
         boolean confirm = body != null && Boolean.parseBoolean(String.valueOf(body.get("confirm")));
         String estimateInputs = null;
@@ -77,9 +75,15 @@ public class ProjectBudgetController {
     public ApiResponse<List<ProjectBudgetFeeStandard>> saveFeeStandards(
             @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
         Object rows = body == null ? null : body.get("rows");
-        List<Map<String, Object>> list = rows instanceof List<?> l
+        List<Map<String, Object>> list = mapList(rows);
+        return ApiResponse.ok(budgetService.saveFeeStandards(list, user));
+    }
+
+    /** 请求体中 List 元素到 Map 的类型窄化（save/saveFeeStandards 共用，非 List 或元素非 Map 一律丢弃）。 */
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> mapList(Object raw) {
+        return raw instanceof List<?> l
                 ? l.stream().filter(o -> o instanceof Map).map(o -> (Map<String, Object>) o).toList()
                 : List.of();
-        return ApiResponse.ok(budgetService.saveFeeStandards(list, user));
     }
 }

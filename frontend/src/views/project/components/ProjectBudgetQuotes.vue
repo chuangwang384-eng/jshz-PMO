@@ -70,6 +70,8 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listBudgetQuotes, generateBudgetQuote, downloadBudgetQuote, recordBudgetQuoteConfirmation,
   restoreBudgetQuote } from '../../../api/project'
+import { createUuidRequestId } from '../../../utils/projectConfigRequestId'
+import { apiErrorMessage, downloadBlob } from '../../../utils/common'
 
 const props = defineProps({
   projectId: { type: [String, Number], required: true },
@@ -92,7 +94,7 @@ const evidenceOptions = computed(() => props.documents.filter(doc => !doc.isRich
   && !versions.value.some(version => version.docId === doc.id)))
 const evidenceName = id => props.documents.find(doc => doc.id === id)?.fileName || `#${id}`
 const formatTime = value => String(value || '').replace('T', ' ')
-const message = e => e?.response?.data?.message || e?.message || '操作失败'
+const message = e => apiErrorMessage(e)
 
 async function load() {
   loading.value = true
@@ -124,12 +126,7 @@ async function submit() {
     if (dialog.value === 'generate') {
       const note = clientNote.value.trim()
       if (!pendingGeneration || pendingGeneration.clientNote !== note || pendingGeneration.projectId !== props.projectId) {
-        const random = globalThis.crypto.getRandomValues(new Uint8Array(16))
-        random[6] = (random[6] & 15) | 64
-        random[8] = (random[8] & 63) | 128
-        const hex = Array.from(random, byte => byte.toString(16).padStart(2, '0')).join('')
-        const requestKey = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-        pendingGeneration = { projectId: props.projectId, requestKey, clientNote: note }
+        pendingGeneration = { projectId: props.projectId, requestKey: createUuidRequestId(), clientNote: note }
       }
       await generateBudgetQuote(props.projectId, pendingGeneration)
       pendingGeneration = null
@@ -151,12 +148,7 @@ async function submit() {
 async function download(row) {
   try {
     const response = await downloadBudgetQuote(props.projectId, row.id)
-    const url = URL.createObjectURL(response.data)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `会议报价-V${row.versionNo}.xlsx`
-    link.click()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    downloadBlob(response.data, `会议报价-V${row.versionNo}.xlsx`)
   } catch (e) {
     ElMessage.error(message(e))
   }
