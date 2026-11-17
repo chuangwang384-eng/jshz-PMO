@@ -55,3 +55,24 @@ test('re-estimating from a flight to rail previews clearing the old flight price
   assert.deepEqual(result.TRAFFIC_MAIN.changes, { unitPrice: null })
   assert.equal(main.unitPrice, 2000)
 })
+
+test('partial estimates accept equal and higher traveler counts without inventing missing inputs', () => {
+  for (const travelers of [8, 10]) {
+    const result = byKey(estimateChanges(rows(), {
+      ...estimateDefaults, attendees: 8, travelers, longDistance: 'FLIGHT', localTransport: 'PLATFORM'
+    }, fees, true))
+    assert.equal(result.HOTEL_ROOM.changes.quantity, travelers)
+    assert.equal(result.TRAFFIC_MAIN.changes.quantity, travelers)
+    assert.equal(result.HOTEL_TEA.changes.quantity, 10)
+    assert.equal(result.TRAFFIC_PLATFORM.changes.quantity, 8)
+    assert.equal(result.TRAFFIC_PLATFORM.changes.unitPrice, undefined)
+    assert.equal(result.MAT_STAND, undefined)
+    assert.equal(result.STAFF_DAY, undefined)
+  }
+})
+
+test('unknown traveler count is distinct from explicit zero', () => {
+  assert.deepEqual(estimateChanges(rows(), estimateDefaults, fees, true), [])
+  const result = byKey(estimateChanges(rows(), { ...estimateDefaults, travelers: 0 }, fees, true))
+  assert.equal(result.HOTEL_ROOM.changes.quantity, 2)
+})

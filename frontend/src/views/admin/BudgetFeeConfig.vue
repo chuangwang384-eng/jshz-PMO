@@ -1,34 +1,37 @@
 <template>
-  <div class="page">
-    <div class="page-header">
-      <div class="page-title">项目配置</div>
-      <div class="page-sub">会议预算收费标准默认值——线下按七类费用明细预填；线上配置后，线上项目在预算制作时直接点选收费项生成报价单</div>
-    </div>
+  <div class="fee-page">
+    <header class="fee-heading">
+      <h1>项目配置</h1>
+      <p>维护会议预算的参考单价和数量规则。</p>
+    </header>
 
-    <el-tabs v-model="scene" class="fee-tabs">
-      <el-tab-pane name="OFFLINE">
-        <template #label><span class="tab-label">线下收费标准</span></template>
-        <div class="tab-tip">线下估算按用途读取参考单价、数量增量和每场数量。区间值填「低,高」，估算取低值。</div>
-      </el-tab-pane>
-      <el-tab-pane name="ONLINE">
-        <template #label><span class="tab-label">线上收费标准</span></template>
-        <div class="tab-tip">线上项目进入「会议预算制作」阶段时，点选下方收费项即可生成报价单（建议逐项填写默认单价）</div>
-      </el-tab-pane>
-    </el-tabs>
+    <div class="ui-card fee-card">
+      <el-tabs v-model="scene" class="fee-tabs">
+        <el-tab-pane name="OFFLINE">
+          <template #label><span class="tab-label">线下收费标准</span></template>
+          <div class="tab-tip">线下估算按用途读取参考单价、数量增量和每场数量。区间值填「低,高」，估算取低值。</div>
+        </el-tab-pane>
+        <el-tab-pane name="ONLINE">
+          <template #label><span class="tab-label">线上收费标准</span></template>
+          <div class="tab-tip">线上项目在「会议预算制作」阶段可点选这些收费项生成报价单。</div>
+        </el-tab-pane>
+      </el-tabs>
 
-    <el-alert v-if="error" :title="error" type="error" :closable="false" style="margin-bottom: 10px"/>
-
-    <div class="fee-card">
-      <el-table v-loading="loading" :data="rows" size="default" :border="false" :header-cell-style="{ background: '#f5f7fa' }">
+      <el-alert v-if="error" :title="error" type="error" :closable="false" class="fee-error"/>
+      <el-table v-loading="loading" :data="rows" row-key="feeKey" size="default" stripe empty-text="暂无收费项">
         <el-table-column label="收费项名称" min-width="180">
           <template #default="{ row }">
             <el-input v-model="row.name" placeholder="收费项名称" size="small"/>
           </template>
         </el-table-column>
-        <el-table-column label="默认值" width="170">
+        <el-table-column label="用途与默认值" min-width="174">
           <template #default="{ row }">
-            <div>{{ !isOnline && quantityRules[row.feeKey] ? quantityRules[row.feeKey].label : '参考单价' }}</div>
-            <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '例如 500 或 300,400'" size="small"/>
+            <div class="fee-default">
+              <span class="ui-badge" :class="!isOnline && quantityRules[row.feeKey] ? 'ui-badge-primary' : 'ui-badge-info'">
+                {{ !isOnline && quantityRules[row.feeKey] ? quantityRules[row.feeKey].label : '参考单价' }}
+              </span>
+              <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'" size="small"/>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="单位" width="110">
@@ -59,7 +62,7 @@
       <div class="fee-actions">
         <el-button plain @click="addRow">+ 新增收费项</el-button>
         <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">保存修改</el-button>
-        <span v-if="!dirty" class="hint-text" style="align-self: center">暂无未保存修改</span>
+        <span role="status" class="hint-text">{{ dirty ? '有未保存的修改' : '暂无未保存修改' }}</span>
       </div>
     </div>
   </div>
@@ -141,14 +144,19 @@ watch(scene, load)
 </script>
 
 <style scoped>
-.page { max-width: 1000px; }
-.page-header { margin: 4px 0 16px; }
-.page-title { font-size: 20px; font-weight: 700; }
-.page-sub { color: var(--el-text-color-secondary); font-size: 13px; margin-top: 6px; }
-.fee-tabs { margin-bottom: 4px; }
+.fee-page { max-width: 1160px; }
+.fee-heading { margin: 4px 0 20px; }
+.fee-heading h1 { margin: 0; font-size: 23px; color: var(--ui-text-main); }
+.fee-heading p { margin: 6px 0 0; color: var(--ui-text-sub); font-size: 13px; }
+.fee-tabs { margin-bottom: 12px; }
 .tab-label { font-weight: 600; }
-.tab-tip { color: var(--el-text-color-secondary); font-size: 13px; padding: 4px 0 12px; }
-.fee-card { background: #fff; border: 1px solid var(--el-border-color-light); border-radius: 10px; padding: 16px; }
-.fee-actions { display: flex; gap: 8px; margin-top: 14px; }
-.hint-text { color: var(--el-text-color-secondary); font-size: 12px; }
+.tab-tip { padding: 10px 12px; border-radius: var(--ui-radius-md); background: var(--ui-fill); color: var(--ui-text-sub); font-size: 13px; line-height: 1.55; }
+.fee-card { min-width: 0; padding: clamp(12px, 2vw, 20px); }
+.fee-card :deep(.el-table) { --el-table-header-bg-color: var(--ui-fill); }
+.fee-error { margin-bottom: 12px; }
+.fee-default { display: grid; justify-items: start; gap: 4px; }
+.fee-default .ui-badge { line-height: 18px; }
+.fee-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.fee-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.hint-text { color: var(--ui-text-sub); font-size: 12px; }
 </style>

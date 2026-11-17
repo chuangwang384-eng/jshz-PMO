@@ -38,13 +38,14 @@ export function estimateChanges(items, input, fees, first, previousInput = {}) {
   const rail = input.longDistance === 'RAIL'
   const fleet = input.localTransport === 'FLEET'
   const platform = input.localTransport === 'PLATFORM'
-  const platformPrice = input.city === 'FIRST' ? 200 : 100
+  const platformPrice = input.city === 'FIRST' ? 200 : input.city === 'OTHER' ? 100 : undefined
   const suggestions = [
     ['HOTEL_ROOM', room, undefined, '间', input.travelers ? `外埠人数 ${input.travelers} × 1 间` : '无外埠人员，预留 2 间'],
-    ['HOTEL_TEA', tea, undefined, '人', `参会人数 ${input.attendees} × 70%，向上取 5 的倍数`],
-    ['TRAFFIC_FLEET', fleet ? input.attendees * 2 : 0, undefined, '次', fleet ? `参会人数 ${input.attendees} × 2 次，单价待填` : '未选择车队专车'],
+    ['HOTEL_TEA', tea, undefined, '人', `参会总人数 ${input.attendees} × 70%，向上取 5 的倍数`],
+    ['TRAFFIC_FLEET', fleet ? input.attendees * 2 : 0, undefined, '次', fleet ? `参会总人数 ${input.attendees} × 2 次，单价待填` : '未选择车队专车'],
     ['TRAFFIC_PLATFORM', platform ? input.attendees : 0, platform ? platformPrice : undefined, '人',
-      platform ? `参会人数 ${input.attendees} × ${platformPrice} 元/人` : '未选择平台专车']
+      platform && platformPrice != null ? `参会总人数 ${input.attendees} × ${platformPrice} 元/人`
+        : platform ? '按参会总人数，选择城市档位后可估算单价' : '未选择平台专车']
   ]
   if (flight || rail) {
     const fare = flight ? 2000 : previousInput.longDistance === 'FLIGHT' ? null : undefined
@@ -57,13 +58,25 @@ export function estimateChanges(items, input, fees, first, previousInput = {}) {
     const stands = key === 'MAT_STAND'
     suggestions.push([key, stands ? input.sessions * value.low : input.attendees + value.low, undefined,
       stands ? '个' : '张', stands ? `${input.sessions} 场 × ${value.low} 个/场`
-        : `参会人数 ${input.attendees} + ${value.low} 张（配置加量 ${value.text} 张）`])
+        : `参会总人数 ${input.attendees} + ${value.low} 张（配置加量 ${value.text} 张）`])
   }
   const staffPrice = standard(fees, 'STAFF_DAY')
   suggestions.push(['STAFF_DAY', input.staff * input.days, staffPrice?.low, '人天',
     `${input.staff} 人 × ${input.days} 天${staffPrice ? `，参考单价 ${staffPrice.text} 元/人天` : '，单价待填'}`])
 
+  const ready = {
+    HOTEL_ROOM: input.travelers != null,
+    HOTEL_TEA: input.attendees != null,
+    TRAFFIC_MAIN: input.travelers != null,
+    TRAFFIC_FLEET: input.attendees != null || (!fleet && previousInput.localTransport === 'FLEET'),
+    TRAFFIC_PLATFORM: input.attendees != null || (!platform && previousInput.localTransport === 'PLATFORM'),
+    AGENDA_UP: input.attendees != null,
+    MAT_DESKCARD_UP: input.attendees != null,
+    MAT_STAND: input.sessions != null,
+    STAFF_DAY: input.staff != null && input.days != null
+  }
   return suggestions.flatMap(([key, quantity, unitPrice, unit, basis]) => {
+    if (!ready[key]) return []
     const index = items.findIndex(row => row.itemKey === key || (!row.itemKey && row.name === legacyNames[key]))
     if (index < 0) return []
     const row = items[index]

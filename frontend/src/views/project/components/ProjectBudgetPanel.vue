@@ -14,13 +14,13 @@
         <div class="budget-sec-head">
           <span class="budget-sec-title">{{ isOnline ? '点选收费项（勾选即计入报价）' : sec.label }}</span>
           <span v-if="sec.optional" class="hint-text">非必需</span>
-          <span class="budget-sec-total">{{ fmt(sectionTotal(sec.key)) }}</span>
+          <span class="budget-sec-total">¥ {{ fmt(sectionTotal(sec.key)) }}</span>
           <el-button v-if="!editingLocked" size="small" text type="primary" style="margin-left: auto"
                      @click="addRow(sec.key)">+ {{ isOnline ? '自定义费用项' : '添加费用项' }}</el-button>
           <el-button v-if="!editingLocked && !isOnline" size="small" text type="danger"
                      @click="removeSection(sec.key)">移除本节</el-button>
         </div>
-        <el-table :data="rowsOf(sec.key)" size="small" :border="true">
+        <el-table :data="rowsOf(sec.key)" size="small" stripe empty-text="暂无费用项">
           <el-table-column v-if="isOnline" label="点选" width="60" align="center">
             <template #default="{ row }">
               <el-checkbox :model-value="Number(row.quantity) > 0" :disabled="editingLocked || !row.itemKey"
@@ -74,20 +74,22 @@
         <el-button v-for="h in hiddenSections" :key="h.key" size="small" text type="primary" @click="restoreSection(h.key)">+ {{ h.label }}</el-button>
       </div>
 
-      <div class="budget-remark" style="margin-top: 10px">
-        <div class="budget-sec-title" style="margin-bottom: 6px">备注说明</div>
+      <div class="budget-remark">
+        <div class="budget-sec-title">备注说明</div>
         <el-input v-model="remark" type="textarea" :rows="2" maxlength="1000" placeholder="报价说明/与客户沟通口径等"
                   :disabled="editingLocked"/>
       </div>
 
       <div class="budget-total-row">
-        <span>合计：</span>
-        <span class="budget-total">{{ fmt(total) }}</span>
-        <span v-if="budget && budget.status === 'CONFIRMED'" class="ui-badge ui-badge-success" style="margin-left: 8px">已确认</span>
-        <template v-if="!editingLocked">
-          <el-button :loading="saving" style="margin-left: auto" @click="save(false)">保存草稿</el-button>
+        <div class="budget-total-summary">
+          <span class="budget-total-label">预算合计</span>
+          <strong class="budget-total">¥ {{ fmt(total) }}</strong>
+          <span v-if="budget?.status === 'CONFIRMED'" class="ui-badge ui-badge-success">已确认</span>
+        </div>
+        <div v-if="!editingLocked" class="budget-total-actions">
+          <el-button :loading="saving" @click="save(false)">保存草稿</el-button>
           <el-button type="primary" :loading="saving" :disabled="!hasItems" @click="save(true)">确认报价</el-button>
-        </template>
+        </div>
       </div>
       <ProjectBudgetQuotes v-if="budget" :project-id="projectId" :readonly="readonly"
                            :can-record="canRecord" :confirmed="budget.status === 'CONFIRMED'"
@@ -240,11 +242,15 @@ watch(() => props.projectId, load)
 
 <style scoped>
 .budget-panel { width: 100%; }
-.budget-section { margin-bottom: 14px; }
-.budget-sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.budget-sec-title { font-weight: 600; font-size: 14px; }
-.budget-sec-total { color: var(--el-color-primary); font-weight: 600; }
-.budget-total-row { display: flex; align-items: center; padding: 12px; border-top: 1px solid var(--el-border-color); font-size: 15px; }
-.budget-total { font-size: 20px; font-weight: 700; color: var(--el-color-danger); }
+.budget-section { min-width: 0; margin-bottom: 16px; border: 1px solid var(--ui-border-weak); border-radius: var(--ui-radius-lg); overflow: hidden; }
+.budget-sec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 10px 12px; background: var(--ui-fill); }
+.budget-sec-title { color: var(--ui-text-main); font-weight: 600; font-size: 14px; }
+.budget-sec-total { color: var(--el-color-primary-dark-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.budget-remark { display: grid; gap: 6px; }
+.budget-total-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; margin-top: 12px; background: var(--ui-fill); border-radius: var(--ui-radius-lg); }
+.budget-total-summary, .budget-total-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.budget-total-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.budget-total-label { color: var(--ui-text-sub); font-size: 13px; }
+.budget-total { color: var(--ui-text-main); font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .hint-text { color: var(--el-text-color-secondary); font-size: 12px; }
 </style>

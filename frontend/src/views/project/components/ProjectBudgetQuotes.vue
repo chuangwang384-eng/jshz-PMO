@@ -1,7 +1,10 @@
 <template>
   <section class="quote-versions">
     <div class="ui-toolbar quote-header">
-      <strong>对客报价 · 阶段资料</strong>
+      <div>
+        <h3>对客报价</h3>
+        <p>生成的 Excel 自动归入本阶段资料。</p>
+      </div>
       <el-button v-if="!readonly && confirmed" size="small" type="primary" plain
                  @click="dialog = 'generate'">生成对客报价</el-button>
     </div>
@@ -20,7 +23,7 @@
             <div v-if="row.customerRemark">{{ row.customerRemark }}</div>
             <div v-if="row.evidenceDocId">凭证 {{ evidenceName(row.evidenceDocId) }}</div>
           </template>
-          <span v-else>待确认</span>
+          <span v-else class="ui-badge ui-badge-info">待确认</span>
         </template>
       </el-table-column>
       <el-table-column v-if="canRecord || (!readonly && confirmed)" label="操作" min-width="190">
@@ -175,6 +178,9 @@ async function restore(row) {
 </script>
 
 <style scoped>
-.quote-versions { margin-top: 16px; }
-.quote-header { align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.quote-versions { min-width: 0; margin-top: 16px; padding: 12px; border: 1px solid var(--ui-border-weak); border-radius: var(--ui-radius-lg); }
+.quote-header { flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.quote-header h3 { margin: 0 0 4px; color: var(--ui-text-main); font-size: 16px; }
+.quote-header p { margin: 0; color: var(--ui-text-sub); font-size: 13px; }
+.quote-versions :deep(.el-table) { --el-table-header-bg-color: var(--ui-fill); }
 </style>
