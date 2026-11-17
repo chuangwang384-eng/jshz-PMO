@@ -487,20 +487,7 @@ public class ResumeParseService {
         if (dept != null) fields.put("科室", dept);
 
         String title = extractByLabel(cleaned, "职称", "Title", 2, 20);
-        if (title == null) {
-            for (String line : cleaned) {
-                for (String word : TITLE_WORDS) {
-                    int idx = line.indexOf(word);
-                    if (idx >= 0 && (idx == 0 || !isChineseWordChar(line.charAt(Math.max(0, idx - 1))))
-                            && (idx + word.length() >= line.length()
-                                || !isChineseWordChar(line.charAt(idx + word.length())))) {
-                        title = word;
-                        break;
-                    }
-                }
-                if (title != null) break;
-            }
-        }
+        if (title == null) title = extractTitleByLongestMatch(cleaned);
         if (title != null) fields.put("职称", title);
 
         Matcher phone = PHONE.matcher(full);
@@ -543,6 +530,27 @@ public class ResumeParseService {
 
     private boolean isChineseWordChar(char c) {
         return c >= 0x4e00 && c <= 0x9fa5;
+    }
+
+    /**
+     * 职称兜底（2026-11-17 修复词边界误拒）：取行内最长匹配职称词。
+     * 旧规则要求职称词前后均非汉字，会把"外科副主任医师"（前接"科"）这类同行拼接误拒；
+     * 改为保留尾边界（避免"护士长"命中子串"护士"）+ 最长匹配（避免"副主任医师"被更短子串
+     * "主任医师"抢先），等长保留 TITLE_WORDS 中更高优先级者。对外契约不变：返回职称词或 null。
+     */
+    private String extractTitleByLongestMatch(List<String> lines) {
+        for (String line : lines) {
+            String best = null;
+            for (String word : TITLE_WORDS) {
+                int idx = line.indexOf(word);
+                if (idx < 0) continue;
+                // 尾边界：职称词后不能紧接汉字（排除"护士长"中的"护士"等子串）
+                if (idx + word.length() < line.length() && isChineseWordChar(line.charAt(idx + word.length()))) continue;
+                if (best == null || word.length() > best.length()) best = word;
+            }
+            if (best != null) return best;
+        }
+        return null;
     }
 
     /**

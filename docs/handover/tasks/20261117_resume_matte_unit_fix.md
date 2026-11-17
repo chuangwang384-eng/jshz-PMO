@@ -1,8 +1,8 @@
-# 简历抠图"仅人头"与单位混入姓名修复
+# 简历抠图"仅人头"、单位混入姓名与职称词边界修复
 
 ## 1. 基本信息
 - 任务编号：20261117-resume-matte-unit-fix
-- 任务名称：修复专家库简历解析抠图"仅识别到人头"与单位字段混入姓名
+- 任务名称：修复专家库简历解析抠图"仅识别到人头"、单位字段混入姓名、职称词边界误拒
 - 主责 Agent：ZCode
 - 交接时间：2026-11-17
 - 当前状态：已完成待验收（未发布）
@@ -37,8 +37,8 @@
 ## 4. 实际变更
 - 修改文件：
   - `backend/src/main/resources/photomatte-worker.py`：新增 `refine()` 精修链（放大→分割→硬化→主体提取→裁剪）；协议 READY/OK/ERROR 不变，Java 侧零改动
-  - `backend/.../service/ResumeParseService.java`：新增 `sanitizeUnit(raw, knownName)`；接入 `extractFields` 单位 put 前与 `buildResult` LLM 语义单位校验
-  - `backend/.../service/ResumeParseServiceTest.java`：新增 `namePrefixedUnitLineIsSeparated`、`sanitizeUnitStripsNameAndKeepsOrg`
+  - `backend/.../service/ResumeParseService.java`：新增 `sanitizeUnit(raw, knownName)`（接入 `extractFields` 单位 put 前与 `buildResult` LLM 语义单位校验）；新增 `extractTitleByLongestMatch`（职称兜底改"尾边界+最长匹配"，替换旧前后非汉字边界）
+  - `backend/.../service/ResumeParseServiceTest.java`：新增 `namePrefixedUnitLineIsSeparated`、`sanitizeUnitStripsNameAndKeepsOrg`、`embeddedTitleAfterDepartmentExtracted`、`longestTitleWinsOverSubstring`、`nurseHeadNotMatchedAsNurse`
 - 数据库/迁移：无
 - API/接口契约：不变（解析返回结构不变，单位值更干净）
 - 依赖：worker 用 numpy/scipy（生产 venv 已具备；scipy 可选降级）；无新增第三方库
@@ -46,7 +46,8 @@
 ## 5. 测试与验证
 | 验证项 | 命令/步骤 | 结果 |
 | --- | --- | --- |
-| 单元测试 | mvn test -Dtest=ResumeParseServiceTest（注入 JWT_SECRET） | 18/18 通过（1 可选跳过） |
+| 单元测试 | mvn test -Dtest=ResumeParseServiceTest（注入 JWT_SECRET） | 21/21 通过（1 可选跳过） |
+| 解析速度对比 | 临时基准（已删）：同文本旧/新职称算法各 30000 次 | 职称扫描旧 ~1.2µs→新 ~1.5µs（+0.3µs）；完整 extractFields ~50µs 不变；无实质影响 |
 | 后端编译 | mvn test-compile | 通过 |
 | 抠图复现 | venv rembg(u2net) 原图 vs 精修对比 | 原身体半透明/武素芳下半被删 → 精修后不透明连续 |
 | worker 端到端 | 新脚本按 stdin JSON 协议跑两样本 | READY→OK→OK，输出 446×566 / 368×445 |
@@ -54,7 +55,8 @@
 | 生产发布 | — | 未执行（待负责人指示） |
 
 ## 6. 风险与回滚
-- 已知边界：职称词边界规则对"外科副主任医师"这类同行拼接仍不命中（既有行为，非本次范围，未改动）；gamma 硬化对极端艺术照可能偏硬，证件照场景已验证良好。
+- 已知边界：职称"尾边界+最长匹配"对"护士长"仍正确排除（不命中"护士"），对"主任医师资格"这类后接汉字的仍不命中（与旧行为一致）；gamma 硬化对极端艺术照可能偏硬，证件照场景已验证良好。
+- 速度影响：职称兜底由"首个命中即停"改为"全词表扫描取最长"，单次职称扫描 +0.3µs（微秒级），完整字段解析与整体解析（IO/OCR/rembg 秒级主导）无实质影响。
 - 兼容性：worker 协议不变、Java 零改动；scipy 缺省自动降级；解析返回结构不变。
 - 回滚：revert 本次提交即可，无数据库变更。
 - 临时产物：样本解压与对比图在 `temp/resume-fix/`（gitignored）；已清理 u2net_human_seg 半成品下载。
@@ -69,5 +71,5 @@
 1. 首先检查：`git log --oneline -3` 含本次提交；`curl 127.0.0.1:8080/health` 仍为 1.0.49（本次未发布）
 2. 然后执行：如需发布，bump 1.0.50 → build-all.ps1 → 三件套（无迁移）；发布后用真实蓝底证件照简历复核抠图清晰度与单位字段
 3. 验收标准：抠图人像完整清晰、单位不含姓名
-4. 未经确认禁止：引入需联网下载的新抠图模型；改动职称词边界规则（独立问题）
+4. 未经确认禁止：引入需联网下载的新抠图模型；回退职称"最长匹配"为旧前后非汉字边界（会重新误拒同行拼接职称）
 5. 需要负责人决策：是否发布上线

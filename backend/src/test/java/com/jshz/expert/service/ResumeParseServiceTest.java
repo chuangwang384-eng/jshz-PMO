@@ -150,6 +150,25 @@ class ResumeParseServiceTest {
         Map<String, String> fields = parse("李向东，汝州市第一人民医院甲状腺乳腺外科副主任医师\n");
         assertEquals("汝州市第一人民医院", fields.get("单位"));
         assertFalse(fields.get("单位").contains("李向东"));
+        assertEquals("副主任医师", fields.get("职称"));
+    }
+
+    @Test void embeddedTitleAfterDepartmentExtracted() {
+        // 2026-11-17 词边界修复：科室+职称同行拼接应命中职称
+        assertEquals("副主任医师", parse("甲状腺乳腺外科副主任医师\n").get("职称"));
+        assertEquals("主任医师", parse("肿瘤科主任医师\n").get("职称"));
+        assertEquals("主治医师", parse("肿瘤科主治医师\n").get("职称"));
+    }
+
+    @Test void longestTitleWinsOverSubstring() {
+        // 最长匹配：副主任医师不得被子串"主任医师"抢先
+        assertEquals("副主任医师", parse("李四\n某医院\n副主任医师\n").get("职称"));
+        assertEquals("主管护师", parse("李四\n某医院\n主管护师\n").get("职称"));
+    }
+
+    @Test void nurseHeadNotMatchedAsNurse() {
+        // 尾边界保留：护士长不得命中子串"护士"
+        assertNull(parse("李四\n某医院\n护士长\n").get("职称"));
     }
 
     @Test void sanitizeUnitStripsNameAndKeepsOrg() {
