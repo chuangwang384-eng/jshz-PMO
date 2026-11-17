@@ -327,8 +327,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .orderByDesc(ProjectPhaseHistory::getCreateTime)
                 .last("LIMIT 20"));
         m.put("phaseHistory", hists);
-        m.put("missingRequiredTemplates", snapshotOrNull(project) == null
-                ? List.of() : missingRequiredTemplates(project, project.getPhaseId()));
+        m.put("missingRequiredTemplates", missingRequiredTemplates(project, project.getPhaseId(), (String) m.get("phaseName")));
         return m;
     }
 
@@ -513,7 +512,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     /**
      * 推进/回退阶段（REQ-20261102 需求三增强）：
-     * - 推进：仅相邻（target.sort==current.sort+1）且必填材料校验，行为不变；
+     * - 推进：仅相邻（target.sort==current.sort+1）且必填材料校验；
      * - 回退：相邻与跨级均允许（target.sort<current.sort），reason 必填；
      * - 权限不变（负责人/执行人/admin）；同阶段切换（取消恢复复用）跳过校验；
      * - 每次变更写 project_phase_history（ADVANCE/ROLLBACK），事务保证与项目更新原子性。
@@ -554,11 +553,11 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         String actionType = null;
         if (!samePhase && current.getSort() != null && target.getSort() != null) {
             if (target.getSort() > current.getSort()) {
-                // 推进：仅相邻 + 必填材料校验（行为不变）
+                // 推进：仅相邻 + 必填材料校验
                 if (target.getSort() != current.getSort() + 1) {
                     throw new BusinessException("仅支持相邻阶段推进（" + current.getName() + " → " + target.getName() + "）");
                 }
-                List<String> missing = missingRequiredTemplates(project, current.getId());
+                List<String> missing = missingRequiredTemplates(project, current.getId(), current.getName());
                 if (!missing.isEmpty()) {
                     throw new BusinessException("当前阶段「" + current.getName() + "」必填材料未提交，无法推进：缺少 " + String.join("、", missing));
                 }
@@ -1948,10 +1947,15 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return p == null ? "" : p.getName();
     }
 
-    /** 校验目标阶段必填模板是否配齐；返回缺失模板类型中文列表。 */
-    private List<String> missingRequiredTemplates(Project project, Long phaseId) {
+    /** 返回当前阶段缺少的业务材料及必填模板。 */
+    private List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
         List<String> missing = new ArrayList<>();
-        // 2026-11-09 流程重塑：新流程项目无模板体系，无必填校验
+        if ("会议预算制作".equals(phaseName)
+                && docMapper.listBudgetQuotePaths(project.getId(), phaseId).stream()
+                .noneMatch(path -> storageService.resolveFile(path) != null)) {
+            missing.add("生成报价文件");
+        }
+        // 新流程项目无快照模板，仍执行阶段业务材料校验。
         if (snapshotOrNull(project) == null) {
             return missing;
         }

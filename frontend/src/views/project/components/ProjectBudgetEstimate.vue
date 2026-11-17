@@ -142,9 +142,19 @@ function apply() {
 .estimate-notice { margin-top: 12px; }
 .estimate-dialog-copy { margin-bottom: 12px; }
 .estimate-changes { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
-.estimate-change { display: grid; padding: 8px 12px; border: 1px solid var(--ui-border-weak); border-radius: var(--ui-radius-md); }
+.estimate-change {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border-weak);
+  border-radius: var(--ui-radius-md);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.estimate-change :deep(.el-checkbox) { height: auto; min-height: 24px; margin: 0; white-space: normal; }
 .estimate-delta { color: var(--ui-text-main); font-size: 13px; }
-.estimate-basis { margin-top: 4px; color: var(--ui-text-sub); font-size: 12px; }
+.estimate-basis { color: var(--ui-text-sub); font-size: 12px; }
 @container (max-width: 610px) {
   .estimate-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

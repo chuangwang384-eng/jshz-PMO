@@ -529,7 +529,7 @@
             </div>
             <div class="hint-text" style="margin-top: 4px">可上传多份简历批量建档并自动回绑参会专家</div>
           </template>
-          <div v-else class="side-done">当前阶段必填配置已完成</div>
+          <div v-else class="side-done">{{ isBudgetStage ? '报价文件已生成' : '当前阶段必填配置已完成' }}</div>
         </div>
 
         <!-- 项目文件快速访问（Owner 2026-11-12）：所有阶段上传的文件均可快速下载/预览
@@ -819,7 +819,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useRoute } from 'vue-router'
@@ -1216,6 +1216,7 @@ const isAgendaStage = computed(() => {
 })
 // 2026-11-16 新增「会议预算制作」阶段（位于日程上传之前）：与日程上传同口径的专用阶段视图
 const BUDGET_PHASE_NAME = '会议预算制作'
+const BUDGET_QUOTE_TASK = '生成报价文件'
 const isBudgetStage = computed(() => {
   const name = currentPhase.value?.name || detail.value.phaseName || ''
   return name === BUDGET_PHASE_NAME
@@ -1305,6 +1306,7 @@ function isTemplateFulfilled(t) {
 
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
 function resolveLabel(m) {
+  if (m === BUDGET_QUOTE_TASK) return '去处理报价'
   if (m.includes('预算')) return '去登记预算'
   if (m.includes('附件')) return '去上传附件'
   if (m.includes('专家')) return '去调派专家'
@@ -1312,7 +1314,13 @@ function resolveLabel(m) {
   if (m.includes('文本')) return '去填写文本'
   return '去处理'
 }
-function resolveMissing(m) {
+async function resolveMissing(m) {
+  if (m === BUDGET_QUOTE_TASK) {
+    viewPhaseId.value = String(detail.value.phaseId)
+    await nextTick()
+    document.getElementById('budget-quote-versions')?.scrollIntoView({ block: 'center' })
+    return
+  }
   if (m.includes('预算')) { openBudget(); return }
   if (m.includes('专家')) { openAssignExpert(); return }
   if (m.includes('供应商')) { openAssignSupplier(); return }
