@@ -2,7 +2,7 @@
 
 > 🗺️ 接手前先读 [仓库地图](../repo-map.md)（目录总览/模块地图/关键链路/接手路径），规则见根目录 [AGENTS.md](../../AGENTS.md)。
 
-- 2026-11-17 **今日改动代码审查（硬编码/冗余）已完成，同日修复实施完毕待验收**：覆盖预算报价 1.0.47–1.0.49 与 Ollama 看门狗全部改动。已修复：看门狗脚本 180s/90s 文案与实际不符（改 120s）、阈值收拢参数区、路径改 `$PSScriptRoot` 推导、`project_quote_`/阶段名常量化并统一大小写口径、`mapList`/`requireConfirmed`/`downloadBlob`/`formatMoney`/`apiErrorMessage` 提取复用、前端手写 UUID 改用工具函数、估算金额提为 `ESTIMATE_RULES` 常量、api 改 `{ params }`。验证：估算测试 6/6、后端 mvn test 0 失败 0 错误（32 项按既有开关跳过）、前端 vite build 通过、ps1 Parser 0 错误。**未发布**；估算金额并入 feeStandards 待负责人决策。见 [审查与修复交接](tasks/20261117_code_review_hardcode_redundancy.md)。
+- 2026-11-17 **今日改动代码审查修复已随 1.0.50 发布上线**：修复内容含看门狗脚本 180s/90s 文案（改 120s）、阈值收拢参数区、路径改 `$PSScriptRoot` 推导、`project_quote_`/阶段名常量化并统一大小写口径、`mapList`/`requireConfirmed`/`downloadBlob`/`formatMoney`/`apiErrorMessage` 提取复用、手写 UUID 改工具函数、估算金额提为 `ESTIMATE_RULES` 常量、api 改 `{ params }`；验证 6/6 + 后端 mvn test 0 失败 0 错误 + vite build 通过。同日完成：temp/ 清理（2.6GB→0.7GB，敏感样本 SHA256 备案）、Ollama 看门狗计划任务实测（result=0 健康静默）、1.0.50 标准发布（后端蓝绿 + 前端快照，回滚点齐备；过程事故：阶段 10 提权窗口被关致脚本中断，手工 graceful reload 收尾无停机）。**教训：提权 ps1 必须 UTF-8 带 BOM；发布期间勿关提权窗口**。估算金额并入 feeStandards 仍待负责人决策。见 [审查与修复交接](tasks/20261117_code_review_hardcode_redundancy.md) 第 11–12 节。
 
 - 2026-11-17 **Ollama 看门狗已上线**：计划任务每 5 分钟真实推理探测，60s 无响应自动重启服务。见 [交接记录](tasks/20261117_ollama_watchdog.md)。
 

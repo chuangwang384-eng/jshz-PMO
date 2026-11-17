@@ -5,7 +5,7 @@
 - 任务名称：提交工作区变更 + 今日（2026-11-17）代码硬编码与冗余审查
 - 主责 Agent：CodeBuddy
 - 交接时间：2026-11-17
-- 当前状态：已完成待验收（审查报告已产出；同日修复实施已完成，见第 11 节）
+- 当前状态：已完成并发布（修复随 1.0.50 上线，同日 temp 清理 + 看门狗实测 + 发布记录见第 12 节）
 - 优先级：P2
 
 ## 2. 目标与验收条件
@@ -134,4 +134,35 @@
 - ps1 已注册计划任务指向脚本路径，本次修改未改文件位置，无需重新注册；修改**尚未在计划任务下实测一轮**（重启服务类验证需负责人批准）。
 
 ### 11.4 部署状态
-- **未发布**：本次为代码重构修复，仅仓库内提交；生产后端/前端/计划任务均未变更。发布需走 `build-all.ps1` + `deploy-backend.ps1` 流程并经负责人批准。
+- 已随 1.0.50 发布上线（2026-11-17 12:47 后端蓝绿、12:51 前端快照），详见第 12 节。
+
+---
+
+## 12. temp 清理、看门狗实测与 1.0.50 发布（2026-11-17 下午，CodeBuddy，负责人授权执行）
+
+### 12.1 temp/ 清理（约 2.6 GB → 0.70 GB）
+| 处置 | 内容 |
+| --- | --- |
+| 删除（敏感） | 12 项：9 个个人简历样本（docx/jpg/png）、`login.json`（明文测试凭据）、`ck.txt`/`ck2.txt`（curl 会话 cookie）；删除前 SHA256 记录于 `temp/archive/deleted-20261117-sha256.txt` |
+| 删除（失效） | 68 个已完成使命的一次性脚本/负载（11-13/11-16 apply-*/deploy-*/run-migration-*、11-17 publish-*/shadow/deploy 包装器）；3 个 Edge 隔离回归 profile 目录（budget-ui-edge*/ 共约 650 MB，quote-gate 因残留 headless Edge 进程占用锁文件，结束 8 个测试进程后删除）；Docker Desktop 安装器约 1.2 GB |
+| 归档 | 7 个散落日志 → `logs/legacy/temp-20261117/`（AGENTS.md 0.4 日志归位） |
+| 保留 | `.quarantine-20261113`（观察期至 2026-11-20 未到）、`archive/`、`ai-model-migration-20261113-rollback/`、`docker-desktop-4.97.0/backup-20261116-171953`（升级回滚备份）与 patch 目录、6 张验证截图 |
+
+### 12.2 看门狗计划任务实测（通过）
+- `schtasks /run /tn OllamaHealthWatch`（提权）：上次运行 12:27:46、**上次结果 = 0**、`logs/ollama-watch.log` 无新增 ERROR（健康静默路径）、无锁残留；任务仍为 SYSTEM 每 5 分钟、已启用。脚本级实测（非提权直接运行）亦 exit 0。
+
+### 12.3 1.0.50 发布记录（标准流程）
+| 步骤 | 结果 |
+| --- | --- |
+| 版本提升 | version.txt + frontend/package.json → 1.0.50（提交 `a94e6ba`） |
+| 全量构建 | `build-all.ps1` 通过：build-info 校验 version=1.0.50 gitShort=a94e6ba；日志 `logs/20261117-1.0.50-build.log` |
+| 后端蓝绿 | 阶段 1–9 全部 OK（凭据一致免重登；影子 8081 探测通过；9e 核验 8080 build=1.0.50） |
+| **过程事故** | 阶段 10（graceful reload）执行中**提权窗口被关闭致脚本硬终止**（日志 47 行无任何 FAIL/ERROR，戛然而止于 nginx -t 之后）；未产生停机——conf 已指回 8080 且 8080/8081 均运行同一 1.0.50 jar |
+| 手工收尾 | `invoke-nginx-graceful.ps1` graceful reload 回 8080（master 不重启）→ 经 Nginx/8080 双核验 1.0.50 → 确认 8081 零业务连接后杀影子进程（端口已释放）→ 补写 deployment.md 发布记录行（12:53:11） |
+| 前端发布 | `deploy-frontend-graceful.ps1 -StagedDist builds\1.0.50-build-...\dist -ReleaseId 1.0.50-code-review-refactor-20261117 -Apply`：root 已切新快照，线上 index/JS 与构建产物 SHA256 一致，回滚元数据已归档 |
+| 最终核验 | 经 Nginx /api/health = 1.0.50（gitShort=a94e6ba）；8080 直连一致；首页 200；无 8081 残留连接 |
+
+**教训（已两次复现）**：提权运行的 PowerShell 脚本必须 UTF-8 **带 BOM**（无 BOM 按 GBK 解析中文即语法错乱且静默退出），且发布过程中勿关闭提权窗口；后续可评估把提权步骤改为 SYSTEM 一次性任务（如 invoke-nginx-graceful 模式）以摆脱窗口生命周期依赖。
+
+### 12.4 部署状态
+- **已发布**：生产后端 1.0.50（jar = builds\1.0.50-build-20261117_123049，回滚点 backend\releases\1.0.50-20261117_124720\previous-expert-system.jar）；前端 release 1.0.50-code-review-refactor-20261117（回滚 conf 见 frontend\release-metadata\1.0.50-*.rollback.conf.txt）。JWT/MYSQL 凭据未变，用户免重登。
