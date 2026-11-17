@@ -1,9 +1,9 @@
 <template>
-  <section class="quote-versions">
+  <section id="budget-quote-versions" class="quote-versions">
     <div class="ui-toolbar quote-header">
       <div>
         <h3>对客报价</h3>
-        <p>生成的 Excel 自动归入本阶段资料。</p>
+        <p>确认报价后生成 Excel，文件会自动归入本阶段资料并完成待办。</p>
       </div>
       <el-button v-if="!readonly && confirmed" size="small" type="primary" plain
                  @click="dialog = 'generate'">生成对客报价</el-button>
