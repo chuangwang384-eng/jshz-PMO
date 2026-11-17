@@ -2,6 +2,8 @@
 
 > 🗺️ 接手前先读 [仓库地图](../repo-map.md)（目录总览/模块地图/关键链路/接手路径），规则见根目录 [AGENTS.md](../../AGENTS.md)。
 
+- 2026-11-17 **复用审查 #6/#7 观察项处置（A7）关闭**：#6 外部进程模式**不排期**——四处调用（PhotoMatte/LocalTableOcr/DocPreview/KnowledgeDocTextExtractor）行为契约各异（常驻 worker/一次性调用/格式转换/丢 stderr），按 AGENTS §19.1 不强行合并，且抠图链路刚随 1.0.51 修稳；#7 列表页加载模式**并入需求提案 R08**（列表页一致性三件套）随其实施统一。见 [需求提案 R08](../requirements/2026-11-17-全项目产品审查与优化需求提案-需求文档.md)。
+
 - 2026-11-17 **样式统一第一批已随 1.0.53 发布上线，待业务验收**：卡片 6 处挂 ui-card（圆角 10px/边框阴影统一）、供应商 type-pill/state-pill 挂 ui-badge、`.muted` 全局化（4 文件 #a8abb2→#909399）；Dashboard --c-* 与 Supplier 色系受保护未动，登录页无变化。发布后核验：线上入口含 1.0.53、样式 chunk 200、四路由 200。见 [发布记录](../releases/20261117-style-unification-1.0.53.md) 与 [交接记录](tasks/20261117_style_unification.md)。
 
 - 2026-11-17 **样式进入「按全局规范统一」阶段，第一批收口完成（A6 决策，未发布）**：卡片 6 处容器挂 ui-card（圆角统一 10px/边框阴影统一）、供应商 type-pill/state-pill 挂 ui-badge、`.muted` 全局化（4 文件 #a8abb2→#909399，裸用点已在前期重构中清零）；Dashboard --c-* 与 Supplier 色系受保护未动；构建通过，AGENTS §17.6 清单已同步。头像/空状态/计数胶囊留后续批次。待负责人指令发布后浏览器抽验。见 [交接记录](tasks/20261117_style_unification.md)。
