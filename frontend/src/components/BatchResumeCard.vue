@@ -1,5 +1,5 @@
 <template>
-  <article class="resume-card">
+  <article class="resume-card ui-card">
     <header>
       <img v-if="photoUrl" :src="photoUrl" alt="证件照" />
       <PhotoImage v-else :filename="fields.照片" :width="64" :height="64" />
@@ -33,7 +33,7 @@ const detailFields = ['科室', '职称', '联系方式', '简介', '身份证�
 </script>
 
 <style scoped>
-.resume-card { background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: 10px; padding: 14px; min-width: 0; }
+.resume-card { padding: 14px; min-width: 0; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
 header img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; }
 header strong, header span, header small { display: block; }

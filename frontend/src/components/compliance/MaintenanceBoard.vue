@@ -1,6 +1,6 @@
 <template>
   <div v-loading="loading" class="maintenance-board">
-    <section class="mb-section">
+    <section class="mb-section ui-card">
       <h2>文档解析</h2>
       <div class="mb-toolbar">
         <el-select v-model="parseDocumentId" placeholder="选择已上传的合规文档" filterable aria-label="选择解析文档" :disabled="busy">
@@ -12,7 +12,7 @@
       <p v-if="selectedDocument?.parseStatus" class="hint">上传解析：{{ parseStatusText[selectedDocument.parseStatus] || selectedDocument.parseStatus }}</p>
     </section>
 
-    <section class="mb-section">
+    <section class="mb-section ui-card">
       <h2>候选事项</h2>
       <el-collapse v-if="draftGroups.length">
         <el-collapse-item v-for="group in draftGroups" :key="group.id" :name="group.id">
@@ -39,7 +39,7 @@
       <el-empty v-else description="暂无解析候选" :image-size="64" />
     </section>
 
-    <section class="mb-section">
+    <section class="mb-section ui-card">
       <div class="mb-section-heading">
         <h2>已发布事项</h2>
         <el-button type="primary" :disabled="busy" @click="openCreate">新增事项</el-button>
@@ -241,9 +241,6 @@ watch(() => props.active, active => { if (active) load() }, { immediate: true })
 .mb-section {
   min-width: 0;
   padding: 14px 16px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
 }
 .mb-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .mb-section h2 { margin: 0 0 12px; font-size: 16px; line-height: 1.4; font-weight: 650; }

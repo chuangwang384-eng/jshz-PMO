@@ -1,6 +1,6 @@
 <template>
   <div class="project-list-page">
-    <section class="project-filters" aria-label="项目筛选">
+    <section class="project-filters ui-card" aria-label="项目筛选">
       <div class="project-list-head">
         <h1>项目列表</h1>
         <div class="project-actions">
@@ -367,7 +367,7 @@ onMounted(async () => {
 
 <style scoped>
 .project-list-page { min-width: 0; display: grid; gap: 16px; }
-.project-filters { min-width: 0; background: #fff; border: 1px solid #dfe5ee; border-radius: 12px; padding: 18px 20px; }
+.project-filters { min-width: 0; padding: 18px 20px; }
 .project-list-head, .primary-filters, .project-actions, .filter-actions, .row-actions {
   display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
 }
@@ -382,7 +382,7 @@ onMounted(async () => {
 .filter-field { flex: 1 1 140px; min-width: 0; display: grid; gap: 6px; color: #52627a; font-size: 13px; }
 .date-filter { flex-basis: 245px; }
 .filter-field :deep(.el-select), .filter-field :deep(.el-date-editor) { width: 100%; min-width: 0; }
-.project-table-card { min-width: 0; border-radius: 12px; }
+.project-table-card { min-width: 0; border-radius: var(--ui-radius-lg); }
 .project-table-card :deep(.el-card__body) { padding: 0; }
 .project-table-card :deep(.el-table) { border-radius: 12px 12px 0 0; }
 .project-table-card :deep(.el-table th.el-table__cell) { background: #f7f9fc; color: #43536a; }

@@ -3,7 +3,7 @@
     <el-alert type="info" :closable="false" class="nb-intro">
       <template #title>本记事本由「规范文档库」的收藏自动关联：在文档库中收藏规范文档后，该文档已发布的合规事项会自动出现在这里（按文档分组）；取消收藏即移除对应分组。勾选条目可推送到项目，隐藏仅对自己生效。点击文档分组或事项标题可展开详情。</template>
     </el-alert>
-    <div class="nb-toolbar">
+    <div class="nb-toolbar ui-card">
       <div class="nb-filter">
         <label id="compliance-document-filter">收藏文档</label>
         <el-select v-model="filterDocId" clearable placeholder="全部收藏文档" aria-labelledby="compliance-document-filter" @change="checked = {}">
@@ -17,7 +17,7 @@
       <el-button v-if="!hiddenView" type="primary" plain @click="emit('goto-docs')">浏览规范文档库</el-button>
     </el-empty>
 
-    <section v-for="g in visibleGroups" :key="g.documentId" class="nb-group">
+    <section v-for="g in visibleGroups" :key="g.documentId" class="nb-group ui-card">
       <header
         class="nb-group-head nb-group-head-toggle"
         role="button"
@@ -221,9 +221,6 @@ defineExpose({ reload: load })
   gap: 12px 24px;
   padding: 12px 16px;
   margin-bottom: 16px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
 }
 .nb-filter, .nb-push-actions { display: flex; align-items: center; gap: 10px; }
 .nb-filter { flex: 1; min-width: 0; }
@@ -232,9 +229,6 @@ defineExpose({ reload: load })
 .nb-hint { color: var(--el-text-color-secondary); font-size: 12px; }
 .nb-group {
   margin-bottom: 16px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
 }
 .nb-group-head {
   display: flex;

@@ -277,9 +277,6 @@ watchDashboardFocus(route, 'applicationId', 'application', row => row.status ===
   align-items: baseline;
   gap: 12px;
 }
-.muted {
-  color: #a8abb2;
-}
 .filter-bar {
   margin-top: 12px;
 }

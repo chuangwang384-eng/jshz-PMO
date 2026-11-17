@@ -213,7 +213,7 @@
             </el-table-column>
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
-                <span class="state-pill" :class="priceState(row).cls">{{ priceState(row).text }}</span>
+                <span class="state-pill ui-badge" :class="priceState(row).cls">{{ priceState(row).text }}</span>
               </template>
             </el-table-column>
             <el-table-column label="备注" min-width="150" show-overflow-tooltip>
@@ -1179,7 +1179,6 @@ watch(
 .f-value { font-size: 15px; color: #1f2329; line-height: 1.6; word-break: break-word; }
 .f-value.lg { font-size: 19px; font-weight: 600; }
 .f-value.sm { font-size: 14px; }
-.muted { color: var(--ui-text-muted); }
 .desc-text { margin: 0; font-size: 14px; color: var(--ui-text-main); line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
 
 /* 联系信息：两列 + 复制 */
@@ -1254,7 +1253,7 @@ watch(
 .price-table :deep(.el-table__inner-wrapper::before) { display: none; }
 .price-amount { font-weight: 700; color: #1f2329; font-variant-numeric: tabular-nums; }
 .price-unit { font-size: 12px; color: var(--ui-text-muted); margin-left: 2px; }
-.state-pill { font-size: 12px; padding: 1px 9px; border-radius: 999px; line-height: 20px; white-space: nowrap; }
+.state-pill { padding: 1px 9px; white-space: nowrap; }
 .state-pill.ok { background: #e8f7ee; color: #18a058; }
 .state-pill.expired { background: #f2f3f5; color: var(--ui-text-muted); }
 .price-warn { margin-top: 10px; font-size: 12px; color: var(--ui-warning); line-height: 1.6; }

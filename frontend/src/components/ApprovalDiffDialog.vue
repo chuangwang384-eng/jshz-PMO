@@ -329,9 +329,6 @@ async function confirm(action = props.mode) {
   justify-content: center;
   color: var(--ui-text-muted);
 }
-.muted {
-  color: #a8abb2;
-}
 .footer-action {
   display: flex;
   flex-direction: column;

@@ -492,7 +492,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 | 同义组 | `.todo-title,.task-title` / `.todo-sub,.task-sub` | 待办与执行看板同义合并 |
 | 文本 | `.ui-desc` | 12px 辅助说明 |
 
-未收口的已知重复（待视觉决策）：卡片 9+ 处、徽标 7 处、头像 3 处、空状态 5+ 处、`.muted` 裸用点——详见 `docs/handover/tasks/20261113_style_dedup.md` 第 7 节。
+未收口的已知重复：头像 3 处、空状态 5+ 处、供应商模块小型计数胶囊（1px 8px 尺寸变体）——详见 `docs/handover/tasks/20261113_style_dedup.md` 第 7 节。卡片（6 处容器）、徽标（type-pill/state-pill 挂 ui-badge）、`.muted`（全局定义）已于 2026-11-17 经负责人批准进入「按全局规范统一」阶段完成收口，详见 `docs/handover/tasks/20261117_style_unification.md`。
 
 ### 17.7 状态字典联动约定（2026-11-13 新增）
 

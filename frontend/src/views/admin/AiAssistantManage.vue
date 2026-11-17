@@ -7,7 +7,7 @@
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" style="margin-bottom: 10px"/>
 
-    <div class="fee-card">
+    <div class="fee-card ui-card">
       <div class="toolbar">
         <el-input v-model="filter" placeholder="搜索标题/键" clearable style="width: 240px" size="small"/>
         <el-button type="primary" plain size="small" @click="addEntry">+ 新增条目</el-button>
@@ -193,7 +193,7 @@ onMounted(load)
 .page-header { margin: 4px 0 16px; }
 .page-title { font-size: 20px; font-weight: 700; }
 .page-sub { color: var(--el-text-color-secondary); font-size: 13px; margin-top: 6px; }
-.fee-card { background: #fff; border: 1px solid var(--el-border-color-light); border-radius: 10px; padding: 16px; }
+.fee-card { padding: 16px; }
 .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .hint-text { color: var(--el-text-color-secondary); font-size: 12px; }
 </style>

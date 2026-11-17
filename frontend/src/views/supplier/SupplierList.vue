@@ -81,7 +81,7 @@
           <div class="row-main">
             <div class="row-title">
               <span class="row-name">{{ s.name }}</span>
-              <span v-if="s.typeName" class="type-pill">{{ s.typeName }}</span>
+              <span v-if="s.typeName" class="type-pill ui-badge">{{ s.typeName }}</span>
             </div>
             <div class="row-meta">{{ metaLine(s) }}</div>
             <div class="row-rate">
@@ -683,10 +683,8 @@ onBeforeUnmount(() => {
   max-width: 420px;
 }
 .type-pill {
-  font-size: 12px;
   color: var(--ui-text-sub);
   border: 1px solid #e3e6eb;
-  border-radius: 999px;
   padding: 1px 8px;
   line-height: 18px;
 }

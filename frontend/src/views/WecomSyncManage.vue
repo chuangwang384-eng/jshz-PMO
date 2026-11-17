@@ -321,7 +321,6 @@ onMounted(refresh)
   margin-bottom: 16px;
 }
 .muted {
-  color: var(--ui-text-muted);
   font-size: 12px;
 }
 .error-text {

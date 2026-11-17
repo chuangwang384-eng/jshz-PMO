@@ -97,7 +97,7 @@
       <div
         v-for="expert in experts"
         :key="expert.id"
-        class="expert-card"
+        class="expert-card ui-card"
         :class="{ selected: selectedIds.has(expert.id) }"
         @click="openDetail(expert)"
       >
@@ -1602,9 +1602,6 @@ watch(() => route.query.expertId, async id => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
   padding: 14px 16px;
   text-align: left;
   cursor: pointer;

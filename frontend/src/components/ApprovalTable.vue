@@ -83,9 +83,6 @@ function ownedByMe(row) {
 </script>
 
 <style scoped>
-.muted {
-  color: #a8abb2;
-}
 .return-comment {
   color: var(--ui-warning);
 }

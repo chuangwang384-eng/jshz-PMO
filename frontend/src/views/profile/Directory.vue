@@ -77,7 +77,6 @@ onMounted(async () => {
   gap: 12px;
 }
 .muted {
-  color: var(--ui-text-muted);
   font-size: 12px;
 }
 .chain {

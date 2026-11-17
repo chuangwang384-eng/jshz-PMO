@@ -39,6 +39,11 @@
 /* 辅助描述（标题去重页面统一说明样式：小字浅灰） */
 .ui-desc { font-size: 12px; color: var(--ui-text-muted); margin: 0 0 10px 0; }
 
+/* 弱化文字 .muted（2026-11-17 按全局规范统一阶段收口）：收口自 ApprovalTable/ApprovalDiffDialog/
+ * MyApproval/SupplierDetail 的同名 scoped 定义与多处无样式裸用点；只定颜色不定字号，
+ * 12px 变体（WecomSyncManage/Directory）保留局部 font-size。Dashboard --c-* 体系内同名类为受保护边界，不受影响。 */
+.muted { color: var(--ui-text-muted); }
+
 /* ============================================================
  * 全局去重公共类（样式重复治理 2026-11-13）
  * 以下类名收口自各页面逐字重复的 scoped 规则；差异属性（gap/wrap/margin 等）
