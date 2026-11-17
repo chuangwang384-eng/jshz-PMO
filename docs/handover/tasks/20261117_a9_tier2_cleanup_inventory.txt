@@ -1,0 +1,3 @@
+﻿builds\archive: 28 dirs, 10.44 GB
+temp to clean: 9 items, 671.57 MB
+kept in temp: .quarantine-20261113, ai-model-migration-20261113-rollback + today's working files
