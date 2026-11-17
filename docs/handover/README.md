@@ -2,6 +2,10 @@
 
 > 🗺️ 接手前先读 [仓库地图](../repo-map.md)（目录总览/模块地图/关键链路/接手路径），规则见根目录 [AGENTS.md](../../AGENTS.md)。
 
+- 2026-11-17 简历抠图"仅人头/发虚"与单位混入姓名修复，已完成待验收**未发布**（main）。抠图 worker 增精修链（放大→硬化→主体提取→裁剪），单位增 `sanitizeUnit`。见 [交接记录](tasks/20261117_resume_matte_unit_fix.md)。
+
+- 2026-11-17 **A14 隔离区最终删除工具就绪、预检全部通过（删除待 2026-11-20 执行）**：新增 `scripts/quarantine-final-delete.ps1`（幂等、日期门禁、引用检查、fail-fast 删除、删除后自动改写 README:80 状态）。预检实测：隔离区现状 **C 类 51 文件/30.2 MB 与审计基线一致**；**A 类 2861 文件/271.6 MB 已于 2026-11-16 提前处置**（见 [冗余清理记录](tasks/20261116_redundancy_cleanup.md) §4，属既有事实）；引用检查 0 功能性命中；`supplier_image` 只读复核 121 行/120 家。当前日期早于到期日，工具按规程中止删除（剩余 3 天）。见 [预检记录](tasks/20261117_a14_quarantine_final_delete.md)。
+
 - 2026-11-17 **测试项目 61 已删除（A13 结案，零生产影响）**：用应用原生软删机制（status=DELETED）删除「验收-报价待办临时」（1.0.48 验收遗留空壳项目，零子表数据），数据保留可恢复，已写操作日志（operation_log id=1120）；项目 54 未动。删除前核实列表查询全部过滤 DELETED（ProjectService 5 处 ne 过滤）。见 [结案记录](tasks/20261117_a13_project61_delete.md)。
 
 - 2026-11-17 **看门狗计划任务实测通过（A12 结案，零中断）**：提权 schtasks /run 触发 OllamaHealthWatch 真实运行，脚本在 SYSTEM 上下文内完整执行（日志重写时间戳 15:53:54），健康路径静默无重启，Ollama 200；重启恢复路径已有同日上午实测（114s 恢复）。另确认三个 SYSTEM 任务（看门狗/备份/清理）均在运行但对非管理员查询隐藏（Access denied 而非 not found）。见 [复用审查交接](tasks/20261117_code_review_hardcode_redundancy.md) 与日志 logs/ollama-watch.log。

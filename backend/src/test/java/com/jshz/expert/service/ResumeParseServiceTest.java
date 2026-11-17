@@ -145,6 +145,23 @@ class ResumeParseServiceTest {
         assertEquals(1, contentOnly.hitCount());
     }
 
+    @Test void namePrefixedUnitLineIsSeparated() {
+        // 2026-11-17 报告案例：姓名与单位同行，单位不得混入姓名
+        Map<String, String> fields = parse("李向东，汝州市第一人民医院甲状腺乳腺外科副主任医师\n");
+        assertEquals("汝州市第一人民医院", fields.get("单位"));
+        assertFalse(fields.get("单位").contains("李向东"));
+    }
+
+    @Test void sanitizeUnitStripsNameAndKeepsOrg() {
+        assertEquals("汝州市第一人民医院", service.sanitizeUnit("李向东，汝州市第一人民医院", "李向东"));
+        assertEquals("汝州市第一人民医院", service.sanitizeUnit("李向东汝州市第一人民医院", "李向东"));
+        assertEquals("汝州市第一人民医院", service.sanitizeUnit("李向东，汝州市第一人民医院", null));
+        assertEquals("山东省立第三医院", service.sanitizeUnit("山东省立第三医院", null));
+        assertEquals("汝州市第一人民医院", service.sanitizeUnit("李向东、汝州市第一人民医院、主任医师", "李向东"));
+        assertNull(service.sanitizeUnit(null, null));
+        assertNull(service.sanitizeUnit("   ", "李向东"));
+    }
+
     @Test void optionalLocalPptxRegression() throws Exception {
         String sample = System.getenv("RESUME_NAME_TEST_PPTX");
         org.junit.jupiter.api.Assumptions.assumeTrue(sample != null && !sample.isBlank());

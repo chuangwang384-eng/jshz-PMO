@@ -288,12 +288,14 @@ public class ResumeParseService {
             if (semantic != null && !semantic.isEmpty()) {
                 String normalizedText = text.replaceAll("\\s+", "");
                 semantic.forEach((key, value) -> {
-                    if ("单位".equals(key) && (fields.containsKey(key) || value == null
-                            || ORG_SUFFIXES.stream().noneMatch(value.strip()::endsWith)
-                            || !normalizedText.contains(value.replaceAll("\\s+", "")))) return;
+                    // 单位先净化（剥离混入的姓名），再走机构后缀/原文包含校验
+                    String val = "单位".equals(key) ? sanitizeUnit(value, fields.get("姓名")) : value;
+                    if ("单位".equals(key) && (fields.containsKey(key) || val == null
+                            || ORG_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
+                            || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
                     if (!"姓名".equals(key) || (!isCandidateName(fields.get("姓名"))
-                            && isCandidateName(value) && normalizedText.contains(value))) {
-                        fields.put(key, value);
+                            && isCandidateName(val) && normalizedText.contains(val))) {
+                        fields.put(key, val);
                     }
                 });
                 if (!fields.isEmpty()) message = "已结合本地语义模型解析";
@@ -466,6 +468,7 @@ public class ResumeParseService {
                 if (unit != null) break;
             }
         }
+        unit = sanitizeUnit(unit, name);
         if (unit != null) fields.put("单位", unit);
 
         String dept = extractByLabel(cleaned, "科室", "Department", 2, 20);
@@ -540,6 +543,32 @@ public class ResumeParseService {
 
     private boolean isChineseWordChar(char c) {
         return c >= 0x4e00 && c <= 0x9fa5;
+    }
+
+    /**
+     * 单位字段净化（2026-11-17 修复"姓名混入单位"）：
+     * 设计稿常把姓名与单位写在同一行（"李向东，汝州市第一人民医院…"），按机构后缀截断时
+     * 会把前置姓名一并带入。此处剥离已知姓名前缀，并按分隔符取以机构后缀结尾的机构段，
+     * 丢弃姓名/职称段。对外契约不变：返回净化后的单位字符串，无机构段时返回原值（交由上层校验）。
+     */
+    String sanitizeUnit(String raw, String knownName) {
+        if (raw == null || raw.isBlank()) return null;
+        String unit = raw.trim();
+        // 剥离已解析出的姓名前缀（含其后分隔符，兼容"姓名，单位"与"姓名单位"直接拼接）
+        if (knownName != null && !knownName.isBlank() && unit.startsWith(knownName)) {
+            unit = unit.substring(knownName.length()).replaceFirst("^[，,、；;：:\\s／/|]+", "").trim();
+        }
+        // 按分隔符切分，取以机构后缀结尾的最长段（姓名/职称段被丢弃）
+        String best = null;
+        for (String part : unit.split("[，,、；;／/|\\s]+")) {
+            String p = part.trim();
+            if (p.length() >= 4 && ORG_SUFFIXES.stream().anyMatch(p::endsWith)
+                    && (best == null || p.length() > best.length())) {
+                best = p;
+            }
+        }
+        if (best != null) return best;
+        return unit.isEmpty() ? null : unit;
     }
 
     // ==================== 头像候选 ====================
