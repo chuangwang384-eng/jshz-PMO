@@ -1,6 +1,6 @@
 # 最新交接摘要
 
-- 2026-11-17 报价 Excel 预览复用知识星球表格方案（不转 PDF）+ 日程阶段专家全匹配推进校验，已完成待验收**未发布**，改动在 main。见 [交接记录](tasks/20261117_excel_preview_schedule_gate.md)。
+- 2026-11-17 **Excel 表格预览复用 + 日程阶段推进校验 1.0.49 已发布**（`9343361`），生产核验通过，剩业务复核。见 [生产发布记录](../releases/20261117-excel-sched-gate-1.0.49.md) 与 [交接记录](tasks/20261117_excel_preview_schedule_gate.md)。
 
 - 2026-11-17 **报价待办与估算预览 1.0.48 已发布**（`cd18d7e`），API+浏览器验收通过，剩余业务复核。见 [生产发布记录](../releases/20261117-budget-quote-gate-1.0.48.md) 与 [报价待办交接](tasks/20261117_budget_quote_phase_gate.md)。
 
