@@ -1,5 +1,7 @@
 # 最新交接摘要
 
+- 2026-11-17 会议预算制作阶段已完成源码审查，记录线上数量录入、独立确认接口、线下预填及待确认的阶段推进规则。见 [审查交接](tasks/20261117_budget_stage_review.md)。
+
 - 2026-11-16 **Docker Desktop 已升级到 4.97.0 并汉化**，中文窗口、Linux 容器运行和 AnythingLLM 恢复均已验证。见 [升级与汉化交接](tasks/20261116_docker_desktop_cn.md)。
 
 - 2026-11-16 **AnythingLLM 已在本机 Docker 部署**，应用数据在 D 盘，网页、容器健康和宿主机 Ollama 推理已验证。见 [本机部署交接](tasks/20261116_anythingllm_local.md)。
