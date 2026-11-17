@@ -8,7 +8,7 @@
     <el-tabs v-model="scene" class="fee-tabs">
       <el-tab-pane name="OFFLINE">
         <template #label><span class="tab-label">线下收费标准</span></template>
-        <div class="tab-tip">线下项目进入「会议预算制作」阶段时，按下方默认值预填费用明细（区间值填「低,高」，预填取低值）</div>
+        <div class="tab-tip">线下估算按用途读取参考单价、数量增量和每场数量。区间值填「低,高」，估算取低值。</div>
       </el-tab-pane>
       <el-tab-pane name="ONLINE">
         <template #label><span class="tab-label">线上收费标准</span></template>
@@ -27,12 +27,15 @@
         </el-table-column>
         <el-table-column label="默认值" width="170">
           <template #default="{ row }">
-            <el-input v-model="row.defaultValue" :placeholder="isOnline ? '默认单价，如 8000' : '500 或 300,400，留空=视需求报价'" size="small"/>
+            <div>{{ !isOnline && quantityRules[row.feeKey] ? quantityRules[row.feeKey].label : '参考单价' }}</div>
+            <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '例如 500 或 300,400'" size="small"/>
           </template>
         </el-table-column>
         <el-table-column label="单位" width="110">
           <template #default="{ row }">
-            <el-input v-model="row.unit" placeholder="元/场 等" size="small"/>
+            <span v-if="!isOnline && quantityRules[row.feeKey]">{{ quantityRules[row.feeKey].unit }}</span>
+            <span v-else-if="!isOnline && row.feeKey === 'STAFF_DAY'">元/人天</span>
+            <el-input v-else v-model="row.unit" placeholder="元/场 等" size="small"/>
           </template>
         </el-table-column>
         <el-table-column label="备注" min-width="200">
@@ -66,6 +69,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listBudgetFeeStandards, saveBudgetFeeStandards } from '../../api/project'
+import { quantityRules } from '../project/components/budgetEstimate'
 
 const scene = ref('OFFLINE')
 const loading = ref(false)

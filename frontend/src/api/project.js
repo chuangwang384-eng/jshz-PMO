@@ -215,6 +215,26 @@ export function saveProjectBudget(id, data) {
   return request.put(`/project/${id}/meeting-budget`, data)
 }
 
+export function listBudgetQuotes(id) {
+  return request.get(`/project/${id}/meeting-budget/quotes`)
+}
+
+export function generateBudgetQuote(id, { requestKey, clientNote }) {
+  return request.post(`/project/${id}/meeting-budget/quotes`, { requestKey, clientNote })
+}
+
+export function downloadBudgetQuote(id, versionId) {
+  return request.get(`/project/${id}/meeting-budget/quotes/${versionId}/file`, { responseType: 'blob' })
+}
+
+export function recordBudgetQuoteConfirmation(id, versionId, data) {
+  return request.post(`/project/${id}/meeting-budget/quotes/${versionId}/customer-confirmation`, data)
+}
+
+export function restoreBudgetQuote(id, versionId) {
+  return request.post(`/project/${id}/meeting-budget/quotes/${versionId}/restore`)
+}
+
 // 收费标准（管理员设置-项目配置）
 export function listBudgetFeeStandards(scene) {
   const qs = scene ? `?scene=${scene}` : ''

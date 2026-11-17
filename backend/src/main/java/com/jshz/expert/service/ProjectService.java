@@ -223,7 +223,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     /** 阶段名：快照项目走快照口径，新项目直接查阶段字典。 */
-    private String phaseNameOf(Project project) {
+    String phaseNameOf(Project project) {
         if (project.getPhaseId() == null) {
             return "";
         }
@@ -904,6 +904,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         ProjectDoc doc = docMapper.selectById(docId);
         if (doc == null || !doc.getProjectId().equals(id)) {
             throw new BusinessException("资料不存在");
+        }
+        if (doc.getFilePath() != null && doc.getFilePath().startsWith("project_quote_")) {
+            throw new BusinessException("已生成的对客报价随版本保留");
         }
         doc.setIsDeleted(1);
         doc.setDeletedBy(ParamUtils.usernameOf(user));
@@ -1840,6 +1843,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 项目资料库文件解析（防穿越，供文件流端点；Owner 2026-11-12 在线预览）。 */
     public java.nio.file.Path resolveStoredFile(String filePath) {
         return storageService.resolveFile(filePath);
+    }
+
+    public void requireQuoteFileReadable(String filePath, AuthUser user) {
+        ProjectDoc doc = docMapper.selectOne(new LambdaQueryWrapper<ProjectDoc>()
+                .eq(ProjectDoc::getFilePath, filePath)
+                .eq(ProjectDoc::getIsDeleted, 0)
+                .last("LIMIT 1"));
+        if (doc == null) {
+            throw new BusinessException(404, "报价文件不存在");
+        }
+        requireProjectReadable(requireProject(doc.getProjectId()), user);
     }
 
     public byte[] storageRead(String filePath) {

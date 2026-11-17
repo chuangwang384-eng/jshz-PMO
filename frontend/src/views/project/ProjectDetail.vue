@@ -100,7 +100,8 @@
 
           <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
           <template v-if="isBudgetViewing && phaseState(viewPhaseObj) !== 'future'">
-            <ProjectBudgetPanel :project-id="projectId" :readonly="!canOperatePhase"/>
+            <ProjectBudgetPanel :key="projectId" :project-id="projectId" :readonly="!canOperatePhase"
+                                :can-record="canOperate" :documents="allDocs" @generated="fetchDetail"/>
           </template>
           <!-- 日程上传阶段：上传即替换当前日程（不做历史版本）并自动解析参会专家 -->
           <template v-else-if="isAgendaStage && isViewingCurrent">

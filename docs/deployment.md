@@ -748,3 +748,7 @@ temp 将删 99 项 ≈ 169 MB（27 项因被引用跳过）。
 ### 本地 AI 模型目录迁移（2026-11-13，待切换）
 
 迁移候选以 <LOCAL_PATH> 为模型权重根目录。Ollama 通过 OLLAMA_MODELS 读取 ollama/models。后端通过 COMPLIANCE_PPOCR_MODELS、U2NET_HOME、TESSDATA_DIR 分别指定 PP-OCRv5、抠图和语言模型目录。程序与解释器保留现有安装位置。切换、验证和回滚见 [迁移交接](handover/tasks/20261113_ai_model_migration.md)。
+
+### 会议预算估算与对客报价（2026-11-17，待发布）
+
+新环境由 `database/init.sql` 初始化。既有环境先查看迁移台账、备份目标库和项目资料库，经授权执行 `database/migration/20261117_budget_estimate_quote.sql`，核实新增列和版本表后再切换前后端。脚本可重试，旧预算无需数据回填。部署沿用现有项目资料目录与 Apache POI 依赖。验收涵盖估算保存、内部确认、版本下载、阶段资料挂载和客户确认。回滚应用制品时保留新增列、版本表和已生成的文件。验收及接口细节见 [估算与对客报价交接](handover/tasks/20261117_budget_estimate_quote.md)。

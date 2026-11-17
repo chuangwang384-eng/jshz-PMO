@@ -74,19 +74,27 @@ public class ProjectBudgetService {
     @Transactional
     public Map<String, Object> save(Long projectId, List<Map<String, Object>> items,
                                     String remark, boolean confirm, AuthUser user) {
+        return save(projectId, items, remark, confirm, null, user);
+    }
+
+    @Transactional
+    public Map<String, Object> save(Long projectId, List<Map<String, Object>> items,
+                                    String remark, boolean confirm, String estimateInputs, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
-        ProjectBudget budget = budgetMapper.selectOne(new LambdaQueryWrapper<ProjectBudget>()
-                .eq(ProjectBudget::getProjectId, projectId));
+        ProjectBudget budget = lockBudget(projectId);
         if (budget == null) {
             budget = new ProjectBudget();
             budget.setProjectId(projectId);
             budget.setCreatedBy(user == null ? null : user.getUserId());
         }
-        if ("CONFIRMED".equals(budget.getStatus()) && !confirm) {
-            throw new BusinessException("报价单已确认，如需修改请先联系管理员回退状态");
+        if ("CONFIRMED".equals(budget.getStatus())) {
+            throw new BusinessException("报价单已确认，如需修改请从对客报价版本新建草稿");
         }
         budget.setCategory(categoryOf(project));
+        if ("OFFLINE".equals(budget.getCategory()) && estimateInputs != null) {
+            budget.setEstimateInputs(estimateInputs);
+        }
         budget.setRemark(remark);
         budget.setUpdatedBy(user == null ? null : user.getUserId());
 
@@ -118,11 +126,49 @@ public class ProjectBudgetService {
         }
         log.info("预算保存 project={} items={} total={} confirm={} by={}",
                 projectId, parsed.size(), total, confirm, user == null ? null : user.getUserId());
+        return savedBudget(budget);
+    }
+
+    /** 确认已保存的草稿，保留原始金额、备注和明细。 */
+    @Transactional
+    public Map<String, Object> confirm(Long projectId, AuthUser user) {
+        Project project = projectService.requireProject(projectId);
+        projectService.requireOperable(project, user);
+        ProjectBudget budget = lockBudget(projectId);
+        if (budget == null) {
+            throw new BusinessException("请先保存报价草稿");
+        }
+        if ("DRAFT".equals(budget.getStatus())) {
+            ProjectBudget update = new ProjectBudget();
+            update.setId(budget.getId());
+            update.setStatus("CONFIRMED");
+            update.setUpdatedBy(user.getUserId());
+            budgetMapper.updateById(update);
+            budget = lockBudget(projectId);
+            log.info("预算确认 project={} by={}", projectId, user.getUserId());
+        }
+        return savedBudget(budget);
+    }
+
+    /** 保存和确认共用行锁，避免草稿写入覆盖刚确认的状态。 */
+    ProjectBudget lockBudget(Long projectId) {
+        return budgetMapper.selectOne(new LambdaQueryWrapper<ProjectBudget>()
+                .eq(ProjectBudget::getProjectId, projectId)
+                .last("FOR UPDATE"));
+    }
+
+    private Map<String, Object> savedBudget(ProjectBudget budget) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("budget", budget);
-        result.put("items", itemMapper.selectList(new LambdaQueryWrapper<ProjectBudgetItem>()
-                .eq(ProjectBudgetItem::getBudgetId, budget.getId()).orderByAsc(ProjectBudgetItem::getSort)));
+        result.put("items", lockedItems(budget.getId()));
         return result;
+    }
+
+    List<ProjectBudgetItem> lockedItems(Long budgetId) {
+        return itemMapper.selectList(new LambdaQueryWrapper<ProjectBudgetItem>()
+                .eq(ProjectBudgetItem::getBudgetId, budgetId)
+                .orderByAsc(ProjectBudgetItem::getSort)
+                .last("FOR UPDATE"));
     }
 
     // ==================== 收费标准（管理员） ====================
@@ -154,6 +200,16 @@ public class ProjectBudgetService {
             String scene = str(row.get("scene"));
             if (scene == null || !("ONLINE".equals(scene) || "OFFLINE".equals(scene))) {
                 scene = "OFFLINE";
+            }
+            if ("OFFLINE".equals(scene) && List.of("AGENDA_UP", "MAT_DESKCARD_UP", "MAT_STAND").contains(key)
+                    && value != null && !value.matches("\\d{1,4}(,\\d{1,4})?")) {
+                throw new BusinessException("物料数量规则须为整数或整数区间");
+            }
+            if (value != null && value.contains(",")) {
+                String[] bounds = value.split(",");
+                if (new BigDecimal(bounds[0]).compareTo(new BigDecimal(bounds[1])) > 0) {
+                    throw new BusinessException("默认值区间的下限不能大于上限");
+                }
             }
             ProjectBudgetFeeStandard entity = feeStandardMapper.selectOne(
                     new LambdaQueryWrapper<ProjectBudgetFeeStandard>().eq(ProjectBudgetFeeStandard::getFeeKey, key));
@@ -292,13 +348,13 @@ public class ProjectBudgetService {
         }
         // HOTEL 酒店：场地/住宿/用餐/茶歇
         list.add(item(budget, "HOTEL", null, "场地费", null, null, sort++));
-        list.add(item(budget, "HOTEL", null, "住宿费", null, null, sort++));
+        list.add(estimateItem(budget, "HOTEL", "HOTEL_ROOM", "住宿费", "间", sort++));
         list.add(item(budget, "HOTEL", null, "用餐费", null, null, sort++));
-        list.add(item(budget, "HOTEL", null, "茶歇费", null, null, sort++));
+        list.add(estimateItem(budget, "HOTEL", "HOTEL_TEA", "茶歇费", "人", sort++));
         // TRAFFIC 交通：大交通按专家人数预估 + 地面交通（车队专车/平台专车）
-        list.add(item(budget, "TRAFFIC", null, "大交通费（按专家人数预估）", null, null, sort++));
-        list.add(item(budget, "TRAFFIC", null, "地面交通-车队专车", null, null, sort++));
-        list.add(item(budget, "TRAFFIC", null, "地面交通-平台专车", null, null, sort++));
+        list.add(estimateItem(budget, "TRAFFIC", "TRAFFIC_MAIN", "大交通费（按专家人数预估）", "人", sort++));
+        list.add(estimateItem(budget, "TRAFFIC", "TRAFFIC_FLEET", "地面交通-车队专车", "次", sort++));
+        list.add(estimateItem(budget, "TRAFFIC", "TRAFFIC_PLATFORM", "地面交通-平台专车", "人", sort++));
         // BUILD 搭建（非必需）：签到背景板/LED 屏/影音设备
         list.add(item(budget, "BUILD", null, "签到背景板", null, null, sort++));
         list.add(item(budget, "BUILD", null, "LED 屏幕", null, null, sort++));
@@ -307,9 +363,9 @@ public class ProjectBudgetService {
         list.add(item(budget, "MATERIAL", "MAT_DESIGN", "物料设计费", null, null, sort++));
         list.add(feeItem(budget, fees, "MC_INTERLUDE", "串场", BigDecimal.ONE, "MATERIAL", sort++));
         list.add(feeItem(budget, fees, "MC_LETTER", "沟通函及延展", BigDecimal.ONE, "MATERIAL", sort++));
-        list.add(feeItem(budget, fees, "AGENDA_UP", "日程（参会人员基础上浮）", null, "MATERIAL", sort++));
-        list.add(feeItem(budget, fees, "MAT_DESKCARD_UP", "台卡（参会人员基础上浮）", null, "MATERIAL", sort++));
-        list.add(feeItem(budget, fees, "MAT_STAND", "展架（易拉宝）", BigDecimal.ONE, "MATERIAL", sort++));
+        list.add(materialQuantityItem(budget, fees, "AGENDA_UP", "日程", "张", sort++));
+        list.add(materialQuantityItem(budget, fees, "MAT_DESKCARD_UP", "台卡", "张", sort++));
+        list.add(materialQuantityItem(budget, fees, "MAT_STAND", "展架（易拉宝）", "个", sort++));
         list.add(item(budget, "MATERIAL", "MAT_BANNER", "条幅（按酒店尺寸，默认写真布）", null, null, sort++));
         list.add(feeItem(budget, fees, "MAT_PRINT_OTHER", "其他打印物料", BigDecimal.ONE, "MATERIAL", sort++));
         list.add(feeItem(budget, fees, "MAT_ROSTRUM_FLOWER", "讲台花", BigDecimal.ONE, "MATERIAL", sort++));
@@ -319,7 +375,11 @@ public class ProjectBudgetService {
         // GIFT 礼品（和客户确认是否需要）
         list.add(feeItem(budget, fees, "GIFT_UNIT", "礼品", null, "GIFT", sort++));
         // STAFF 人员：固定 500/人/天 + 交通住宿据实报销（说明行）
-        list.add(feeItem(budget, fees, "STAFF_DAY", "人员费", null, "STAFF", sort++));
+        ProjectBudgetItem staff = feeItem(budget, fees, "STAFF_DAY", "人员费", BigDecimal.ZERO, "STAFF", sort++);
+        if (staff != null) {
+            staff.setUnit("人天");
+            list.add(staff);
+        }
         list.add(item(budget, "STAFF", "STAFF_TRAVEL", "人员交通/住宿（据实报销）", null, null, sort++));
         return list.stream().filter(Objects::nonNull).toList();
     }
@@ -336,6 +396,22 @@ public class ProjectBudgetService {
         it.setUnit(unit);
         it.setSort(sort);
         return it;
+    }
+
+    private ProjectBudgetItem materialQuantityItem(ProjectBudget budget, Map<String, ProjectBudgetFeeStandard> fees,
+                                                   String key, String name, String unit, int sort) {
+        ProjectBudgetFeeStandard standard = fees.get(key);
+        if (standard == null) {
+            return null;
+        }
+        return estimateItem(budget, "MATERIAL", key, name, unit, sort);
+    }
+
+    private ProjectBudgetItem estimateItem(ProjectBudget budget, String section, String key,
+                                           String name, String unit, int sort) {
+        ProjectBudgetItem row = item(budget, section, key, name, BigDecimal.ZERO, unit, sort);
+        row.setQuantity(BigDecimal.ZERO);
+        return row;
     }
 
     /** 收费标准预填行；标准缺失（被停用/删除）返回 null 跳过。区间默认取低值并备注区间。 */

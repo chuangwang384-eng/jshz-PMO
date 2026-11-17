@@ -23,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -181,6 +183,70 @@ class ProjectBudgetServiceTest {
         assertThatThrownBy(() -> service.save(1L, List.of(), null, false, user))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已确认");
+    }
+
+    @Test
+    void confirmPreservesSavedBudgetAndIsSafeToRetry() {
+        Project project = project("ONLINE");
+        when(projectService.requireProject(1L)).thenReturn(project);
+        ProjectBudget budget = new ProjectBudget();
+        budget.setId(10L);
+        budget.setProjectId(1L);
+        budget.setStatus("DRAFT");
+        budget.setRemark("已与客户核对报价");
+        budget.setTotalAmount(new BigDecimal("24000.00"));
+        when(budgetMapper.selectOne(any())).thenReturn(budget);
+        when(budgetMapper.updateById(any(ProjectBudget.class))).thenAnswer(inv -> {
+            ProjectBudget update = inv.getArgument(0);
+            assertThat(update.getId()).isEqualTo(10L);
+            assertThat(update.getTotalAmount()).isNull();
+            assertThat(update.getRemark()).isNull();
+            budget.setStatus(update.getStatus());
+            budget.setUpdatedBy(update.getUpdatedBy());
+            return 1;
+        });
+        ProjectBudgetItem item = new ProjectBudgetItem();
+        item.setId(20L);
+        item.setQuantity(new BigDecimal("3"));
+        item.setAmount(new BigDecimal("24000.00"));
+        when(itemMapper.selectList(any())).thenReturn(List.of(item));
+
+        Map<String, Object> result = service.confirm(1L, user);
+
+        assertThat(result.get("items")).isEqualTo(List.of(item));
+        ProjectBudget confirmed = (ProjectBudget) result.get("budget");
+        assertThat(confirmed.getStatus()).isEqualTo("CONFIRMED");
+        assertThat(confirmed.getUpdatedBy()).isEqualTo(7L);
+        assertThat(confirmed.getTotalAmount()).isEqualByComparingTo("24000.00");
+        assertThat(confirmed.getRemark()).isEqualTo("已与客户核对报价");
+        assertThat(service.confirm(1L, user)).isEqualTo(result);
+        verify(budgetMapper).updateById(any(ProjectBudget.class));
+        verify(itemMapper, org.mockito.Mockito.times(2)).selectList(any());
+        org.mockito.Mockito.verifyNoMoreInteractions(itemMapper);
+    }
+
+    @Test
+    void confirmRequiresSavedDraft() {
+        when(projectService.requireProject(1L)).thenReturn(project("ONLINE"));
+        when(budgetMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> service.confirm(1L, user))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("请先保存报价草稿");
+        verifyNoInteractions(itemMapper);
+    }
+
+    @Test
+    void confirmChecksWritePermissionBeforeReadingBudget() {
+        Project project = project("ONLINE");
+        when(projectService.requireProject(1L)).thenReturn(project);
+        org.mockito.Mockito.doThrow(new BusinessException("无操作权限"))
+                .when(projectService).requireOperable(project, user);
+
+        assertThatThrownBy(() -> service.confirm(1L, user))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("无操作权限");
+        verifyNoInteractions(budgetMapper, itemMapper);
     }
 
     @Test

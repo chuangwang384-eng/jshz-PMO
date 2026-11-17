@@ -60,6 +60,24 @@ public class ProjectStorageService {
         return fileName;
     }
 
+    /** 保存不可覆盖的对客报价文件，事务回滚时清理。 */
+    public String saveBudgetQuote(byte[] content) {
+        String fileName = "project_quote_" + UUID.randomUUID().toString().replace("-", "") + ".xlsx";
+        try {
+            Files.write(storageDir.resolve(fileName), content, java.nio.file.StandardOpenOption.CREATE_NEW);
+        } catch (IOException e) {
+            deleteFile(fileName);
+            throw new BusinessException("报价文件保存失败");
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) deleteFile(fileName);
+                    }
+                });
+        return fileName;
+    }
+
     /**
      * 保存富文本内容（JSON 文件），返回包含UUID的独立相对路径，旧文件仍可读取。
      */

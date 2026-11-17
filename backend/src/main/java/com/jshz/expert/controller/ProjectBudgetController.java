@@ -1,6 +1,8 @@
 package com.jshz.expert.controller;
 
 import com.jshz.expert.common.ApiResponse;
+import com.jshz.expert.common.BusinessException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.entity.ProjectBudgetFeeStandard;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ProjectBudgetService;
@@ -22,6 +24,7 @@ import java.util.Map;
 public class ProjectBudgetController {
 
     private final ProjectBudgetService budgetService;
+    private final ObjectMapper objectMapper;
 
     /** 预算单总览（不存在返回骨架草稿，不落库）。 */
     @GetMapping("/{id}/meeting-budget")
@@ -41,25 +44,24 @@ public class ProjectBudgetController {
                 : List.of();
         String remark = body == null || body.get("remark") == null ? null : String.valueOf(body.get("remark"));
         boolean confirm = body != null && Boolean.parseBoolean(String.valueOf(body.get("confirm")));
-        return ApiResponse.ok(budgetService.save(id, list, remark, confirm, user));
+        String estimateInputs = null;
+        if (body != null && body.get("estimateInputs") != null) {
+            if (!(body.get("estimateInputs") instanceof Map<?, ?>)) {
+                throw new BusinessException("估算参数格式不正确");
+            }
+            estimateInputs = objectMapper.valueToTree(body.get("estimateInputs")).toString();
+            if (estimateInputs.length() > 1000) {
+                throw new BusinessException("估算参数过长");
+            }
+        }
+        return ApiResponse.ok(budgetService.save(id, list, remark, confirm, estimateInputs, user));
     }
 
-    /** 确认报价（等同 confirm=true 的保存，供已填草稿直接确认）。 */
+    /** 确认已保存的报价草稿。 */
     @PostMapping("/{id}/meeting-budget/confirm")
     public ApiResponse<Map<String, Object>> confirm(@PathVariable Long id,
                                                     @AuthenticationPrincipal AuthUser user) {
-        Map<String, Object> current = budgetService.overview(id, user);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> items = ((List<?>) current.get("items")).stream()
-                .filter(o -> o instanceof Map).map(o -> {
-                    Map<?, ?> m = (Map<?, ?>) o;
-                    Map<String, Object> r = new java.util.LinkedHashMap<>();
-                    m.forEach((k, v) -> r.put(String.valueOf(k), v));
-                    return r;
-                }).toList();
-        Object budget = current.get("budget");
-        String remark = budget instanceof Map<?, ?> b && b.get("remark") != null ? String.valueOf(b.get("remark")) : null;
-        return ApiResponse.ok(budgetService.save(id, items, remark, true, user));
+        return ApiResponse.ok(budgetService.confirm(id, user));
     }
 
     // ==================== 收费标准（管理员设置-项目配置） ====================

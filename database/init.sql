@@ -2051,6 +2051,7 @@ CREATE TABLE IF NOT EXISTS `project_budget` (
   `category` VARCHAR(20) NOT NULL COMMENT '大类快照：ONLINE 线上 / OFFLINE 线下',
   `status` VARCHAR(20) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT 草稿 / CONFIRMED 已确认',
   `total_amount` DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT '明细合计',
+  `estimate_inputs` JSON NULL,
   `remark` VARCHAR(1000) NULL,
   `created_by` BIGINT NULL,
   `updated_by` BIGINT NULL,
@@ -2058,6 +2059,26 @@ CREATE TABLE IF NOT EXISTS `project_budget` (
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uk_pb_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目会议预算/报价单';
+
+CREATE TABLE IF NOT EXISTS project_budget_quote (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT NOT NULL,
+  version_no INT NOT NULL,
+  request_key VARCHAR(36) NOT NULL,
+  doc_id BIGINT NOT NULL,
+  snapshot JSON NOT NULL,
+  client_note VARCHAR(1000),
+  created_by BIGINT NOT NULL,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  customer_name VARCHAR(100),
+  customer_confirmed_at DATETIME,
+  customer_remark VARCHAR(1000),
+  evidence_doc_id BIGINT,
+  recorded_by BIGINT,
+  recorded_at DATETIME,
+  UNIQUE KEY uk_budget_quote_version (project_id, version_no),
+  UNIQUE KEY uk_budget_quote_request (project_id, request_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `project_budget_item` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY,

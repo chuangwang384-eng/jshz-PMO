@@ -130,6 +130,9 @@ public class ProjectController {
         if (user == null) {
             return org.springframework.http.ResponseEntity.status(401).build();
         }
+        if (fileName.regionMatches(true, 0, "project_quote_", 0, "project_quote_".length())) {
+            projectService.requireQuoteFileReadable(fileName, user);
+        }
         java.nio.file.Path path = projectService.resolveStoredFile(fileName);
         if (path == null || !java.nio.file.Files.exists(path) || !java.nio.file.Files.isRegularFile(path)) {
             return org.springframework.http.ResponseEntity.notFound().build();

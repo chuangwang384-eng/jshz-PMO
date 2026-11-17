@@ -32,6 +32,7 @@ public class ProjectBudget {
     private BigDecimal totalAmount;
 
     private String remark;
+    private String estimateInputs;
 
     private Long createdBy;
 
