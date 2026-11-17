@@ -103,7 +103,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 
 开始修改前，Agent 必须：
 
-- [ ] 阅读本文件及与任务相关的 `README`、`docs/`、项目规则和最近交接记录。
+- [ ] 阅读本文件、[仓库地图](docs/repo-map.md) 及与任务相关的 `README`、`docs/`、项目规则和最近交接记录。
 - [ ] 检查当前分支、工作区状态及已有未提交修改；不得覆盖他人的改动。
 - [ ] 定位相关前端页面、路由、API 封装、后端 Controller/Service/DAO、数据表和测试。
 - [ ] 检查是否已有相同功能、可复用组件或已知缺陷。
@@ -243,7 +243,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 
 接手 Agent 必须按顺序执行：
 
-1. 阅读 `AGENTS.md`、最新交接摘要及关联任务记录。
+1. 阅读 `AGENTS.md`、`docs/repo-map.md`（仓库地图）、最新交接摘要及关联任务记录。
 2. 检查当前分支、提交号、工作区状态和未提交变更。
 3. 对交接中涉及的关键事实做必要核实，尤其是数据库、接口、配置、部署状态和测试结论。
 4. 对照需求和验收条件，判断当前状态是否可信；不能仅依据前任 Agent 的文字结论。
@@ -397,7 +397,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 ```text
 你正在接手公司内部管理系统项目。开始前必须遵守仓库根目录 AGENTS.md。
 
-第一步：阅读 AGENTS.md、README、相关 docs 和最新 Agent 交接记录。
+第一步：阅读 AGENTS.md、docs/repo-map.md（仓库地图）、README、相关 docs 和最新 Agent 交接记录。
 第二步：检查当前分支、Git 工作区、最近提交、项目目录、实际配置和相关测试；不得覆盖未提交改动。
 第三步：核实交接记录中的关键事实。不要把计划、推断或前任 Agent 的口头结论当成已验证事实。
 第四步：先汇报当前项目基线、任务目标、拟修改文件、影响范围、风险和验收方案；遇到关键歧义先提问。
