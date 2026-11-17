@@ -2,6 +2,8 @@
 
 > 🗺️ 接手前先读 [仓库地图](../repo-map.md)（目录总览/模块地图/关键链路/接手路径），规则见根目录 [AGENTS.md](../../AGENTS.md)。
 
+- 2026-11-17 **backup\ 散落手工导出已清理（A10 关闭）**：删 expert_system_full_20261029_094000.sql、sys_user_backup_20261021.csv/.xlsx 三份（共 320KB，10 月底手工导出，不在保留策略、无脚本引用，且 sys_user 导出含用户数据散落）。受管备份体系完好：5 个验证过的 backup_* 目录 + 1.0.47 发布前备份，backup 根目录现无散落文件。
+
 - 2026-11-17 **根目录清理第二档（A9）执行完毕，释放 ≈9.3GB**：删 builds\archive\（10.44GB，28 个旧构建目录，git 可重建）、temp 历史脚本/截图/安装包（671.6MB，保留隔离区与模型回滚脚本）、ProjectConfig.vue 死链组件（构建验证通过）；target-1.0.22 已不存在标注失效。新发现：StepWizard 组件链成新死代码待另批处理。见 [交接记录](tasks/20261117_a9_tier2_cleanup.md)。
 
 - 2026-11-17 **微盘×知识星球集成需求作废（A8 清除）**：负责人决定不实施（Step 1~3 不施工）；需求提案 R17 已同步移除该子项。调研报告与交接记录留档备查（含已核实事实：解析触发硬编码仅 enterprise-compliance、PPTX 正文抽取缺失——若未来重提知识库解析增强仍有效）。见 [调研交接](tasks/20261104_wedrive_knowledge_integration_research.md)。
