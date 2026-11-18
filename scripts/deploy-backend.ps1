@@ -43,6 +43,7 @@ param(
     [switch]$DryRun,
     [switch]$GracefulSwitch,
     [switch]$DisableComplianceSchedulersOnRollback,
+    [ValidateRange(1024,65535)][int]$BluePort = 8081,
     [int]$KeepVersions = 5
 )
 
@@ -66,7 +67,6 @@ $BackendSvc      = 'ExpertSystemBackend'
 # 禁止把真实密码写入本文件或任何入库文件。发布前须在会话中 setx/手动设置后再运行。
 $MysqlPassword   = $env:MYSQL_PASSWORD
 $GreenPort       = 8080                        # 生产（绿）
-$BluePort        = 8081                        # 影子（蓝）
 $ShadowRetries   = 10                          # 影子健康检查重试次数
 $ShadowDelaySec  = 6                           # 影子健康检查重试间隔（秒）
 $HealthOkRetries = 10                          # 稳态化后健康检查重试次数
@@ -229,6 +229,9 @@ function Wait-PortDrained([int]$port) {
 }
 
 function Step1-Preflight {
+    if ($BluePort -eq $GreenPort -or @(Get-PortListenerPids $BluePort).Count -gt 0) {
+        throw "Shadow port $BluePort must be free and distinct from production."
+    }
     if ($GracefulSwitch -and -not $DryRun) {
         $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
         if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -286,7 +289,7 @@ function Step1-Preflight {
     if(-not (Test-ExecutableBootJar -Path $script:RollbackSource)){throw 'Rollback JAR is not executable. Supply an approved known-good package using -RollbackJarPath before release.'}
 
     if (-not $MysqlPassword) {
-        throw '未设置 MYSQL_PASSWORD 环境变量：影子启动(8081)与生产同库依赖该变量，请先注入后再发布'
+        throw "未设置 MYSQL_PASSWORD 环境变量：影子启动(${BluePort})与生产同库依赖该变量，请先注入后再发布"
     }
     if (-not $env:JWT_SECRET) {
         throw '未设置 JWT_SECRET 环境变量：新版 application.yml 要求注入 JWT 签名密钥（与 NSSM AppEnvironmentExtra 一致），否则影子启动会失败'
@@ -342,7 +345,7 @@ function Step1-Preflight {
 
 # ==================== 阶段 2: 影子启动 ====================
 function Step2-StartShadow {
-    Write-Step '2/11 影子启动（新 jar @8081）'
+    Write-Step "2/11 影子启动（新 jar @${BluePort}）"
     Invoke-Action "启动影子进程: java -jar $script:NewJar --server.port=${BluePort}（工作目录 $BackendDir，数据库密码经环境变量继承）" {
         $psi = Start-Process -FilePath 'java' -ArgumentList @('-jar', $script:NewJar, "--server.port=${BluePort}", '--server.address=127.0.0.1', '--expert.compliance.due-enabled=false', '--expert.compliance.v4-reminder-enabled=false', '--expert.wecom.sync-cron-enabled=false') `
             -WorkingDirectory $BackendDir -PassThru -WindowStyle Hidden
@@ -385,8 +388,8 @@ function Step4-BackupConf {
 
 # ==================== 阶段 5: 切流 8080 -> 8081 ====================
 function Step5-SwitchToBlue {
-    Write-Step '5/11 切流: proxy_pass 8080 -> 8081（/api/ 与 /api/health 两处同步）'
-    Invoke-Action '替换 conf 中 proxy_pass 为 8081' {
+    Write-Step "5/11 切流: proxy_pass 8080 -> ${BluePort}（/api/ 与 /api/health 两处同步）"
+    Invoke-Action "替换 conf 中 proxy_pass 为 ${BluePort}" {
         $before = [IO.File]::ReadAllText($NginxConfFile)
         $after = $before -replace '(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:8080(?=/|;)', "`$1proxy_pass http://127.0.0.1:${BluePort}"
         if ($after -eq $before) { throw '未找到 proxy_pass 8080 可替换，配置可能已变更' }
@@ -431,12 +434,12 @@ function Step7-RestartNginx {
 
 # ==================== 阶段 8: 蓝验证 ====================
 function Step8-VerifyBlue {
-    Write-Step '8/11 蓝验证（经 Nginx 请求 /api 由 8081 响应）'
-    $ok = Invoke-Check '经 Nginx GET http://127.0.0.1/api/health 应 200，且响应体与 8081 直连一致' {
+    Write-Step "8/11 蓝验证（经 Nginx 请求 /api 由 ${BluePort} 响应）"
+    $ok = Invoke-Check "经 Nginx GET http://127.0.0.1/api/health 应 200，且响应体与 ${BluePort} 直连一致" {
         if (-not (Test-HttpOk 'http://127.0.0.1/api/health')) { throw '经 Nginx 请求失败' }
         $viaNginx = Get-HttpBody 'http://127.0.0.1/api/health' | ConvertFrom-Json
         $directBlue = Get-HttpBody "http://127.0.0.1:${BluePort}/health" | ConvertFrom-Json
-        if (($viaNginx.code -ne $directBlue.code) -or ($viaNginx.data.status -ne $directBlue.data.status)) { throw '经 Nginx 响应与 8081 不一致（code/status），可能未切流到蓝' }
+        if (($viaNginx.code -ne $directBlue.code) -or ($viaNginx.data.status -ne $directBlue.data.status)) { throw "经 Nginx 响应与 ${BluePort} 不一致（code/status），可能未切流到蓝" }
     }
     if (-not $ok) {
         Invoke-Action '回滚：Nginx 切回 8080 + 恢复配置 + 重启服务' {
@@ -521,10 +524,10 @@ function Step9-StabilizeNssm {
 # ==================== 阶段 10: 切回 8080 ====================
 function Step10-SwitchBack {
     Write-Step '10/11 切回 8080（正式端口）'
-    Invoke-Action '替换 conf 中 proxy_pass 8081 -> 8080' {
+    Invoke-Action "替换 conf 中 proxy_pass ${BluePort} -> 8080" {
         $txt = [IO.File]::ReadAllText($NginxConfFile)
         $new = $txt -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${BluePort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${GreenPort}"
-        if ($new -eq $txt) { throw '未找到 proxy_pass 8081 可回切' }
+        if ($new -eq $txt) { throw "未找到 proxy_pass ${BluePort} 可回切" }
         [IO.File]::WriteAllText($NginxConfFile, $new)
     }
 
@@ -536,12 +539,12 @@ function Step10-SwitchBack {
         if ($exitCode -ne 0) { throw "nginx -t 失败: $out (exit=$exitCode)" }
     }
     if (-not $okT) {
-        Invoke-Action '回滚：Nginx 指回 8081（蓝仍可服务）' {
+        Invoke-Action "回滚：Nginx 指回 ${BluePort}（蓝仍可服务）" {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
             Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
-        throw '切回 8080 配置校验失败，已回滚 Nginx 指向 8081'
+        throw "切回 8080 配置校验失败，已回滚 Nginx 指向 ${BluePort}"
     }
 
     $okR = Invoke-Check "Nginx 切流（GracefulSwitch=$GracefulSwitch）" {
@@ -550,12 +553,12 @@ function Step10-SwitchBack {
         if ((Get-Service -Name $NginxSvc).Status -ne 'Running') { throw 'Nginx 服务未运行' }
     }
     if (-not $okR) {
-        Invoke-Action '回滚：Nginx 指回 8081（蓝仍可服务）' {
+        Invoke-Action "回滚：Nginx 指回 ${BluePort}（蓝仍可服务）" {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
             Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
-        throw 'Nginx 切流失败，已回滚 Nginx 指向 8081'
+        throw "Nginx 切流失败，已回滚 Nginx 指向 ${BluePort}"
     }
 
     $okV = Invoke-Check '验证：经 Nginx /api 走 8080 新版本' {
@@ -565,12 +568,12 @@ function Step10-SwitchBack {
         if (($viaNginx.code -ne $directGreen.code) -or ($viaNginx.data.status -ne $directGreen.data.status)) { throw '经 Nginx 响应与 8080 不一致（code/status）' }
     }
     if (-not $okV) {
-        Invoke-Action '回滚：Nginx 指向 8081（蓝继续服务）' {
+        Invoke-Action "回滚：Nginx 指向 ${BluePort}（蓝继续服务）" {
             $txt = [IO.File]::ReadAllText($NginxConfFile) -replace "(?m)^(\s*)proxy_pass\s+http://127\.0\.0\.1:${GreenPort}(?=/|;)", "`$1proxy_pass http://127.0.0.1:${BluePort}"
             [IO.File]::WriteAllText($NginxConfFile, $txt)
             Invoke-NginxSwitch -ErrorAction SilentlyContinue
         }
-        throw '验证失败，已回滚 Nginx 指向 8081，蓝继续服务'
+        throw "验证失败，已回滚 Nginx 指向 ${BluePort}，蓝继续服务"
     }
 }
 
@@ -583,7 +586,7 @@ function Step11-Cleanup {
     Wait-PortDrained $BluePort
     Write-Step '11/11 清理 + 归档'
     if ($script:ShadowPid -and $script:ShadowPid -gt 0) {
-        Invoke-Action "kill 8081 影子进程 PID=$script:ShadowPid" {
+        Invoke-Action "kill ${BluePort} 影子进程 PID=$script:ShadowPid" {
             Stop-Process -Id $script:ShadowPid -Force -ErrorAction SilentlyContinue
         }
     } else { Write-Info '无影子进程需清理' }
