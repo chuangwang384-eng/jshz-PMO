@@ -146,18 +146,46 @@ def strip_background_colored_regions(image, portrait):
     if count == 0:
         return portrait
     anchor_top = int(portrait.shape[0] * 0.88)
-    # 统一只清理贴着外部透明区且未被底部衣物锚定的块：内部块（脸部等）一律保留——
-    # 深色头发与暗红底色距 <64，按色相似删除会成片咬穿（段战锋原件回归 2026-11-18）
-    boundary = ndimage.binary_dilation(~portrait, np.ones((3, 3))) & portrait
+    border = np.zeros_like(portrait)
+    border[:2, :] = True; border[-2:, :] = True; border[:, :2] = True; border[:, -2:] = True
+    boundary = (ndimage.binary_dilation(~portrait, np.ones((3, 3))) | border) & portrait
     boundary_set = set(int(v) for v in np.unique(labels[boundary]) if v != 0)
+    min_clothes_px = 0.02 * portrait.sum()  # 衣物级大块：灰衣灰底时大衣碎边不算残留（刘朵平回归 2026-11-18）
     keep = np.zeros_like(portrait)
     for i in range(1, count + 1):
         comp = labels == i
-        if (comp[anchor_top:]).any():
-            keep |= comp  # 底部衣物锚点：视为衣服保留
-        elif i not in boundary_set:
-            keep |= comp  # 不与外部相邻：内部区域（脸部等）保留
+        if not colored:
+            # 白/灰底：底部衣物锚点 + 内部块 + 衣物级大块全部保留，只清贴边小碎底
+            if (comp[anchor_top:]).any() or i not in boundary_set or comp.sum() >= min_clothes_px:
+                keep |= comp
+        # 彩色底：一律清除（饱和度判别已挡住深发深底误删）；底部锚点会保护贴底蓝块（支卫国回归 2026-11-18）
     return (portrait & ~similar) | keep
+
+
+def recover_background_detail(image, portrait):
+    """非纯彩色底细节回收（2026-11-18 刘朵平回归：白西装+蓝灰底整块衣襟被 u2net 漏分）。
+
+    白/亮衣物与灰底的色差大（>50）却被模型整块漏掉：以现有掩码为种子，向"与背景
+    色差 >50"的相邻区域传播收回。仅彩色度 <48 的底启用；新增像素超过主体 40% 时
+    视为异常回退。彩色底不用此通道——深发深底靠残留清理的饱和度判别保护。
+    """
+    if ndimage is None:
+        return portrait
+    rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+    background = np.median(rgb[:max(1, rgb.shape[0] // 32)], axis=(0, 1))
+    distance = np.max(np.abs(rgb - background), axis=2)
+    top = distance[:max(1, rgb.shape[0] // 32)]
+    if np.mean(top <= 12) < 0.98 or np.ptp(background) >= 48:
+        return portrait
+    detail = distance > 50
+    grown = ndimage.binary_propagation(portrait, mask=detail | portrait)
+    if grown.sum() > portrait.sum() * 1.4:
+        return portrait
+    labels, count = ndimage.label(grown)
+    if count > 1:
+        sizes = ndimage.sum(grown, labels, range(1, count + 1))
+        grown = labels == (1 + int(np.argmax(sizes)))
+    return grown
 
 
 def refine(image):
@@ -194,6 +222,7 @@ def refine(image):
     # 部分纯色背景证件照的衣服与背景接近，模型只分割出头部。
     portrait = recover_solid_background_portrait(image, mask)
     portrait = strip_background_colored_regions(image, portrait)
+    portrait = recover_background_detail(image, portrait)
     restored = portrait & ~mask
     # 主体内强制至少 200 不透明（清晰），主体外全透明
     alpha = np.where(portrait, np.maximum(alpha, 200), 0).astype(np.uint8)
