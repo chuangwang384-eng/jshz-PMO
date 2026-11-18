@@ -216,6 +216,25 @@ class ResumeParseServiceTest {
         assertNull(service.sanitizeUnit("   ", "李向东"));
     }
 
+    @Test void pptxPrefersImagesPlacedOnTheSlideOverUnusedMedia() throws Exception {
+        var output = new ByteArrayOutputStream();
+        try (var presentation = new XMLSlideShow()) {
+            var slide = presentation.createSlide();
+            for (int width : new int[]{120, 130, 140, 160}) {
+                var png = new ByteArrayOutputStream();
+                ImageIO.write(new BufferedImage(width, 200, BufferedImage.TYPE_INT_RGB), "png", png);
+                var picture = presentation.addPicture(png.toByteArray(), PictureData.PictureType.PNG);
+                if (width == 160) slide.createPicture(picture);
+            }
+            presentation.write(output);
+        }
+        var parser = new ResumeParseService(null, null);
+        var result = parser.parse("简历.pptx", output.toByteArray(), false);
+        assertEquals(1, result.photoCandidates().size());
+        byte[] bytes = java.util.Base64.getDecoder().decode(result.photoCandidates().get(0).base64());
+        assertEquals(160, ImageIO.read(new java.io.ByteArrayInputStream(bytes)).getWidth());
+    }
+
     @Test void legacyPptExtractsGroupedTextAndPhoto() throws Exception {
         var output = new ByteArrayOutputStream();
         try (var presentation = new HSLFSlideShow()) {

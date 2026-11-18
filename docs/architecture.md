@@ -324,3 +324,7 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 ## AI 助手（2026-11-16，1.0.43 已上线）
 
 系统使用问答+操作指引卡片。新表 `ai_assistant_entry`（entry_key uk/title/questions 问法样例/answer/link_url/link_label/steps/perm_code/sort/is_active），种子 20 条核心操作；权限码 `ai:manage`（菜单+条目管理接口，绑定 ADMIN）。链路：`POST /api/ai-assistant/ask`（登录即可用，不注册 permission 规则）→ AiAssistantService 关键词 bigram 打分取 Top5 候选（按 perm_code 过滤）→ 候选不唯一时 OllamaService.completeJson(prompt, 20s) 在候选内选键（候选外键无效）→ 返回条目卡片；Ollama 不可用/超时回退关键词头部。条目管理 `GET/PUT /api/ai-assistant/entries`（ai:manage），前端「管理员设置→AI 助手知识库」(/admin/ai-assistant) 表格+弹窗编辑保存即生效；全局悬浮抽屉 AiAssistantDrawer（App.vue，登录页除外）。纯只读问答：模型不生成链接/步骤、不代执行操作。completeJson 新增双参超时重载，解析链原超时不变。
+
+### PowerPoint 简历的照片候选
+
+PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只有幻灯片没有符合现有照片尺寸筛选的图片，或 PPTX 形状树触发兼容降级时，才扫描文件包内媒体。候选仍通过现有抠图和原图回退链路。母版和未引用图片不再占用正常幻灯片的候选名额。见 [照片候选回归](handover/tasks/20261118_resume_visible_portrait.md)。

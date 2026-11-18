@@ -12,6 +12,7 @@ import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.PackageAccess;
 import org.apache.poi.sl.usermodel.GroupShape;
+import org.apache.poi.sl.usermodel.PictureShape;
 import org.apache.poi.sl.usermodel.Shape;
 import org.apache.poi.sl.usermodel.SlideShow;
 import org.apache.poi.sl.usermodel.TableShape;
@@ -83,7 +84,7 @@ public class ResumeParseService {
 
     /** 姓名启发式排除词（首行含这些词时不视为姓名）。 */
     private static final List<String> NAME_EXCLUDE_WORDS = List.of(
-            "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历", "某某", "基本情况", "学术任职", "学术成就");
+            "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历", "某某", "基本情况", "学术任职", "学术成就", "讨论嘉宾");
 
     private static final Pattern PHONE = Pattern.compile("1[3-9]\\d{9}");
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
@@ -328,6 +329,7 @@ public class ResumeParseService {
     private SlideContent extractSlideContent(SlideShow<?, ?> ppt) {
         List<BufferedImage> images = new ArrayList<>();
         StringBuilder text = new StringBuilder();
+        boolean unreadableShapes = false;
         for (var slide : ppt.getSlides()) {
             List<? extends Shape<?, ?>> shapes;
             try {
@@ -336,13 +338,17 @@ public class ResumeParseService {
                 if (!(slide instanceof XSLFSlide xslf)) throw e;
                 // OOXML 的形状 ID 是无符号整数，POI 构造形状树时可能将它转成负数。
                 collectOoxmlParagraphs(xslf, text);
+                unreadableShapes = true;
                 continue;
             }
             for (var shape : shapes) {
-                collectShapeText(shape, text);
+                collectSlideShape(shape, text, images);
             }
         }
-        ppt.getPictureData().forEach(picture -> collectImage(images, picture.getData()));
+        // 包内媒体也包含母版和未引用的装饰图，只有幻灯片图片不足时才使用。
+        if (unreadableShapes || images.stream().noneMatch(this::isAvatarLike)) {
+            ppt.getPictureData().forEach(picture -> collectImage(images, picture.getData()));
+        }
         return new SlideContent(text.toString(), images);
     }
 
@@ -358,9 +364,12 @@ public class ResumeParseService {
         }
     }
 
-    /** 递归收集形状文本：组合形状逐层展开，表格按单元格拼接。 */
-    private void collectShapeText(Shape<?, ?> shape, StringBuilder text) {
-        if (shape instanceof TableShape<?, ?> table) {
+    /** 递归收集幻灯片图片与文本，表格文本按单元格拼接。 */
+    private void collectSlideShape(Shape<?, ?> shape, StringBuilder text, List<BufferedImage> images) {
+        if (shape instanceof PictureShape<?, ?> picture) {
+            var data = picture.getPictureData();
+            if (data != null) collectImage(images, data.getData());
+        } else if (shape instanceof TableShape<?, ?> table) {
             for (int row = 0; row < table.getNumberOfRows(); row++) {
                 for (int column = 0; column < table.getNumberOfColumns(); column++) {
                     var cell = table.getCell(row, column);
@@ -370,7 +379,7 @@ public class ResumeParseService {
             }
         } else if (shape instanceof GroupShape<?, ?> group) {
             for (var child : group) {
-                collectShapeText(child, text);
+                collectSlideShape(child, text, images);
             }
         } else if (shape instanceof TextShape<?, ?> ts) {
             text.append(ts.getText()).append('\n');
