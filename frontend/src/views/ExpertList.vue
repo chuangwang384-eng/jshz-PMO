@@ -227,7 +227,7 @@
           </div>
           <div v-if="editResumeCandidates.length" class="resume-candidates">
             <div v-for="(candidate, index) in editResumeCandidates" :key="index" class="resume-candidate">
-              <img :src="'data:' + candidate.mime + ';base64,' + candidate.base64" alt="证件照候选" />
+              <PhotoImage :src="'data:' + candidate.mime + ';base64,' + candidate.base64" fit="contain" alt="证件照候选" />
               <el-tag v-if="candidate.transparent" size="small" type="success">已抠透明背景</el-tag>
               <el-button size="small" type="primary" plain @click="useResumePhoto(candidate, 'edit')">使用此照片</el-button>
             </div>
@@ -237,7 +237,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
             <div class="edit-photo-box round">
-              <img v-if="photoPreview.photo" :src="photoPreview.photo" class="edit-photo-img" alt="证件照预览" />
+              <PhotoImage v-if="activePhotoPreview.photo" :src="activePhotoPreview.photo" :width="80" :height="80" fit="contain" alt="证件照" />
               <PhotoImage v-else :filename="detail.照片" :width="80" :height="80" />
             </div>
             <el-upload
@@ -252,7 +252,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">身份证正面</div>
             <div class="edit-photo-box">
-              <img v-if="activePhotoPreview.front" :src="activePhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
+              <PhotoImage v-if="activePhotoPreview.front" :src="activePhotoPreview.front" :width="120" :height="84" fit="contain" alt="身份证正面" />
               <div v-else-if="idFrontUrl" class="masked-photo">
                 <img :src="idFrontUrl" class="masked-img" alt="身份证正面（已脱敏）" />
                 <span class="masked-tip">已脱敏</span>
@@ -271,7 +271,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">身份证反面</div>
             <div class="edit-photo-box">
-              <img v-if="activePhotoPreview.back" :src="activePhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
+              <PhotoImage v-if="activePhotoPreview.back" :src="activePhotoPreview.back" :width="120" :height="84" fit="contain" alt="身份证反面" />
               <div v-else-if="idBackUrl" class="masked-photo">
                 <img :src="idBackUrl" class="masked-img" alt="身份证反面（已脱敏）" />
                 <span class="masked-tip">已脱敏</span>
@@ -388,7 +388,7 @@
     <!-- 新增专家申请弹窗（员工：复用可编辑表单字段结构与照片选择，提交审批流） -->
     <el-dialog v-model="createVisible" title="新增专家（需审批）" width="760px" destroy-on-close>
       <el-form :model="createForm" label-width="110px" class="edit-form">
-        <!-- 简历解析：候选填充 + 人工确认（简历原文不落盘） -->
+        <!-- 简历解析：候选填充 + 人工确认 -->
         <div class="resume-parse">
           <el-upload
             :auto-upload="false"
@@ -404,7 +404,7 @@
           </span>
           <div v-if="resumeCandidates.length" class="resume-candidates">
             <div v-for="(candidate, index) in resumeCandidates" :key="index" class="resume-candidate" style="display: flex; flex-direction: column; align-items: center; gap: 4px">
-              <img :src="'data:' + candidate.mime + ';base64,' + candidate.base64" alt="解析出的证件照候选" />
+              <PhotoImage :src="'data:' + candidate.mime + ';base64,' + candidate.base64" fit="contain" alt="解析出的证件照候选" />
               <el-tag v-if="candidate.transparent" size="small" type="success">已抠透明背景</el-tag>
               <el-button size="small" type="primary" plain @click="useResumePhoto(candidate, 'create')">使用此照片</el-button>
             </div>
@@ -414,7 +414,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
             <div class="edit-photo-box round">
-              <img v-if="createPhotoPreview.photo" :src="createPhotoPreview.photo" class="edit-photo-img" alt="证件照预览" />
+              <PhotoImage v-if="createPhotoPreview.photo" :src="createPhotoPreview.photo" :width="100" :height="100" fit="contain" alt="证件照" />
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -429,7 +429,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">身份证正面</div>
             <div class="edit-photo-box">
-              <img v-if="createPhotoPreview.front" :src="createPhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
+              <PhotoImage v-if="createPhotoPreview.front" :src="createPhotoPreview.front" :width="150" :height="100" fit="contain" alt="身份证正面" />
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -444,7 +444,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">身份证反面</div>
             <div class="edit-photo-box">
-              <img v-if="createPhotoPreview.back" :src="createPhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
+              <PhotoImage v-if="createPhotoPreview.back" :src="createPhotoPreview.back" :width="150" :height="100" fit="contain" alt="身份证反面" />
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -510,7 +510,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">证件照</div>
             <div class="edit-photo-box round">
-              <img v-if="adminCreatePhotoPreview.photo" :src="adminCreatePhotoPreview.photo" class="edit-photo-img" alt="证件照预览" />
+              <PhotoImage v-if="adminCreatePhotoPreview.photo" :src="adminCreatePhotoPreview.photo" :width="80" :height="80" fit="contain" alt="证件照" />
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -525,7 +525,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">身份证正面</div>
             <div class="edit-photo-box">
-              <img v-if="adminCreatePhotoPreview.front" :src="adminCreatePhotoPreview.front" class="edit-photo-img" alt="身份证正面预览" />
+              <PhotoImage v-if="adminCreatePhotoPreview.front" :src="adminCreatePhotoPreview.front" :width="120" :height="84" fit="contain" alt="身份证正面" />
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -540,7 +540,7 @@
           <div class="edit-photo-item">
             <div class="edit-photo-label">身份证反面</div>
             <div class="edit-photo-box">
-              <img v-if="adminCreatePhotoPreview.back" :src="adminCreatePhotoPreview.back" class="edit-photo-img" alt="身份证反面预览" />
+              <PhotoImage v-if="adminCreatePhotoPreview.back" :src="adminCreatePhotoPreview.back" :width="120" :height="84" fit="contain" alt="身份证反面" />
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -1480,12 +1480,6 @@ watch(() => route.query.expertId, async id => {
   border: 1px solid #dcdfe6;
   border-radius: 8px;
 }
-.resume-candidate img {
-  width: 44px;
-  height: 44px;
-  object-fit: cover;
-  border-radius: 4px;
-}
 .resume-mark {
   display: inline-block;
   margin-left: 4px;
@@ -1799,11 +1793,5 @@ watch(() => route.query.expertId, async id => {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-}
-.edit-photo-img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: cover;
-  border-radius: 4px;
 }
 </style>

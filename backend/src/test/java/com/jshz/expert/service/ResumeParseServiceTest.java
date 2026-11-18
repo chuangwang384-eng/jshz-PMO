@@ -1,8 +1,12 @@
 package com.jshz.expert.service;
 
 import com.jshz.expert.common.BusinessException;
+import org.apache.poi.hslf.usermodel.HSLFSlideShow;
+import org.apache.poi.sl.usermodel.PictureData;
 import org.junit.jupiter.api.Test;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -181,6 +185,30 @@ class ResumeParseServiceTest {
         assertNull(service.sanitizeUnit("   ", "李向东"));
     }
 
+    @Test void legacyPptExtractsGroupedTextAndPhoto() throws Exception {
+        var output = new ByteArrayOutputStream();
+        try (var presentation = new HSLFSlideShow()) {
+            var slide = presentation.createSlide();
+            var group = slide.createGroup();
+            group.createTextBox().setText("姓名：王小明");
+            slide.createTable(1, 1).getCell(0, 0).setText("工作单位：苏州大学附属第一医院");
+            var png = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(120, 160, BufferedImage.TYPE_INT_RGB), "png", png);
+            slide.createPicture(presentation.addPicture(png.toByteArray(), PictureData.PictureType.PNG));
+            presentation.write(output);
+        }
+
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of();
+            }
+        }, null);
+        var result = parser.parse("简历.ppt", output.toByteArray(), false);
+        assertEquals("王小明", result.fields().get("姓名"));
+        assertEquals("苏州大学附属第一医院", result.fields().get("单位"));
+        assertEquals(1, result.photoCandidates().size());
+    }
+
     @Test void optionalLocalPptxRegression() throws Exception {
         String sample = System.getenv("RESUME_NAME_TEST_PPTX");
         org.junit.jupiter.api.Assumptions.assumeTrue(sample != null && !sample.isBlank());
@@ -198,5 +226,20 @@ class ResumeParseServiceTest {
         assertTrue(result.photoCandidates().stream().anyMatch(photo ->
                 "image/jpeg".equals(photo.mime()) && !photo.base64().isBlank()));
         assertFalse(parser.parse(path.getFileName().toString(), bytes, false).fields().containsKey("姓名"));
+    }
+
+    @Test void optionalPptxWithStoredImageDataDescriptors() throws Exception {
+        String sample = System.getenv("RESUME_STORED_IMAGE_TEST_PPTX");
+        org.junit.jupiter.api.Assumptions.assumeTrue(sample != null && !sample.isBlank());
+        var path = java.nio.file.Path.of(sample);
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of();
+            }
+        }, null);
+
+        var result = parser.parse(path.getFileName().toString(), java.nio.file.Files.readAllBytes(path), false);
+        assertNotNull(result.fields().get("单位"));
+        assertFalse(result.photoCandidates().isEmpty());
     }
 }

@@ -20,6 +20,39 @@ session = new_session("u2net")
 print("READY", flush=True)
 
 
+def recover_solid_background_portrait(image, mask):
+    """从与顶边相连的纯色背景中分离被模型漏掉的肩部和衣服。"""
+    height, width = mask.shape
+    if ndimage is None or not mask.any() or mask[int(height * 0.88):].any():
+        return mask
+    if image.convert("RGBA").getchannel("A").getextrema()[0] < 255:
+        return mask
+
+    rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+    top = rgb[:max(1, height // 32)]
+    background = np.median(top, axis=(0, 1))
+    distance = np.max(np.abs(rgb - background), axis=2)
+    if np.mean(distance[:len(top)] <= 12) < 0.98:
+        return mask
+
+    # 容忍压缩和缩放产生的色差，并限制为可从顶边到达的背景。
+    similar = distance <= 24
+    seed = np.zeros_like(mask)
+    seed[0] = similar[0]
+    exterior = ndimage.binary_propagation(seed, mask=similar)
+    foreground = ~exterior
+    # 要求头部主体与底部中央的衣服相连，且顶边估算出的背景覆盖足够面积。
+    if exterior.mean() < 0.15:
+        return mask
+    labels, _ = ndimage.label(foreground | mask)
+    subject = np.argmax(np.bincount(labels[mask]))
+    portrait = labels == subject
+    lower_center = portrait[-max(1, height // 16):, width // 4:3 * width // 4]
+    if not lower_center.size or lower_center.mean() < 0.8 or portrait[mask].mean() < 0.95:
+        return mask
+    return portrait | mask
+
+
 def refine(image):
     """证件照抠图精修（2026-11-17 修复"仅识别到人头/人像发虚"）。
 
@@ -50,9 +83,15 @@ def refine(image):
         if count > 1:
             sizes = ndimage.sum(mask, labels, range(1, count + 1))
             mask = labels == (1 + int(np.argmax(sizes)))
+    # 部分纯色背景证件照的衣服与背景接近，模型只分割出头部。
+    portrait = recover_solid_background_portrait(image, mask)
+    restored = portrait & ~mask
     # 主体内强制至少 200 不透明（清晰），主体外全透明
-    alpha = np.where(mask, np.maximum(alpha, 200), 0).astype(np.uint8)
+    alpha = np.where(portrait, np.maximum(alpha, 200), 0).astype(np.uint8)
     rgba = np.array(out)
+    if restored.any():
+        rgba[restored] = np.asarray(image.convert("RGBA"))[restored]
+        alpha[restored] = 255
     rgba[..., 3] = alpha
     result = Image.fromarray(rgba)
 

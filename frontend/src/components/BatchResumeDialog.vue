@@ -20,11 +20,15 @@
         <template #header-actions>
           <div v-if="row.photos.length && !finished(row)" class="row-actions portrait-picker" role="group" aria-label="选择证件照">
             <span>选择证件照</span>
-            <button v-for="(photo, index) in row.photos" :key="photo.url" type="button" class="photo-choice"
-              :aria-label="`候选证件照 ${index + 1}`" :aria-pressed="row.photo === photo" :disabled="busy"
-              @click="row.photo = row.photo === photo ? null : photo">
-              <img :src="photo.url" alt="" />
-            </button>
+            <div v-for="(photo, index) in row.photos" :key="photo.url" class="photo-choice">
+              <PhotoImage :src="photo.url" :width="44" :height="44" fit="contain"
+                :alt="`候选证件照 ${index + 1}`" />
+              <el-button link type="primary" size="small" :aria-label="`使用候选证件照 ${index + 1}`"
+                :aria-pressed="row.photo === photo" :disabled="busy"
+                @click="row.photo = row.photo === photo ? null : photo">
+                {{ row.photo === photo ? '已选用' : '使用' }}
+              </el-button>
+            </div>
           </div>
         </template>
         <el-select v-if="projectMode && !presetName" :model-value="row.targetName" placeholder="选择参会专家" aria-label="对应参会专家"
@@ -86,6 +90,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import BatchResumeCard from './BatchResumeCard.vue'
+import PhotoImage from './PhotoImage.vue'
 import { createExpert, getExpert, listExperts, parseResume, updateExpert } from '../api/expert'
 import { createExpertApprovalRequest, submitApprovalRequest, uploadApprovalPhoto } from '../api/approval'
 import { uploadLimits, ensureUploadLimits } from '../utils/limits'
@@ -436,10 +441,8 @@ async function submit() {
 .cards.single-card { grid-template-columns: 1fr; }
 .message { color: var(--el-text-color-secondary); overflow-wrap: anywhere; }
 .match-select { width: 100%; margin-bottom: 12px; }
-.photo-choice { background: none; border: 2px solid transparent; padding: 2px; cursor: pointer; }
+.photo-choice { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .portrait-picker { margin-inline-start: auto; }
-.photo-choice[aria-pressed='true'] { border-color: var(--el-color-primary); }
-.photo-choice img { display: block; width: 44px; height: 44px; object-fit: cover; }
 @media (max-width: 640px) {
   .cards, .compare { grid-template-columns: 1fr; }
 }

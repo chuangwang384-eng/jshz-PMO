@@ -6,10 +6,17 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.poi.hslf.usermodel.HSLFSlideShow;
 import org.apache.poi.hwpf.extractor.WordExtractor;
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.openxml4j.opc.PackageAccess;
+import org.apache.poi.sl.usermodel.GroupShape;
+import org.apache.poi.sl.usermodel.Shape;
+import org.apache.poi.sl.usermodel.SlideShow;
+import org.apache.poi.sl.usermodel.TableShape;
+import org.apache.poi.sl.usermodel.TextShape;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
-import org.apache.poi.xslf.usermodel.XSLFPictureData;
-import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +30,8 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
@@ -39,7 +48,7 @@ import java.util.regex.Pattern;
  * PDF/Word/PPT/图片 → 文本（扫描件回退本机 Tesseract OCR，复用 KnowledgeDocTextExtractor.ocrPage）
  * → 多策略本地字段解析（标签行 + 机构/科室/职称词表 + 上下文推断）→ 候选值；
  * 头像 = 内嵌图片启发式候选（最多 3 张），必须经用户确认；
- * 简历原文不落盘不留存，临时文件即用即删。
+ * 简历原文不留存，解析用临时文件即用即删。
  */
 @Service
 @RequiredArgsConstructor
@@ -107,7 +116,8 @@ public class ResumeParseService {
                 case "pdf" -> parsePdf(bytes);
                 case "doc" -> parseDoc(bytes);
                 case "docx" -> parseDocx(bytes);
-                case "ppt", "pptx" -> parsePpt(bytes);
+                case "ppt" -> parsePpt(bytes);
+                case "pptx" -> parsePptx(bytes);
                 case "jpg", "jpeg", "png" -> parseImage(bytes);
                 default -> throw new BusinessException(400, "不支持的简历格式");
             };
@@ -228,38 +238,61 @@ public class ResumeParseService {
         return buildResult(text, images);
     }
 
+    private record SlideContent(String text, List<BufferedImage> images) {}
+
     private ResumeParseResult parsePpt(byte[] bytes) throws IOException {
+        SlideContent content;
+        try (HSLFSlideShow ppt = new HSLFSlideShow(new ByteArrayInputStream(bytes))) {
+            content = extractSlideContent(ppt);
+        }
+        return buildResult(content.text(), content.images());
+    }
+
+    private ResumeParseResult parsePptx(byte[] bytes) throws IOException, InvalidFormatException {
+        // 走 ZIP 中央目录读取条目大小，避免流式读取带数据描述符的条目时误报解压比。
+        // 临时文件使用系统分配的路径，POI 以只读方式打开并保留 ZIP 安全检查。
+        Path temporary = Files.createTempFile("resume-slides-", ".pptx");
+        SlideContent content;
+        try {
+            Files.write(temporary, bytes);
+            try (OPCPackage pkg = OPCPackage.open(temporary.toFile(), PackageAccess.READ);
+                 XMLSlideShow ppt = new XMLSlideShow(pkg)) {
+                content = extractSlideContent(ppt);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+        return buildResult(content.text(), content.images());
+    }
+
+    private SlideContent extractSlideContent(SlideShow<?, ?> ppt) {
         List<BufferedImage> images = new ArrayList<>();
         StringBuilder text = new StringBuilder();
-        try (XMLSlideShow ppt = new XMLSlideShow(new ByteArrayInputStream(bytes))) {
-            for (XSLFSlide slide : ppt.getSlides()) {
-                // 递归展开组合形状：简历版式中姓名/单位常嵌套在 grpSp 内
-                for (var shape : slide) {
-                    collectShapeText(shape, text);
-                }
-            }
-            for (XSLFPictureData pic : ppt.getPictureData()) {
-                collectImage(images, pic.getData());
+        for (var slide : ppt.getSlides()) {
+            for (var shape : slide) {
+                collectShapeText(shape, text);
             }
         }
-        return buildResult(text.toString(), images);
+        ppt.getPictureData().forEach(picture -> collectImage(images, picture.getData()));
+        return new SlideContent(text.toString(), images);
     }
 
     /** 递归收集形状文本：组合形状逐层展开，表格按单元格拼接。 */
-    private void collectShapeText(org.apache.poi.xslf.usermodel.XSLFShape shape, StringBuilder text) {
-        if (shape instanceof org.apache.poi.xslf.usermodel.XSLFGroupShape group) {
+    private void collectShapeText(Shape<?, ?> shape, StringBuilder text) {
+        if (shape instanceof TableShape<?, ?> table) {
+            for (int row = 0; row < table.getNumberOfRows(); row++) {
+                for (int column = 0; column < table.getNumberOfColumns(); column++) {
+                    var cell = table.getCell(row, column);
+                    String value = cell == null ? null : cell.getText();
+                    if (value != null && !value.isBlank()) text.append(value.trim()).append('\n');
+                }
+            }
+        } else if (shape instanceof GroupShape<?, ?> group) {
             for (var child : group) {
                 collectShapeText(child, text);
             }
-        } else if (shape instanceof org.apache.poi.xslf.usermodel.XSLFTextShape ts) {
+        } else if (shape instanceof TextShape<?, ?> ts) {
             text.append(ts.getText()).append('\n');
-        } else if (shape instanceof org.apache.poi.xslf.usermodel.XSLFTable table) {
-            for (var row : table) {
-                for (var cell : row) {
-                    String v = cell.getText();
-                    if (v != null && !v.isBlank()) text.append(v.trim()).append('\n');
-                }
-            }
         }
     }
 
