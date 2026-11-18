@@ -571,6 +571,12 @@ expert:
 | 2026-11-18 10:05:04 | 1.0.57 | 成功 | expert-system.jar |
 | 2026-11-18 10:45:03 | 1.0.58 | 成功 | expert-system.jar |
 | 2026-11-18 12:20:52 | 1.0.59 | 成功 | expert-system.jar |
+| 2026-11-18 12:51:45 | 1.0.60 | 成功 | expert-system.jar |
+| 2026-11-18 13:51:24 | 1.0.61 | 成功 | expert-system.jar |
+| 2026-11-18 14:23:02 | 1.0.62 | 成功 | expert-system.jar |
+| 2026-11-18 14:50:16 | 1.0.63 | 成功 | expert-system.jar |
+| 2026-11-18 15:18:39 | 1.0.64 | 成功 | expert-system.jar |
+| 2026-11-18 15:38:31 | 1.0.65 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
@@ -773,3 +779,7 @@ temp 将删 99 项 ≈ 169 MB（27 项因被引用跳过）。
 新环境由 `database/init.sql` 初始化。既有环境先查看迁移台账、备份目标库和项目资料库，经授权执行 `database/migration/20261117_budget_estimate_quote.sql`，核实新增列和版本表后再切换前后端。脚本可重试，旧预算无需数据回填。部署沿用现有项目资料目录与 Apache POI 依赖。验收涵盖估算保存、内部确认、版本下载、阶段资料挂载和客户确认。回滚应用制品时保留新增列、版本表和已生成的文件。验收及接口细节见 [估算与对客报价交接](handover/tasks/20261117_budget_estimate_quote.md)。
 
 本机生产迁移、蓝绿切换和前端不可变发布记录见 [1.0.47 发布](releases/20261117-budget-estimate-quote-1.0.47.md)。
+
+### 专家简历 MODNet 抠图
+
+抠图 worker 优先使用 `PHOTOMATTE_MODNET_PATH` 指定的本地 ONNX 权重。默认路径为 `%ProgramFiles%/JSHZ/portrait-matting/modnet.onnx`，变量置空可禁用 MODNet。人像使用原图 RGB 与 MODNet 输出的软 alpha，并沿用透明边距裁剪。模型缺失、加载失败或推理返回无效掩码时使用现有 U²-Net 链路。生产部署预置权重并校验 SHA-256，运行时由现有 ONNX Runtime 在本机执行。对照与验证入口见 [抠图评估](handover/tasks/20261118_portrait_matting_modnet_evaluation.md)。

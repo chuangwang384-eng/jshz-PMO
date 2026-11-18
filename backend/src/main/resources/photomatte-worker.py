@@ -68,8 +68,44 @@ def upscale_if_lowres(image):
     return image
 
 
-session = new_session("u2net")
+modnet_path = os.environ.get("PHOTOMATTE_MODNET_PATH", str(
+    Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "JSHZ" / "portrait-matting" / "modnet.onnx"))
+modnet_session = None
+session = None
+if modnet_path and Path(modnet_path).is_file():
+    try:
+        import onnxruntime as ort
+
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 4
+        options.inter_op_num_threads = 1
+        modnet_session = ort.InferenceSession(modnet_path, options, providers=["CPUExecutionProvider"])
+        print("Portrait matting: MODNet", file=sys.stderr, flush=True)
+    except Exception:
+        traceback.print_exc()
+if modnet_session is None:
+    session = new_session("u2net")
 print("READY", flush=True)
+
+
+def modnet_cutout(image):
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    shortest, longest = min(rgb.size), max(rgb.size)
+    scale = 512 / shortest if shortest > 512 else 512 / longest if longest < 512 else 1
+    size = tuple(max(32, int(edge * scale) // 32 * 32) for edge in (width, height))
+    pixels = np.asarray(rgb.resize(size, Image.Resampling.BOX), dtype=np.float32)
+    tensor = ((pixels / 127.5) - 1).transpose(2, 0, 1)[None]
+    matte = modnet_session.run(None, {modnet_session.get_inputs()[0].name: tensor})[0][0, 0]
+    if not np.isfinite(matte).all() or not (matte >= 0.5).any():
+        raise ValueError("MODNet returned an invalid portrait mask")
+    alpha = Image.fromarray((np.clip(matte, 0, 1) * 255).round().astype(np.uint8))
+    alpha = alpha.resize(rgb.size, Image.Resampling.BILINEAR)
+    rgba = np.array(image.convert("RGBA"))
+    original_alpha = rgba[..., 3].astype(np.uint16)
+    rgba[..., 3] = ((original_alpha * np.asarray(alpha, dtype=np.uint16) + 127) // 255).astype(np.uint8)
+    rgba[rgba[..., 3] == 0, :3] = 0
+    return Image.fromarray(rgba)
 
 
 def recover_solid_background_portrait(image, mask):
@@ -220,6 +256,15 @@ def refine(image):
     小图（<320px）掩码细节不足，导致抠出的人像发虚、身体衰减甚至只剩头部清晰。
     处理链：分辨率预处理 → 背景分割 → alpha 硬化 → 人物主体提取 → 裁剪边界判定。
     """
+    global session
+    if modnet_session is not None:
+        try:
+            return crop_portrait(modnet_cutout(image))
+        except Exception:
+            traceback.print_exc()
+    if session is None:
+        session = new_session("u2net")
+
     # 1) 分辨率预处理：低像素照片先超分（EDSR/LapSRN），再统一放大到最长边 640
     #    （u2net 内部 320 输入）；大图不放大（Java 侧 resizePortraitInput 已把 >1200 缩到 1200）。
     image = upscale_if_lowres(image)
@@ -256,8 +301,10 @@ def refine(image):
         rgba[restored] = np.asarray(image.convert("RGBA"))[restored]
         alpha[restored] = 255
     rgba[..., 3] = alpha
-    result = Image.fromarray(rgba)
+    return crop_portrait(Image.fromarray(rgba))
 
+
+def crop_portrait(result):
     # 5) 裁剪边界判定：按前景 bbox 裁剪 + 3% 边距，完整保留人物有效区域、去掉透明边距
     bbox = result.getchannel("A").getbbox()
     if bbox:
