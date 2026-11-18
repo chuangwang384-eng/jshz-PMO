@@ -379,6 +379,25 @@ public class ResumeParseService {
                     if ("单位".equals(key) && (fields.containsKey(key) || val == null
                             || ORG_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
                             || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
+                    // 2026-11-18 联系方式/职称/科室防幻觉（Ollama 曾臆造占位手机号 13800001234）：
+                    // 三者必须能在原文（去空白）中找到才采纳；联系方式另有格式约束
+                    if ("联系方式".equals(key)) {
+                        if (val == null || val.isBlank()) return;
+                        if (val.contains("@")) {
+                            if (!EMAIL.matcher(val).matches()
+                                    || !normalizedText.contains(val.replaceAll("\\s+", ""))) return;
+                        } else {
+                            String digits = val.replaceAll("\\D", "");
+                            if (digits.startsWith("86") && digits.length() > 11) digits = digits.substring(2);
+                            String textDigits = normalizedText.replaceAll("\\D", "");
+                            if (digits.length() < 7 || !textDigits.contains(digits)) return;
+                        }
+                    }
+                    if ("职称".equals(key) && (val == null || !TITLE_WORDS.contains(val.strip())
+                            || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
+                    if ("科室".equals(key) && (val == null
+                            || DEPT_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
+                            || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
                     if (!"姓名".equals(key) || (!isCandidateName(fields.get("姓名"))
                             && isCandidateName(val) && normalizedText.contains(val))) {
                         fields.put(key, val);

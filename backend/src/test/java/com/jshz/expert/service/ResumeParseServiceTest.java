@@ -369,4 +369,37 @@ class ResumeParseServiceTest {
         assertEquals("许鹏程", xu.fields().get("姓名"));
         assertNull(xu.fields().get("单位"));
     }
+
+    @Test void semanticHallucinatedFieldsAreRejected() throws Exception {
+        // 2026-11-18 任婧/卫利民原件回归：Ollama 臆造占位手机号 13800001234、虚构职称/科室必须被拒；
+        // 原文真实座机（含 +86 前缀）应被采纳
+        byte[] bytes;
+        try (var presentation = new XMLSlideShow(); var output = new ByteArrayOutputStream()) {
+            var slide = presentation.createSlide();
+            var box = slide.createTextBox();
+            box.setText("任婧\n河南科技大学第一附属医院肿瘤内科\n主治医师、医学硕士电话：+86 379 64830609");
+            presentation.write(output);
+            bytes = output.toByteArray();
+        }
+        var hallucinated = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of("姓名", "任婧", "单位", "河南科技大学第一附属医院",
+                        "联系方式", "13800001234", "职称", "院士", "科室", "消化内科");
+            }
+        }, null);
+        var r1 = hallucinated.parse("任婧简介.pptx", bytes, false);
+        assertFalse(r1.fields().containsKey("联系方式"));
+        assertNotEquals("院士", r1.fields().get("职称"));
+        assertNotEquals("消化内科", r1.fields().get("科室"));
+        var grounded = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of("姓名", "任婧", "单位", "河南科技大学第一附属医院",
+                        "联系方式", "+86 379 64830609", "职称", "主治医师", "科室", "肿瘤内科");
+            }
+        }, null);
+        var r2 = grounded.parse("任婧简介.pptx", bytes, false);
+        assertTrue(r2.fields().get("联系方式").replaceAll("[\s+]", "").contains("37964830609"));
+        assertEquals("主治医师", r2.fields().get("职称"));
+        assertEquals("肿瘤内科", r2.fields().get("科室"));
+    }
 }
