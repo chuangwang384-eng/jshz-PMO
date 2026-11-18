@@ -72,7 +72,9 @@ modnet_path = os.environ.get("PHOTOMATTE_MODNET_PATH", str(
     Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "JSHZ" / "portrait-matting" / "modnet.onnx"))
 modnet_session = None
 session = None
-if modnet_path and Path(modnet_path).is_file():
+pilot_marker = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "JSHZ" / "portrait-matting" / "modnet.enabled"
+pilot_enabled = os.environ.get("PHOTOMATTE_MODNET_ENABLED", "true" if pilot_marker.is_file() else "false")
+if pilot_enabled.lower() == "true" and modnet_path and Path(modnet_path).is_file():
     try:
         import onnxruntime as ort
 
@@ -258,10 +260,8 @@ def refine(image):
     """
     global session
     if modnet_session is not None:
-        try:
-            return crop_portrait(modnet_cutout(image))
-        except Exception:
-            traceback.print_exc()
+        # Match the worker protocol's ERROR path so Java offers the original photo.
+        return crop_portrait(modnet_cutout(image))
     if session is None:
         session = new_session("u2net")
 
