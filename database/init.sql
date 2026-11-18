@@ -1488,7 +1488,7 @@ INSERT IGNORE INTO `project_phase` (`id`, `name`, `sort`, `is_active`, `create_t
 INSERT IGNORE INTO `project_phase` (`id`, `name`, `sort`, `is_active`, `create_time`) VALUES (4,'进行中',4,0,'2026-10-28 15:52:03');
 INSERT IGNORE INTO `project_phase` (`id`, `name`, `sort`, `is_active`, `create_time`) VALUES (5,'结算',5,0,'2026-10-28 15:52:03');
 INSERT IGNORE INTO `project_phase` (`id`, `name`, `sort`, `is_active`, `create_time`) VALUES (6,'已完成',6,0,'2026-10-28 15:52:03');
-INSERT IGNORE INTO `project_phase` (`id`, `name`, `sort`, `is_active`, `create_time`) VALUES (8,'日程上传',99,1,'2026-11-09 12:57:06');
+INSERT IGNORE INTO `project_phase` (`id`, `name`, `sort`, `is_active`, `create_time`) VALUES (8,'日程上传',100,1,'2026-11-09 12:57:06');
 /*!40000 ALTER TABLE `project_phase` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2012,7 +2012,7 @@ CREATE TABLE IF NOT EXISTS `ai_assistant_entry` (
 INSERT IGNORE INTO `ai_assistant_entry` (`entry_key`,`title`,`questions`,`answer`,`link_url`,`link_label`,`steps`,`perm_code`,`sort`) VALUES
 ('CREATE_PROJECT','新建项目','怎么新建项目\n如何立项\n添加一个新项目\n建项目\n帮我新建项目','在项目管理页点击「新建项目」，填写项目名称、会议大类（线上/线下）、团队、项目起止时间、举办时间等信息后保存。新项目默认从「会议预算制作」阶段开始推进。','/project?action=create','去新建项目','打开项目管理页\n点击「新建项目」按钮\n填写名称/大类/团队/起止时间等必填项\n保存后进入项目详情，从会议预算制作阶段开始',NULL,1),
 ('EDIT_PROJECT','编辑项目信息','怎么修改项目信息\n改项目名称\n编辑项目','在项目详情页点击「编辑项目」可修改基础信息。项目成员（负责人/创建人/协助人）均可编辑。','/project','去项目管理','进入项目详情页\n点击右上角「编辑项目」\n修改后保存',NULL,2),
-('PHASE_ADVANCE','项目阶段推进','怎么推进阶段\n项目到下一阶段\n阶段回退','项目详情页顶部有生命周期步骤条，点击「推进下一阶段」进入下一阶段；如需回退可用「更多操作」中的回退入口。当前流程：会议预算制作 → 日程上传。','/project','去项目管理','进入项目详情页\n确认当前阶段任务已完成\n点击「推进下一阶段」',NULL,3),
+('PHASE_ADVANCE','项目阶段推进','怎么推进阶段\n项目到下一阶段\n阶段回退','项目详情页顶部有生命周期步骤条，点击「推进下一阶段」进入下一阶段；如需回退可用「更多操作」中的回退入口。当前流程：会议预算制作 → 会前财务资料上传 → 日程上传 → 串场制作 → 结算资料上传 → 会议费用结算及项目结项。','/project','去项目管理','进入项目详情页\n确认当前阶段任务已完成\n点击「推进下一阶段」',NULL,3),
 ('BUDGET_OFFLINE','线下会议预算填写','线下预算怎么填\n预算明细怎么录\n会议费用怎么报','线下项目在「会议预算制作」阶段按七类费用填写：酒店（场地/住宿/用餐/茶歇）、交通（大交通+地面交通）、搭建（非必需）、物料、媒体（非必需）、礼品、人员。每行填数量×单价自动算金额，可增删行；填完点「确认报价」。收费标准默认值已预填，可修改。','/project','去项目管理','进入线下项目详情（会议预算制作阶段）\n按分节填写数量与单价\n非必需分节可整节移除\n核对合计后点「确认报价」',NULL,4),
 ('BUDGET_ONLINE','线上项目报价单','线上报价怎么做\n线上项目预算\n点选报价','线上项目在「会议预算制作」阶段直接点选收费项生成报价单：勾选需要的收费项即计入合计，数量可调整，也可添加自定义费用项，确认后生成报价单。收费项由管理员在「项目配置-线上收费标准」维护。','/project','去项目管理','进入线上项目详情（会议预算制作阶段）\n勾选需要的收费项\n可调整数量或添加自定义项\n点「确认报价」',NULL,5),
 ('FEE_CONFIG','收费标准配置','收费标准在哪改\n串场费怎么调\n预算默认单价修改\n线上收费项配置','管理员在「管理员设置→项目配置」维护收费标准，分线下/线上两个页签。可修改默认值（区间填「低,高」）、单位、备注，可启停或新增收费项。修改只影响之后新打开的预算单。','/admin/project/config','去项目配置','打开管理员设置→项目配置\n选择线下/线上页签\n修改或新增收费项\n点「保存修改」','project:manage',6),
@@ -2039,11 +2039,15 @@ INSERT IGNORE INTO `permission` (`code`, `name`, `type`, `method`, `path`) VALUE
 INSERT IGNORE INTO `role_permission` (`role_id`, `permission_code`)
 SELECT r.id, 'ai:manage' FROM `role` r WHERE r.`code` = 'ADMIN';
 
--- ---------- 4.2 会议预算制作阶段与预算三表 ----------
--- 内置阶段「会议预算制作」（sort=98，位于日程上传之前；幂等）
-INSERT INTO `project_phase` (`name`, `sort`, `is_active`)
-SELECT '会议预算制作', 98, 1 FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM `project_phase` WHERE `name` = '会议预算制作');
+-- ---------- 4.2 项目生命周期阶段与预算三表 ----------
+INSERT INTO `project_phase` (`name`, `sort`, `is_active`) VALUES
+    ('会议预算制作', 98, 1),
+    ('会前财务资料上传', 99, 1),
+    ('日程上传', 100, 1),
+    ('串场制作', 101, 1),
+    ('结算资料上传', 102, 1),
+    ('会议费用结算及项目结项', 103, 1) AS expected
+ON DUPLICATE KEY UPDATE `sort` = expected.`sort`, `is_active` = expected.`is_active`;
 
 CREATE TABLE IF NOT EXISTS `project_budget` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY,

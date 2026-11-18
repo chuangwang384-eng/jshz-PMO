@@ -75,6 +75,8 @@ mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 3. `.\scripts\db-migrate.ps1 -Mode Apply` 执行并登记（SHA256 + 时间 + 执行人，日志 `logs\db-migrate-*.log`）；
 4. 已登记脚本若内容被改动 → 状态显示 **DRIFT**，`-Mode Apply` 会中止并要求人工确认，防止"改了脚本以为没执行"。
 
+项目六阶段发布时，先应用 `20261118_project_lifecycle_stages.sql` 阶段字典迁移，再切换前端快照。发布前备份阶段字典及助手流程条目，并按 [六阶段迁移与验收交接](handover/tasks/20261118_project_lifecycle_stages.md) 核对现有项目进度及回滚条件。
+
 ### 2.4 版本表 `schema_migration`
 
 | 列 | 说明 |

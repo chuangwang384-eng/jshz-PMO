@@ -98,8 +98,9 @@
             <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
           </div>
 
+          <el-empty v-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
           <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
-          <template v-if="isBudgetViewing && phaseState(viewPhaseObj) !== 'future'">
+          <template v-else-if="isBudgetViewing && phaseState(viewPhaseObj) !== 'future'">
             <ProjectBudgetPanel :key="projectId" :project-id="projectId" :readonly="!canOperatePhase"
                                 :can-record="canOperate" :documents="allDocs" @generated="fetchDetail"/>
           </template>
@@ -1230,6 +1231,13 @@ const isBudgetStage = computed(() => {
 const isFlowStage = computed(() => isAgendaStage.value || isBudgetStage.value)
 // 阶段资料区当前查看的是预算阶段（含查看历史/未来阶段时的只读预览；future 由上层空态拦截）
 const isBudgetViewing = computed(() => viewPhaseObj.value?.name === BUDGET_PHASE_NAME)
+const PLACEHOLDER_PHASE_NAMES = new Set([
+  '会前财务资料上传',
+  '串场制作',
+  '结算资料上传',
+  '会议费用结算及项目结项'
+])
+const isPlaceholderPhaseViewing = computed(() => PLACEHOLDER_PHASE_NAMES.has(viewPhaseObj.value?.name))
 // 非当前阶段只读（隐藏编辑/上传/删除入口）；2026-11-09 起资料/预算/合同操作=项目成员级（负责人/创建人/协助人）
 const authStoreForDetail = useAuthStore()
 const isMember = computed(() => {

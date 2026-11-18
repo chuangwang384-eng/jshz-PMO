@@ -1,6 +1,6 @@
 <template>
   <el-dialog v-model="visible" :title="form.id ? '编辑项目' : '新建项目'" width="720px" top="4vh" destroy-on-close @closed="onClosed">
-    <el-alert v-if="form.id" title="阶段变化请使用推进或回退操作；新建项目自动进入第一阶段「日程上传」。" type="info" :closable="false" />
+    <el-alert v-if="form.id" title="请使用推进或回退操作调整项目阶段。" type="info" :closable="false" />
     <el-form :model="form" label-width="110px">
       <el-form-item label="会议名称" required>
         <el-input v-model="form.name" maxlength="100" show-word-limit placeholder="必填，如：2026 全国经销商大会" />

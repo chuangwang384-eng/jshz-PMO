@@ -74,13 +74,16 @@
             <div class="cell-meta">{{ row.category === 'ONLINE' ? '线上' : '线下' }}<template v-if="row.cityName"> · {{ row.cityName }}</template></div>
           </template>
         </el-table-column>
-        <el-table-column label="当前阶段" width="140">
+        <el-table-column label="当前阶段" width="180">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'CANCELED'" type="danger">已取消</el-tag>
-            <el-tag v-else-if="row.speakerConfirmedCnt > 0" type="success">{{ row.phaseName }}·已完成</el-tag>
-            <el-tag v-else-if="row.scheduleStatus === 'DONE'" type="warning">{{ row.phaseName }}·待确认</el-tag>
-            <el-tag v-else-if="row.scheduleStatus === 'PARSING'" type="info">{{ row.phaseName }}·解析中</el-tag>
-            <el-tag v-else type="primary">{{ row.phaseName }}{{ row.scheduleStatus === 'FAILED' ? '·解析失败' : '·待上传' }}</el-tag>
+            <template v-else-if="row.phaseName === '日程上传'">
+              <el-tag v-if="row.speakerConfirmedCnt > 0" type="success">{{ row.phaseName }}·已完成</el-tag>
+              <el-tag v-else-if="row.scheduleStatus === 'DONE'" type="warning">{{ row.phaseName }}·待确认</el-tag>
+              <el-tag v-else-if="row.scheduleStatus === 'PARSING'" type="info">{{ row.phaseName }}·解析中</el-tag>
+              <el-tag v-else type="primary">{{ row.phaseName }}{{ row.scheduleStatus === 'FAILED' ? '·解析失败' : '·待上传' }}</el-tag>
+            </template>
+            <el-tag v-else type="primary">{{ row.phaseName }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="时间安排" min-width="220">
