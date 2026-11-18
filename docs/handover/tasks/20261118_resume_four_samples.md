@@ -1,6 +1,7 @@
 # 专家简历四原件回归与上传限额
 
 - 2026-11-18，Codex，任务 `20261118-resume-four-samples`，已完成待验收。
+- 2026-11-18 10:05 ZCode 接手完成生产发布：后端蓝绿 + 前端 graceful 均成功，线上 `1.0.57 / 4c844fe`，前端 root `1.0.57-resume-limits-20261118`。见 [发布记录](../../releases/20261118-resume-limits-1.0.57.md)。登录后 `/api/meta/limits` 核验与四原件上传验收仍待业务执行。
 - 基线为 `main` 的 `3f34643`，开工工作区干净。通过 `/api/health` 核对线上后端 1.0.55 UP，Nginx root 为 `1.0.56-project-lifecycle-20261118`。
 
 ## 修复与验证
