@@ -140,6 +140,12 @@ def strip_background_colored_regions(image, portrait):
     bg_sat = float((int(background.max()) - int(background.min())) / max(1, int(background.max())))
     sat_close = np.abs(sat - bg_sat) <= (0.3 if colored else 1.0)
     similar = (distance <= tolerance) & sat_close & portrait
+    if not colored:
+        # 亮衣物保护（刘朵平白西装回归 2026-11-18）：白衬衫亮度 ≥200，背景灰 ≤175；
+        # 衣服褶皱阴影虽与背景色距近，但亮度远高于背景，不算残留
+        brightness = rgb.mean(axis=2)
+        bg_bright = float(background.mean())
+        similar &= brightness <= bg_bright + 45
     if similar.mean() < 0.02:
         return portrait
     labels, count = ndimage.label(similar)
@@ -159,7 +165,26 @@ def strip_background_colored_regions(image, portrait):
             if (comp[anchor_top:]).any() or i not in boundary_set or comp.sum() >= min_clothes_px:
                 keep |= comp
         # 彩色底：一律清除（饱和度判别已挡住深发深底误删）；底部锚点会保护贴底蓝块（支卫国回归 2026-11-18）
-    return (portrait & ~similar) | keep
+    result = (portrait & ~similar) | keep
+    if not colored:
+        # 灰背景专用清理（刘朵平回归 2026-11-18）：u2net 把领口/肩部的背景灰误判为主体，
+        # 色距分布宽（12~90）超出容差。低饱和 + 亮度接近背景 + 贴边/小块的像素视为背景灰。
+        brightness = rgb.mean(axis=2)
+        bg_bright = float(background.mean())
+        grey_bg = (sat < 0.15) & (np.abs(brightness - bg_bright) < 40) & (distance < 100) & result
+        if grey_bg.sum() > 0.002 * result.sum():
+            gl, gn = ndimage.label(grey_bg)
+            gborder = (ndimage.binary_dilation(~result, np.ones((3,3))) | border) & result
+            gboundary_set = set(int(v) for v in np.unique(gl[gborder]) if v != 0)
+            gkeep = np.zeros_like(result)
+            for i in range(1, gn+1):
+                gc = gl == i
+                if i in gboundary_set:
+                    continue  # 贴边灰块一律清除（背景灰）
+                if gc.sum() >= 0.05 * result.sum():
+                    gkeep |= gc  # 内部大块保留（衣物阴影）
+            result = (result & ~grey_bg) | gkeep
+    return result
 
 
 def recover_background_detail(image, portrait):
