@@ -23,7 +23,7 @@ print("READY", flush=True)
 def recover_solid_background_portrait(image, mask):
     """从与顶边相连的纯色背景中分离被模型漏掉的肩部和衣服。"""
     height, width = mask.shape
-    if ndimage is None or not mask.any() or mask[int(height * 0.88):].any():
+    if ndimage is None or not mask.any():
         return mask
     if image.convert("RGBA").getchannel("A").getextrema()[0] < 255:
         return mask
@@ -31,6 +31,10 @@ def recover_solid_background_portrait(image, mask):
     rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
     top = rgb[:max(1, height // 32)]
     background = np.median(top, axis=(0, 1))
+    # 有色纯背景下即使模型已识别到下半身，也可能单侧漏肩。
+    reaches_bottom = mask[int(height * 0.88):].any()
+    if reaches_bottom and np.ptp(background) < 48:
+        return mask
     distance = np.max(np.abs(rgb - background), axis=2)
     if np.mean(distance[:len(top)] <= 12) < 0.98:
         return mask
@@ -49,6 +53,9 @@ def recover_solid_background_portrait(image, mask):
     portrait = labels == subject
     lower_center = portrait[-max(1, height // 16):, width // 4:3 * width // 4]
     if not lower_center.size or lower_center.mean() < 0.8 or portrait[mask].mean() < 0.95:
+        return mask
+    # 已识别到衣服时，仅补回明显漏分的区域，避免把原本完整轮廓的少量底色带进来。
+    if reaches_bottom and np.count_nonzero(portrait & ~mask) < 0.02 * np.count_nonzero(portrait):
         return mask
     return portrait | mask
 

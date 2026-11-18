@@ -400,7 +400,7 @@
           </el-upload>
           <el-button v-if="resumeFile" type="primary" plain :loading="resumeParsing" @click="parseResumeNow">开始解析</el-button>
           <span class="resume-tip" :class="{ 'resume-tip-error': resumeFailed }">
-            {{ resumeMessage || '支持 PDF / Word / PPT / 图片（≤20MB）；解析结果仅供确认，扫描件约需 10~45 秒' }}
+            {{ resumeMessage || `支持 PDF / Word / PPT / 图片（≤${toMb(uploadLimits.resumeMaxBytes)}MB）；解析结果仅供确认，扫描件约需 10~45 秒` }}
           </span>
           <div v-if="resumeCandidates.length" class="resume-candidates">
             <div v-for="(candidate, index) in resumeCandidates" :key="index" class="resume-candidate" style="display: flex; flex-direction: column; align-items: center; gap: 4px">
@@ -1024,6 +1024,10 @@ function onEditResumePick(file) {
 async function parseResumeNow(target = 'create') {
   const file = target === 'edit' ? editResumeFile.value : resumeFile.value
   if (!file || resumeParsing.value) return
+  if (file.size > uploadLimits.resumeMaxBytes) {
+    ElMessage.warning(`简历文件超过 ${toMb(uploadLimits.resumeMaxBytes)} MB 限制`)
+    return
+  }
   resumeTarget.value = target
   resumeParsing.value = true
   resumeFailed.value = false

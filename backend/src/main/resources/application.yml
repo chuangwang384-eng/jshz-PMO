@@ -80,7 +80,7 @@ expert:
   # 调整限额只改此处；前端兜底默认值见 frontend/src/utils/limits.js（须同步）
   upload:
     photo-max-bytes: 5242880        # 照片单文件 ≤5MB（照片/头像预校验）
-    resume-max-bytes: 20971520      # 简历单文件 ≤20MB（批量建档）
+    resume-max-bytes: 31457280      # 简历单文件 ≤30MB（单份解析）
     doc-max-bytes: 52428800         # 知识/项目资料/日程单文件 ≤50MB（multipart 上限见 spring.servlet.multipart）
   # 存储占用预警阈值（单目录字节；Owner 2026-11-12 存储管理工具）
   storage:

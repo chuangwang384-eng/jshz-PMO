@@ -9,7 +9,7 @@
       </label>
       <el-button type="primary" :loading="parsing" :disabled="submitting || !rows.some(canParse)"
         @click="parseWaiting">开始解析</el-button>
-      <span>PDF / Word / PPT / 图片，单份最多 20 MB</span>
+      <span>PDF / Word / PPT / 图片，单份最多 {{ toMb(maxBytes) }} MB</span>
       <slot v-if="!busy" name="extra" />
     </div>
     <p v-if="presetName" class="message">参会专家：{{ presetName }}。解析出的姓名一致后才能提交建档。</p>
@@ -93,7 +93,7 @@ import BatchResumeCard from './BatchResumeCard.vue'
 import PhotoImage from './PhotoImage.vue'
 import { createExpert, getExpert, listExperts, parseResume, updateExpert } from '../api/expert'
 import { createExpertApprovalRequest, submitApprovalRequest, uploadApprovalPhoto } from '../api/approval'
-import { uploadLimits, ensureUploadLimits } from '../utils/limits'
+import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
 
 ensureUploadLimits()
 

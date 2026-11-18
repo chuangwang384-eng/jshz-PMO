@@ -17,6 +17,7 @@ import org.apache.poi.sl.usermodel.SlideShow;
 import org.apache.poi.sl.usermodel.TableShape;
 import org.apache.poi.sl.usermodel.TextShape;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import lombok.RequiredArgsConstructor;
@@ -58,8 +59,8 @@ public class ResumeParseService {
     private final PhotoMatteService photoMatteService;
 
     /** 简历单文件上限：单一真源 application.yml expert.upload.resume-max-bytes。 */
-    @Value("${expert.upload.resume-max-bytes:20971520}")
-    private long resumeMaxBytes = 20L * 1024 * 1024;
+    @Value("${expert.upload.resume-max-bytes}")
+    private long resumeMaxBytes = 30L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS = List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
 
     /** 职称词表（精确匹配，优先级从高到低）。 */
@@ -157,12 +158,20 @@ public class ResumeParseService {
         if (fileName == null || fileName.isBlank()) return null;
         String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
         // 去掉常见后缀词后再分词
-        base = base.replaceAll("(简历|的简历|专家简介|简介)+$", "").trim();
+        base = base.replaceAll("(个人简介|专家简介|的简历|简历|简介)+$", "").trim();
         String[] tokens = base.split("[\\s\\-_.（）()、，,]+");
         for (String token : tokens) {
             String t = token.replaceFirst("^(?:副本)+", "")
-                    .replaceFirst("(?:的简历|专家简介|简历|简介)+(?:新版|更新版|最新版|新)?$", "");
+                    .replaceFirst("(?:个人简介|专家简介|的简历|简历|简介)+(?:新版|更新版|最新版|新)?$", "");
             if (isCandidateName(t)) return t;
+        }
+        for (String token : tokens) {
+            for (String suffix : ORG_SUFFIXES) {
+                int start = token.lastIndexOf(suffix);
+                if (start < 2) continue;
+                String tail = token.substring(start + suffix.length());
+                if (isCandidateName(tail)) return tail;
+            }
         }
         return null;
     }
@@ -269,12 +278,33 @@ public class ResumeParseService {
         List<BufferedImage> images = new ArrayList<>();
         StringBuilder text = new StringBuilder();
         for (var slide : ppt.getSlides()) {
-            for (var shape : slide) {
+            List<? extends Shape<?, ?>> shapes;
+            try {
+                shapes = slide.getShapes();
+            } catch (IndexOutOfBoundsException e) {
+                if (!(slide instanceof XSLFSlide xslf)) throw e;
+                // OOXML 的形状 ID 是无符号整数，POI 构造形状树时可能将它转成负数。
+                collectOoxmlParagraphs(xslf, text);
+                continue;
+            }
+            for (var shape : shapes) {
                 collectShapeText(shape, text);
             }
         }
         ppt.getPictureData().forEach(picture -> collectImage(images, picture.getData()));
         return new SlideContent(text.toString(), images);
+    }
+
+    private void collectOoxmlParagraphs(XSLFSlide slide, StringBuilder text) {
+        String drawingNs = "declare namespace a='http://schemas.openxmlformats.org/drawingml/2006/main'; ";
+        for (var paragraph : slide.getXmlObject().getCSld().getSpTree().selectPath(drawingNs + ".//a:p")) {
+            for (var run : paragraph.selectPath(drawingNs + ".//a:t | .//a:br")) {
+                try (var cursor = run.newCursor()) {
+                    text.append("br".equals(cursor.getName().getLocalPart()) ? "\n" : cursor.getTextValue());
+                }
+            }
+            text.append('\n');
+        }
     }
 
     /** 递归收集形状文本：组合形状逐层展开，表格按单元格拼接。 */

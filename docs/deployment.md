@@ -260,7 +260,8 @@ server {
 - `CORS_ALLOWED_ORIGINS`：前端来源白名单（逗号分隔），默认 `http://<PRIVATE_IP>:5173,http://localhost:5173,http://<PRIVATE_IP>:5173`；配置项 `security.cors.allowed-origins`，消费点 `SecurityConfig`。
 - `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `E:/AI助手开发/pp-ocrv5`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
 - 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
-- **上传限额单一真源**（方案 D）：数值唯一定义于 `application.yml expert.upload`（photo/resume/doc-max-bytes），前端经 `GET /api/meta/limits` 登录后拉取做预校验（`frontend/src/utils/limits.js` 带兜底默认值）；调整限额只改 yml 并重启后端。
+- **上传限额单一真源**（方案 D）：后端从 `application.yml expert.upload` 读取 photo/resume/doc-max-bytes，前端登录后经 `GET /api/meta/limits` 同步。调整时同步 `frontend/src/utils/limits.js` 中的离线兜底值。
+- **专家简历限额**：`expert.upload.resume-max-bytes` 为 31457280 字节。2026-11-18 核对 `application.yml` 的 multipart 文件与请求上限分别为 50 MB 和 60 MB，运行中 Nginx 的 API 请求上限为 60m。发布先切后端限额，再切前端，无需调整代理或 multipart 配置。
 - **凭据解析统一**（方案 A）：`backup.ps1`、`db-migrate.ps1`、7 个 apply-migration-*.ps1 的 MYSQL_PASSWORD 解析实现统一收敛到 `scripts/common-credentials.ps1`（环境变量优先 → start-backend.bat 运行时解析），其余脚本沿用会话注入约定不变。
 
 ### 登录模式切换节奏（评审结论）

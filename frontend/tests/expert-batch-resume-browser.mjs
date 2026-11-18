@@ -51,6 +51,19 @@ async function exercise(permissions) {
   try {
     await page.goto(origin + '/experts')
     await page.getByRole('button', { name: '批量上传简历' }).click()
+    const dialog = page.getByRole('dialog', { name: '批量上传简历' })
+    await dialog.getByText(/单份最多 30 MB/).waitFor()
+    await dialog.locator('input[type=file][multiple]').evaluate(input => {
+      const documents = new DataTransfer()
+      const limit = 30 * 1024 * 1024
+      documents.items.add(new File([new Uint8Array(limit)], '上限.pdf'))
+      documents.items.add(new File([new Uint8Array(limit + 1)], '超过上限.pdf'))
+      input.files = documents.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await dialog.getByText('上限.pdf', { exact: true }).waitFor()
+    assert.equal(await dialog.locator('.resume-card').count(), 1)
+    await dialog.getByRole('button', { name: '移除', exact: true }).click()
     await page.locator('input[type=file][multiple]').setInputFiles(['覆盖.pdf', '保留.pdf', '取消.pdf', '新增.pdf', '失败.pdf'].map(document))
     await page.getByRole('button', { name: '开始解析' }).click()
     await page.getByRole('button', { name: '提交已选（4）' }).waitFor()

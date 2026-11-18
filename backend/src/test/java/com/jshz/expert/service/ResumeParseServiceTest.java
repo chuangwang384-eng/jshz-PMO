@@ -3,6 +3,8 @@ package com.jshz.expert.service;
 import com.jshz.expert.common.BusinessException;
 import org.apache.poi.hslf.usermodel.HSLFSlideShow;
 import org.apache.poi.sl.usermodel.PictureData;
+import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.openxmlformats.schemas.presentationml.x2006.main.CTShape;
 import org.junit.jupiter.api.Test;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import javax.imageio.ImageIO;
@@ -64,7 +66,36 @@ class ResumeParseServiceTest {
     @Test void parseRejectsBadExtensionAndEmpty() {
         assertThrows(BusinessException.class, () -> service.parse("a.exe", new byte[]{1}));
         assertThrows(BusinessException.class, () -> service.parse("a.pdf", new byte[0]));
-        assertThrows(BusinessException.class, () -> service.parse("a.pdf", new byte[21 * 1024 * 1024]));
+        assertThrows(BusinessException.class, () -> service.parse("a.pdf", new byte[30 * 1024 * 1024 + 1]));
+    }
+
+    @Test void filenameFallbackSplitsJoinedHospitalAndStripsPersonalIntroduction() {
+        assertEquals("徐亮", service.nameFromFileName("安阳市肿瘤医院徐亮.pptx"));
+        assertEquals("刘起鹏", service.nameFromFileName("刘起鹏个人简介.pptx"));
+        assertNull(service.nameFromFileName("安阳市肿瘤医院.pptx"));
+    }
+
+    @Test void pptxWithUnsignedShapeIdStillExtractsTextAndPhoto() throws Exception {
+        var output = new ByteArrayOutputStream();
+        try (var presentation = new XMLSlideShow()) {
+            var slide = presentation.createSlide();
+            var box = slide.createTextBox();
+            box.setText("姓名：王小明\n工作单位：苏州大学附属第一医院");
+            var png = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(120, 160, BufferedImage.TYPE_INT_RGB), "png", png);
+            slide.createPicture(presentation.addPicture(png.toByteArray(), PictureData.PictureType.PNG));
+            ((CTShape) box.getXmlObject()).getNvSpPr().getCNvPr().setId(2147484674L);
+            presentation.write(output);
+        }
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of();
+            }
+        }, null);
+        var result = parser.parse("简历.pptx", output.toByteArray(), false);
+        assertEquals("王小明", result.fields().get("姓名"));
+        assertEquals("苏州大学附属第一医院", result.fields().get("单位"));
+        assertEquals(1, result.photoCandidates().size());
     }
 
     @Test void contentOnlyParsingDoesNotUseFilenameForMissingName() throws Exception {

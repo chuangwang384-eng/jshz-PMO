@@ -25,7 +25,7 @@ public class MetaController {
     @Value("${expert.upload.photo-max-bytes:5242880}")
     private long photoMaxBytes;
 
-    @Value("${expert.upload.resume-max-bytes:20971520}")
+    @Value("${expert.upload.resume-max-bytes}")
     private long resumeMaxBytes;
 
     @Value("${expert.upload.doc-max-bytes:52428800}")

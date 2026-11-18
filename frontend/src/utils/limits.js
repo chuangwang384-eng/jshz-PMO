@@ -3,10 +3,10 @@ import request from '../api/request'
 
 // 上传限额单一真源（方案 D，2026-11-13）：
 // 唯一来源为后端 application.yml expert.upload（GET /api/meta/limits 读取）。
-// 此处默认值仅作后端接口不可用时的兜底，必须与 yml 保持一致；调整限额只改 yml。
+// 此处默认值仅作后端接口不可用时的兜底，调整限额时与 yml 同步。
 export const uploadLimits = reactive({
   photoMaxBytes: 5 * 1024 * 1024,
-  resumeMaxBytes: 20 * 1024 * 1024,
+  resumeMaxBytes: 30 * 1024 * 1024,
   docMaxBytes: 50 * 1024 * 1024
 })
 
