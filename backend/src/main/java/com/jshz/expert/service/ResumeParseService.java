@@ -575,19 +575,21 @@ public class ResumeParseService {
                 for (String suffix : ORG_SUFFIXES) {
                     if (compact.endsWith(suffix)) {
                         String cand = stripLeadingOrgEcho(compact);
-                        if (cand.length() >= 4) lineStrong = cand;
+                        if (cand.length() >= 4 && (lineStrong == null || betterOrgCandidate(cand, lineStrong))) {
+                            lineStrong = cand;
+                        }
                         break;
                     }
                     int idx = compact.indexOf(suffix);
                     if (idx >= 0) {
                         String cand = compact.substring(0, idx + suffix.length());
-                        if (cand.length() >= 4 && (lineWeak == null || cand.length() > lineWeak.length())) {
+                        if (cand.length() >= 4 && (lineWeak == null || betterOrgCandidate(cand, lineWeak))) {
                             lineWeak = cand;
                         }
                     }
                 }
-                if (lineStrong != null && (strong == null || lineStrong.length() > strong.length())) strong = lineStrong;
-                if (lineWeak != null && (weak == null || lineWeak.length() > weak.length())) weak = lineWeak;
+                if (lineStrong != null && (strong == null || betterOrgCandidate(lineStrong, strong))) strong = lineStrong;
+                if (lineWeak != null && (weak == null || betterOrgCandidate(lineWeak, weak))) weak = lineWeak;
             }
             unit = strong != null ? strong : weak;
         }
@@ -702,6 +704,18 @@ public class ResumeParseService {
             }
         }
         return compact;
+    }
+
+    /**
+     * 机构候选排序（2026-11-18 王新帅原件回归）：医疗简历语境下"医院"后缀（含卫生院）
+     * 优先于大学/中心/公司等——访问学者行"美国加州大学…医学中心"不得压过任职医院行；
+     * 同后缀取更长候选。
+     */
+    boolean betterOrgCandidate(String candidate, String current) {
+        boolean candHospital = candidate.endsWith("医院") || candidate.endsWith("卫生院");
+        boolean curHospital = current.endsWith("医院") || current.endsWith("卫生院");
+        if (candHospital != curHospital) return candHospital;
+        return candidate.length() > current.length();
     }
 
     /**

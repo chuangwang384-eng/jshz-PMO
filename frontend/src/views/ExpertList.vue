@@ -61,6 +61,7 @@
       <span class="filter-field"><label>专家职称</label><el-select v-model="filters.titles" multiple filterable collapse-tags clearable placeholder="选择职称" style="width: 220px"><el-option v-for="t in filterOptions.titles" :key="t" :label="t" :value="t" /></el-select></span>
       <span class="filter-field"><label>专家照片</label><el-select v-model="filters.photo" clearable placeholder="全部" style="width: 120px"><el-option label="已上传" value="uploaded" /><el-option label="未上传" value="missing" /></el-select></span>
       <span class="filter-field"><label>档案状态</label><el-select v-model="filters.complete" clearable placeholder="全部" style="width: 120px"><el-option label="完整" value="complete" /><el-option label="待完善" value="incomplete" /></el-select></span>
+      <span class="filter-field"><label>重名同单位</label><el-select v-model="filters.duplicate" clearable placeholder="全部" style="width: 120px"><el-option label="仅看重名" value="yes" /></el-select></span>
       <span class="filter-field"><label>最近更新</label><el-date-picker v-model="filters.updatedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" /></span>
     </div>
 
@@ -631,12 +632,12 @@ const loading = ref(false)
 
 // 高级筛选（Owner 2026-11-07：组合使用+一键重置；所在地区筛选拍板去掉——数据无省/市字段）
 const filtersOpen = ref(false)
-const filters = reactive({ unit: '', department: '', titles: [], photo: '', complete: '', updatedRange: null })
+const filters = reactive({ unit: '', department: '', titles: [], photo: '', complete: '', duplicate: '', updatedRange: null })
 const filterOptions = ref({ units: [], departments: [], titles: [] })
 const filterOptionsLoaded = ref(false)
 const viewMode = ref('card')
 const activeFilterCount = computed(() =>
-  [filters.unit, filters.department, filters.photo, filters.complete].filter(Boolean).length +
+  [filters.unit, filters.department, filters.photo, filters.complete, filters.duplicate].filter(Boolean).length +
   (filters.titles.length ? 1 : 0) +
   (filters.updatedRange?.length ? 1 : 0)
 )
@@ -658,6 +659,7 @@ function resetFilters() {
   filters.titles = []
   filters.photo = ''
   filters.complete = ''
+  filters.duplicate = ''
   filters.updatedRange = null
 }
 /** 已应用筛选 chips（参考 Owner 2026-11-07 示意图）：逐项移除或清除全部。 */
@@ -668,6 +670,7 @@ const appliedFilters = computed(() => {
   for (const t of filters.titles) chips.push({ key: 'title:' + t, label: t })
   if (filters.photo) chips.push({ key: 'photo', label: filters.photo === 'uploaded' ? '已上传照片' : '未上传照片' })
   if (filters.complete) chips.push({ key: 'complete', label: filters.complete === 'complete' ? '档案完整' : '档案待完善' })
+  if (filters.duplicate) chips.push({ key: 'duplicate', label: '重名且同单位' })
   if (filters.updatedRange?.length) chips.push({ key: 'updated', label: `${filters.updatedRange[0]} ~ ${filters.updatedRange[1]}` })
   return chips
 })
@@ -676,6 +679,7 @@ function removeFilter(key) {
   else if (key === 'department') filters.department = ''
   else if (key === 'photo') filters.photo = ''
   else if (key === 'complete') filters.complete = ''
+  else if (key === 'duplicate') filters.duplicate = ''
   else if (key === 'updated') filters.updatedRange = null
   else if (key.startsWith('title:')) filters.titles = filters.titles.filter(t => t !== key.slice(6))
 }
@@ -731,6 +735,7 @@ async function fetchList() {
       titles: filters.titles.length ? filters.titles.join(',') : undefined,
       photo: filters.photo || undefined,
       complete: filters.complete || undefined,
+      duplicate: filters.duplicate || undefined,
       updatedFrom: filters.updatedRange?.[0] || undefined,
       updatedTo: filters.updatedRange?.[1] || undefined,
       page: page.value,

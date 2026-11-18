@@ -74,13 +74,14 @@ public class ExpertController {
                                                 @RequestParam(required = false) String complete,
                                                 @RequestParam(required = false) String updatedFrom,
                                                 @RequestParam(required = false) String updatedTo,
+                                                @RequestParam(required = false) String duplicate,
                                                 @RequestParam(defaultValue = "1") long page,
                                                 @RequestParam(defaultValue = "20") long size,
                                                 @RequestParam(required = false) String sensitive,
                                                 @AuthenticationPrincipal AuthUser authUser) {
         boolean full = authUser != null;
         Page<Expert> p = expertService.pageList(keyword, page, size,
-                buildFilter(unit, department, titles, photo, complete, updatedFrom, updatedTo));
+                buildFilter(unit, department, titles, photo, complete, updatedFrom, updatedTo, duplicate));
         List<Expert> items = new ArrayList<>();
         for (Expert e : p.getRecords()) {
             items.add(expertService.toView(e, full));
@@ -121,7 +122,7 @@ public class ExpertController {
     /** 组装筛选条件：解析职称 CSV 与日期范围，非法取值/日期/区间直接 400。 */
     private ExpertService.ExpertFilter buildFilter(String unit, String department, String titles,
                                                    String photo, String complete,
-                                                   String updatedFrom, String updatedTo) {
+                                                   String updatedFrom, String updatedTo, String duplicate) {
         List<String> titleList = null;
         if (StringUtils.hasText(titles)) {
             titleList = new ArrayList<>();
@@ -142,7 +143,10 @@ public class ExpertController {
         if (from != null && to != null && from.isAfter(to)) {
             throw new BusinessException(400, "更新时间范围无效");
         }
-        return new ExpertService.ExpertFilter(unit, department, titleList, photo, complete, from, to);
+        if (StringUtils.hasText(duplicate) && !"yes".equals(duplicate)) {
+            throw new BusinessException(400, "duplicate 取值仅支持 yes");
+        }
+        return new ExpertService.ExpertFilter(unit, department, titleList, photo, complete, from, to, duplicate);
     }
 
     private static java.time.LocalDate parseDate(String value, String name) {

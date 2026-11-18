@@ -39,7 +39,15 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
      */
     public record ExpertFilter(String unit, String department, List<String> titles,
                                String photo, String complete,
-                               LocalDate updatedFrom, LocalDate updatedTo) {}
+                               LocalDate updatedFrom, LocalDate updatedTo,
+                               String duplicate) {
+        /** 兼容旧调用（未带重名筛项）。 */
+        public ExpertFilter(String unit, String department, List<String> titles,
+                            String photo, String complete,
+                            LocalDate updatedFrom, LocalDate updatedTo) {
+            this(unit, department, titles, photo, complete, updatedFrom, updatedTo, null);
+        }
+    }
 
     /**
      * 分页列表（R6：返回 {total, items}；R5：附带下载总次数）。
@@ -101,6 +109,28 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
             }
             if (filter.updatedTo() != null) {
                 wrapper.lt(Expert::getUpdateTime, filter.updatedTo().plusDays(1).atStartOfDay());
+            }
+            if ("yes".equals(filter.duplicate())) {
+                // 重名且同单位（Owner 2026-11-18）：仅保留 (name, unit) 出现 >1 次的专家
+                List<Map<String, Object>> groups = this.listMaps(new QueryWrapper<Expert>()
+                        .select("name", "unit")
+                        .isNotNull("name").ne("name", "")
+                        .isNotNull("unit").ne("unit", "")
+                        .groupBy("name", "unit")
+                        .having("count(*) > 1"));
+                if (groups.isEmpty()) {
+                    wrapper.apply("1 = 0"); // 无重复组：直接返回空集
+                } else {
+                    wrapper.and(w -> {
+                        boolean first = true;
+                        for (Map<String, Object> g : groups) {
+                            if (!first) w.or();
+                            w.and(i -> i.eq(Expert::getName, String.valueOf(g.get("name")))
+                                    .eq(Expert::getUnit, String.valueOf(g.get("unit"))));
+                            first = false;
+                        }
+                    });
+                }
             }
         }
         wrapper.orderByDesc(Expert::getUpdateTime);
