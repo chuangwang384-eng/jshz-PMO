@@ -123,7 +123,8 @@ public class ResumeParseService {
                 default -> throw new BusinessException(400, "不支持的简历格式");
             };
             result = resolveName(result, fileName, allowFilenameFallback);
-            return resolveUnit(result, fileName);
+            result = resolveUnit(result, fileName);
+            return sanitizeUnitAgainstName(result);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -190,6 +191,28 @@ public class ResumeParseService {
             return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
         }
         return result;
+    }
+
+    /**
+     * 单位最终净化（2026-11-18 修复"姓名混入单位"第二形态）：
+     * PPT 同一文本框内姓名与单位直接拼接（"卫利民河南科技大学第一附属医院…"）时，
+     * 内容解析阶段姓名尚未确定（文件名兜底在 resolveName），当时的 sanitizeUnit 无名可剥。
+     * 此处在姓名落定后二次剥离：仅当剩余部分足够长（≥6 字符，防误伤"华山"→"医院"类短单位）才执行。
+     */
+    ResumeParseResult sanitizeUnitAgainstName(ResumeParseResult result) {
+        String name = result.fields().get("姓名");
+        String unit = result.fields().get("单位");
+        if (name == null || name.isBlank() || unit == null || !unit.startsWith(name)
+                || unit.length() <= name.length()) {
+            return result;
+        }
+        String remaining = unit.substring(name.length()).replaceFirst("^[，,、；;：:\\s／/|]+", "");
+        if (remaining.length() < 6) return result;
+        String sanitized = sanitizeUnit(unit, name);
+        if (sanitized == null || sanitized.equals(unit)) return result;
+        Map<String, String> fields = new LinkedHashMap<>(result.fields());
+        fields.put("单位", sanitized);
+        return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
     }
 
     // ==================== 格式分发 ====================
@@ -520,6 +543,8 @@ public class ResumeParseService {
             for (String line : cleaned) {
                 String compact = line.replace(" ", "");
                 if (compact.length() > 40 || compact.contains("简历")) continue;
+                // 教育经历行（"2018年毕业于XX大学"）含机构后缀但不是任职单位，跳过（2026-11-18）
+                if (compact.contains("毕业")) continue;
                 // 设计稿常把职称/头衔接在单位后（"…医院院长"），按机构后缀截断
                 for (String suffix : ORG_SUFFIXES) {
                     int idx = compact.indexOf(suffix);

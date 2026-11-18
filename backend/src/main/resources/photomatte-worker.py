@@ -60,6 +60,36 @@ def recover_solid_background_portrait(image, mask):
     return portrait | mask
 
 
+def strip_background_colored_regions(image, portrait):
+    """纯色底残留清理（2026-11-18 修复"蓝底块残留"）。
+
+    fill_holes 会把脖子/肩窝等处被纯色背景填充的凹陷当成人像洞保留。此处把主体内
+    与背景同色的连通块重新透明化；仅保留与底部 12% 行相交的块（躯干衣物锚点），
+    防止误删蓝衣。非纯色底或残留占比过低时不动刀。
+    """
+    if ndimage is None:
+        return portrait
+    rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+    background = np.median(rgb[:max(1, rgb.shape[0] // 32)], axis=(0, 1))
+    distance = np.max(np.abs(rgb - background), axis=2)
+    top = distance[:max(1, rgb.shape[0] // 32)]
+    # 仅处理纯色底：顶边 98% 像素接近背景色（与 recover 的纯色判定一致）
+    if np.mean(top <= 12) < 0.98:
+        return portrait
+    similar = (distance <= 40) & portrait
+    if similar.mean() < 0.02:
+        return portrait
+    labels, count = ndimage.label(similar)
+    if count == 0:
+        return portrait
+    anchor_top = int(portrait.shape[0] * 0.88)
+    keep = np.zeros_like(portrait)
+    for i in range(1, count + 1):
+        if (labels[anchor_top:] == i).any():
+            keep |= labels == i
+    return (portrait & ~similar) | keep
+
+
 def refine(image):
     """证件照抠图精修（2026-11-17 修复"仅识别到人头/人像发虚"）。
 
@@ -92,6 +122,7 @@ def refine(image):
             mask = labels == (1 + int(np.argmax(sizes)))
     # 部分纯色背景证件照的衣服与背景接近，模型只分割出头部。
     portrait = recover_solid_background_portrait(image, mask)
+    portrait = strip_background_colored_regions(image, portrait)
     restored = portrait & ~mask
     # 主体内强制至少 200 不透明（清晰），主体外全透明
     alpha = np.where(portrait, np.maximum(alpha, 200), 0).astype(np.uint8)

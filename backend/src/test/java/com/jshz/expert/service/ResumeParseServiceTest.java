@@ -273,4 +273,53 @@ class ResumeParseServiceTest {
         assertNotNull(result.fields().get("单位"));
         assertFalse(result.photoCandidates().isEmpty());
     }
+
+    @Test void educationLineIsNotUnit() {
+        // 2026-11-18 孙明亮原件回归：教育经历行含"大学"但不是任职单位
+        Map<String, String> fields = parse("孙明亮，主治医师，医学硕士，\n2018年毕业于哈尔滨医科大学肿瘤放射治疗学专业，\n洛阳市肿瘤化疗委员会委员，\n洛阳市抗癌协会委员等。");
+        assertNull(fields.get("单位"));
+    }
+
+    @Test void unitNamePrefixStrippedAfterNameResolved() {
+        // 2026-11-18 卫利民原件回归：PPT 同一文本框姓名+单位拼接，姓名落定后二次剥离
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("姓名", "卫利民");
+        fields.put("单位", "卫利民河南科技大学第一附属医院");
+        var result = new ResumeParseService.ResumeParseResult(fields, java.util.List.of(), 2, "");
+        var out = service.sanitizeUnitAgainstName(result);
+        assertEquals("河南科技大学第一附属医院", out.fields().get("单位"));
+    }
+
+    @Test void shortUnitNamePrefixNotStripped() {
+        // 防"华山"→"医院"类短单位误伤：剩余部分不足 6 字符不剥离
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("姓名", "华山");
+        fields.put("单位", "华山医院");
+        var result = new ResumeParseService.ResumeParseResult(fields, java.util.List.of(), 2, "");
+        assertEquals("华山医院", service.sanitizeUnitAgainstName(result).fields().get("单位"));
+    }
+
+    @Test void optionalJuaaiThreeOriginals() throws java.io.IOException {
+        // 2026-11-18 三份真实原件探针（E:\王创\....24聚艾简介 目录）
+        String dir = System.getenv("RESUME_JUAAI_DIR");
+        org.junit.jupiter.api.Assumptions.assumeTrue(dir != null && !dir.isBlank());
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of();
+            }
+        }, null);
+        var lushaobei = parser.parse("鲁少贝简介.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "鲁少贝简介.pptx")));
+        assertEquals("鲁少贝", lushaobei.fields().get("姓名"));
+        assertEquals("濮阳市人民医院", lushaobei.fields().get("单位"));
+        var sunmingliang = parser.parse("孙明亮个人简介.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "孙明亮个人简介.pptx")));
+        assertEquals("孙明亮", sunmingliang.fields().get("姓名"));
+        String sunUnit = sunmingliang.fields().get("单位");
+        assertTrue(sunUnit == null || !sunUnit.contains("毕业"), "单位不得包含教育经历行: " + sunUnit);
+        var weilimin = parser.parse("卫利民简介.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "卫利民简介.pptx")));
+        assertEquals("卫利民", weilimin.fields().get("姓名"));
+        String weiUnit = weilimin.fields().get("单位");
+        assertNotNull(weiUnit);
+        assertFalse(weiUnit.startsWith("卫利民"), "单位不得混入姓名: " + weiUnit);
+        assertTrue(weiUnit.contains("河南科技大学第一附属医院"), "单位应为河南科技大学第一附属医院: " + weiUnit);
+    }
 }
