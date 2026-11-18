@@ -166,6 +166,11 @@ public class PhotoMatteService {
         var builder = new ProcessBuilder(python.toString(), "-I", "-u", "-X", "utf8", workerScript.toString())
                 .directory(script.getParent().toFile())
                 .redirectError(ProcessBuilder.Redirect.appendTo(workerStderr.toFile()));
+        // 低像素超分助手探测（2026-11-18）：解释器存在才下发，worker 侧缺环境变量即整体跳过超分
+        Path srPython = resolveSrPython();
+        if (srPython != null) {
+            builder.environment().put("SR_UPSCALE_PYTHON", srPython.toString());
+        }
         worker = builder.start();
         reader = new BufferedReader(new InputStreamReader(worker.getInputStream(), StandardCharsets.UTF_8));
         writer = new BufferedWriter(new OutputStreamWriter(worker.getOutputStream(), StandardCharsets.UTF_8));
@@ -237,6 +242,19 @@ public class PhotoMatteService {
         String legacy = legacyRoot();
         if (legacy != null && !legacy.isBlank()) candidates.add(PpOcrRuntime.scriptUnder(Path.of(legacy), "photomatte.py"));
         return PpOcrRuntime.firstExisting(candidates);
+    }
+
+    /**
+     * 低像素超分解释器（2026-11-18）：SR_UPSCALE_PYTHON 显式配置优先，缺省探测
+     * ProgramFiles/JSHZ/sr-upscale/venv/Scripts/python.exe（与 pp-ocrv5 同级安装）。
+     * 不存在返回 null——worker 收不到 SR_UPSCALE_PYTHON 即跳过超分，回退原行为。
+     */
+    private Path resolveSrPython() {
+        String explicit = System.getenv("SR_UPSCALE_PYTHON");
+        if (explicit != null && !explicit.isBlank()) return Path.of(explicit);
+        String programFiles = System.getenv().getOrDefault("ProgramFiles", "C:/Program Files");
+        Path candidate = Path.of(programFiles, "JSHZ", "sr-upscale", "venv", "Scripts", "python.exe");
+        return Files.exists(candidate) ? candidate : null;
     }
 
     private static void deleteTemporary(Path file) {

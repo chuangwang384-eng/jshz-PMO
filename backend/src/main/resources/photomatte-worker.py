@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -15,6 +16,57 @@ try:
     from scipy import ndimage
 except Exception:
     ndimage = None
+
+# 低像素照片超分（2026-11-18 新增）：SR_UPSCALE_PYTHON 指向 sr-upscale.py 的解释器；
+# 缺省根目录 = ProgramFiles/JSHZ/sr-upscale（与 pp-ocrv5 同级）。任一条件不满足则跳过超分。
+SR_MAX_SIDE = 800          # 最长边超过此值不超分（本身足够清晰）
+SR_EDSR_MAX_SIDE = 350     # 该阈值内用 EDSR（最锐、最慢），其余用 LapSRN（快）
+sr_python = os.environ.get("SR_UPSCALE_PYTHON") or str(
+    Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "JSHZ" / "sr-upscale" / "venv" / "Scripts" / "python.exe")
+sr_script = os.environ.get(
+    "SR_UPSCALE_SCRIPT", str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "JSHZ" / "sr-upscale" / "sr-upscale.py"))
+sr_model_dir = os.environ.get(
+    "SR_UPSCALE_MODELS", str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "JSHZ" / "sr-upscale" / "models"))
+
+
+def upscale_if_lowres(image):
+    """最长边 < SR_MAX_SIDE 时用超分模型放大 4 倍（EDSR/LapSRN 二选一）。
+
+    超分失败（解释器缺失/模型缺失/推理异常/超时）一律回退原图，不影响抠图主链路。
+    """
+    longest = max(image.size)
+    if longest >= SR_MAX_SIDE:
+        return image
+    if not Path(sr_python).is_file() or not Path(sr_script).is_file():
+        return image
+    try:
+        model = str(Path(sr_model_dir) / ("EDSR_x4.pb" if longest <= SR_EDSR_MAX_SIDE else "LapSRN_x4.pb"))
+        if not Path(model).is_file():
+            return image
+        with Image.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            source = tmp.name
+        target = source + ".up.png"
+        try:
+            image.save(source, format="PNG")
+            result = subprocess.run([sr_python, sr_script], input=json.dumps([source, target, model]),
+                                    capture_output=True, text=True, timeout=300, encoding="utf-8")
+            if result.returncode == 0 and "OK" in result.stdout and Path(target).is_file():
+                upscaled = Image.open(target).convert("RGB")
+                if max(upscaled.size) > 1200:  # 与 Java 侧 resizePortraitInput 上限一致，控制后续形态学运算规模
+                    ratio = 1200.0 / max(upscaled.size)
+                    upscaled = upscaled.resize((max(1, round(upscaled.width * ratio)),
+                                                max(1, round(upscaled.height * ratio))), Image.LANCZOS)
+                return upscaled
+        finally:
+            for path in (source, target):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+    except Exception:
+        traceback.print_exc()
+    return image
+
 
 session = new_session("u2net")
 print("READY", flush=True)
@@ -76,7 +128,7 @@ def strip_background_colored_regions(image, portrait):
     # 仅处理纯色底：顶边 98% 像素接近背景色（与 recover 的纯色判定一致）
     if np.mean(top <= 12) < 0.98:
         return portrait
-    similar = (distance <= 40) & portrait
+    similar = (distance <= 64) & portrait
     if similar.mean() < 0.02:
         return portrait
     labels, count = ndimage.label(similar)
@@ -97,8 +149,9 @@ def refine(image):
     小图（<320px）掩码细节不足，导致抠出的人像发虚、身体衰减甚至只剩头部清晰。
     处理链：分辨率预处理 → 背景分割 → alpha 硬化 → 人物主体提取 → 裁剪边界判定。
     """
-    # 1) 分辨率预处理：小图放大到最长边 640（u2net 内部 320 输入），提升掩码细节；
-    #    大图不放大（Java 侧 resizePortraitInput 已把 >1200 缩到 1200）。
+    # 1) 分辨率预处理：低像素照片先超分（EDSR/LapSRN），再统一放大到最长边 640
+    #    （u2net 内部 320 输入）；大图不放大（Java 侧 resizePortraitInput 已把 >1200 缩到 1200）。
+    image = upscale_if_lowres(image)
     width, height = image.size
     longest = max(width, height)
     if longest < 640:

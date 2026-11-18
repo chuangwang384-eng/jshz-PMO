@@ -163,7 +163,7 @@ public class ResumeParseService {
         String[] tokens = base.split("[\\s\\-_.（）()、，,]+");
         for (String token : tokens) {
             String t = token.replaceFirst("^(?:副本)+", "")
-                    .replaceFirst("(?:个人简介|专家简介|的简历|简历|简介)+(?:新版|更新版|最新版|新)?$", "");
+                    .replaceFirst("(?:个人简介|专家简介|的简历|简历|简介)+(?:最新版|新版|更新版|最新|新)?$", "");
             if (isCandidateName(t)) return t;
         }
         for (String token : tokens) {
@@ -540,21 +540,37 @@ public class ResumeParseService {
 
         String unit = extractByLabel(cleaned, "单位", "Unit", 2, 40);
         if (unit == null) {
+            // 2026-11-18 改为强/弱候选分级取最优：
+            // 强=整行以机构后缀结尾（"洛阳市中心医院"、"医院河南科技大学第一附属医院"表格标签行）；
+            // 弱=行中截断到机构后缀（"河南省医学会青年委员"→"河南省医学会"、"主治医师XX医院放疗科"→"主治医师XX医院"）。
+            // 跳过：教育经历行（毕业/年份开头），防"2018年毕业于XX大学""2013/09-2018/07南方医科大学"误抓。
+            String strong = null;
+            String weak = null;
             for (String line : cleaned) {
                 String compact = line.replace(" ", "");
                 if (compact.length() > 40 || compact.contains("简历")) continue;
-                // 教育经历行（"2018年毕业于XX大学"）含机构后缀但不是任职单位，跳过（2026-11-18）
                 if (compact.contains("毕业")) continue;
-                // 设计稿常把职称/头衔接在单位后（"…医院院长"），按机构后缀截断
+                if (compact.matches("\\d{4}.*")) continue;
+                String lineStrong = null;
+                String lineWeak = null;
                 for (String suffix : ORG_SUFFIXES) {
-                    int idx = compact.indexOf(suffix);
-                    if (idx >= 0) {
-                        unit = compact.substring(0, idx + suffix.length());
+                    if (compact.endsWith(suffix)) {
+                        String cand = stripLeadingOrgEcho(compact);
+                        if (cand.length() >= 4) lineStrong = cand;
                         break;
                     }
+                    int idx = compact.indexOf(suffix);
+                    if (idx >= 0) {
+                        String cand = compact.substring(0, idx + suffix.length());
+                        if (cand.length() >= 4 && (lineWeak == null || cand.length() > lineWeak.length())) {
+                            lineWeak = cand;
+                        }
+                    }
                 }
-                if (unit != null) break;
+                if (lineStrong != null && (strong == null || lineStrong.length() > strong.length())) strong = lineStrong;
+                if (lineWeak != null && (weak == null || lineWeak.length() > weak.length())) weak = lineWeak;
             }
+            unit = strong != null ? strong : weak;
         }
         unit = sanitizeUnit(unit, name);
         if (unit != null) fields.put("单位", unit);
@@ -567,8 +583,22 @@ public class ResumeParseService {
                 if (unit != null && (compact.equals(unit) || unit.contains(compact))) continue;
                 if (DEPT_SUFFIXES.stream().anyMatch(compact::endsWith)
                         && ORG_SUFFIXES.stream().noneMatch(compact::endsWith)) {
-                    dept = compact;
-                    break;
+                    // 2026-11-18：行内含机构后缀时取其后尾段（"河南科技大学第一附属医院肿瘤内科"→"肿瘤内科"），
+                    // 防止"主治医师XX医院放疗科"整行混入科室
+                    String tail = compact;
+                    for (String suffix : ORG_SUFFIXES) {
+                        int idx = tail.indexOf(suffix);
+                        if (idx >= 0) {
+                            tail = tail.substring(idx + suffix.length());
+                            break;
+                        }
+                    }
+                    if (tail.length() >= 2 && tail.length() <= 10
+                            && DEPT_SUFFIXES.stream().anyMatch(tail::endsWith)
+                            && TITLE_WORDS.stream().noneMatch(tail::contains)) {
+                        dept = tail;
+                        break;
+                    }
                 }
             }
         }
@@ -642,7 +672,21 @@ public class ResumeParseService {
     }
 
     /**
-     * 单位字段净化（2026-11-17 修复"姓名混入单位"）：
+     * 剥除行首机构后缀回声（2026-11-18）：表格标签行"医院 河南科技大学第一附属医院"压缩后
+     * 以"医院"开头，仅当剩余部分仍以机构后缀结尾时剥除标签，防整体误剥。
+     */
+    String stripLeadingOrgEcho(String compact) {
+        for (String suffix : ORG_SUFFIXES) {
+            if (compact.startsWith(suffix) && compact.length() > suffix.length()) {
+                String rest = compact.substring(suffix.length());
+                if (ORG_SUFFIXES.stream().anyMatch(rest::endsWith)) return rest;
+            }
+        }
+        return compact;
+    }
+
+    /**
+     * 单位字段净化（2026-11-17 修复"姓名混入单位"；2026-11-18 增加职称前缀剥离"主治医师XX医院"）：
      * 设计稿常把姓名与单位写在同一行（"李向东，汝州市第一人民医院…"），按机构后缀截断时
      * 会把前置姓名一并带入。此处剥离已知姓名前缀，并按分隔符取以机构后缀结尾的机构段，
      * 丢弃姓名/职称段。对外契约不变：返回净化后的单位字符串，无机构段时返回原值（交由上层校验）。
@@ -653,6 +697,17 @@ public class ResumeParseService {
         // 剥离已解析出的姓名前缀（含其后分隔符，兼容"姓名，单位"与"姓名单位"直接拼接）
         if (knownName != null && !knownName.isBlank() && unit.startsWith(knownName)) {
             unit = unit.substring(knownName.length()).replaceFirst("^[，,、；;：:\\s／/|]+", "").trim();
+        }
+        // 剥除职称前缀（Ollama/截断候选常见"主治医师XX医院"），最长职称词优先
+        for (String title : TITLE_WORDS.stream().sorted((a, b) -> b.length() - a.length()).toList()) {
+            if (unit.startsWith(title) && unit.length() > title.length()) {
+                String rest = unit.substring(title.length()).replaceFirst("^[，,、；;：:\\s／/|]+", "").trim();
+                if (rest.contains("医院") || rest.contains("大学") || rest.contains("学院")
+                        || ORG_SUFFIXES.stream().anyMatch(rest::endsWith)) {
+                    unit = rest;
+                }
+                break;
+            }
         }
         // 按分隔符切分，取以机构后缀结尾的最长段（姓名/职称段被丢弃）
         String best = null;

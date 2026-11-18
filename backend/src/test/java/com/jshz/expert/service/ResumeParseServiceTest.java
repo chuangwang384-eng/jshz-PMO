@@ -322,4 +322,51 @@ class ResumeParseServiceTest {
         assertFalse(weiUnit.startsWith("卫利民"), "单位不得混入姓名: " + weiUnit);
         assertTrue(weiUnit.contains("河南科技大学第一附属医院"), "单位应为河南科技大学第一附属医院: " + weiUnit);
     }
+
+    @Test void strongOrgCandidateBeatsWeakTruncation() {
+        // 2026-11-18 郭双双原件回归：弱候选"河南省医学会"不得压过强候选表格标签行
+        Map<String, String> fields = parse("郭双双\n副主任医师 肿瘤学博士 副教授 硕导\n洛阳市抗癌协会肺癌专业委员会副主委\n河南省医学会青年委员\n医院    河南科技大学第一附属医院\n科室    呼吸肿瘤内科二病区 副主任");
+        assertEquals("河南科技大学第一附属医院", fields.get("单位"));
+    }
+
+    @Test void titlePrefixStrippedFromUnit() {
+        // 2026-11-18 李泉江原件回归："主治医师河南科技大学第一附属医院放疗科"
+        Map<String, String> fields = parse("李泉江\n医学博士  毕业于原解放军第二军医大学，\n主治医师  河南科技大学第一附属医院 放疗科\n中华医学会会员");
+        assertEquals("河南科技大学第一附属医院", fields.get("单位"));
+    }
+
+    @Test void datedEducationLinesAreNotUnit() {
+        // 2026-11-18 许鹏程原件回归："2013/09-2018/07南方医科大学"年份开头行不得作为单位
+        Map<String, String> fields = parse("个 人 简 历\n姓名：许鹏程；年龄：30岁；\n2013/09-2018/07  南方医科大学   医学博士\n2019/01—2021/06  中国人民解放军南部战区总医院  医学博士后\n获得青年医师优秀论文奖2项。");
+        assertNull(fields.get("单位"));
+    }
+
+    @Test void optionalJuaaiSixOriginals() throws java.io.IOException {
+        // 2026-11-18 第二批六份真实原件探针：郭双双/胡晓辰/李泉江/吕红琼/任婧/许鹏程
+        String dir = System.getenv("RESUME_JUAAI_DIR");
+        org.junit.jupiter.api.Assumptions.assumeTrue(dir != null && !dir.isBlank());
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of();
+            }
+        }, null);
+        var guo = parser.parse("郭双双 专家简介.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "郭双双 专家简介.pptx")));
+        assertEquals("郭双双", guo.fields().get("姓名"));
+        assertEquals("河南科技大学第一附属医院", guo.fields().get("单位"));
+        var hu = parser.parse("胡晓辰简介.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "胡晓辰简介.pptx")));
+        assertEquals("胡晓辰", hu.fields().get("姓名"));
+        assertEquals("河南科技大学第一附属医院", hu.fields().get("单位"));
+        var li = parser.parse("李泉江个人简介.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "李泉江个人简介.pptx")));
+        assertEquals("河南科技大学第一附属医院", li.fields().get("单位"));
+        assertEquals("放疗科", li.fields().get("科室"));
+        var lv = parser.parse("吕红琼简介最新.pptx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "吕红琼简介最新.pptx")));
+        assertEquals("吕红琼", lv.fields().get("姓名"));
+        assertEquals("洛阳市中心医院", lv.fields().get("单位"));
+        var ren = parser.parse("任婧简介.ppt", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "任婧简介.ppt")));
+        assertEquals("任婧", ren.fields().get("姓名"));
+        assertEquals("肿瘤内科", ren.fields().get("科室"));
+        var xu = parser.parse("许鹏程-个人简历.docx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "许鹏程-个人简历.docx")));
+        assertEquals("许鹏程", xu.fields().get("姓名"));
+        assertNull(xu.fields().get("单位"));
+    }
 }
