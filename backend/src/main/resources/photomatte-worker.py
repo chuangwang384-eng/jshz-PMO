@@ -113,11 +113,14 @@ def recover_solid_background_portrait(image, mask):
 
 
 def strip_background_colored_regions(image, portrait):
-    """纯色底残留清理（2026-11-18 修复"蓝底块残留"）。
+    """纯色底残留清理（2026-11-18 修复"蓝底块残留"；同日二次修复"白底批量损毁"）。
 
     fill_holes 会把脖子/肩窝等处被纯色背景填充的凹陷当成人像洞保留。此处把主体内
-    与背景同色的连通块重新透明化；仅保留与底部 12% 行相交的块（躯干衣物锚点），
-    防止误删蓝衣。非纯色底或残留占比过低时不动刀。
+    与背景同色的连通块重新透明化。按背景色分级（白底照片脸部浅色区距白底 <64，
+    容差 64 曾把段战锋/潘娜/刘朵平的脸部、头发成片误删）：
+    - 彩色纯色底（蓝底等，通道差 ≥48）：容差 64，保留与底部 12% 行相交的衣物锚点；
+    - 白/灰底：容差降到 30，且只清理与外部透明区相邻的连通块，脸部内部区域绝不触碰。
+    非纯色底或残留占比过低时不动刀。
     """
     if ndimage is None:
         return portrait
@@ -128,17 +131,29 @@ def strip_background_colored_regions(image, portrait):
     # 仅处理纯色底：顶边 98% 像素接近背景色（与 recover 的纯色判定一致）
     if np.mean(top <= 12) < 0.98:
         return portrait
-    similar = (distance <= 64) & portrait
+    colored = np.ptp(background) >= 48
+    tolerance = 64 if colored else 30
+    similar = (distance <= tolerance) & portrait
     if similar.mean() < 0.02:
         return portrait
     labels, count = ndimage.label(similar)
     if count == 0:
         return portrait
     anchor_top = int(portrait.shape[0] * 0.88)
+    if not colored:
+        # 白/灰底：只清理贴着外部透明区的残留块（发丝边缘碎底等），内部块一律保留
+        boundary = ndimage.binary_dilation(~portrait, np.ones((3, 3))) & portrait
+        boundary_labels = np.unique(labels[boundary])
+        boundary_set = set(int(v) for v in boundary_labels if v != 0)
+    else:
+        boundary_set = None
     keep = np.zeros_like(portrait)
     for i in range(1, count + 1):
-        if (labels[anchor_top:] == i).any():
-            keep |= labels == i
+        comp = labels == i
+        if (comp[anchor_top:]).any():
+            keep |= comp  # 底部衣物锚点：视为衣服保留
+        elif boundary_set is not None and i not in boundary_set:
+            keep |= comp  # 白底且不与外部相邻：内部区域（脸部等）保留
     return (portrait & ~similar) | keep
 
 

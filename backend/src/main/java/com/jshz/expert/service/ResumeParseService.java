@@ -155,15 +155,18 @@ public class ResumeParseService {
                 && !value.matches(".*(博士|硕士|学士|医师|教授|主任)$");
     }
 
+    /** 简历类后缀词（可带"最新/新版"变体与纯数字版次，如"简历2""简介2024"）。 */
+    private static final String RESUME_SUFFIX_PATTERN = "(?:个人简介|专家简介|的简历|简历|简介)+(?:最新版|新版|更新版|最新|新)?\\d*";
+
     String nameFromFileName(String fileName) {
         if (fileName == null || fileName.isBlank()) return null;
         String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
         // 去掉常见后缀词后再分词
-        base = base.replaceAll("(个人简介|专家简介|的简历|简历|简介)+$", "").trim();
+        base = base.replaceAll(RESUME_SUFFIX_PATTERN + "$", "").trim();
         String[] tokens = base.split("[\\s\\-_.（）()、，,]+");
         for (String token : tokens) {
             String t = token.replaceFirst("^(?:副本)+", "")
-                    .replaceFirst("(?:个人简介|专家简介|的简历|简历|简介)+(?:最新版|新版|更新版|最新|新)?$", "");
+                    .replaceFirst(RESUME_SUFFIX_PATTERN + "$", "");
             if (isCandidateName(t)) return t;
         }
         for (String token : tokens) {
