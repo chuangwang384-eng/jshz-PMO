@@ -259,6 +259,7 @@ server {
 - `LIBREOFFICE_PATH`：LibreOffice 可执行文件路径，默认 `<LOCAL_PATH> Files\LibreOffice\program\soffice.com`（Office 预览转换）。
 - `CORS_ALLOWED_ORIGINS`：前端来源白名单（逗号分隔），默认 `http://<PRIVATE_IP>:5173,http://localhost:5173,http://<PRIVATE_IP>:5173`；配置项 `security.cors.allowed-origins`，消费点 `SecurityConfig`。
 - `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `E:/AI助手开发/pp-ocrv5`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
+- `SR_UPSCALE_PYTHON`：低像素照片超分解释器（默认探测 `<LOCAL_PATH> Files/JSHZ/sr-upscale/venv/Scripts/python.exe`，不存在即整体跳过超分，2026-11-18）；worker 侧另有 `SR_UPSCALE_SCRIPT` / `SR_UPSCALE_MODELS` 覆盖口，缺省同根目录。
 - 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
 - **上传限额单一真源**（方案 D）：后端从 `application.yml expert.upload` 读取 photo/resume/doc-max-bytes，前端登录后经 `GET /api/meta/limits` 同步。调整时同步 `frontend/src/utils/limits.js` 中的离线兜底值。
 - **专家简历限额**：`expert.upload.resume-max-bytes` 为 31457280 字节。2026-11-18 核对 `application.yml` 的 multipart 文件与请求上限分别为 50 MB 和 60 MB，运行中 Nginx 的 API 请求上限为 60m。发布先切后端限额，再切前端，无需调整代理或 multipart 配置。
@@ -569,6 +570,7 @@ expert:
 | 2026-11-18 08:55:35 | 1.0.55 | 成功 | expert-system.jar |
 | 2026-11-18 10:05:04 | 1.0.57 | 成功 | expert-system.jar |
 | 2026-11-18 10:45:03 | 1.0.58 | 成功 | expert-system.jar |
+| 2026-11-18 12:20:52 | 1.0.59 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
