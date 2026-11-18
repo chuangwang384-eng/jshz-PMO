@@ -402,4 +402,18 @@ class ResumeParseServiceTest {
         assertEquals("主治医师", r2.fields().get("职称"));
         assertEquals("肿瘤内科", r2.fields().get("科室"));
     }
+
+    @Test void optionalYueyouYangchenTextboxDocx() throws java.io.IOException {
+        // 2026-11-18 杨晨原件回归：docx 文本框（w:txbxContent）正文须被抽取
+        String dir = System.getenv("RESUME_YUEYOU_DIR");
+        org.junit.jupiter.api.Assumptions.assumeTrue(dir != null && !dir.isBlank());
+        var parser = new ResumeParseService(new OllamaService() {
+            @Override public Map<String, String> extractResumeFields(String text) {
+                return Map.of();
+            }
+        }, null);
+        var result = parser.parse("杨晨简介.docx", java.nio.file.Files.readAllBytes(java.nio.file.Path.of(dir, "杨晨简介.docx")));
+        assertEquals("信阳市肿瘤医院", result.fields().get("单位"));
+        assertEquals("副主任医师", result.fields().get("职称"));
+    }
 }

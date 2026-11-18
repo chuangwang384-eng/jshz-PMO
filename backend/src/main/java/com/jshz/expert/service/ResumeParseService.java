@@ -268,9 +268,34 @@ public class ResumeParseService {
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes));
              XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
             text = extractor.getText();
+            // 文本框正文抽取（2026-11-18 杨晨原件回归）：设计版式把姓名/单位/职称放进
+            // w:txbxContent，XWPFWordExtractor 只读顶层段落，导致除姓名外全部丢失。
+            String textBox = extractDocxTextBoxText(doc);
+            if (!textBox.isBlank()) {
+                text = textBox + (text == null || text.isBlank() ? "" : "\n" + text);
+            }
             doc.getAllPictures().forEach(pic -> collectImage(images, pic.getData()));
         }
         return buildResult(text, images);
+    }
+
+    /** 抽取 docx 全部文本框段落（w:txbxContent），按段落拼行；无文本框返回空串。 */
+    private String extractDocxTextBoxText(XWPFDocument doc) {
+        StringBuilder sb = new StringBuilder();
+        String ns = "declare namespace w='http://schemas.openxmlformats.org/wordprocessingml/2006/main' ";
+        for (org.apache.xmlbeans.XmlObject para : doc.getDocument().getBody().selectPath(ns + ".//w:txbxContent//w:p")) {
+            StringBuilder line = new StringBuilder();
+            try (var cursor = para.newCursor()) {
+                cursor.selectPath(ns + ".//w:t");
+                while (cursor.toNextSelection()) {
+                    String value = cursor.getTextValue();
+                    if (value != null) line.append(value);
+                }
+            }
+            String trimmed = line.toString().replaceAll("[ \\t]+", " ").trim();
+            if (!trimmed.isEmpty()) sb.append(trimmed).append('\n');
+        }
+        return sb.toString();
     }
 
     private record SlideContent(String text, List<BufferedImage> images) {}

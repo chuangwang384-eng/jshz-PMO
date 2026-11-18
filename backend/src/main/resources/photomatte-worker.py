@@ -133,27 +133,30 @@ def strip_background_colored_regions(image, portrait):
         return portrait
     colored = np.ptp(background) >= 48
     tolerance = 64 if colored else 30
-    similar = (distance <= tolerance) & portrait
+    # 饱和度判别（2026-11-18 段战锋回归）：深棕发与深红底色距仅 ~45（<容差），但饱和度
+    # 迥异（发~0.2、底~1.0）；与背景同色系（含阴影）的残留饱和度必然接近背景。
+    mx = np.clip(rgb.max(axis=2), 1, None)
+    sat = (rgb.max(axis=2) - rgb.min(axis=2)) / mx
+    bg_sat = float((int(background.max()) - int(background.min())) / max(1, int(background.max())))
+    sat_close = np.abs(sat - bg_sat) <= (0.3 if colored else 1.0)
+    similar = (distance <= tolerance) & sat_close & portrait
     if similar.mean() < 0.02:
         return portrait
     labels, count = ndimage.label(similar)
     if count == 0:
         return portrait
     anchor_top = int(portrait.shape[0] * 0.88)
-    if not colored:
-        # 白/灰底：只清理贴着外部透明区的残留块（发丝边缘碎底等），内部块一律保留
-        boundary = ndimage.binary_dilation(~portrait, np.ones((3, 3))) & portrait
-        boundary_labels = np.unique(labels[boundary])
-        boundary_set = set(int(v) for v in boundary_labels if v != 0)
-    else:
-        boundary_set = None
+    # 统一只清理贴着外部透明区且未被底部衣物锚定的块：内部块（脸部等）一律保留——
+    # 深色头发与暗红底色距 <64，按色相似删除会成片咬穿（段战锋原件回归 2026-11-18）
+    boundary = ndimage.binary_dilation(~portrait, np.ones((3, 3))) & portrait
+    boundary_set = set(int(v) for v in np.unique(labels[boundary]) if v != 0)
     keep = np.zeros_like(portrait)
     for i in range(1, count + 1):
         comp = labels == i
         if (comp[anchor_top:]).any():
             keep |= comp  # 底部衣物锚点：视为衣服保留
-        elif boundary_set is not None and i not in boundary_set:
-            keep |= comp  # 白底且不与外部相邻：内部区域（脸部等）保留
+        elif i not in boundary_set:
+            keep |= comp  # 不与外部相邻：内部区域（脸部等）保留
     return (portrait & ~similar) | keep
 
 
