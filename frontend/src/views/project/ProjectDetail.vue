@@ -535,11 +535,9 @@
           <template v-else-if="outArchiveCount > 0">
             <div class="todo-item">
               <span class="todo-name">库外专家待入档 {{ outArchiveCount }} 人</span>
-              <el-button v-if="canOperate" link type="warning" size="small" :loading="quickArchiveRunning"
-                @click="quickArchiveInput?.click()">一键上传</el-button>
+              <el-button v-if="canOperate" link type="warning" size="small"
+                @click="openArchiveDialog(null)">一键上传</el-button>
             </div>
-            <input ref="quickArchiveInput" type="file" hidden multiple
-              accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png" @change="quickArchive" />
           </template>
           <div v-if="!otherRequiredTemplates.length && !comparison?.changes.length && !candidates.length && !outArchiveCount"
             class="side-done">{{ isBudgetStage ? '报价文件已生成' : '当前阶段必填配置已完成' }}</div>
@@ -802,18 +800,8 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="quickArchiveResultVisible" title="简历建档结果" width="min(680px, 95vw)">
-      <el-table :data="quickArchiveResults" size="small">
-        <el-table-column prop="fileName" label="简历" min-width="160" />
-        <el-table-column label="结果" min-width="220">
-          <template #default="{ row }">
-            {{ row.ok ? '已建档：' + row.expertName + '，回绑 ' + row.boundSpeakers + ' 条' : row.error }}
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
-
     <BatchResumeDialog v-model="archiveVisible" :target-names="archiveTargetNames"
+      :auto-match-targets="!archivePresetName" :max-pending-files="60"
       :preset-name="archivePresetName" :save-project-expert="saveProjectResume" @saved="refreshArchivedExperts">
       <template #extra>
         <el-button :disabled="!canOperate" @click="manualArchiveVisible = true">手动建档</el-button>
@@ -905,7 +893,7 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveManual, applyScheduleComparison, archiveProjectResumes, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
+  archiveManual, applyScheduleComparison, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
 } from '../../api/project'
 import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
 
@@ -1225,37 +1213,6 @@ function goToScheduleCandidates() {
   document.getElementById('schedule-candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-const quickArchiveInput = ref(null)
-const quickArchiveSelectionLimit = 60
-const quickArchiveRunning = ref(false)
-const quickArchiveResults = ref([])
-const quickArchiveResultVisible = ref(false)
-
-async function quickArchive(event) {
-  const files = Array.from(event.target.files || [])
-  event.target.value = ''
-  if (!files.length || quickArchiveRunning.value || candidates.value.length) return
-  if (files.length > quickArchiveSelectionLimit) {
-    ElMessage.warning(`单次最多选择 ${quickArchiveSelectionLimit} 份简历`)
-    return
-  }
-  quickArchiveRunning.value = true
-  quickArchiveResults.value = []
-  try {
-    for (const file of files) {
-      try {
-        const results = await archiveProjectResumes(projectId, [file])
-        quickArchiveResults.value.push(...results)
-      } catch (error) {
-        quickArchiveResults.value.push({ fileName: file.name, error: error.message || '上传失败，请重试' })
-      }
-    }
-    quickArchiveResultVisible.value = true
-    await refreshArchivedExperts()
-  } finally {
-    quickArchiveRunning.value = false
-  }
-}
 
 const manualName = ref('')
 const manualRole = ref(null)
@@ -1300,7 +1257,8 @@ async function saveProjectResume(fields, photo) {
     title: fields.职称,
     profile: fields.简介,
     contact: fields.联系方式,
-    requirePendingSpeaker: !archiveCandidate.value
+    requirePendingSpeaker: !archiveCandidate.value,
+    rejectExistingName: !archivePresetName.value
   }, photo)
   if (archiveCandidate.value) archiveCandidate.value.expertId = result.expertId
   return `已建档，回绑参会记录 ${result.boundSpeakers} 条`

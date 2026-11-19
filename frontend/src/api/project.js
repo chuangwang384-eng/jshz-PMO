@@ -178,12 +178,6 @@ export function applyScheduleComparison(id, scheduleId, token, accepted) {
   return request.post(`/project/${id}/schedule/${scheduleId}/comparison`, { token, accepted })
 }
 
-export function archiveProjectResumes(id, files) {
-  const form = new FormData()
-  for (const file of files) form.append('files', file)
-  return request.post(`/project/${id}/speakers/archive-resumes`, form, { timeout: 180000 })
-}
-
 // 手动补录一条参会专家（解析失败/遗漏兜底）
 export function addSpeaker(id, data) {
   return request.post(`/project/${id}/speakers`, data)

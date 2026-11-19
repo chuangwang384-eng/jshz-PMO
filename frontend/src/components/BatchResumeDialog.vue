@@ -13,6 +13,7 @@
       <slot v-if="!busy" name="extra" />
     </div>
     <p v-if="presetName" class="message">参会专家：{{ presetName }}。解析出的姓名一致后才能提交建档。</p>
+    <p v-else-if="autoMatchTargets" class="message">解析后按姓名匹配待建档的参会专家。核对资料和证件照后提交。</p>
     <p v-else-if="projectMode" class="message">为每份简历选择对应的参会专家。解析出的姓名一致后才能提交建档。</p>
     <el-empty v-if="!rows.length" :description="presetName ? '上传一份简历后开始解析' : '选择简历后，每份文件会生成一张待核对的专家卡'" />
     <div v-else class="cards" :class="{ 'single-card': presetName }">
@@ -98,7 +99,8 @@ import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
 ensureUploadLimits()
 
 const props = defineProps({
-  canAdd: Boolean, canEdit: Boolean, targetNames: Array, presetName: String, saveProjectExpert: Function
+  canAdd: Boolean, canEdit: Boolean, targetNames: Array, presetName: String, saveProjectExpert: Function,
+  autoMatchTargets: Boolean, maxPendingFiles: { type: Number, default: 10 }
 })
 const emit = defineEmits(['saved'])
 const visible = defineModel({ type: Boolean })
@@ -143,8 +145,8 @@ function addFiles(event) {
       ElMessage.warning('单人建档只可添加一份简历')
       break
     }
-    if (projectMode.value && rows.value.filter(row => !finished(row)).length >= 10) {
-      ElMessage.warning('单次最多添加 10 份待处理简历')
+    if (projectMode.value && rows.value.filter(row => !finished(row)).length >= props.maxPendingFiles) {
+      ElMessage.warning(`单次最多添加 ${props.maxPendingFiles} 份待处理简历`)
       break
     }
     const targetName = props.presetName || ''
@@ -184,7 +186,7 @@ function replaceFile(row, event) {
 }
 
 function canParse(row) {
-  return row.status === 'waiting' && (!projectMode.value || hasTarget(row))
+  return row.status === 'waiting' && (!projectMode.value || props.autoMatchTargets || hasTarget(row))
 }
 
 function remove(row) {
@@ -203,14 +205,22 @@ function edit(row) {
 async function parseRow(row) {
   row.status = 'parsing'
   try {
-    const result = await parseResume(row.file)
+    const result = props.autoMatchTargets
+      ? await parseResume(row.file, { contentNameOnly: true })
+      : await parseResume(row.file)
     if (projectMode.value) {
       const parsedName = String(result?.fields?.姓名 ?? '').trim()
+      if (props.autoMatchTargets && !row.targetName && props.targetNames.includes(parsedName)
+        && !rows.value.some(other => other !== row && other.targetName === parsedName && !finished(other))) {
+        row.targetName = parsedName
+      }
       if (!parsedName || parsedName !== row.targetName) {
         row.status = 'failed'
         row.selected = false
         row.editing = false
-        row.message = parsedName ? `解析姓名「${parsedName}」与所选专家「${row.targetName}」不一致` : '未从简历识别到姓名'
+        row.message = !parsedName ? '未从简历识别到姓名' : !row.targetName
+          ? `「${parsedName}」无法唯一匹配待建档名单，或本批已添加该专家`
+          : `解析姓名「${parsedName}」与所选专家「${row.targetName}」不一致`
         return
       }
     }
@@ -238,7 +248,7 @@ async function parseRow(row) {
 }
 
 async function retry(row) {
-  if (projectMode.value && !hasTarget(row)) return
+  if (projectMode.value && !props.autoMatchTargets && !hasTarget(row)) return
   parsing.value = true
   try {
     await parseRow(row)

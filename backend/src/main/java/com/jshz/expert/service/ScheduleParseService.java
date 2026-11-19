@@ -980,6 +980,10 @@ public class ScheduleParseService {
                         .last("FOR UPDATE")).isEmpty()) {
             throw new BusinessException("该参会专家已建档或不在待建档名单中，请刷新后重试");
         }
+        if (Boolean.TRUE.equals(body.get("rejectExistingName"))
+                && expertService.count(new LambdaQueryWrapper<Expert>().eq(Expert::getName, name)) > 0) {
+            throw new BusinessException("存在同名专家档案，请人工确认");
+        }
         Expert saved = createExpertForProject(project, body, photo, user);
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("ok", true);
