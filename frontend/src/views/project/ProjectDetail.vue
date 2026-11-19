@@ -1226,6 +1226,7 @@ function goToScheduleCandidates() {
 }
 
 const quickArchiveInput = ref(null)
+const quickArchiveSelectionLimit = 60
 const quickArchiveRunning = ref(false)
 const quickArchiveResults = ref([])
 const quickArchiveResultVisible = ref(false)
@@ -1234,8 +1235,8 @@ async function quickArchive(event) {
   const files = Array.from(event.target.files || [])
   event.target.value = ''
   if (!files.length || quickArchiveRunning.value || candidates.value.length) return
-  if (files.length > 10) {
-    ElMessage.warning('单次最多选择 10 份简历')
+  if (files.length > quickArchiveSelectionLimit) {
+    ElMessage.warning(`单次最多选择 ${quickArchiveSelectionLimit} 份简历`)
     return
   }
   quickArchiveRunning.value = true
