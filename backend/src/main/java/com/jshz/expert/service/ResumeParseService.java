@@ -11,6 +11,7 @@ import org.apache.poi.hwpf.extractor.WordExtractor;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.PackageAccess;
+import org.apache.poi.poifs.filesystem.FileMagic;
 import org.apache.poi.sl.usermodel.GroupShape;
 import org.apache.poi.sl.usermodel.PictureShape;
 import org.apache.poi.sl.usermodel.Shape;
@@ -118,7 +119,7 @@ public class ResumeParseService {
                 case "pdf" -> parsePdf(bytes);
                 case "doc" -> parseDoc(bytes);
                 case "docx" -> parseDocx(bytes);
-                case "ppt" -> parsePpt(bytes);
+                case "ppt" -> FileMagic.valueOf(bytes) == FileMagic.OOXML ? parsePptx(bytes) : parsePpt(bytes);
                 case "pptx" -> parsePptx(bytes);
                 case "jpg", "jpeg", "png" -> parseImage(bytes);
                 default -> throw new BusinessException(400, "不支持的简历格式");

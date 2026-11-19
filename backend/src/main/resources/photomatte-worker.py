@@ -105,9 +105,30 @@ def modnet_cutout(image):
     alpha = alpha.resize(rgb.size, Image.Resampling.BILINEAR)
     rgba = np.array(image.convert("RGBA"))
     original_alpha = rgba[..., 3].astype(np.uint16)
-    rgba[..., 3] = ((original_alpha * np.asarray(alpha, dtype=np.uint16) + 127) // 255).astype(np.uint8)
+    portrait_alpha = primary_portrait_alpha(np.array(alpha)).astype(np.uint16)
+    rgba[..., 3] = ((original_alpha * portrait_alpha + 127) // 255).astype(np.uint8)
     rgba[rgba[..., 3] == 0, :3] = 0
     return Image.fromarray(rgba)
+
+
+def primary_portrait_alpha(alpha):
+    """移除远离主体的独立前景，例如截图中的幻灯片缩略图。"""
+    if ndimage is None:
+        return alpha
+    labels, count = ndimage.label(alpha >= 128, structure=np.ones((3, 3)))
+    if count <= 1:
+        return alpha
+    main = np.argmax(np.bincount(labels.ravel())[1:]) + 1
+    secondary = (labels != 0) & (labels != main)
+    near_main = ndimage.binary_dilation(labels == main, iterations=max(3, round(max(alpha.shape) * 0.02)))
+    detached = np.unique(labels[secondary & ~near_main])
+    nearby = np.unique(labels[secondary & near_main])
+    detached = detached[~np.isin(detached, nearby)]
+    if not detached.size:
+        return alpha
+    # 将软边分配给最近的高置信区域，保留主体原有的渐变透明度。
+    nearest = ndimage.distance_transform_edt(labels == 0, return_distances=False, return_indices=True)
+    return np.where(np.isin(labels[tuple(nearest)], detached), 0, alpha).astype(np.uint8)
 
 
 def recover_solid_background_portrait(image, mask):
@@ -259,6 +280,11 @@ def refine(image):
     处理链：分辨率预处理 → 背景分割 → alpha 硬化 → 人物主体提取 → 裁剪边界判定。
     """
     global session
+    if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+        rgba = image.convert("RGBA")
+        histogram = rgba.getchannel("A").histogram()
+        if histogram[0] >= 0.01 * image.width * image.height and sum(histogram[128:]) > 0:
+            return crop_portrait(rgba)
     if modnet_session is not None:
         # Match the worker protocol's ERROR path so Java offers the original photo.
         return crop_portrait(modnet_cutout(image))

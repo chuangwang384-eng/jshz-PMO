@@ -329,3 +329,7 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 ### PowerPoint 简历的照片候选
 
 PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只有幻灯片没有符合现有照片尺寸筛选的图片，或 PPTX 形状树触发兼容降级时，才扫描文件包内媒体。候选仍通过现有抠图和原图回退链路。母版和未引用图片不再占用正常幻灯片的候选名额。见 [照片候选回归](handover/tasks/20261118_resume_visible_portrait.md)。
+
+### PowerPoint 已透明照片与单主体抠图
+
+专家简历按文件签名识别内容为 OOXML 的 `.ppt`，并交给现有 PPTX 解析器。照片具有明显透明区域时，沿用原透明通道并裁剪画布空白。MODNet 对独立且远离主要人像的前景做连通区域清理，保留主区域软边。设计和原件验证见 [三份简历照片回归](handover/tasks/20261118_three_portrait_fixes.md)。

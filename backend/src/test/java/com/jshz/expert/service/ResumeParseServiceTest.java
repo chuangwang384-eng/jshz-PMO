@@ -231,6 +231,7 @@ class ResumeParseServiceTest {
         var parser = new ResumeParseService(null, null);
         var result = parser.parse("简历.pptx", output.toByteArray(), false);
         assertEquals(1, result.photoCandidates().size());
+        assertEquals(result.photoCandidates(), parser.parse("简历.ppt", output.toByteArray(), false).photoCandidates());
         byte[] bytes = java.util.Base64.getDecoder().decode(result.photoCandidates().get(0).base64());
         assertEquals(160, ImageIO.read(new java.io.ByteArrayInputStream(bytes)).getWidth());
     }
