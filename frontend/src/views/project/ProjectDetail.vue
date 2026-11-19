@@ -229,22 +229,28 @@
                   <el-tag v-if="!row.expertId" size="small" type="warning">库外</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="130" fixed="right">
+              <el-table-column label="操作" width="180" fixed="right">
                 <template #default="{ row }">
+                  <el-button v-if="canOperate" link type="primary" size="small" :disabled="savingSpeakers"
+                    @click="saveSpeakerRows([row], row.id)">保存</el-button>
                   <el-button v-if="!row.expertId && canOperate" link type="primary" size="small" @click="openArchiveDialog(row, true)">去建档</el-button>
                   <el-button link type="danger" size="small" @click="removeCandidateRow(row)">移除</el-button>
                 </template>
               </el-table-column>
             </el-table>
-            <div class="task-ops">
-              <el-button v-if="candidateDraft.length" type="primary" @click="doConfirm">确认保存新增参会记录（{{ candidateDraft.length }} 条）</el-button>
-              <el-button v-else @click="discardCandidates">放弃全部候选</el-button>
-              <el-button @click="resetCandidateDraft">还原为解析结果</el-button>
+            <div v-if="canOperate" class="task-ops">
+              <el-button v-if="candidateDraft.length" type="primary" :disabled="savingSpeakers"
+                @click="saveSpeakerRows(candidateDraft)">确认保存新增参会记录（{{ candidateDraft.length }} 条）</el-button>
+              <el-button v-else :disabled="savingSpeakers" @click="discardCandidates">放弃全部候选</el-button>
             </div>
           </template>
 
           <!-- 正式参会专家 -->
-          <div id="schedule-speakers" class="schedule-sub-title">参会专家（已确认 {{ speakers.length }} 人）</div>
+          <div id="schedule-speakers" class="schedule-sub-title">
+            参会专家（已确认 {{ speakers.length }} 人）
+            <el-button v-if="canOperate && speakers.length" link type="danger" size="small" :disabled="savingSpeakers"
+              @click="clearSavedSpeakers">清空已保存专家</el-button>
+          </div>
           <el-table v-if="speakers.length" :data="speakers" size="small" stripe>
             <el-table-column prop="expertName" label="姓名" width="120" />
             <el-table-column label="会议角色" width="110">
@@ -893,7 +899,7 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveManual, applyScheduleComparison, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
+  archiveManual, applyScheduleComparison, clearConfirmedSpeakers, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
 } from '../../api/project'
 import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
 
@@ -1029,6 +1035,7 @@ const scheduleBadgeClass = computed(() => {
 
 async function fetchSchedule({ preserveDraft = false } = {}) {
   const data = await getScheduleOverview(projectId)
+  const previous = new Set(candidates.value.map(row => row.id))
   schedule.value = data?.schedule || null
   parseRevision.value = data?.parseRevision || null
   candidates.value = data?.candidates || []
@@ -1036,17 +1043,18 @@ async function fetchSchedule({ preserveDraft = false } = {}) {
   comparison.value = data?.comparison || null
   if (preserveDraft) {
     const linkedById = new Map(candidates.value.map(row => [row.id, row]))
-    candidateDraft.value = candidateDraft.value.map(row => {
+    const drafts = candidateDraft.value.filter(row => linkedById.has(row.id)).map(row => {
       const saved = linkedById.get(row.id)
       if (!saved?.expertId || saved.expertName !== row.expertName || row.expertId) return row
       return { ...row, expertId: saved.expertId, expertUnit: saved.expertUnit || '' }
     })
+    candidateDraft.value = [...drafts, ...candidates.value.filter(row => !previous.has(row.id)).map(toCandidateDraft)]
   } else {
-    resetCandidateDraft()
+    candidateDraft.value = candidates.value.map(toCandidateDraft)
   }
 }
-function resetCandidateDraft() {
-  candidateDraft.value = candidates.value.map((c) => ({
+function toCandidateDraft(c) {
+  return {
     id: c.id,
     scheduleId: c.scheduleId,
     expertName: c.expertName,
@@ -1055,7 +1063,7 @@ function resetCandidateDraft() {
     segmentTime: c.segmentTime || '',
     expertId: c.expertId || null,
     expertUnit: c.expertUnit || ''
-  }))
+  }
 }
 
 async function onScheduleFile(file) {
@@ -1147,8 +1155,11 @@ function removeCandidateRow(row) {
   candidateDraft.value = candidateDraft.value.filter((r) => r !== row)
 }
 
-async function doConfirm() {
-  const payload = candidateDraft.value.map((r) => ({
+const savingSpeakers = ref(false)
+
+async function saveSpeakerRows(rows, candidateId) {
+  if (savingSpeakers.value || !schedule.value) return
+  const payload = rows.map((r) => ({
     scheduleId: r.scheduleId,
     expertName: String(r.expertName || '').trim(),
     role: r.role,
@@ -1160,14 +1171,40 @@ async function doConfirm() {
     ElMessage.warning('存在姓名为空的候选行，请补齐或移除')
     return
   }
-  speakers.value = await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, payload)
-  ElMessage.success('参会专家已确认保存')
-  await Promise.all([fetchSchedule(), fetchDetail({ refreshSchedule: false })])
+  savingSpeakers.value = true
+  try {
+    speakers.value = await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, payload, candidateId)
+    ElMessage.success(payload.length ? '参会专家已确认保存' : '已放弃候选')
+    await Promise.all([fetchSchedule({ preserveDraft: Boolean(candidateId) }), fetchDetail({ refreshSchedule: false })])
+  } finally {
+    savingSpeakers.value = false
+  }
 }
 
 async function discardCandidates() {
   await ElMessageBox.confirm('放弃当前全部新增候选？已保存的参会专家会保留。', '放弃候选', { type: 'warning' })
-  await doConfirm()
+  await saveSpeakerRows([])
+}
+
+async function clearSavedSpeakers() {
+  if (savingSpeakers.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将清空当前项目全部已保存的参会记录（含手动补录）。解析候选和专家库档案都会保留。',
+      '清空已保存专家', { type: 'warning', confirmButtonText: '确认清空' }
+    )
+  } catch {
+    return
+  }
+  if (savingSpeakers.value) return
+  savingSpeakers.value = true
+  try {
+    await clearConfirmedSpeakers(projectId)
+    ElMessage.success('已清空本项目已保存的参会记录')
+    await Promise.all([fetchSchedule({ preserveDraft: true }), fetchDetail({ refreshSchedule: false })])
+  } finally {
+    savingSpeakers.value = false
+  }
 }
 
 const comparison = ref(null)

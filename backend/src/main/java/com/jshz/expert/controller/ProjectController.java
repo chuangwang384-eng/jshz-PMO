@@ -520,12 +520,19 @@ public class ProjectController {
     public ApiResponse<List<ProjectSpeaker>> confirmSpeakers(@PathVariable Long id, @RequestBody Map<String, Object> body,
                                                              @RequestParam(required = false) Long scheduleId,
                                                              @RequestParam(required = false) String parseRevision,
+                                                             @RequestParam(required = false) Long candidateId,
                                                              @AuthenticationPrincipal AuthUser user) {
         Object items = body == null ? null : body.get("speakers");
         List<Map<String, Object>> list = items instanceof List<?> l
                 ? l.stream().filter(o -> o instanceof Map).map(o -> (Map<String, Object>) o).collect(java.util.stream.Collectors.toList())
                 : List.of();
-        return ApiResponse.ok(scheduleParseService.confirm(id, scheduleId, parseRevision, list, user));
+        return ApiResponse.ok(scheduleParseService.confirm(id, scheduleId, parseRevision, list, candidateId, user));
+    }
+
+    @DeleteMapping("/{id}/speakers/confirmed")
+    public ApiResponse<Void> clearConfirmedSpeakers(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        scheduleParseService.clearConfirmedSpeakers(id, user);
+        return ApiResponse.ok(null);
     }
 
     public record ScheduleComparisonDecision(String token, List<Long> accepted) {}

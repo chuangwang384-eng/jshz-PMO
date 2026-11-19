@@ -170,8 +170,12 @@ export function deleteScheduleDoc(id, docId) {
 }
 
 // 确认新增候选，保留已保存的参会记录
-export function confirmSpeakers(id, scheduleId, parseRevision, speakers) {
-  return request.put(`/project/${id}/speakers`, { speakers }, { params: { scheduleId, parseRevision } })
+export function confirmSpeakers(id, scheduleId, parseRevision, speakers, candidateId) {
+  return request.put(`/project/${id}/speakers`, { speakers }, { params: { scheduleId, parseRevision, candidateId } })
+}
+
+export function clearConfirmedSpeakers(id) {
+  return request.delete(`/project/${id}/speakers/confirmed`)
 }
 
 export function applyScheduleComparison(id, scheduleId, token, accepted) {

@@ -1013,6 +1013,12 @@ public class ScheduleParseService {
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public List<ProjectSpeaker> confirm(Long projectId, Long scheduleId, String parseRevision,
                                         List<Map<String, Object>> items, AuthUser user) {
+        return confirm(projectId, scheduleId, parseRevision, items, null, user);
+    }
+
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public List<ProjectSpeaker> confirm(Long projectId, Long scheduleId, String parseRevision,
+                                        List<Map<String, Object>> items, Long candidateId, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
         if (items == null) {
@@ -1022,6 +1028,12 @@ public class ScheduleParseService {
         if (!"DONE".equals(current.getParseStatus())) throw new BusinessException("请等待当前日程解析完成");
         if (parseRevision != null && !parseRevision.equals(parsedResult(current).path("revision").asText(null))) {
             throw new BusinessException("解析候选已变化，请刷新后重试");
+        }
+        if (candidateId != null) {
+            if (items.size() != 1 || speakerMapper.delete(candidateScope(projectId, current.getId())
+                    .eq(ProjectSpeaker::getId, candidateId)) != 1) {
+                throw new BusinessException("该候选已变化，请刷新后重试");
+            }
         }
         List<ProjectSpeaker> keep = new ArrayList<>(confirmedSpeakers(projectId));
         int added = 0;
@@ -1054,17 +1066,38 @@ public class ScheduleParseService {
             keep.add(sp);
             added++;
         }
-        clearCandidates(projectId, current.getId());
+        if (candidateId == null) clearCandidates(projectId, current.getId());
         projectService.operationRecord(user, "确认项目「" + project.getName() + "」新增参会专家 " + added + " 条",
                 "PROJECT", projectId);
         return confirmedSpeakers(projectId);
     }
 
     private void clearCandidates(Long projectId, Long scheduleId) {
-        speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
+        speakerMapper.delete(candidateScope(projectId, scheduleId));
+    }
+
+    private LambdaQueryWrapper<ProjectSpeaker> candidateScope(Long projectId, Long scheduleId) {
+        return new LambdaQueryWrapper<ProjectSpeaker>()
                 .eq(ProjectSpeaker::getProjectId, projectId)
                 .eq(ProjectSpeaker::getScheduleId, scheduleId)
-                .eq(ProjectSpeaker::getConfirmed, 0));
+                .eq(ProjectSpeaker::getConfirmed, 0);
+    }
+
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public void clearConfirmedSpeakers(Long projectId, AuthUser user) {
+        Project project = projectService.requireProject(projectId);
+        projectService.requireOperable(project, user);
+        ProjectSchedule current = currentSchedule(projectId);
+        if (current != null) current = lockCurrentSchedule(projectId, current.getId());
+        int removed = speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
+                .eq(ProjectSpeaker::getProjectId, projectId).eq(ProjectSpeaker::getConfirmed, 1));
+        var parsed = parsedResult(current);
+        if (current != null && parsed instanceof com.fasterxml.jackson.databind.node.ObjectNode raw
+                && raw.remove("comparison") != null) {
+            current.setRawResult(raw.toString());
+            scheduleMapper.updateById(current);
+        }
+        if (removed > 0) projectService.operationRecord(user, "清空项目已保存参会专家 " + removed + " 条", "PROJECT", projectId);
     }
 
     /** 手动补录一条（解析失败/遗漏兜底）。 */

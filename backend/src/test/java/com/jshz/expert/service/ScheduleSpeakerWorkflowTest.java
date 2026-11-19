@@ -74,6 +74,30 @@ class ScheduleSpeakerWorkflowTest {
     }
 
     @Test
+    void savesOneCandidateAndConsumesOnlyThatCandidate() {
+        when(speakers.delete(any())).thenReturn(1);
+        var input = List.<Map<String, Object>>of(Map.of("expertName", "何振", "role", "SPEAKER"));
+        service.confirm(5L, 8L, "current", input, 19L, null);
+        verify(speakers).delete(argThat(scope -> scope.getSqlSegment().contains("AND id =")));
+        verify(speakers).insert(any(ProjectSpeaker.class));
+    }
+
+    @Test
+    void clearsConfirmedRecordsWithoutTouchingExpertArchives() {
+        schedule.setRawResult("{\"revision\":\"current\",\"comparison\":{}}");
+        when(schedules.selectList(any())).thenReturn(List.of(schedule));
+        when(speakers.delete(any())).thenReturn(2);
+        service.clearConfirmedSpeakers(5L, null);
+        verify(speakers).delete(argThat(scope -> {
+            var query = (com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<?>) scope;
+            return query.getSqlSegment().contains("project_id") && query.getSqlSegment().contains("confirmed")
+                    && query.getParamNameValuePairs().containsValue(1);
+        }));
+        verifyNoInteractions(experts);
+        assertEquals("{\"revision\":\"current\"}", schedule.getRawResult());
+    }
+
+    @Test
     void appliesSelectedRoleChangeAndPreservesUnselectedRemoval() {
         schedule.setRawResult("""
                 {"revision":"current","comparison":{"token":"current","changes":[
