@@ -521,22 +521,24 @@ public class ScheduleParseService {
                 String time = clock.find() ? clock.group().replace('：', ':') : "";
                 String topic = LOCAL_TIME.matcher(prefix).replaceAll("").strip()
                         .replaceAll("^[：:|｜·\\s]+|[：:|｜·\\s]+$", "");
-                do {
-                    String roleLabel = label.group(1);
-                    int payloadStart = label.end();
-                    boolean hasNextLabel = label.find();
-                    String payload = line.substring(payloadStart, hasNextLabel ? label.start() : line.length());
-                    List<String> names = extractNames(payload);
-                    String role = roleLabel.contains("主持") ? ProjectSpeaker.ROLE_HOST
-                            : roleLabel.contains("讨论") ? ProjectSpeaker.ROLE_DISCUSSANT : ProjectSpeaker.ROLE_SPEAKER;
-                    for (String name : names) {
-                        appearances.add(speaker(name, role, topic, time));
-                    }
-                    if (!hasNextLabel) break;
-                } while (true);
+                addLabeledPeople(appearances, line, label, topic, time);
             }
         }
         return appearances;
+    }
+
+    /** label 已定位到首个角色；保留下一角色前的全部名单，包括跨段落的姓名。 */
+    private void addLabeledPeople(List<ProjectSpeaker> result, String text, Matcher label, String topic, String time) {
+        boolean hasNextLabel;
+        do {
+            String roleLabel = label.group(1);
+            int payloadStart = label.end();
+            hasNextLabel = label.find();
+            String role = roleLabel.contains("主持") ? ProjectSpeaker.ROLE_HOST
+                    : roleLabel.contains("讨论") ? ProjectSpeaker.ROLE_DISCUSSANT : ProjectSpeaker.ROLE_SPEAKER;
+            addAgendaPeople(result, text.substring(payloadStart, hasNextLabel ? label.start() : text.length()),
+                    role, topic, time);
+        } while (hasNextLabel);
     }
 
     private boolean sameAppearance(ProjectSpeaker left, ProjectSpeaker right) {
@@ -1022,6 +1024,8 @@ public class ScheduleParseService {
             Pattern.compile("\\d{1,2}[:：]\\d{2}\\s*[-—–~～至]\\s*\\d{1,2}[:：]\\d{2}");
     private static final Pattern AGENDA_LINE = Pattern.compile("^(" + AGENDA_RANGE + ")\\s*(.*)$");
     private static final Pattern DISCUSSION_LINE = Pattern.compile("^讨论(?:嘉宾)?\\s*[:：]");
+    private static final Pattern PPT_DISCUSSION_CELL = Pattern.compile("^(多学科对话)\\s*[:：]");
+    private static final Pattern ADJACENT_PROFESSORS = Pattern.compile("(?<=教授)(?=[\\p{IsHan}])");
 
     private Extracted extractPpt(byte[] bytes) throws IOException {
         List<PptBlock> blocks = new ArrayList<>();
@@ -1122,11 +1126,21 @@ public class ScheduleParseService {
                 }
                 continue;
             }
+            boolean hasHeader = block.rows.stream().anyMatch(this::isHeaderRow);
+            if (!hasHeader && block.rows.stream().anyMatch(this::hasTimedPptRoleCells)) {
+                for (int index = 0; index < block.rows.size(); index++) {
+                    for (ProjectSpeaker candidate : parseTimedPptRow(block.rows.get(index))) {
+                        appearances.add(new PptAppearance(block.slide, block.x,
+                                block.y + block.rowOffsets.get(index), candidate));
+                    }
+                }
+                continue;
+            }
             var table = new Extracted("", block.rows, List.of());
             List<ProjectSpeaker> standard = ruleParse(table, (index, candidate) ->
                     appearances.add(new PptAppearance(block.slide, block.x,
                             block.y + block.rowOffsets.get(index), candidate)));
-            if (block.rows.stream().anyMatch(this::isHeaderRow)) continue;
+            if (hasHeader) continue;
             boolean expandedTable = false;
             for (int index = 0; index < block.rows.size(); index++) {
                 String expanded = expandTimeColumn(block.rows.get(index));
@@ -1172,6 +1186,42 @@ public class ScheduleParseService {
                 && "大会主席".equals(candidate.getSegmentTitle()) && candidate.getSegmentTime() == null
                 && scheduledChairs.contains(candidate.getExpertName()));
         return result;
+    }
+
+    /** 无内嵌表头时，以时间范围和人员列中的显式角色共同确认列布局。 */
+    private boolean hasTimedPptRoleCells(List<String> row) {
+        return row.size() >= 3 && AGENDA_RANGE.matcher(row.get(0)).matches()
+                && row.subList(2, row.size()).stream().anyMatch(cell -> ROLE_LABEL.matcher(cell).lookingAt());
+    }
+
+    private List<ProjectSpeaker> parseTimedPptRow(List<String> row) {
+        List<ProjectSpeaker> result = new ArrayList<>();
+        if (row.size() < 3 || !AGENDA_RANGE.matcher(row.get(0)).matches()) return result;
+        String time = row.get(0).replace('：', ':');
+        String topic = row.get(1).replaceAll("\\s*\\R\\s*", " ");
+        Matcher discussion = PPT_DISCUSSION_CELL.matcher(topic);
+        if (discussion.find()) {
+            addAgendaPeople(result, splitAdjacentProfessors(topic.substring(discussion.end())),
+                    ProjectSpeaker.ROLE_DISCUSSANT, discussion.group(1), time);
+            topic = discussion.group(1);
+        }
+        for (String cell : row.subList(2, row.size())) {
+            if (cell.isBlank() || cell.equals("全体")) continue;
+            String people = splitAdjacentProfessors(cell);
+            Matcher label = ROLE_LABEL.matcher(people);
+            if (label.lookingAt()) {
+                addLabeledPeople(result, people, label, topic, time);
+            } else {
+                List<String> names = extractNames(people);
+                String role = roleFor(topic, cell, names.size());
+                for (String name : names) result.add(speaker(name, role, topic, time));
+            }
+        }
+        return result;
+    }
+
+    private String splitAdjacentProfessors(String people) {
+        return ADJACENT_PROFESSORS.matcher(people).replaceAll(" ");
     }
 
     /** 开场和总结优先使用本场主席名单，明确主持保留原角色。 */

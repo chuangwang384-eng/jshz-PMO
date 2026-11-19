@@ -233,6 +233,39 @@ class ScheduleParseServiceTest {
     }
 
     @Test
+    void readsTimedPptTableWithSeparateHeadersAndLabeledPeople() throws Exception {
+        try (var ppt = new org.apache.poi.xslf.usermodel.XMLSlideShow();
+             var bytes = new java.io.ByteArrayOutputStream()) {
+            var slide = ppt.createSlide();
+            slide.createTextBox().setText("时 间");
+            slide.createTextBox().setText("主 题");
+            slide.createTextBox().setText("主 席 / 讲 者");
+            var table = slide.createTable();
+            var rows = List.of(
+                    List.of("08:00-08:05", "开场视频", "全体", ""),
+                    List.of("08:05-08:20", "专题报告\n新进展",
+                            "讲者：李\uF020明教授", "主持人：\n王芳教授\n赵文静教授"),
+                    List.of("08:20-08:30", "多学科对话：刘星教授陈小华教授", "", ""),
+                    List.of("中场提示", "", "", ""));
+            for (var values : rows) {
+                var row = table.addRow();
+                for (String value : values) row.addCell().setText(value);
+            }
+            ppt.write(bytes);
+
+            var result = service.ruleParse(service.extract("fixture.pptx", bytes.toByteArray()));
+            assertEquals(List.of("李明", "王芳", "赵文静", "刘星", "陈小华"),
+                    result.stream().map(ProjectSpeaker::getExpertName).toList());
+            assertEquals(List.of("SPEAKER", "HOST", "HOST", "DISCUSSANT", "DISCUSSANT"),
+                    result.stream().map(ProjectSpeaker::getRole).toList());
+            assertEquals("专题报告 新进展", result.get(0).getSegmentTitle());
+            assertEquals("专题报告 新进展", result.get(2).getSegmentTitle());
+            assertEquals("08:05-08:20", result.get(2).getSegmentTime());
+            assertEquals("08:20-08:30", result.get(4).getSegmentTime());
+        }
+    }
+
+    @Test
     void readsSpeakerHeaderAliasesAndKeepsClosingChairRole() {
         for (String header : List.of("发言人", "发言者", "报告人")) {
             var rows = List.of(List.of("时 间", "主 题", header, "主 持"),
