@@ -8,4 +8,4 @@
 
 JDK 17 隔离 Maven 回归执行 `-Dtest=ScheduleSpeakerWorkflowTest,ScheduleSpeakerDiffTest,ScheduleParseServiceTest,ProjectAccessRegressionTest`，32 项通过。前端隔离构建、Node 操作模拟及 `git diff --check` 通过。Node 模拟验证单条提交携带候选 ID、保留其他草稿，取消清空不发请求。日志前缀为 `20261119-project-speaker-row-actions-`。
 
-登录测试项目验收时，先修改两个候选，点其中一个「保存」并确认另一条编辑仍保留；再取消一次清空确认，随后确认清空并核对候选和专家库档案。真实页面及生产验证待执行。需要回滚时撤销本任务提交并部署前一版；用户已经确认清空的参会记录可从备份另行恢复。
+已随 1.0.72 上线，见 [生产发布与回滚](../../releases/20261119-project-speaker-1.0.72.md)。登录测试项目验收时，先修改两个候选，点其中一个「保存」并确认另一条编辑仍保留。再取消一次清空确认，随后确认清空并核对候选和专家库档案。用户已经确认清空的参会记录可从备份另行恢复。

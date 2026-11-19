@@ -8,4 +8,4 @@
 
 JDK 17 在隔离副本运行 `mvn -q -f backend/pom.xml -Dspring-boot.build-info.skip=true -Dtest=ProjectResumeAvatarTest,ScheduleSpeakerWorkflowTest test`，8 项通过。前端隔离构建与 `git diff --check` 通过。用 Node 执行弹窗中的解析和保存函数，验证了 60 份上限、正文姓名匹配、同批重复及未匹配拒绝、第二张候选照片原样传入保存接口。日志前缀为 `20261119-project-batch-portrait-`。
 
-验收时从项目「当前待办 → 一键上传」加入多份简历，点「开始解析」，确认匹配结果。选择非首张证件照后提交，刷新专家库并核对头像和项目回绑。可撤销本次提交并部署前一制品进行回滚。登录页面端到端和生产发布待执行。
+已随 1.0.72 上线，见 [生产发布与回滚](../../releases/20261119-project-speaker-1.0.72.md)。登录页面端到端待验收。从项目「当前待办 → 一键上传」加入多份简历，点「开始解析」，确认匹配结果。选择非首张证件照后提交，刷新专家库并核对头像和项目回绑。
