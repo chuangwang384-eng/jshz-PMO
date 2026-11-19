@@ -388,7 +388,7 @@
       </div>
       <el-form label-width="70px" style="margin-top: 12px">
         <el-form-item label="名称">
-          <el-input v-model="renameName" maxlength="50" placeholder="≤50 字符，留空显示原文件名" />
+          <el-input v-model="renameName" maxlength="50" placeholder="≤50 字符，留空显示原文件名" @keyup.enter="confirmRename" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -792,7 +792,7 @@ function openRename(img) {
 }
 
 async function confirmRename() {
-  if (!renameTarget.value) return
+  if (!renameTarget.value || renaming.value) return
   renaming.value = true
   try {
     await renameSupplierImage(s.value.id, renameTarget.value.id, renameName.value.trim())

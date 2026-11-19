@@ -101,7 +101,7 @@
       </div>
 
       <!-- 卡片视图 -->
-      <div v-else v-loading="loading" class="card-grid">
+      <div v-else v-loading="loading" ref="gridEl" class="card-grid">
         <el-card v-for="s in records" :key="s.id" shadow="hover" class="sup-card" @click="goDetail(s.id)">
           <div class="card-cover">
             <el-image v-if="coverOf(s)" :src="imageUrl(coverOf(s))" fit="cover" class="cover-img" />
@@ -127,9 +127,9 @@
           v-model:current-page="page"
           v-model:page-size="size"
           :total="total"
-          :page-sizes="[10, 20, 50]"
+          :page-sizes="sizeOptions"
           layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSearch"
+          @size-change="onSizeChange"
           @current-change="fetchList"
         />
       </div>
@@ -267,7 +267,30 @@ const filters = ref({ keyword: '', typeId: null, cityId: null, onlyReviewed: fal
 const records = ref([])
 const total = ref(0)
 const page = ref(1)
-const size = ref(10)
+const size = ref(12)
+// 每页铺满卡片（2026-11-19 Owner）：按卡片网格实际列数动态取"列数×3行"为默认页大小
+const gridEl = ref(null)
+const cols = ref(4)
+const COL_MIN = 240
+const COL_GAP = 14
+let userPickedSize = false
+const sizeOptions = computed(() => {
+  const base = cols.value * 3
+  return [base, base * 2, base * 4]
+})
+function computeCols() {
+  const w = gridEl.value ? gridEl.value.clientWidth : 0
+  if (!w) return
+  const c = Math.max(1, Math.floor((w + COL_GAP) / (COL_MIN + COL_GAP)))
+  if (c !== cols.value) {
+    cols.value = c
+    if (!userPickedSize) size.value = c * 3
+  }
+}
+function onSizeChange() {
+  userPickedSize = true
+  handleSearch()
+}
 const loading = ref(false)
 
 const types = ref([])
@@ -343,7 +366,14 @@ function initFromRoute() {
     sort: q.sort === 'updated' ? 'updated' : 'name'
   }
   page.value = toId(q.page) || 1
-  size.value = [10, 20, 50].includes(Number(q.pageSize)) ? Number(q.pageSize) : 10
+  const qSize = Number(q.pageSize)
+  if (Number.isFinite(qSize) && qSize >= 5 && qSize <= 100) {
+    size.value = qSize
+    userPickedSize = true
+  } else {
+    size.value = cols.value * 3
+    userPickedSize = false
+  }
   if (q.view === 'card' || q.view === 'list') viewMode.value = q.view
 }
 
@@ -356,7 +386,7 @@ function syncRouteQuery() {
     onlyReviewed: filters.value.onlyReviewed ? '1' : undefined,
     sort: filters.value.sort !== 'name' ? filters.value.sort : undefined,
     page: page.value > 1 ? String(page.value) : undefined,
-    pageSize: size.value !== 10 ? String(size.value) : undefined,
+    pageSize: size.value !== cols.value * 3 ? String(size.value) : undefined,
     view: viewMode.value === 'card' ? 'card' : undefined
   }
   const keys = ['keyword', 'typeId', 'cityId', 'onlyReviewed', 'sort', 'page', 'pageSize', 'view']
@@ -586,7 +616,9 @@ async function removeType(row) {
 }
 
 onMounted(() => {
-  // 先按 URL 还原（详情页返回），URL 未带视图偏好时回退本地记忆
+  // 先量列数定默认页大小，再按 URL 还原（详情页返回），URL 未带视图偏好时回退本地记忆
+  computeCols()
+  window.addEventListener('resize', computeCols)
   initFromRoute()
   if (!route.query.view) {
     try {
@@ -602,6 +634,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (keywordTimer) clearTimeout(keywordTimer)
+  window.removeEventListener('resize', computeCols)
 })
 </script>
 
