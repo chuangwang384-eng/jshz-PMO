@@ -168,16 +168,18 @@ class ResumeParseServiceTest {
         String profile = service.collectProfileLines(longText.toString(), Map.of());
         assertTrue(profile.length() <= 2000);
     }
-    @Test void invalidNameFallsBackToDecoratedFilenameOnlyWhenAllowed() {
-        String filename = "副本李宏简介-湖北省肿瘤医院 1.pptx";
-        var result = new ResumeParseService.ResumeParseResult(
-                Map.of("姓名", "华中科技大学同济医学院医学博士", "单位", "湖北省肿瘤医院"),
-                java.util.List.of(), 2, "");
-        assertEquals(Map.of("姓名", "李宏", "单位", "湖北省肿瘤医院"),
-                service.resolveName(result, filename, true).fields());
-        var contentOnly = service.resolveName(result, filename, false);
-        assertEquals(Map.of("单位", "湖北省肿瘤医院"), contentOnly.fields());
-        assertEquals(1, contentOnly.hitCount());
+    @Test void filenameIdentityWinsOverContentWithComparison() throws Exception {
+        // 2026-11-19 文件名第一优先（Owner）：文件名候选经原文比对后落定，姓名垃圾候选被机构内嵌检测剔除
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("姓名：华中科技大学同济医学院医学博士\n工作单位：湖北省肿瘤医院");
+            document.write(output);
+            var fields = service.parse("副本李宏简介-湖北省肿瘤医院 1.docx", output.toByteArray()).fields();
+            assertEquals("李宏", fields.get("姓名"));
+            assertEquals("湖北省肿瘤医院", fields.get("单位"));
+            var contentOnly = service.parse("副本李宏简介-湖北省肿瘤医院 1.docx", output.toByteArray(), false).fields();
+            assertFalse(contentOnly.containsKey("姓名"));
+            assertEquals("湖北省肿瘤医院", contentOnly.get("单位"));
+        }
     }
 
     @Test void namePrefixedUnitLineIsSeparated() {
@@ -300,23 +302,26 @@ class ResumeParseServiceTest {
         assertNull(fields.get("单位"));
     }
 
-    @Test void unitNamePrefixStrippedAfterNameResolved() {
-        // 2026-11-18 卫利民原件回归：PPT 同一文本框姓名+单位拼接，姓名落定后二次剥离
-        Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("姓名", "卫利民");
-        fields.put("单位", "卫利民河南科技大学第一附属医院");
-        var result = new ResumeParseService.ResumeParseResult(fields, java.util.List.of(), 2, "");
-        var out = service.sanitizeUnitAgainstName(result);
-        assertEquals("河南科技大学第一附属医院", out.fields().get("单位"));
+    @Test void unitNamePrefixStrippedAfterNameResolved() throws Exception {
+        // 2026-11-18 卫利民原件回归：姓名+单位拼接，姓名落定后二次剥离（现于 buildResult 内联执行）
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("卫利民河南科技大学第一附属医院肿瘤内科主治医师");
+            document.write(output);
+            var fields = service.parse("卫利民简介.docx", output.toByteArray()).fields();
+            assertEquals("卫利民", fields.get("姓名"));
+            assertEquals("河南科技大学第一附属医院", fields.get("单位"));
+        }
     }
 
-    @Test void shortUnitNamePrefixNotStripped() {
+    @Test void shortUnitNamePrefixNotStripped() throws Exception {
         // 防"华山"→"医院"类短单位误伤：剩余部分不足 6 字符不剥离
-        Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("姓名", "华山");
-        fields.put("单位", "华山医院");
-        var result = new ResumeParseService.ResumeParseResult(fields, java.util.List.of(), 2, "");
-        assertEquals("华山医院", service.sanitizeUnitAgainstName(result).fields().get("单位"));
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("华山医院");
+            document.write(output);
+            var fields = service.parse("华山简介.docx", output.toByteArray()).fields();
+            assertEquals("华山", fields.get("姓名"));
+            assertEquals("华山医院", fields.get("单位"));
+        }
     }
 
     @Test void optionalJuaaiThreeOriginals() throws java.io.IOException {

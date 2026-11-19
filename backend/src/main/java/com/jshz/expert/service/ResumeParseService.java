@@ -124,17 +124,15 @@ public class ResumeParseService {
             throw new BusinessException(400, "简历文件超过 " + (resumeMaxBytes / 1024 / 1024) + "MB 限制");
         }
         try {
-            ResumeParseResult result = switch (ext) {
-                case "pdf" -> parsePdf(fileName, bytes);
-                case "doc" -> parseDoc(fileName, bytes);
-                case "docx" -> parseDocx(fileName, bytes);
-                case "ppt" -> FileMagic.valueOf(bytes) == FileMagic.OOXML ? parsePptx(fileName, bytes) : parsePpt(fileName, bytes);
-                case "pptx" -> parsePptx(fileName, bytes);
-                case "jpg", "jpeg", "png" -> parseImage(fileName, bytes);
+            return switch (ext) {
+                case "pdf" -> parsePdf(fileName, bytes, allowFilenameFallback);
+                case "doc" -> parseDoc(fileName, bytes, allowFilenameFallback);
+                case "docx" -> parseDocx(fileName, bytes, allowFilenameFallback);
+                case "ppt" -> FileMagic.valueOf(bytes) == FileMagic.OOXML ? parsePptx(fileName, bytes, allowFilenameFallback) : parsePpt(fileName, bytes, allowFilenameFallback);
+                case "pptx" -> parsePptx(fileName, bytes, allowFilenameFallback);
+                case "jpg", "jpeg", "png" -> parseImage(fileName, bytes, allowFilenameFallback);
                 default -> throw new BusinessException(400, "不支持的简历格式");
             };
-            result = resolveName(result, fileName, allowFilenameFallback);
-            return sanitizeUnitAgainstName(result);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -143,26 +141,33 @@ public class ResumeParseService {
         }
     }
 
-    /**
-     * 姓名兜底（Owner 2026-11-07）：内容解析未命中姓名时，从文件名分词中提取。
-     * 兼容"1 广州荔湾中心医院 何展鹏.pptx"（序号+单位+姓名）与"何展鹏-某医院.pdf"等命名。
-     */
-    ResumeParseResult resolveName(ResumeParseResult result, String fileName, boolean allowFilenameFallback) {
-        String parsedName = result.fields().get("姓名");
-        if (isCandidateName(parsedName)) return result;
-        Map<String, String> fields = new LinkedHashMap<>(result.fields());
-        fields.remove("姓名");
-        String fallback = allowFilenameFallback ? nameFromFileName(fileName) : null;
-        if (fallback != null) fields.put("姓名", fallback);
-        return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
-    }
-
     private boolean isCandidateName(String value) {
         return value != null && CHINESE_NAME.matcher(value).matches()
                 && NAME_EXCLUDE_WORDS.stream().noneMatch(value::contains)
                 && ORG_SUFFIXES.stream().noneMatch(value::endsWith)
                 && DEPT_SUFFIXES.stream().noneMatch(value::endsWith)
                 && !value.matches(".*(博士|硕士|学士|医师|教授|主任)$");
+    }
+
+    /**
+     * 机构内嵌名检测（2026-11-19 李晓龙案例，Owner：姓名疑似城市/学校/单位字段先不填入）：
+     * 候选姓名若紧邻出现在原文机构名开头（候选后 ≤2 字即接机构后缀，如"许昌|中心医院"、
+     * "河南|科技大学"），判定为机构名片段而非人名。真正的姓名行（"李晓龙 教授"）不受影响。
+     * 返回 true 表示该候选应作废，交由文件名兜底重新取名。
+     */
+    boolean isOrgEmbeddedName(String name, String text) {
+        if (name == null || name.isBlank()) return false;
+        String compactName = name.replaceAll("\\s+", "");
+        for (String line : text.split("\\R")) {
+            String compact = line.replaceAll("[ \\t　]", "");
+            if (!compact.contains(compactName)) continue;
+            int nameEnd = compact.indexOf(compactName) + compactName.length();
+            for (String suffix : ORG_SUFFIXES) {
+                int idx = compact.indexOf(suffix, nameEnd);
+                if (idx >= 0 && idx - nameEnd <= 2) return true;
+            }
+        }
+        return false;
     }
 
     /** 简历类后缀词（可带"最新/新版"变体与纯数字版次，如"简历2""简介2024"）。 */
@@ -231,7 +236,7 @@ public class ResumeParseService {
 
     // ==================== 格式分发 ====================
 
-    private ResumeParseResult parsePdf(String fileName, byte[] bytes) throws IOException {
+    private ResumeParseResult parsePdf(String fileName, byte[] bytes, boolean allowFilenameFallback) throws IOException {
         List<BufferedImage> images;
         String text;
         try (PDDocument doc = PDDocument.load(bytes)) {
@@ -251,14 +256,14 @@ public class ResumeParseService {
                 }
             }
         }
-        return buildResult(fileName, text, images);
+        return buildResult(fileName, text, images, allowFilenameFallback);
     }
 
     /**
      * 老版 .doc：文本 HWPF 抽取；文档内所有图片（含证件照）通过 PicturesTable 抽出作为头像候选
      * （Owner 2026-11-07：doc 内所有图片都可能是头像）。
      */
-    private ResumeParseResult parseDoc(String fileName, byte[] bytes) throws IOException {
+    private ResumeParseResult parseDoc(String fileName, byte[] bytes, boolean allowFilenameFallback) throws IOException {
         List<BufferedImage> images = new ArrayList<>();
         String text;
         org.apache.poi.hwpf.HWPFDocument doc = new org.apache.poi.hwpf.HWPFDocument(new ByteArrayInputStream(bytes));
@@ -270,10 +275,10 @@ public class ResumeParseService {
         } finally {
             try { doc.close(); } catch (Exception ignored) {}
         }
-        return buildResult(fileName, text, images);
+        return buildResult(fileName, text, images, allowFilenameFallback);
     }
 
-    private ResumeParseResult parseDocx(String fileName, byte[] bytes) throws IOException {
+    private ResumeParseResult parseDocx(String fileName, byte[] bytes, boolean allowFilenameFallback) throws IOException {
         List<BufferedImage> images = new ArrayList<>();
         String text;
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes));
@@ -287,7 +292,7 @@ public class ResumeParseService {
             }
             doc.getAllPictures().forEach(pic -> collectImage(images, pic.getData()));
         }
-        return buildResult(fileName, text, images);
+        return buildResult(fileName, text, images, allowFilenameFallback);
     }
 
     /** 抽取 docx 全部文本框段落（w:txbxContent），按段落拼行；无文本框返回空串。 */
@@ -311,15 +316,15 @@ public class ResumeParseService {
 
     private record SlideContent(String text, List<BufferedImage> images) {}
 
-    private ResumeParseResult parsePpt(String fileName, byte[] bytes) throws IOException {
+    private ResumeParseResult parsePpt(String fileName, byte[] bytes, boolean allowFilenameFallback) throws IOException {
         SlideContent content;
         try (HSLFSlideShow ppt = new HSLFSlideShow(new ByteArrayInputStream(bytes))) {
             content = extractSlideContent(ppt);
         }
-        return buildResult(fileName, content.text(), content.images());
+        return buildResult(fileName, content.text(), content.images(), allowFilenameFallback);
     }
 
-    private ResumeParseResult parsePptx(String fileName, byte[] bytes) throws IOException, InvalidFormatException {
+    private ResumeParseResult parsePptx(String fileName, byte[] bytes, boolean allowFilenameFallback) throws IOException, InvalidFormatException {
         // 走 ZIP 中央目录读取条目大小，避免流式读取带数据描述符的条目时误报解压比。
         // 临时文件使用系统分配的路径，POI 以只读方式打开并保留 ZIP 安全检查。
         Path temporary = Files.createTempFile("resume-slides-", ".pptx");
@@ -333,7 +338,7 @@ public class ResumeParseService {
         } finally {
             Files.deleteIfExists(temporary);
         }
-        return buildResult(fileName, content.text(), content.images());
+        return buildResult(fileName, content.text(), content.images(), allowFilenameFallback);
     }
 
     private SlideContent extractSlideContent(SlideShow<?, ?> ppt) {
@@ -396,18 +401,18 @@ public class ResumeParseService {
         }
     }
 
-    private ResumeParseResult parseImage(String fileName, byte[] bytes) throws IOException {
+    private ResumeParseResult parseImage(String fileName, byte[] bytes, boolean allowFilenameFallback) throws IOException {
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
         if (image == null) {
             throw new BusinessException(400, "无法读取图片内容");
         }
         String text = KnowledgeDocTextExtractor.ocrPage(image, false);
-        return buildResult(fileName, text, List.of(image));
+        return buildResult(fileName, text, List.of(image), allowFilenameFallback);
     }
 
     // ==================== 字段解析 ====================
 
-    private ResumeParseResult buildResult(String fileName, String text, List<BufferedImage> images) {
+    ResumeParseResult buildResult(String fileName, String text, List<BufferedImage> images, boolean allowFilenameFallback) {
         var photos = photoMatteService == null || images == null || images.isEmpty() ? null
                 : photoMatteService.candidates(() -> buildPhotoCandidates(images, true));
         Map<String, String> fields = new LinkedHashMap<>();
@@ -416,17 +421,10 @@ public class ResumeParseService {
             message = "未识别到有效文本（可能为扫描件或图片质量不佳），请手动填写";
         } else {
             // 策略一：多策略本地启发式打底；策略二：本地 LLM 语义抽取（未配置 Ollama 时自动跳过）
-            // 单位优先级（2026-11-19 李宏案例）：组合行（单位+科室+职称）> 文件名 > 散行机构扫描 > LLM
+            // 内容阶段：组合行（单位+科室+职称）> 标签行 > 散行机构扫描；LLM 只补缺失字段
             String scannedUnit = extractFields(text, fields);
-            if (!fields.containsKey("单位")) {
-                String fromFile = unitFromFileName(fileName);
-                if (fromFile != null) {
-                    String sanitized = sanitizeUnit(fromFile, fields.get("姓名"));
-                    if (sanitized != null) fields.put("单位", sanitized);
-                } else if (scannedUnit != null) {
-                    String sanitized = sanitizeUnit(scannedUnit, fields.get("姓名"));
-                    if (sanitized != null) fields.put("单位", sanitized);
-                }
+            if (!fields.containsKey("单位") && scannedUnit != null) {
+                fields.put("单位", scannedUnit);
             }
             Map<String, String> semantic = ollamaService.extractResumeFields(text);
             if (semantic != null && !semantic.isEmpty()) {
@@ -468,6 +466,35 @@ public class ResumeParseService {
             }
             // 无效姓名不算已归入结构化字段，原文仍应进入简介。
             if (!isCandidateName(fields.get("姓名"))) fields.remove("姓名");
+            // 2026-11-19 李晓龙案例：Ollama 曾把"许昌中心医院"里的"许昌"当姓名——
+            // 表面像人名实为机构/城市名前缀的候选先不填入
+            if (isOrgEmbeddedName(fields.get("姓名"), text)) fields.remove("姓名");
+
+            // 文件名第一优先（Owner 2026-11-19）：姓名/单位取文件名候选，但必须与原文比对
+            // 通过才填入（比对含省/市宽松变体）；比对不上时保留上面的内容解析结果。
+            String compactText = text.replaceAll("\\s+", "");
+            String fnName = allowFilenameFallback ? nameFromFileName(fileName) : null;
+            if (fnName != null && (fields.get("姓名") == null
+                    || compactText.contains(fnName)
+                    || compactText.contains(fnName.replace("省", "").replace("市", "")))) {
+                fields.put("姓名", fnName);
+            }
+            String fnUnit = unitFromFileName(fileName);
+            if (fnUnit != null && (fields.get("单位") == null
+                    || compactText.contains(fnUnit)
+                    || compactText.contains(fnUnit.replace("省", "").replace("市", "")))) {
+                String sanitized = sanitizeUnit(fnUnit, fields.get("姓名"));
+                if (sanitized != null) fields.put("单位", sanitized);
+            }
+            // 姓名落定后二次剥离单位里的姓名前缀（承接原 sanitizeUnitAgainstName 职责，
+            // 如内容单位"卫利民河南科技大学第一附属医院"；剩余 <6 字不剥防"华山|医院"误伤）
+            String finalName = fields.get("姓名");
+            String finalUnit = fields.get("单位");
+            if (finalName != null && finalUnit != null && finalUnit.startsWith(finalName)
+                    && finalUnit.length() - finalName.length() >= 6) {
+                String stripped = sanitizeUnit(finalUnit, finalName);
+                if (stripped != null && !stripped.equals(finalUnit)) fields.put("单位", stripped);
+            }
             if (fields.isEmpty()) {
                 message = "已识别文本但未命中可填充字段，请手动填写";
             }
