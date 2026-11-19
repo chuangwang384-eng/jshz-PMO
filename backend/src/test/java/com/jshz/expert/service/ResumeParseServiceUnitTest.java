@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
@@ -119,5 +121,63 @@ class ResumeParseServiceUnitTest {
         assertEquals("医师", service().canonicalTitle("住院医师"));
         assertEquals("医师", service().canonicalTitle("执 业 医 师"));
         assertNull(service().canonicalTitle("院长"));
+    }
+
+    // ==================== 王俊生案例：任职行不是单位；Ollama 不覆盖本地职称；科室 LLM 辅助 ====================
+
+    /** 任职行（委员会/学会）不得作为单位候选——单位留给文件名兜底。 */
+    @Test
+    void membershipLinesAreNotUnit() {
+        Map<String, String> fields = new LinkedHashMap<>();
+        String scanned = service().extractFields(
+                "河南省抗癌协会化疗专业委员会副主任委员\n安阳市医学会肿瘤内科专业委员会主任委员\n", fields);
+        assertNull(scanned);
+        assertNull(fields.get("单位"));
+    }
+
+    /** 含科字候选收集：机构名之后截取；任职行（含委员等）不参与。 */
+    @Test
+    void deptCandidatesCollected() {
+        var cands = service().collectDeptCandidates("许昌中心医院乳腺甲状腺外科，\n肿瘤内科专业委员会\n");
+        assertTrue(cands.contains("乳腺甲状腺外科"));
+        assertFalse(cands.contains("肿瘤内科"));
+        assertFalse(cands.contains("心医院乳腺甲状腺外科"));
+    }
+
+    /** Ollama 判定为科室时填入；判定不出不填。 */
+    @Test
+    void deptLlmAssistFillsWhenLocalMisses() {
+        OllamaService ollama = mock(OllamaService.class);
+        org.mockito.Mockito.when(ollama.available()).thenReturn(true);
+        org.mockito.Mockito.when(ollama.pickResumeDepartment(org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn("乳腺甲状腺外科");
+        ResumeParseService svc = new ResumeParseService(ollama, null);
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("单位", "许昌市中心医院");
+        fields.put("姓名", "李晓龙");
+        svc.buildResult("李晓龙-个人简介.docx", "许昌中心医院乳腺甲状腺外科，\n李晓龙 教授\n", java.util.List.of(), true);
+        // 直接经 parse 校验更真实：
+        try (var baos = new java.io.ByteArrayOutputStream()) {
+            var document = new org.apache.poi.xwpf.usermodel.XWPFDocument();
+            document.createParagraph().createRun().setText("许昌中心医院乳腺甲状腺外科，\n李晓龙 教授");
+            document.write(baos);
+            var r = svc.parse("李晓龙-个人简介.docx", baos.toByteArray());
+            assertEquals("乳腺甲状腺外科", r.fields().get("科室"));
+            document.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** 本地已解析职称不得被 LLM 覆盖（主治医师不被教授覆盖）。 */
+    @Test
+    void localTitleNotOverriddenByLlm() {
+        OllamaService ollama = mock(OllamaService.class);
+        org.mockito.Mockito.when(ollama.extractResumeFields(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(Map.of("职称", "教授"));
+        ResumeParseService svc = new ResumeParseService(ollama, null);
+        Map<String, String> fields = new LinkedHashMap<>();
+        svc.extractFields("王五\n某医院\n主治医师\n", fields);
+        assertEquals("主治医师", fields.get("职称"));
     }
 }

@@ -158,7 +158,8 @@ class ResumeParseServiceTest {
         try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             document.createParagraph().createRun().setText("单位：测试医院");
             document.write(output);
-            assertEquals("测试医院", service.parse("郑州市人民医院-谷培利.docx", output.toByteArray()).fields().get("单位"));
+            // 2026-11-19 单位文件名绝对第一优先：内容单位与文件名不一致时取文件名（王俊生案例）
+            assertEquals("郑州市人民医院", service.parse("郑州市人民医院-谷培利.docx", output.toByteArray()).fields().get("单位"));
         }
     }
 

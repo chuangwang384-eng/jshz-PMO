@@ -92,6 +92,10 @@ public class ResumeParseService {
     /** 科室特征词。 */
     private static final List<String> DEPT_SUFFIXES = List.of("科", "病房", "研究室", "办公室", "中心", "部", "组");
 
+    /** 学术兼职特征词（2026-11-19 王俊生案例）：含这些词的行是学会/委员会任职，不作为单位候选。 */
+    private static final List<String> MEMBERSHIP_WORDS = List.of(
+            "委员", "理事", "常委", "主委", "会员", "秘书", "组组长");
+
     /** 姓名启发式排除词（首行含这些词时不视为姓名）。 */
     private static final List<String> NAME_EXCLUDE_WORDS = List.of(
             "简历", "个人", "求职", "专家", "简介", "resume", "curriculum", "个人简历", "某某", "基本情况", "学术任职", "学术成就", "讨论嘉宾");
@@ -150,11 +154,53 @@ public class ResumeParseService {
     }
 
     /**
+     * 科室候选收集（2026-11-19 Owner：科室优先找文件内的"科"字）：对每个"科"字向前截取
+     * 连续汉字段（跳过单位机构名，≤10 字）作为候选，供 LLM 判定前后组合语义。
+     * 任职行/教育行不参与。
+     */
+    List<String> collectDeptCandidates(String text) {
+        List<String> cands = new ArrayList<>();
+        for (String line : text.split("\\R")) {
+            String compact = line.replaceAll("[ \\t　]", "");
+            if (compact.isEmpty() || compact.length() > 40) continue;
+            if (compact.contains("简历") || compact.contains("毕业")) continue;
+            if (MEMBERSHIP_WORDS.stream().anyMatch(compact::contains)) continue;
+            for (int i = compact.indexOf('科'); i >= 0; i = compact.indexOf('科', i + 1)) {
+                int s = 0;
+                // 机构名之后截取（"许昌中心医院|乳腺甲状腺外科"），防单位名混入科室候选
+                for (String suffix : ORG_SUFFIXES) {
+                    int e = compact.lastIndexOf(suffix, i - 1);
+                    if (e >= 0 && e + suffix.length() < i) s = Math.max(s, e + suffix.length());
+                }
+                if (i + 1 - s > 10) s = i + 1 - 10;
+                String seg = compact.substring(s, i + 1);
+                if (seg.length() >= 2 && !cands.contains(seg)) cands.add(seg);
+            }
+        }
+        return cands;
+    }
+
+    /**
      * 机构内嵌名检测（2026-11-19 李晓龙案例，Owner：姓名疑似城市/学校/单位字段先不填入）：
      * 候选姓名若紧邻出现在原文机构名开头（候选后 ≤2 字即接机构后缀，如"许昌|中心医院"、
      * "河南|科技大学"），判定为机构名片段而非人名。真正的姓名行（"李晓龙 教授"）不受影响。
      * 返回 true 表示该候选应作废，交由文件名兜底重新取名。
      */
+    /**
+     * 任职行取值检测（2026-11-19 王俊生案例）：候选值所在行含学术兼职特征词
+     * （委员/理事/主委等）时，该值是学会/委员会任职机构而非任职单位/科室。
+     */
+    boolean membershipLineValue(String value, String text) {
+        if (value == null || value.isBlank()) return false;
+        String v = value.replaceAll("\\s+", "");
+        for (String line : text.split("\\R")) {
+            String compact = line.replaceAll("[ \\t　]", "");
+            if (compact.isEmpty() || !compact.contains(v)) continue;
+            if (MEMBERSHIP_WORDS.stream().anyMatch(compact::contains)) return true;
+        }
+        return false;
+    }
+
     boolean isOrgEmbeddedName(String name, String text) {
         if (name == null || name.isBlank()) return false;
         String compactName = name.replaceAll("\\s+", "");
@@ -434,6 +480,7 @@ public class ResumeParseService {
                     String val = "单位".equals(key) ? sanitizeUnit(value, fields.get("姓名")) : value;
                     if ("单位".equals(key) && (fields.containsKey(key) || val == null
                             || ORG_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
+                            || membershipLineValue(val, text)
                             || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
                     // 2026-11-18 联系方式/职称/科室防幻觉（Ollama 曾臆造占位手机号 13800001234）：
                     // 三者必须能在原文（去空白）中找到才采纳；联系方式另有格式约束
@@ -450,12 +497,14 @@ public class ResumeParseService {
                         }
                     }
                     if ("职称".equals(key)) {
-                        // 职称归一（2026-11-19）：LLM 候选必须能归一到词表（含模糊别名）且原文可寻
+                        // 职称归一（2026-11-19）：LLM 候选必须能归一到词表（含模糊别名）且原文可寻；
+                        // 本地已解析职称（顺序优先结果）不得被 LLM 覆盖（曾出现本地主治医师被 LLM 教授覆盖）
                         val = canonicalTitle(val);
-                        if (val == null || !normalizedText.contains(val)) return;
+                        if (val == null || fields.containsKey("职称") || !normalizedText.contains(val)) return;
                     }
-                    if ("科室".equals(key) && (val == null
+                    if ("科室".equals(key) && (val == null || fields.containsKey("科室")
                             || DEPT_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
+                            || membershipLineValue(val, text)
                             || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
                     if (!"姓名".equals(key) || (!isCandidateName(fields.get("姓名"))
                             && isCandidateName(val) && normalizedText.contains(val))) {
@@ -480,9 +529,9 @@ public class ResumeParseService {
                 fields.put("姓名", fnName);
             }
             String fnUnit = unitFromFileName(fileName);
-            if (fnUnit != null && (fields.get("单位") == null
-                    || compactText.contains(fnUnit)
-                    || compactText.contains(fnUnit.replace("省", "").replace("市", "")))) {
+            // 单位文件名绝对第一优先（2026-11-19 王俊生案例：内容任职行机构"安阳市医学会"
+            // 不得压过文件名"安阳市肿瘤医院"；医院名常在 LOGO 图片里，文本无佐证属正常）
+            if (fnUnit != null) {
                 String sanitized = sanitizeUnit(fnUnit, fields.get("姓名"));
                 if (sanitized != null) fields.put("单位", sanitized);
             }
@@ -494,6 +543,15 @@ public class ResumeParseService {
                     && finalUnit.length() - finalName.length() >= 6) {
                 String stripped = sanitizeUnit(finalUnit, finalName);
                 if (stripped != null && !stripped.equals(finalUnit)) fields.put("单位", stripped);
+            }
+            // 科室 LLM 语义辅助（Owner 2026-11-19）：本地未解析出科室时，收集文中含"科"字的
+            // 候选段，交本地 LLM 判定前后组合语义是否为科室（任职委员会/学会不算）。
+            if (!fields.containsKey("科室")) {
+                List<String> deptCandidates = collectDeptCandidates(text);
+                if (!deptCandidates.isEmpty()) {
+                    String picked = ollamaService.pickResumeDepartment(deptCandidates);
+                    if (picked != null && deptCandidates.contains(picked)) fields.put("科室", picked);
+                }
             }
             if (fields.isEmpty()) {
                 message = "已识别文本但未命中可填充字段，请手动填写";
@@ -687,6 +745,8 @@ public class ResumeParseService {
             // 强=整行以机构后缀结尾（"洛阳市中心医院"、"医院河南科技大学第一附属医院"表格标签行）；
             // 弱=行中截断到机构后缀（"河南省医学会青年委员"→"河南省医学会"、"主治医师XX医院放疗科"→"主治医师XX医院"）。
             // 跳过：教育经历行（毕业/年份开头），防"2018年毕业于XX大学""2013/09-2018/07南方医科大学"误抓。
+            // 2026-11-19 王俊生案例：任职行（"安阳市医学会肿瘤内科专业委员会主任委员"）是学术兼职
+            // 不是任职单位，含委员/理事/主委/会员/秘书的行不再作为单位候选。
             String strong = null;
             String weak = null;
             for (String line : cleaned) {
@@ -694,6 +754,7 @@ public class ResumeParseService {
                 if (compact.length() > 40 || compact.contains("简历")) continue;
                 if (compact.contains("毕业")) continue;
                 if (compact.matches("\\d{4}.*")) continue;
+                if (MEMBERSHIP_WORDS.stream().anyMatch(compact::contains)) continue;
                 String lineStrong = null;
                 String lineWeak = null;
                 for (String suffix : ORG_SUFFIXES) {

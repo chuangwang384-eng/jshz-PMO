@@ -264,6 +264,35 @@ public class OllamaService {
     }
 
     /**
+     * 简历科室语义判定（Owner 2026-11-19）：从含"科"字的候选段中选出真正的医院科室。
+     * 判定口径：学会/协会/委员会任职机构（如 肿瘤内科专业委员会）、公司、大学不是科室。
+     * 返回候选列表中的原文（未命中返回 null 回退，不臆造）。
+     */
+    public String pickResumeDepartment(java.util.List<String> candidates) {
+        if (!available() || candidates == null || candidates.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < candidates.size(); i++) {
+            sb.append(i + 1).append('.').append(candidates.get(i), 0, Math.min(candidates.get(i).length(), 30)).append('\n');
+        }
+        String prompt = """
+                你是简历解析助手。判断下面哪些候选词是医生的"科室"（医院内部科室，如 乳腺甲状腺外科、
+                肿瘤内科、放疗科、心内科、骨科）。注意：学会/协会/委员会等任职机构（如"肿瘤内科专业委员会"、
+                "放射学会"）不是科室；公司、大学、研究领域（如"科研"）也不是科室。
+                严格输出 JSON 对象（不要输出任何其他文字）：{"dept":"候选词原文"}
+                候选中只有一个科室时输出它；没有科室则输出 {"dept":""}。候选列表：
+                """ + sb;
+        String resp = completeJson(prompt);
+        if (resp == null) return null;
+        try {
+            String dept = json.readTree(resp).path("dept").asText("").replaceAll("\\s+", "");
+            return candidates.contains(dept) ? dept : null;
+        } catch (Exception e) {
+            log.warn("Ollama 科室判定失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 启动预热（Owner 2026-11-07）：系统上线后自动把模型加载进显存/内存，
      * 避免首次简历解析承担冷加载耗时。异步执行，失败仅记日志。
      * keep_alive 60m：预热后模型驻留 60 分钟，期间解析请求秒级响应。
