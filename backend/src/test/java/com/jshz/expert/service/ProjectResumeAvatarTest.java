@@ -99,6 +99,10 @@ class ProjectResumeAvatarTest {
 
     @Test
     void linksOnlyAnExactExistingArchiveAndKeepsItsFieldsAndPhoto() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), "projectResumeFixture"),
+                com.jshz.expert.entity.ProjectSpeaker.class);
         ProjectService projects = mock(ProjectService.class);
         when(projects.requireProject(55L)).thenReturn(new Project());
         ExpertService experts = mock(ExpertService.class);
