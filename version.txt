@@ -1,1 +1,1 @@
-revision=1.0.71
+revision=1.0.72
