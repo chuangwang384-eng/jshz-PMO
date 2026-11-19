@@ -345,14 +345,17 @@ class ResumeParseServiceTest {
 
     @Test void strongOrgCandidateBeatsWeakTruncation() {
         // 2026-11-18 郭双双原件回归：弱候选"河南省医学会"不得压过强候选表格标签行
-        Map<String, String> fields = parse("郭双双\n副主任医师 肿瘤学博士 副教授 硕导\n洛阳市抗癌协会肺癌专业委员会副主委\n河南省医学会青年委员\n医院    河南科技大学第一附属医院\n科室    呼吸肿瘤内科二病区 副主任");
-        assertEquals("河南科技大学第一附属医院", fields.get("单位"));
+        // 2026-11-19 单位优先级重构：散行扫描候选改为返回值，由调用方按"组合行>标签行>文件名>扫描"排序
+        Map<String, String> fields = new LinkedHashMap<>();
+        String scanned = service.extractFields("郭双双\n副主任医师 肿瘤学博士 副教授 硕导\n洛阳市抗癌协会肺癌专业委员会副主委\n河南省医学会青年委员\n医院    河南科技大学第一附属医院\n科室    呼吸肿瘤内科二病区 副主任", fields);
+        assertEquals("河南科技大学第一附属医院", scanned);
     }
 
     @Test void titlePrefixStrippedFromUnit() {
-        // 2026-11-18 李泉江原件回归："主治医师河南科技大学第一附属医院放疗科"
-        Map<String, String> fields = parse("李泉江\n医学博士  毕业于原解放军第二军医大学，\n主治医师  河南科技大学第一附属医院 放疗科\n中华医学会会员");
-        assertEquals("河南科技大学第一附属医院", fields.get("单位"));
+        // 2026-11-18 李泉江原件回归："主治医师河南科技大学第一附属医院放疗科"（返回值已净化职称前缀）
+        Map<String, String> fields = new LinkedHashMap<>();
+        String scanned = service.extractFields("李泉江\n医学博士  毕业于原解放军第二军医大学，\n主治医师  河南科技大学第一附属医院 放疗科\n中华医学会会员", fields);
+        assertEquals("河南科技大学第一附属医院", scanned);
     }
 
     @Test void datedEducationLinesAreNotUnit() {

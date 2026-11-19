@@ -116,16 +116,15 @@ public class ResumeParseService {
         }
         try {
             ResumeParseResult result = switch (ext) {
-                case "pdf" -> parsePdf(bytes);
-                case "doc" -> parseDoc(bytes);
-                case "docx" -> parseDocx(bytes);
-                case "ppt" -> FileMagic.valueOf(bytes) == FileMagic.OOXML ? parsePptx(bytes) : parsePpt(bytes);
-                case "pptx" -> parsePptx(bytes);
-                case "jpg", "jpeg", "png" -> parseImage(bytes);
+                case "pdf" -> parsePdf(fileName, bytes);
+                case "doc" -> parseDoc(fileName, bytes);
+                case "docx" -> parseDocx(fileName, bytes);
+                case "ppt" -> FileMagic.valueOf(bytes) == FileMagic.OOXML ? parsePptx(fileName, bytes) : parsePpt(fileName, bytes);
+                case "pptx" -> parsePptx(fileName, bytes);
+                case "jpg", "jpeg", "png" -> parseImage(fileName, bytes);
                 default -> throw new BusinessException(400, "不支持的简历格式");
             };
             result = resolveName(result, fileName, allowFilenameFallback);
-            result = resolveUnit(result, fileName);
             return sanitizeUnitAgainstName(result);
         } catch (BusinessException e) {
             throw e;
@@ -182,20 +181,21 @@ public class ResumeParseService {
         return null;
     }
 
-    private ResumeParseResult resolveUnit(ResumeParseResult result, String fileName) {
-        String unit = result.fields().get("单位");
-        if ((unit != null && !unit.isBlank()) || fileName == null) return result;
+    /**
+     * 文件名单位候选（2026-11-19 由 resolveUnit 改为纯函数，优先级变为"组合行>文件名>散行扫描"）：
+     * 从文件名分词中取以机构后缀结尾的候选，如"副本李宏简介-湖北省肿瘤医院 1.pptx"→"湖北省肿瘤医院"。
+     */
+    String unitFromFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) return null;
         String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
         for (String token : base.split("[\\s\\-_.、，,]+")) {
             String candidate = token.replaceFirst("^(?:副本|[0-9]+)+", "");
             if (candidate.length() < 4 || candidate.length() > 40
                     || candidate.contains("某") || NAME_EXCLUDE_WORDS.stream().anyMatch(candidate::contains)
                     || ORG_SUFFIXES.stream().noneMatch(candidate::endsWith)) continue;
-            Map<String, String> fields = new LinkedHashMap<>(result.fields());
-            fields.put("单位", candidate);
-            return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
+            return candidate;
         }
-        return result;
+        return null;
     }
 
     /**
@@ -222,7 +222,7 @@ public class ResumeParseService {
 
     // ==================== 格式分发 ====================
 
-    private ResumeParseResult parsePdf(byte[] bytes) throws IOException {
+    private ResumeParseResult parsePdf(String fileName, byte[] bytes) throws IOException {
         List<BufferedImage> images;
         String text;
         try (PDDocument doc = PDDocument.load(bytes)) {
@@ -242,14 +242,14 @@ public class ResumeParseService {
                 }
             }
         }
-        return buildResult(text, images);
+        return buildResult(fileName, text, images);
     }
 
     /**
      * 老版 .doc：文本 HWPF 抽取；文档内所有图片（含证件照）通过 PicturesTable 抽出作为头像候选
      * （Owner 2026-11-07：doc 内所有图片都可能是头像）。
      */
-    private ResumeParseResult parseDoc(byte[] bytes) throws IOException {
+    private ResumeParseResult parseDoc(String fileName, byte[] bytes) throws IOException {
         List<BufferedImage> images = new ArrayList<>();
         String text;
         org.apache.poi.hwpf.HWPFDocument doc = new org.apache.poi.hwpf.HWPFDocument(new ByteArrayInputStream(bytes));
@@ -261,10 +261,10 @@ public class ResumeParseService {
         } finally {
             try { doc.close(); } catch (Exception ignored) {}
         }
-        return buildResult(text, images);
+        return buildResult(fileName, text, images);
     }
 
-    private ResumeParseResult parseDocx(byte[] bytes) throws IOException {
+    private ResumeParseResult parseDocx(String fileName, byte[] bytes) throws IOException {
         List<BufferedImage> images = new ArrayList<>();
         String text;
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes));
@@ -278,7 +278,7 @@ public class ResumeParseService {
             }
             doc.getAllPictures().forEach(pic -> collectImage(images, pic.getData()));
         }
-        return buildResult(text, images);
+        return buildResult(fileName, text, images);
     }
 
     /** 抽取 docx 全部文本框段落（w:txbxContent），按段落拼行；无文本框返回空串。 */
@@ -302,15 +302,15 @@ public class ResumeParseService {
 
     private record SlideContent(String text, List<BufferedImage> images) {}
 
-    private ResumeParseResult parsePpt(byte[] bytes) throws IOException {
+    private ResumeParseResult parsePpt(String fileName, byte[] bytes) throws IOException {
         SlideContent content;
         try (HSLFSlideShow ppt = new HSLFSlideShow(new ByteArrayInputStream(bytes))) {
             content = extractSlideContent(ppt);
         }
-        return buildResult(content.text(), content.images());
+        return buildResult(fileName, content.text(), content.images());
     }
 
-    private ResumeParseResult parsePptx(byte[] bytes) throws IOException, InvalidFormatException {
+    private ResumeParseResult parsePptx(String fileName, byte[] bytes) throws IOException, InvalidFormatException {
         // 走 ZIP 中央目录读取条目大小，避免流式读取带数据描述符的条目时误报解压比。
         // 临时文件使用系统分配的路径，POI 以只读方式打开并保留 ZIP 安全检查。
         Path temporary = Files.createTempFile("resume-slides-", ".pptx");
@@ -324,7 +324,7 @@ public class ResumeParseService {
         } finally {
             Files.deleteIfExists(temporary);
         }
-        return buildResult(content.text(), content.images());
+        return buildResult(fileName, content.text(), content.images());
     }
 
     private SlideContent extractSlideContent(SlideShow<?, ?> ppt) {
@@ -387,18 +387,18 @@ public class ResumeParseService {
         }
     }
 
-    private ResumeParseResult parseImage(byte[] bytes) throws IOException {
+    private ResumeParseResult parseImage(String fileName, byte[] bytes) throws IOException {
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
         if (image == null) {
             throw new BusinessException(400, "无法读取图片内容");
         }
         String text = KnowledgeDocTextExtractor.ocrPage(image, false);
-        return buildResult(text, List.of(image));
+        return buildResult(fileName, text, List.of(image));
     }
 
     // ==================== 字段解析 ====================
 
-    private ResumeParseResult buildResult(String text, List<BufferedImage> images) {
+    private ResumeParseResult buildResult(String fileName, String text, List<BufferedImage> images) {
         var photos = photoMatteService == null || images == null || images.isEmpty() ? null
                 : photoMatteService.candidates(() -> buildPhotoCandidates(images, true));
         Map<String, String> fields = new LinkedHashMap<>();
@@ -407,7 +407,18 @@ public class ResumeParseService {
             message = "未识别到有效文本（可能为扫描件或图片质量不佳），请手动填写";
         } else {
             // 策略一：多策略本地启发式打底；策略二：本地 LLM 语义抽取（未配置 Ollama 时自动跳过）
-            extractFields(text, fields);
+            // 单位优先级（2026-11-19 李宏案例）：组合行（单位+科室+职称）> 文件名 > 散行机构扫描 > LLM
+            String scannedUnit = extractFields(text, fields);
+            if (!fields.containsKey("单位")) {
+                String fromFile = unitFromFileName(fileName);
+                if (fromFile != null) {
+                    String sanitized = sanitizeUnit(fromFile, fields.get("姓名"));
+                    if (sanitized != null) fields.put("单位", sanitized);
+                } else if (scannedUnit != null) {
+                    String sanitized = sanitizeUnit(scannedUnit, fields.get("姓名"));
+                    if (sanitized != null) fields.put("单位", sanitized);
+                }
+            }
             Map<String, String> semantic = ollamaService.extractResumeFields(text);
             if (semantic != null && !semantic.isEmpty()) {
                 String normalizedText = text.replaceAll("\\s+", "");
@@ -559,8 +570,12 @@ public class ResumeParseService {
     private static final List<String> CONSUMED_LABELS = List.of(
             "姓名", "单位", "科室", "职称", "联系方式", "联系电话", "电话", "手机", "邮箱", "Email", "E-mail");
 
-    /** 多策略字段解析：标签行优先，词表/上下文推断次之；首个可信命中即停。 */
-    void extractFields(String text, Map<String, String> fields) {
+    /**
+     * 多策略字段解析：标签行优先，词表/上下文推断次之；首个可信命中即停。
+     * 返回散行机构扫描得到的单位候选（弱置信，由调用方排在文件名之后兜底）；
+     * 组合行直接命中单位时返回 null（单位已写入 fields）。
+     */
+    String extractFields(String text, Map<String, String> fields) {
         String[] lines = text.split("\\R");
         List<String> cleaned = new ArrayList<>();
         for (String line : lines) {
@@ -595,8 +610,40 @@ public class ResumeParseService {
         }
         if (name != null) fields.put("姓名", name);
 
+        // 组合行识别（2026-11-19 李宏案例，Owner 要求单位最高优先级）：
+        // 一行同时含"医院单位+科室+医师职称"（如"湖北省肿瘤医院微创介入科副主任医师"）时，
+        // 该行是任职陈述，单位置信度远高于散行机构扫描——"日本上尾中央综合医院访问学者"
+        // 这类经历行不得压过它。PPT 常把该句拆成两个文本行（"…医院微创"+"介入科副主任医师"），
+        // 故单行不命中时再尝试相邻 2/3 行拼接；命中时单位/科室/职称一并落定。
+        String comboUnit = null;
+        List<String> comboCandidates = new ArrayList<>();
+        for (String line : cleaned) comboCandidates.add(line.replace(" ", ""));
+        for (int i = 0; i + 1 < cleaned.size(); i++) {
+            comboCandidates.add(comboCandidates.get(i) + comboCandidates.get(i + 1));
+        }
+        for (int i = 0; i + 2 < cleaned.size(); i++) {
+            comboCandidates.add(comboCandidates.get(i) + comboCandidates.get(i + 1) + comboCandidates.get(i + 2));
+        }
+        for (String compact : comboCandidates) {
+            if (compact.length() > 40 || compact.length() < 8 || compact.contains("简历")) continue;
+            if (compact.contains("毕业") || compact.matches("\\d{4}.*")) continue;
+            String[] combo = matchUnitDeptTitle(compact);
+            if (combo == null) continue;
+            comboUnit = combo[0];
+            // 组合行单位可能带姓名前缀（"李向东，汝州市第一人民医院…科副主任医师"），净化后落定
+            String sanitizedCombo = sanitizeUnit(comboUnit, name);
+            fields.put("单位", sanitizedCombo != null ? sanitizedCombo : comboUnit);
+            if (combo[1] != null && !fields.containsKey("科室")) fields.put("科室", combo[1]);
+            if (combo[2] != null && !fields.containsKey("职称")) fields.put("职称", combo[2]);
+            break;
+        }
+
         String unit = extractByLabel(cleaned, "单位", "Unit", 2, 40);
-        if (unit == null) {
+        if (unit != null) {
+            // 标签行单位（"工作单位：XXX"）置信度高，净化后直接落定
+            unit = sanitizeUnit(unit, name);
+            if (unit != null) fields.put("单位", unit);
+        } else if (comboUnit == null) {
             // 2026-11-18 改为强/弱候选分级取最优：
             // 强=整行以机构后缀结尾（"洛阳市中心医院"、"医院河南科技大学第一附属医院"表格标签行）；
             // 弱=行中截断到机构后缀（"河南省医学会青年委员"→"河南省医学会"、"主治医师XX医院放疗科"→"主治医师XX医院"）。
@@ -632,7 +679,9 @@ public class ResumeParseService {
             unit = strong != null ? strong : weak;
         }
         unit = sanitizeUnit(unit, name);
-        if (unit != null) fields.put("单位", unit);
+        // 组合行/标签行已落定单位时不再覆盖；否则扫描候选（已净化）不直接落定，
+        // 返回给调用方按"组合行>标签行>文件名>散行扫描"排序
+        boolean comboHit = comboUnit != null;
 
         String dept = extractByLabel(cleaned, "科室", "Department", 2, 20);
         if (dept == null) {
@@ -661,11 +710,11 @@ public class ResumeParseService {
                 }
             }
         }
-        if (dept != null) fields.put("科室", dept);
+        if (dept != null && !comboHit) fields.put("科室", dept);
 
         String title = extractByLabel(cleaned, "职称", "Title", 2, 20);
         if (title == null) title = extractTitleByLongestMatch(cleaned);
-        if (title != null) fields.put("职称", title);
+        if (title != null && !comboHit) fields.put("职称", title);
 
         Matcher phone = PHONE.matcher(full);
         if (phone.find()) fields.put("联系方式", phone.group());
@@ -673,6 +722,7 @@ public class ResumeParseService {
             Matcher email = EMAIL.matcher(text);
             if (email.find()) fields.put("联系方式", email.group());
         }
+        return comboHit ? null : unit;
     }
 
     /** 标签行解析：同行取分隔符后内容；单独标签行取下一个非空行。 */
@@ -754,6 +804,47 @@ public class ResumeParseService {
         boolean curHospital = current.endsWith("医院") || current.endsWith("卫生院");
         if (candHospital != curHospital) return candHospital;
         return candidate.length() > current.length();
+    }
+
+    /**
+     * 组合行匹配（2026-11-19 李宏案例）：识别"医院单位+科室+医师职称"任职陈述行，
+     * 如"湖北省肿瘤医院微创介入科副主任医师"→ {湖北省肿瘤医院, 微创介入科, 副主任医师}。
+     * 限定单位为医院/卫生院、职称为医师类，避免"美国加州大学医学中心助理教授"这类
+     * 访学/学术行被误判为任职行（沿用 2026-11-18 王新帅案例口径）。
+     * 返回 {单位, 科室(可为 null), 职称}；不匹配返回 null。
+     */
+    String[] matchUnitDeptTitle(String compact) {
+        for (String orgSuffix : ORG_SUFFIXES) {
+            boolean hospitalFamily = "医院".equals(orgSuffix) || "卫生院".equals(orgSuffix);
+            if (!hospitalFamily) continue;
+            int orgIdx = compact.indexOf(orgSuffix);
+            if (orgIdx < 0) continue;
+            String unit = compact.substring(0, orgIdx + orgSuffix.length());
+            if (unit.length() < 4) continue;
+            // 相邻行拼接防御：单位段混入学位/经历词（"…医学博士湖北省肿瘤医院"）说明跨了语义段，拒绝
+            if (unit.matches(".*(博士|硕士|学士|研究生|奖学金|访问学者).*")) continue;
+            String rest = compact.substring(orgIdx + orgSuffix.length());
+            // 职称：最长匹配 + 尾边界（职称词后不得紧接汉字）
+            String title = null;
+            int titleIdx = -1;
+            for (String word : TITLE_WORDS) {
+                if (!word.endsWith("医师")) continue;
+                int idx = rest.indexOf(word);
+                if (idx < 0) continue;
+                if (idx + word.length() < rest.length() && isChineseWordChar(rest.charAt(idx + word.length()))) continue;
+                if (title == null || word.length() > title.length()) {
+                    title = word;
+                    titleIdx = idx;
+                }
+            }
+            if (title == null) continue;
+            // 科室段：单位与职称之间、以科室后缀结尾（"微创介入科"）
+            String deptSeg = rest.substring(0, titleIdx);
+            if (deptSeg.length() < 2 || deptSeg.length() > 10) continue;
+            if (DEPT_SUFFIXES.stream().noneMatch(deptSeg::endsWith)) continue;
+            return new String[]{unit, deptSeg, title};
+        }
+        return null;
     }
 
     /**
