@@ -65,16 +65,25 @@ public class ResumeParseService {
     private long resumeMaxBytes = 30L * 1024 * 1024;
     private static final List<String> ALLOWED_EXTENSIONS = List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png");
 
-    /** 职称词表（精确匹配，优先级从高到低）。 */
+    /**
+     * 职称词表（Owner 2026-11-19 定稿）：数组顺序即匹配优先级——同一行命中多个职称时
+     * 取顺序最前者（如"主任医师、教授"填主任医师）；子串命中被更长词覆盖时让位
+     * （如"副主任中医师"取整体而非子串"医师"）。
+     */
     private static final List<String> TITLE_WORDS = List.of(
-            "主任医师", "副主任医师", "主治医师", "住院医师",
-            "主任药师", "副主任药师", "主管药师", "药师",
-            "主任技师", "副主任技师", "主管技师", "技师",
+            "主任医师", "副主任医师", "主治医师", "医师", "医士",
+            "主任药师", "副主任药师", "主管药师", "药师", "药士",
             "主任护师", "副主任护师", "主管护师", "护师", "护士",
-            "研究员", "副研究员", "助理研究员", "研究实习员",
-            "教授", "副教授", "讲师",
-            "高级工程师", "工程师", "助理工程师",
-            "高级经济师", "经济师");
+            "主任技师", "副主任技师", "主管技师", "技师", "技士",
+            "主任中医师", "副主任中医师", "主治中医师", "中医师", "中医士",
+            "教授", "副教授", "讲师", "助教",
+            "研究员", "副研究员", "助理研究员", "研究实习员");
+
+    /** 模糊别名（Owner 2026-11-19："主任"→主任医师等）。仅在无精确职称词命中时兜底。 */
+    private static final List<String[]> TITLE_ALIASES = List.of(
+            new String[]{"副主任", "副主任医师"},
+            new String[]{"主任", "主任医师"},
+            new String[]{"主治", "主治医师"});
 
     /** 机构后缀词表。 */
     private static final List<String> ORG_SUFFIXES = List.of(
@@ -442,8 +451,11 @@ public class ResumeParseService {
                             if (digits.length() < 7 || !textDigits.contains(digits)) return;
                         }
                     }
-                    if ("职称".equals(key) && (val == null || !TITLE_WORDS.contains(val.strip())
-                            || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
+                    if ("职称".equals(key)) {
+                        // 职称归一（2026-11-19）：LLM 候选必须能归一到词表（含模糊别名）且原文可寻
+                        val = canonicalTitle(val);
+                        if (val == null || !normalizedText.contains(val)) return;
+                    }
                     if ("科室".equals(key) && (val == null
                             || DEPT_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
                             || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
@@ -713,6 +725,7 @@ public class ResumeParseService {
         if (dept != null && !comboHit) fields.put("科室", dept);
 
         String title = extractByLabel(cleaned, "职称", "Title", 2, 20);
+        if (title != null) title = canonicalTitle(title);
         if (title == null) title = extractTitleByLongestMatch(cleaned);
         if (title != null && !comboHit) fields.put("职称", title);
 
@@ -760,22 +773,79 @@ public class ResumeParseService {
     }
 
     /**
-     * 职称兜底（2026-11-17 修复词边界误拒）：取行内最长匹配职称词。
-     * 旧规则要求职称词前后均非汉字，会把"外科副主任医师"（前接"科"）这类同行拼接误拒；
-     * 改为保留尾边界（避免"护士长"命中子串"护士"）+ 最长匹配（避免"副主任医师"被更短子串
-     * "主任医师"抢先），等长保留 TITLE_WORDS 中更高优先级者。对外契约不变：返回职称词或 null。
+     * 职称兜底（2026-11-17 修复词边界误拒；2026-11-19 改为词表顺序全局优先）：
+     * 收集全部行命中的职称，取词表顺序最靠前者（Owner：主任医师、教授同行取主任医师；
+     * 先"研究员"后"主任医师"也取主任医师）。子串命中被更长词覆盖时让位
+     * （"副主任中医师"取整体而非"医师"）；尾边界保留（职称词后不得紧接汉字，
+     * 防"护士长"命中"护士"）。无精确词时短行模糊匹配"主任/副主任/主治"→医师职称。
+     * 对外契约不变：返回职称词或 null。
      */
     private String extractTitleByLongestMatch(List<String> lines) {
+        String best = null;
+        int bestOrder = Integer.MAX_VALUE;
         for (String line : lines) {
-            String best = null;
-            for (String word : TITLE_WORDS) {
-                int idx = line.indexOf(word);
-                if (idx < 0) continue;
-                // 尾边界：职称词后不能紧接汉字（排除"护士长"中的"护士"等子串）
-                if (idx + word.length() < line.length() && isChineseWordChar(line.charAt(idx + word.length()))) continue;
-                if (best == null || word.length() > best.length()) best = word;
+            String[] hit = scanTitleOrdered(line, null);
+            if (hit == null) continue;
+            int order = TITLE_WORDS.indexOf(hit[0]);
+            if (order < bestOrder) {
+                bestOrder = order;
+                best = hit[0];
             }
-            if (best != null) return best;
+        }
+        if (best != null) return best;
+        // 模糊匹配防误伤：仅限短行且不含科室特征字（"内科病区 副主任"这类科室行不得当职称）
+        for (String line : lines) {
+            String compact = line.replace(" ", "").replace("　", "");
+            if (compact.length() > 12 || compact.chars().anyMatch(c -> "科部组室房".indexOf(c) >= 0)) continue;
+            for (String[] alias : TITLE_ALIASES) {
+                if (compact.contains(alias[0])) return alias[1];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 按词表顺序扫描职称（词表顺序即优先级）：首个满足尾边界且未被更长词覆盖的命中即返回。
+     * 返回 {职称词, 命中位置}，无命中返回 null。供整行兜底与组合行（医师类过滤）共用。
+     */
+    String[] scanTitleOrdered(String text, java.util.function.Predicate<String> filter) {
+        for (String word : TITLE_WORDS) {
+            if (filter != null && !filter.test(word)) continue;
+            int from = 0;
+            while (true) {
+                int idx = text.indexOf(word, from);
+                if (idx < 0) break;
+                // 尾边界：职称词后不得紧接汉字
+                if (idx + word.length() >= text.length() || !isChineseWordChar(text.charAt(idx + word.length()))) {
+                    boolean covered = false;
+                    for (String longer : TITLE_WORDS) {
+                        if (longer.length() <= word.length() || covered) continue;
+                        int li = text.indexOf(longer);
+                        if (li >= 0 && idx >= li && idx + word.length() <= li + longer.length()) covered = true;
+                    }
+                    if (!covered) return new String[]{word, String.valueOf(idx)};
+                }
+                from = idx + 1;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 职称候选归一（标签行"职称：XXX"与 LLM 结果共用）：取候选文本中包含的最长职称词；
+     * 无精确词时模糊别名兜底（"主任"→主任医师）。返回词表内职称词或 null。
+     */
+    String canonicalTitle(String candidate) {
+        if (candidate == null || candidate.isBlank()) return null;
+        String normalized = candidate.replaceAll("\\s+", "");
+        String best = null;
+        for (String word : TITLE_WORDS) {
+            if (!normalized.contains(word)) continue;
+            if (best == null || word.length() > best.length()) best = word;
+        }
+        if (best != null) return best;
+        for (String[] alias : TITLE_ALIASES) {
+            if (normalized.contains(alias[0])) return alias[1];
         }
         return null;
     }
@@ -824,20 +894,11 @@ public class ResumeParseService {
             // 相邻行拼接防御：单位段混入学位/经历词（"…医学博士湖北省肿瘤医院"）说明跨了语义段，拒绝
             if (unit.matches(".*(博士|硕士|学士|研究生|奖学金|访问学者).*")) continue;
             String rest = compact.substring(orgIdx + orgSuffix.length());
-            // 职称：最长匹配 + 尾边界（职称词后不得紧接汉字）
-            String title = null;
-            int titleIdx = -1;
-            for (String word : TITLE_WORDS) {
-                if (!word.endsWith("医师")) continue;
-                int idx = rest.indexOf(word);
-                if (idx < 0) continue;
-                if (idx + word.length() < rest.length() && isChineseWordChar(rest.charAt(idx + word.length()))) continue;
-                if (title == null || word.length() > title.length()) {
-                    title = word;
-                    titleIdx = idx;
-                }
-            }
-            if (title == null) continue;
+            // 职称：医师类词按词表顺序扫描（覆盖规则防"副主任中医师"取成"医师"）
+            String[] titleHit = scanTitleOrdered(rest, word -> word.endsWith("医师"));
+            if (titleHit == null) continue;
+            String title = titleHit[0];
+            int titleIdx = Integer.parseInt(titleHit[1]);
             // 科室段：单位与职称之间、以科室后缀结尾（"微创介入科"）
             String deptSeg = rest.substring(0, titleIdx);
             if (deptSeg.length() < 2 || deptSeg.length() > 10) continue;

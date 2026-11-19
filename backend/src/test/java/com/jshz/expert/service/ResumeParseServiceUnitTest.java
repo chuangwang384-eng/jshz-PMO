@@ -70,4 +70,54 @@ class ResumeParseServiceUnitTest {
         assertNull(svc.unitFromFileName("何展鹏-某医院.pdf"));
         assertNull(svc.unitFromFileName("简历.pdf"));
     }
+
+    // ==================== 职称：词表顺序优先（Owner 2026-11-19 定稿） ====================
+
+    private String titleOf(String text) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        service().extractFields(text, fields);
+        return fields.get("职称");
+    }
+
+    /** Owner 原例：主任医师、教授同行，取顺序靠前的主任医师。 */
+    @Test
+    void orderPriorityBeatsLaterGroups() {
+        assertEquals("主任医师", titleOf("李四\n某医院\n主任医师、教授\n"));
+        assertEquals("主任医师", titleOf("李四\n某医院\n教授、主任医师\n"));
+        assertEquals("主任医师", titleOf("李四\n某医院\n研究员\n主任医师\n"));
+    }
+
+    /** 长词覆盖：子串命中不得抢在整体前面（"医师"在词表顺序上先于"中医师"）。 */
+    @Test
+    void longerWordCoversSubstring() {
+        assertEquals("副主任中医师", titleOf("李四\n某医院\n副主任中医师\n"));
+        assertEquals("中医师", titleOf("李四\n某医院\n中医师\n"));
+        assertEquals("主管药师", titleOf("李四\n某医院\n主管药师\n"));
+    }
+
+    /** 新词与全组覆盖：医士/药士/技士/助教/研究实习员。 */
+    @Test
+    void allSixGroupsRecognized() {
+        assertEquals("医士", titleOf("李四\n某医院\n放射科医士\n"));
+        assertEquals("药士", titleOf("李四\n某医院\n药士\n"));
+        assertEquals("技士", titleOf("李四\n某医院\nCT室技士\n"));
+        assertEquals("助教", titleOf("李四\n某医院\n助教\n"));
+        assertEquals("研究实习员", titleOf("李四\n某医院\n研究实习员\n"));
+    }
+
+    /** 模糊匹配："主任"→主任医师、"主治"→主治医师；科室行"副主任"不得误判。 */
+    @Test
+    void fuzzyAliasMatching() {
+        assertEquals("主任医师", titleOf("李四\n某医院\n职称：主任\n"));
+        assertEquals("主任医师", titleOf("李四\n某医院\n主任\n"));
+        assertEquals("主治医师", titleOf("李四\n某医院\n主治\n"));
+        // 科室特征行模糊禁用：无精确职称词时"病区副主任"不当作职称
+        assertNull(titleOf("李四\n某医院\n呼吸内科病区 副主任\n"));
+        // 归一入口：标签/规范候选
+        assertEquals("主任医师", service().canonicalTitle("主任"));
+        assertEquals("副主任医师", service().canonicalTitle("副主任"));
+        assertEquals("医师", service().canonicalTitle("住院医师"));
+        assertEquals("医师", service().canonicalTitle("执 业 医 师"));
+        assertNull(service().canonicalTitle("院长"));
+    }
 }
