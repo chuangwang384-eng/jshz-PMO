@@ -286,8 +286,12 @@ def refine(image):
         if histogram[0] >= 0.01 * image.width * image.height and sum(histogram[128:]) > 0:
             return crop_portrait(rgba)
     if modnet_session is not None:
-        # Match the worker protocol's ERROR path so Java offers the original photo.
-        return crop_portrait(modnet_cutout(image))
+        try:
+            return crop_portrait(modnet_cutout(image))
+        except Exception:
+            # 2026-11-19 胡鸿涛/黎海亮案例：MODNet 掩码偶发无效（同图生产失败而本地成功，
+            # 非确定复现）。降级到下方 rembg(u2net) 主链完成透明抠图，不再整次失败回退原图。
+            pass
     if session is None:
         session = new_session("u2net")
 

@@ -109,43 +109,52 @@ public class PhotoMatteService {
         retry.start();
     }
 
-    /** 输入必须为 PNG/JPEG bytes，输出为抠图后的透明 PNG bytes；失败返回 null。 */
+    /** 输入必须为 PNG/JPEG bytes，输出为抠图后的透明 PNG bytes；失败返回 null（含一次重试）。 */
     public synchronized byte[] removeBackground(byte[] srcPng) {
         if (srcPng == null || srcPng.length == 0) return null;
-        Path input = null;
-        Path output = null;
-        try {
-            ensureWorker();
-            input = Files.createTempFile("photomatte-in-", ".png");
-            output = Files.createTempFile("photomatte-out-", ".png");
-            Files.write(input, srcPng);
-            writer.write(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
-                    java.util.List.of(input.toString(), output.toString())));
-            writer.newLine();
-            writer.flush();
-            long start = System.currentTimeMillis();
-            String reply = awaitReply(REPLY_TIMEOUT_SEC);
-            if ("ERROR".equals(reply)) {
-                log.warn("证件照抠图失败（worker ERROR），回退原图，详情见 {}", workerStderrTail());
+        // 2026-11-19：偶发 worker ERROR（临时 PNG 被外部清理/写入竞态导致 PIL 无法识别），
+        // 重写临时文件重试一次；真失败（模型异常）重试同样失败，仅多花一次耗时。
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            Path input = null;
+            Path output = null;
+            try {
+                ensureWorker();
+                input = Files.createTempFile("photomatte-in-", ".png");
+                output = Files.createTempFile("photomatte-out-", ".png");
+                Files.write(input, srcPng);
+                writer.write(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                        java.util.List.of(input.toString(), output.toString())));
+                writer.newLine();
+                writer.flush();
+                long start = System.currentTimeMillis();
+                String reply = awaitReply(REPLY_TIMEOUT_SEC);
+                if ("ERROR".equals(reply)) {
+                    if (attempt == 1) {
+                        log.warn("证件照抠图首次失败，重试一次，详情见 {}", workerStderrTail());
+                        continue;
+                    }
+                    log.warn("证件照抠图失败（worker ERROR），回退原图，详情见 {}", workerStderrTail());
+                    return null;
+                }
+                if (!"OK".equals(reply)) throw new java.io.IOException("Photo matte worker stopped");
+                byte[] result = Files.readAllBytes(output);
+                BufferedImage check = ImageIO.read(new java.io.ByteArrayInputStream(result));
+                log.debug("单图抠图耗时 {}ms", System.currentTimeMillis() - start);
+                return (check == null || result.length < 1000) ? null : result;
+            } catch (InterruptedException e) {
+                stopWorker();
+                Thread.currentThread().interrupt();
                 return null;
+            } catch (Exception e) {
+                stopWorker();
+                log.warn("证件照抠图不可用，回退原图：{}；worker stderr 尾部：{}", e.getClass().getSimpleName(), workerStderrTail());
+                return null;
+            } finally {
+                deleteTemporary(input);
+                deleteTemporary(output);
             }
-            if (!"OK".equals(reply)) throw new java.io.IOException("Photo matte worker stopped");
-            byte[] result = Files.readAllBytes(output);
-            BufferedImage check = ImageIO.read(new java.io.ByteArrayInputStream(result));
-            log.debug("单图抠图耗时 {}ms", System.currentTimeMillis() - start);
-            return (check == null || result.length < 1000) ? null : result;
-        } catch (InterruptedException e) {
-            stopWorker();
-            Thread.currentThread().interrupt();
-            return null;
-        } catch (Exception e) {
-            stopWorker();
-            log.warn("证件照抠图不可用，回退原图：{}；worker stderr 尾部：{}", e.getClass().getSimpleName(), workerStderrTail());
-            return null;
-        } finally {
-            deleteTemporary(input);
-            deleteTemporary(output);
         }
+        return null;
     }
 
     private synchronized void ensureWorker() throws Exception {
