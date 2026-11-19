@@ -1287,18 +1287,20 @@ function openArchiveDialog(row, candidate = false) {
   archiveVisible.value = true
 }
 
-async function saveProjectResume(fields, photo) {
+async function saveProjectResume(fields, photo, existingExpertId) {
   const result = await archiveManual(projectId, {
     name: fields.姓名,
     unit: fields.单位,
+    department: fields.科室,
     title: fields.职称,
     profile: fields.简介,
     contact: fields.联系方式,
     requirePendingSpeaker: !archiveCandidate.value,
-    rejectExistingName: !archivePresetName.value
+    matchByNameAndUnit: !archivePresetName.value,
+    existingExpertId
   }, photo)
   if (archiveCandidate.value) archiveCandidate.value.expertId = result.expertId
-  return `已建档，回绑参会记录 ${result.boundSpeakers} 条`
+  return `${existingExpertId ? '已关联已有档案' : '已建档'}，回绑参会记录 ${result.boundSpeakers} 条`
 }
 
 async function refreshArchivedExperts() {

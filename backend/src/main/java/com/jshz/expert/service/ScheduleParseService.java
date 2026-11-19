@@ -937,6 +937,7 @@ public class ScheduleParseService {
         Expert expert = new Expert();
         expert.setName(name);
         expert.setUnit(unit);
+        expert.setDepartment(blankToNull(strOf(body.get("department"))));
         expert.setTitle(blankToNull(strOf(body.get("title"))));
         expert.setProfile(blankToNull(strOf(body.get("profile"))));
         expert.setContact("无".equals(contact) ? null : blankToNull(contact));
@@ -945,16 +946,20 @@ public class ScheduleParseService {
             expertService.attachNewAvatar(saved, photo);
         }
 
+        insertProjectExpert(project.getId(), saved.getId(), user);
+        projectService.operationRecord(user, "项目「" + project.getName() + "」新建专家卡「" + saved.getName() + "」（日程库外专家建档）",
+                "PROJECT", project.getId());
+        return saved;
+    }
+
+    private void insertProjectExpert(Long projectId, Long expertId, AuthUser user) {
         com.jshz.expert.entity.ProjectExpert rel = new com.jshz.expert.entity.ProjectExpert();
-        rel.setProjectId(project.getId());
-        rel.setExpertId(saved.getId());
+        rel.setProjectId(projectId);
+        rel.setExpertId(expertId);
         rel.setRole("嘉宾");
         rel.setCreateBy(com.jshz.expert.common.ParamUtils.usernameOf(user));
         expertRelMapper.insert(rel);
 
-        projectService.operationRecord(user, "项目「" + project.getName() + "」新建专家卡「" + saved.getName() + "」（日程库外专家建档）",
-                "PROJECT", project.getId());
-        return saved;
     }
 
     private String strOf(Object v) {
@@ -970,7 +975,9 @@ public class ScheduleParseService {
         if (name.isEmpty()) {
             throw new BusinessException("姓名不能为空");
         }
-        if (Boolean.TRUE.equals(body.get("requirePendingSpeaker"))
+        Long existingId = parseNullableId(body.get("existingExpertId"));
+        boolean checkNameAndUnit = Boolean.TRUE.equals(body.get("matchByNameAndUnit"));
+        if ((checkNameAndUnit || existingId != null || Boolean.TRUE.equals(body.get("requirePendingSpeaker")))
                 && speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
                         .select(ProjectSpeaker::getId)
                         .eq(ProjectSpeaker::getProjectId, projectId)
@@ -984,7 +991,27 @@ public class ScheduleParseService {
                 && expertService.count(new LambdaQueryWrapper<Expert>().eq(Expert::getName, name)) > 0) {
             throw new BusinessException("存在同名专家档案，请人工确认");
         }
-        Expert saved = createExpertForProject(project, body, photo, user);
+        String unit = strOf(body.get("unit"));
+        Expert saved;
+        if (existingId != null) {
+            saved = expertService.getById(existingId);
+            if (saved == null || !name.equals(strOf(saved.getName())) || unit.isEmpty()
+                    || !unit.equals(strOf(saved.getUnit()))) {
+                throw new BusinessException("档案姓名或单位已变化，请重新查重");
+            }
+            if (expertRelMapper.selectCount(new LambdaQueryWrapper<com.jshz.expert.entity.ProjectExpert>()
+                    .eq(com.jshz.expert.entity.ProjectExpert::getProjectId, projectId)
+                    .eq(com.jshz.expert.entity.ProjectExpert::getExpertId, existingId)) == 0) {
+                insertProjectExpert(projectId, existingId, user);
+            }
+            projectService.operationRecord(user, "关联项目参会专家已有档案「" + name + "」", "PROJECT", projectId);
+        } else {
+            if (checkNameAndUnit && expertService.count(new LambdaQueryWrapper<Expert>()
+                    .eq(Expert::getName, name).eq(Expert::getUnit, unit)) > 0) {
+                throw new BusinessException("已有同名同单位档案，请确认关联");
+            }
+            saved = createExpertForProject(project, body, photo, user);
+        }
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("ok", true);
         r.put("fileName", "手动录入");

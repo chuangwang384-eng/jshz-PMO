@@ -32,7 +32,7 @@
             </div>
           </div>
         </template>
-        <el-select v-if="projectMode && !presetName" :model-value="row.targetName" placeholder="选择参会专家" aria-label="对应参会专家"
+        <el-select v-if="projectMode && !presetName" :model-value="row.targetName" filterable placeholder="搜索并选择参会专家" aria-label="对应参会专家"
           :disabled="busy || finished(row)" @change="name => setTarget(row, name)">
           <el-option v-for="name in targetNames" :key="name" :label="name" :value="name"
             :disabled="rows.some(other => other.id !== row.id && other.targetName === name)" />
@@ -78,18 +78,18 @@
       <BatchResumeCard :fields="currentMatch.fields" :photo-url="currentMatch.photoUrl" :label="currentMatch.label" details />
       <BatchResumeCard :fields="conflict.row.fields" :photo-url="conflict.row.photo?.url" :label="conflict.row.file.name" details />
     </div>
-    <p class="message">覆盖会使用本次确认的内容，未填写的字段和未选择的照片保留原值。</p>
+    <p class="message">{{ conflict.linkOnly ? '关联后沿用现有档案的资料和证件照。' : '覆盖会使用本次确认的内容，未填写的字段和未选择的照片保留原值。' }}</p>
     <template #footer>
-      <el-button @click="resolveConflict('cancel')">取消当前简历解析</el-button>
-      <el-button @click="resolveConflict('keep')">都保留</el-button>
-      <el-button type="primary" @click="resolveConflict('replace')">覆盖</el-button>
+      <el-button @click="resolveConflict('cancel')">{{ conflict.linkOnly ? '暂不关联' : '取消当前简历解析' }}</el-button>
+      <el-button v-if="!conflict.linkOnly" @click="resolveConflict('keep')">都保留</el-button>
+      <el-button type="primary" @click="resolveConflict(conflict.linkOnly ? 'link' : 'replace')">{{ conflict.linkOnly ? '确认关联' : '覆盖' }}</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import BatchResumeCard from './BatchResumeCard.vue'
 import PhotoImage from './PhotoImage.vue'
 import { createExpert, getExpert, listExperts, parseResume, updateExpert } from '../api/expert'
@@ -106,7 +106,7 @@ const emit = defineEmits(['saved'])
 const visible = defineModel({ type: Boolean })
 const requiredFields = ['姓名', '单位']
 const fieldNames = [...requiredFields, '科室', '职称', '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行']
-const projectFields = ['姓名', '单位', '职称', '联系方式', '简介']
+const projectFields = ['姓名', '单位', '科室', '职称', '联系方式', '简介']
 const projectMode = computed(() => Boolean(props.saveProjectExpert))
 const editableFields = computed(() => projectMode.value ? projectFields : fieldNames)
 const extensions = '.pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png'
@@ -123,7 +123,7 @@ let nextId = 0
 
 function valid(row) {
   return (!projectMode.value || hasTarget(row))
-    && requiredFields.every(field => String(row.fields[field] ?? '').trim())
+    && requiredFields.every(field => String(confirmedFields(row)[field] ?? '').trim())
 }
 
 function hasTarget(row) {
@@ -163,6 +163,10 @@ function acceptedFile(file) {
 
 function setTarget(row, name) {
   row.targetName = name
+  if (props.autoMatchTargets && row.status === 'ready') {
+    row.selected = Boolean(valid(row))
+    return
+  }
   row.fields = { 姓名: name }
   row.status = 'waiting'
   row.selected = false
@@ -205,16 +209,14 @@ function edit(row) {
 async function parseRow(row) {
   row.status = 'parsing'
   try {
-    const result = props.autoMatchTargets
-      ? await parseResume(row.file, { contentNameOnly: true })
-      : await parseResume(row.file)
+    const result = await parseResume(row.file)
     if (projectMode.value) {
       const parsedName = String(result?.fields?.姓名 ?? '').trim()
       if (props.autoMatchTargets && !row.targetName && props.targetNames.includes(parsedName)
         && !rows.value.some(other => other !== row && other.targetName === parsedName && !finished(other))) {
         row.targetName = parsedName
       }
-      if (!parsedName || parsedName !== row.targetName) {
+      if (!props.autoMatchTargets && (!parsedName || parsedName !== row.targetName)) {
         row.status = 'failed'
         row.selected = false
         row.editing = false
@@ -223,6 +225,7 @@ async function parseRow(row) {
           : `解析姓名「${parsedName}」与所选专家「${row.targetName}」不一致`
         return
       }
+      if (props.autoMatchTargets) row.fields.姓名 = parsedName
     }
     for (const field of editableFields.value) {
       if (!String(row.fields[field] ?? '').trim() && result?.fields?.[field] != null) {
@@ -236,7 +239,8 @@ async function parseRow(row) {
       return { mime, base64, url: `data:${mime};base64,${base64}` }
     }).filter(photo => photo.base64)
     row.status = projectMode.value || result?.hitCount || row.photos.length || valid(row) ? 'ready' : 'failed'
-    row.message = result?.message || (row.status === 'failed' ? '未识别到可用内容，可重试或手动补填' : '')
+    row.message = props.autoMatchTargets && !row.targetName ? '请搜索并选择对应的参会专家'
+      : result?.message || (row.status === 'failed' ? '未识别到可用内容，可重试或手动补填' : '')
     row.selected = row.status === 'ready' && Boolean(valid(row))
     row.editing = true
   } catch (error) {
@@ -270,9 +274,9 @@ function sameExpert(left, right) {
   return requiredFields.every(field => String(left[field] ?? '').trim() === String(right[field] ?? '').trim())
 }
 
-function askConflict(row, matches) {
+function askConflict(row, matches, linkOnly = false) {
   return new Promise(resolve => {
-    conflict.value = { row, matches, index: 0, resolve }
+    conflict.value = { row, matches, index: 0, resolve, linkOnly }
   })
 }
 
@@ -290,13 +294,14 @@ function cancelRow(row) {
 }
 
 async function findMatches(row) {
+  const input = confirmedFields(row)
   const matches = []
   const size = 50
   let page = 1
   let total
   do {
-    const result = await listExperts({ keyword: row.fields.姓名.trim(), unit: row.fields.单位.trim(), page, size })
-    matches.push(...(result.items || []).filter(expert => sameExpert(expert, row.fields)))
+    const result = await listExperts({ keyword: input.姓名, unit: input.单位, page, size })
+    matches.push(...(result.items || []).filter(expert => sameExpert(expert, input)))
     total = result.total || 0
     page++
   } while ((page - 1) * size < total)
@@ -307,7 +312,9 @@ async function findMatches(row) {
 }
 
 function confirmedFields(row) {
-  return Object.fromEntries(editableFields.value.map(field => [field, fieldValue(field, row.fields[field])]).filter(([, value]) => value))
+  return Object.fromEntries(editableFields.value.map(field => [
+    field, fieldValue(field, props.autoMatchTargets && field === '姓名' ? row.targetName : row.fields[field])
+  ]).filter(([, value]) => value))
 }
 
 function fieldValue(field, raw) {
@@ -317,6 +324,7 @@ function fieldValue(field, raw) {
 
 async function saveRow(row, target) {
   const changes = confirmedFields(row)
+  if (props.autoMatchTargets && target) return props.saveProjectExpert(changes, null, target.id)
   const photo = row.photo && new File(
     [Uint8Array.from(atob(row.photo.base64), character => character.charCodeAt(0))],
     row.photo.mime === 'image/png' ? 'resume-photo.png' : 'resume-photo.jpg',
@@ -392,19 +400,31 @@ async function submit() {
     // Resolve existing records before writing any row, so same-batch duplicates are compared only once.
     const pending = []
     for (const row of candidates) {
-      if (projectMode.value) {
+      if (projectMode.value && !props.autoMatchTargets) {
         pending.push({ row })
         continue
       }
       try {
+        const parsedName = String(row.fields.姓名 ?? '').trim()
+        if (props.autoMatchTargets && parsedName !== row.targetName) {
+          try {
+            await ElMessageBox.confirm(
+              `简历姓名：${parsedName || '未识别'}。确认以参会专家「${row.targetName}」保存并关联？`,
+              '确认参会专家姓名', { type: 'warning', confirmButtonText: '确认使用参会姓名' }
+            )
+          } catch {
+            continue
+          }
+        }
         const matches = await findMatches(row)
         let target
         if (matches.length) {
-          const { action, match } = await askConflict(row, matches)
+          const { action, match } = await askConflict(row, matches, props.autoMatchTargets)
           if (action === 'cancel') {
-            cancelRow(row)
+            if (!props.autoMatchTargets) cancelRow(row)
             continue
           }
+          if (action === 'link') target = match
           if (action === 'replace') {
             if (pending.some(item => item.target?.id === match.id)) {
               row.message = '该专家卡已被本批另一条选为覆盖目标，请单独核对后再提交'

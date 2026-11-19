@@ -76,6 +76,7 @@ class ProjectResumeAvatarTest {
         doAnswer(invocation -> {
             Expert expert = invocation.getArgument(0);
             assertEquals("测试医院", expert.getUnit());
+            assertEquals("心内科", expert.getDepartment());
             assertNull(expert.getContact());
             assertNull(expert.getTitle());
             assertNull(expert.getProfile());
@@ -92,8 +93,40 @@ class ProjectResumeAvatarTest {
         assertThrows(BusinessException.class, () -> schedule.archiveManual(55L,
                 Map.of("name", "张医生", "unit", "测试医院", "contact", "错误号码"), null, null));
         assertEquals(42L, schedule.archiveManual(55L,
-                Map.of("name", "张医生", "unit", "测试医院", "contact", " 无 "), null, null).get("expertId"));
+                Map.of("name", "张医生", "unit", "测试医院", "department", " 心内科 ", "contact", " 无 "), null, null).get("expertId"));
         verify(experts, times(1)).save(any(Expert.class));
+    }
+
+    @Test
+    void linksOnlyAnExactExistingArchiveAndKeepsItsFieldsAndPhoto() {
+        ProjectService projects = mock(ProjectService.class);
+        when(projects.requireProject(55L)).thenReturn(new Project());
+        ExpertService experts = mock(ExpertService.class);
+        Expert existing = new Expert();
+        existing.setId(42L);
+        existing.setName("张医生");
+        existing.setUnit("测试医院");
+        existing.setDepartment("原科室");
+        existing.setPhoto("original.png");
+        when(experts.getById(42L)).thenReturn(existing);
+        ProjectSpeakerMapper speakers = mock(ProjectSpeakerMapper.class);
+        com.jshz.expert.entity.ProjectSpeaker pending = new com.jshz.expert.entity.ProjectSpeaker();
+        pending.setId(7L);
+        when(speakers.selectList(any())).thenReturn(List.of(pending));
+        ProjectExpertMapper relations = mock(ProjectExpertMapper.class);
+        when(relations.selectCount(any())).thenReturn(0L);
+        var schedule = new ScheduleParseService(null, speakers, projects, experts, null, null, relations, null, null, null);
+
+        assertThrows(BusinessException.class, () -> schedule.archiveManual(55L,
+                Map.of("name", "张医生", "unit", "其他医院", "existingExpertId", 42L), null, null));
+        var result = schedule.archiveManual(55L,
+                Map.of("name", "张医生", "unit", "测试医院", "department", "新科室", "existingExpertId", 42L), photo, null);
+        assertEquals(42L, result.get("expertId"));
+        assertEquals(42L, pending.getExpertId());
+        assertEquals("原科室", existing.getDepartment());
+        assertEquals("original.png", existing.getPhoto());
+        verify(experts, never()).create(any(), any());
+        verify(experts, never()).attachNewAvatar(any(), any());
     }
 
     @Test
