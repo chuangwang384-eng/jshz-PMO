@@ -27,9 +27,10 @@ class ProjectAccessRegressionTest {
     @Mock SupplierMapper suppliers;
     @Mock ProjectPhaseMapper phases;
     @Mock ProjectPhaseHistoryMapper phaseHistory;
+    @Mock ProjectBudgetMapper budgetMapper;
     AuthUser user(long id, String... permissions) { return new AuthUser(id,"fixture",false,false,Set.of(),Set.of(permissions)); }
     Project project() { Project p = new Project(); p.setId(1L); p.setOwnerId(2L); p.setStatus("ACTIVE"); return p; }
-    void setup() { ReflectionTestUtils.setField(service,"baseMapper",projects); when(projects.selectById(1L)).thenReturn(project()); }
+    void setup() { ReflectionTestUtils.setField(service,"baseMapper",projects); when(projects.selectById(1L)).thenReturn(project()); lenient().when(budgetMapper.selectCount(any())).thenReturn(1L); }
     @Test void outsiderRejectedBeforeLogQuery() {
         setup(); when(executors.selectCount(any())).thenReturn(0L);
         BusinessException e = assertThrows(BusinessException.class, () -> service.timeline(1L,user(3L)));
@@ -62,6 +63,7 @@ class ProjectAccessRegressionTest {
 
     private Project setupBudgetStage() {
         ReflectionTestUtils.setField(service, "baseMapper", projects);
+        lenient().when(budgetMapper.selectCount(any())).thenReturn(1L);
         Project project = project();
         project.setPhaseId(10L);
         when(projects.selectById(1L)).thenReturn(project);
@@ -120,6 +122,7 @@ class ProjectAccessRegressionTest {
 
     private Project setupScheduleStage() {
         ReflectionTestUtils.setField(service, "baseMapper", projects);
+        lenient().when(budgetMapper.selectCount(any())).thenReturn(1L);
         Project project = project();
         project.setPhaseId(11L);
         when(projects.selectById(1L)).thenReturn(project);

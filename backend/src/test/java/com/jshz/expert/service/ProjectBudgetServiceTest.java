@@ -214,6 +214,8 @@ class ProjectBudgetServiceTest {
         Map<String, Object> result = service.confirm(1L, user);
 
         assertThat(result.get("items")).isEqualTo(List.of(item));
+        // A16/D3：确认时以会议预算合计覆盖项目财务登记金额
+        verify(projectService).overrideBudgetAmount(1L, new BigDecimal("24000.00"));
         ProjectBudget confirmed = (ProjectBudget) result.get("budget");
         assertThat(confirmed.getStatus()).isEqualTo("CONFIRMED");
         assertThat(confirmed.getUpdatedBy()).isEqualTo(7L);

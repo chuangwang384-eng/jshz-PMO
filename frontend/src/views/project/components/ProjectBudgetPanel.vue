@@ -5,6 +5,10 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" style="margin-bottom: 10px"/>
       <el-alert v-if="isOnline" type="info" :closable="false" style="margin-bottom: 10px"
                 title="线上项目 · 点选收费项生成报价单（收费标准由管理员在「管理员设置-项目配置」维护）"/>
+      <div v-if="isOnline" style="margin: -4px 0 10px">
+        <el-checkbox v-model="needsMainVisual">需要主视觉设计</el-checkbox>
+        <span class="hint-text" style="margin-left: 8px">取消勾选后「设计」类费用项将被取消点选且不可勾选</span>
+      </div>
       <el-alert v-else type="info" :closable="false" style="margin-bottom: 10px"
                 title="线下项目 · 七类费用明细（搭建/媒体为非必需，礼品需与客户确认；收费标准可在「管理员设置-项目配置」维护）"/>
 
@@ -150,11 +154,24 @@ const hiddenSections = computed(() =>
 const hasItems = computed(() => items.value.some((r) => (r.name || '').trim()))
 // 线上点选：勾选=数量 1（或恢复 1），取消=数量 0（不计入合计）
 function togglePick(row, checked) {
+  // A16/D3：未勾选「需要主视觉设计」时禁止点选设计类费用项
+  if (checked && !needsMainVisual.value && isDesignRow(row)) {
+    row.quantity = 0
+    return
+  }
   row.quantity = checked ? 1 : 0
   if (checked && Number(row.unitPrice || 0) === 0) {
     row.unitPrice = null // 提示管理员未配默认单价，用户可手填
   }
 }
+const isDesignRow = (row) => /设计|主视觉/.test(row.name || '')
+const needsMainVisual = computed({
+  get: () => estimateState.value.needsMainVisual !== false,
+  set: (v) => {
+    estimateState.value.needsMainVisual = v
+    if (!v) items.value.filter(isDesignRow).forEach((row) => { row.quantity = 0 })
+  }
+})
 const amountOf = (row) => Number(row.quantity || 0) * Number(row.unitPrice || 0)
 const sectionTotal = (key) => rowsOf(key).reduce((s, r) => s + amountOf(r), 0)
 const total = computed(() => items.value.reduce((s, r) => s + amountOf(r), 0))
@@ -214,7 +231,7 @@ async function save(confirm) {
       remark: r.remark || null
     })),
     remark: remark.value || null,
-    estimateInputs: isOnline.value ? null : estimateState.value,
+    estimateInputs: estimateState.value && Object.keys(estimateState.value).length ? estimateState.value : null,
     confirm
   }
   if (!payload.items.some((r) => r.name)) {

@@ -11,6 +11,7 @@ import com.jshz.expert.entity.Expert;
 import com.jshz.expert.entity.OperationLog;
 import com.jshz.expert.entity.Project;
 import com.jshz.expert.entity.ProjectAssistant;
+import com.jshz.expert.entity.ProjectBudget;
 import com.jshz.expert.entity.ProjectContract;
 import com.jshz.expert.entity.ProjectDoc;
 import com.jshz.expert.entity.ProjectExecutor;
@@ -30,6 +31,7 @@ import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.OperationLogMapper;
 import com.jshz.expert.mapper.ProjectAssistantMapper;
+import com.jshz.expert.mapper.ProjectBudgetMapper;
 import com.jshz.expert.mapper.ProjectContractMapper;
 import com.jshz.expert.mapper.ProjectDocMapper;
 import com.jshz.expert.mapper.ProjectExecutorMapper;
@@ -105,6 +107,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             "DEPT3", "项目三部");
 
     private final ProjectTypeMapper typeMapper;
+    private final ProjectBudgetMapper budgetMapper;
     private final ProjectTypePhaseRelMapper typePhaseRelMapper;
     private final ProjectPhaseHistoryMapper phaseHistoryMapper;
     private final ProjectPhaseMapper phaseMapper;
@@ -564,6 +567,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 if (!missing.isEmpty()) {
                     throw new BusinessException("当前阶段「" + current.getName() + "」必填材料未提交，无法推进：缺少 " + String.join("、", missing));
                 }
+                // A16/D3（2026-11-17 负责人拍板）：全部项目类型要求已确认预算才能推进阶段；回退不拦截
+                Long confirmedBudgets = budgetMapper.selectCount(new LambdaQueryWrapper<ProjectBudget>()
+                        .eq(ProjectBudget::getProjectId, project.getId())
+                        .eq(ProjectBudget::getStatus, "CONFIRMED"));
+                if (confirmedBudgets == null || confirmedBudgets == 0) {
+                    throw new BusinessException("预算未确认：请先在「会议预算制作」阶段保存并确认预算单后再推进阶段");
+                }
                 actionType = ProjectPhaseHistory.ACTION_ADVANCE;
             } else {
                 // 回退：相邻与跨级均允许，原因必填
@@ -598,8 +608,15 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 "PROJECT", id, null);
     }
 
-    /** 取消（必填原因）；取消后仍可回退（changePhase 已支持从 CANCELED 恢复）。 */
-    @Transactional(rollbackFor = Exception.class)
+    /** A16/D3：预算确认后以会议预算合计覆盖项目财务登记金额（project.budget_amount），仅限本用途调用。 */
+    public void overrideBudgetAmount(Long projectId, java.math.BigDecimal amount) {
+        Project patch = new Project();
+        patch.setId(projectId);
+        patch.setBudgetAmount(amount);
+        updateById(patch);
+    }
+
+    /** 取消（必填原因）；取消后仍可回退（changePhase 已支持从 CANCELED 恢复）。 */    @Transactional(rollbackFor = Exception.class)
     public void cancel(Long id, String reason, AuthUser user) {
         Project project = requireProject(id);
         if (!isOwnerOrCreator(project, user)) {

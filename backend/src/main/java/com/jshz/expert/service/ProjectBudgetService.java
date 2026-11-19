@@ -147,6 +147,8 @@ public class ProjectBudgetService {
             budget = lockBudget(projectId);
             log.info("预算确认 project={} by={}", projectId, user.getUserId());
         }
+        // A16/D3（2026-11-17 负责人拍板）：以会议预算合计为准，确认时覆盖项目财务登记金额（幂等，重复确认/已确认单再确认均同步）
+        projectService.overrideBudgetAmount(projectId, budget.getTotalAmount());
         return savedBudget(budget);
     }
 
