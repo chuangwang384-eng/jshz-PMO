@@ -14,9 +14,11 @@
 ## 3. 修复
 - `photomatte-worker.py`：refine 中 MODNet 失败**降级 rembg(u2net) 主链**完成透明抠图，不再整体失败。
 - `PhotoMatteService.removeBackground`：worker ERROR 时重写临时文件**重试一次**。
+- `photomatte-worker.py`（二次修复，提交见 git log）：`_resolve_u2net_home()` 逐级搜索本地 u2net.onnx（含嵌套 `models/models/u2net/` 布局）。**根因补充**：生产 NSSM 设 `U2NET_HOME=<LOCAL_PATH>`（根目录无 onnx），rembg 降级链会尝试联网下载必失败；修复后离线可解析。已用生产同款 env+cwd 实测降级链输出透明 RGBA（transparent_frac 0.21/0.13）。
+- MODNet 在生产（LocalSystem 账户）掩码偶发无效的底层原因未完全定位（同 env/cwd/输入以 guoshuai 复跑均正常）；降级链兜底后不影响交付，worker stderr 新增标记 `MODNet invalid, degrade to u2net` 供运维观察。
 
 ## 4. 验证
-- 胡鸿涛/黎海亮真实原件（本地，同等调用链）：每份 2 个候选 PNG，firstTransparent=true ✅
+- 胡鸿涛/黎海亮真实原件（本地 Java 全链 + 生产同款 env 的 worker 直跑）：每份 2 个候选 PNG，firstTransparent=true ✅
 - 全量 mvn test：**216 项 0 失败**；mvn compile 通过
 - 1.0.79 预检 ALL PASS（候选含降级补丁、回滚 jar=live jar 哈希一致）
 

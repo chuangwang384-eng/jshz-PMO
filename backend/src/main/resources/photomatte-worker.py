@@ -5,7 +5,27 @@ import sys
 import traceback
 from pathlib import Path
 
-os.environ.setdefault("U2NET_HOME", str(Path.cwd() / "models"))
+def _resolve_u2net_home():
+    """u2net.onnx 目录解析（2026-11-19 生产回归）：环境变量 U2NET_HOME 可能指向不含
+    onnx 的父目录（实际模型在嵌套 models/models/u2net/ 下），rembg 找不到会尝试联网下载，
+    生产内网必失败。逐级搜索本地已有模型目录，全部缺失才保留原值（交由 rembg 报错）。"""
+    home = Path(os.environ.get("U2NET_HOME") or (Path.cwd() / "models"))
+    pf = Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+    candidates = [
+        home,
+        home / "models" / "u2net",
+        home / "models",
+        Path.cwd() / "models",
+        Path.cwd() / "models" / "models" / "u2net",
+        pf / "JSHZ" / "pp-ocrv5" / "models" / "models" / "u2net",
+    ]
+    for cand in candidates:
+        if (cand / "u2net.onnx").is_file():
+            return cand
+    return home
+
+
+os.environ["U2NET_HOME"] = str(_resolve_u2net_home())
 os.environ.setdefault("OMP_NUM_THREADS", "4")
 import numpy as np
 from PIL import Image
@@ -291,7 +311,7 @@ def refine(image):
         except Exception:
             # 2026-11-19 胡鸿涛/黎海亮案例：MODNet 掩码偶发无效（同图生产失败而本地成功，
             # 非确定复现）。降级到下方 rembg(u2net) 主链完成透明抠图，不再整次失败回退原图。
-            pass
+            print("MODNet invalid, degrade to u2net", file=sys.stderr, flush=True)
     if session is None:
         session = new_session("u2net")
 
