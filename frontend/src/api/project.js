@@ -151,7 +151,7 @@ export function listPhaseOptions() {
 export function uploadSchedule(id, file) {
   const fd = new FormData()
   fd.append('file', file)
-  return request.post(`/project/${id}/schedule`, fd)
+  return request.post(`/project/${id}/schedule`, fd, { timeout: 180000 })
 }
 
 // 日程与参会专家汇总（当前日程 + 候选 + 正式记录）
@@ -161,7 +161,7 @@ export function getScheduleOverview(id) {
 
 // 触发解析（规则打底 + 本地大模型兜底，结果为候选，须人工确认）
 export function parseSchedule(id, scheduleId) {
-  return request.post(`/project/${id}/schedule/${scheduleId}/parse`)
+  return request.post(`/project/${id}/schedule/${scheduleId}/parse`, null, { timeout: 180000 })
 }
 
 // 删除日程阶段附件（软删留痕；删生效日程联动清日程记录与候选）
@@ -169,9 +169,19 @@ export function deleteScheduleDoc(id, docId) {
   return request.delete(`/project/${id}/schedule/docs/${docId}`)
 }
 
-// 人工确认保存参会专家（整表覆盖式提交正式记录）
-export function confirmSpeakers(id, speakers) {
-  return request.put(`/project/${id}/speakers`, { speakers })
+// 确认新增候选，保留已保存的参会记录
+export function confirmSpeakers(id, scheduleId, parseRevision, speakers) {
+  return request.put(`/project/${id}/speakers`, { speakers }, { params: { scheduleId, parseRevision } })
+}
+
+export function applyScheduleComparison(id, scheduleId, token, accepted) {
+  return request.post(`/project/${id}/schedule/${scheduleId}/comparison`, { token, accepted })
+}
+
+export function archiveProjectResumes(id, files) {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  return request.post(`/project/${id}/speakers/archive-resumes`, form, { timeout: 180000 })
 }
 
 // 手动补录一条参会专家（解析失败/遗漏兜底）

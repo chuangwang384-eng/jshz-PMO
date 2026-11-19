@@ -1970,7 +1970,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             } else {
                 Long unmatched = speakerMapper.selectCount(new LambdaQueryWrapper<ProjectSpeaker>()
                         .eq(ProjectSpeaker::getProjectId, project.getId())
-                        .eq(ProjectSpeaker::getScheduleId, schedule.getId())
+                        .and(rows -> rows.eq(ProjectSpeaker::getScheduleId, schedule.getId())
+                                .or(saved -> saved.eq(ProjectSpeaker::getConfirmed, 1).isNotNull(ProjectSpeaker::getScheduleId)))
                         .isNull(ProjectSpeaker::getExpertId));
                 if (unmatched != null && unmatched > 0) {
                     missing.add("专家匹配入库（" + unmatched + " 位库外专家）");

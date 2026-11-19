@@ -515,15 +515,28 @@ public class ProjectController {
         return ApiResponse.ok(scheduleParseService.parse(id, scheduleId, user));
     }
 
-    /** 人工确认保存参会专家（整表覆盖式提交正式记录）。 */
+    /** 人工确认新增参会专家，保留既有正式记录。 */
     @PutMapping("/{id}/speakers")
     public ApiResponse<List<ProjectSpeaker>> confirmSpeakers(@PathVariable Long id, @RequestBody Map<String, Object> body,
+                                                             @RequestParam(required = false) Long scheduleId,
+                                                             @RequestParam(required = false) String parseRevision,
                                                              @AuthenticationPrincipal AuthUser user) {
         Object items = body == null ? null : body.get("speakers");
         List<Map<String, Object>> list = items instanceof List<?> l
                 ? l.stream().filter(o -> o instanceof Map).map(o -> (Map<String, Object>) o).collect(java.util.stream.Collectors.toList())
                 : List.of();
-        return ApiResponse.ok(scheduleParseService.confirm(id, list, user));
+        return ApiResponse.ok(scheduleParseService.confirm(id, scheduleId, parseRevision, list, user));
+    }
+
+    public record ScheduleComparisonDecision(String token, List<Long> accepted) {}
+
+    @PostMapping("/{id}/schedule/{scheduleId}/comparison")
+    public ApiResponse<Void> applyScheduleComparison(@PathVariable Long id, @PathVariable Long scheduleId,
+                                                      @RequestBody ScheduleComparisonDecision decision,
+                                                      @AuthenticationPrincipal AuthUser user) {
+        scheduleParseService.applyComparison(id, scheduleId, decision.token(),
+                decision.accepted() == null ? List.of() : decision.accepted(), user);
+        return ApiResponse.ok(null);
     }
 
     /** 手动补录一条参会专家（解析失败/遗漏兜底）。 */

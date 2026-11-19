@@ -190,7 +190,7 @@
 
         <!-- ④.5 参会专家（2026-11-09 流程重塑：日程在「阶段资料」上传后自动解析）
              2026-11-16 Owner 口径：仅日程上传阶段展示，会议预算制作阶段不展示 -->
-        <div v-if="isAgendaStage" class="ui-card pd-block pd-schedule">
+        <div v-if="isAgendaStage || candidates.length" class="ui-card pd-block pd-schedule">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">参会专家</span>
             <span :class="'ui-badge ' + scheduleBadgeClass">{{ scheduleBadgeText }}</span>
@@ -200,7 +200,7 @@
 
           <!-- 候选专家（AI 解析结果=候选，须人工确认） -->
           <template v-if="candidates.length">
-            <div class="schedule-sub-title">解析候选（请逐条确认后保存）</div>
+            <div id="schedule-candidates" class="schedule-sub-title">新增解析候选（请逐条确认后保存）</div>
             <el-table :data="candidateDraft" size="small">
               <el-table-column label="姓名" width="140">
                 <template #default="{ row }"><el-input v-model="row.expertName" size="small" @update:model-value="row.expertId = null" /></template>
@@ -237,7 +237,8 @@
               </el-table-column>
             </el-table>
             <div class="task-ops">
-              <el-button type="primary" :disabled="!candidateDraft.length" @click="doConfirm">确认保存参会专家（{{ candidateDraft.length }} 人）</el-button>
+              <el-button v-if="candidateDraft.length" type="primary" @click="doConfirm">确认保存新增参会记录（{{ candidateDraft.length }} 条）</el-button>
+              <el-button v-else @click="discardCandidates">放弃全部候选</el-button>
               <el-button @click="resetCandidateDraft">还原为解析结果</el-button>
             </div>
           </template>
@@ -517,20 +518,31 @@
         <!-- 2026-11-16 Owner 口径：会议预算制作阶段只展示 生命周期/阶段资料，右侧待办/文件/合规均隐藏 -->
         <div class="ui-card side-card">
           <div class="pd-sec-title">当前待办</div>
-          <template v-if="missingRequiredTemplates.length">
-            <div v-for="(m, i) in missingRequiredTemplates" :key="i" class="todo-item">
+          <template v-if="otherRequiredTemplates.length">
+            <div v-for="(m, i) in otherRequiredTemplates" :key="i" class="todo-item">
               <span class="todo-name">{{ m }}</span>
               <el-button link type="primary" size="small" @click="resolveMissing(m)">{{ resolveLabel(m) }} →</el-button>
             </div>
           </template>
+          <div v-if="comparison?.changes.length" class="todo-item">
+            <span class="todo-name">核对日程变更 {{ comparison.changes.length }} 条</span>
+            <el-button v-if="canOperate" link type="warning" size="small" @click="openComparison">查看差异 →</el-button>
+          </div>
+          <div v-if="candidates.length" class="todo-item">
+            <span class="todo-name">待保存专家信息 {{ candidates.length }} 条</span>
+            <el-button v-if="canOperate" link type="primary" size="small" @click="goToScheduleCandidates">去保存 →</el-button>
+          </div>
           <template v-else-if="outArchiveCount > 0">
             <div class="todo-item">
               <span class="todo-name">库外专家待入档 {{ outArchiveCount }} 人</span>
-              <el-button v-if="canOperate" link type="warning" size="small" @click="openArchiveDialog(null)">批量建档 →</el-button>
+              <el-button v-if="canOperate" link type="warning" size="small" :loading="quickArchiveRunning"
+                @click="quickArchiveInput?.click()">一键上传</el-button>
             </div>
-            <div class="hint-text" style="margin-top: 4px">可上传多份简历批量建档并自动回绑参会专家</div>
+            <input ref="quickArchiveInput" type="file" hidden multiple
+              accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png" @change="quickArchive" />
           </template>
-          <div v-else class="side-done">{{ isBudgetStage ? '报价文件已生成' : '当前阶段必填配置已完成' }}</div>
+          <div v-if="!otherRequiredTemplates.length && !comparison?.changes.length && !candidates.length && !outArchiveCount"
+            class="side-done">{{ isBudgetStage ? '报价文件已生成' : '当前阶段必填配置已完成' }}</div>
         </div>
 
         <!-- 项目文件快速访问（Owner 2026-11-12）：所有阶段上传的文件均可快速下载/预览
@@ -757,6 +769,50 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="comparisonVisible" title="核对日程参会记录变更" width="min(760px, 95vw)">
+      <p>勾选要应用的变更。未勾选的参会记录会保留，移除只影响当前项目。</p>
+      <p>时间和议题均变化的出场会分别列为待移除记录和新增候选，请结合候选列表核对。</p>
+      <el-checkbox-group v-model="acceptedChanges">
+        <el-table :data="comparison?.changes || []" size="small" max-height="420">
+          <el-table-column label="应用" width="64">
+            <template #default="{ row }">
+              <el-checkbox :value="row.before.id" :aria-label="'应用 ' + row.before.expertName + ' 的参会变更'" />
+            </template>
+          </el-table-column>
+          <el-table-column label="已保存出场" min-width="180">
+            <template #default="{ row }">{{ row.before.expertName }} · {{ describeAppearance(row.before) }}</template>
+          </el-table-column>
+          <el-table-column label="新日程" min-width="200">
+            <template #default="{ row }">
+              <template v-if="row.after">→ {{ describeAppearance(row.after) }}</template>
+              <template v-else>
+                <div>从本项目移除此出场</div>
+                <div v-for="candidate in relatedCandidates(row.before)" :key="candidate.id">
+                  新增候选：{{ describeAppearance(candidate) }}
+                </div>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button :disabled="savingComparison" @click="saveComparison([])">保留原记录</el-button>
+        <el-button type="primary" :disabled="!acceptedChanges.length" :loading="savingComparison"
+          @click="saveComparison(acceptedChanges)">应用所选变更</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="quickArchiveResultVisible" title="简历建档结果" width="min(680px, 95vw)">
+      <el-table :data="quickArchiveResults" size="small">
+        <el-table-column prop="fileName" label="简历" min-width="160" />
+        <el-table-column label="结果" min-width="220">
+          <template #default="{ row }">
+            {{ row.ok ? '已建档：' + row.expertName + '，回绑 ' + row.boundSpeakers + ' 条' : row.error }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
     <BatchResumeDialog v-model="archiveVisible" :target-names="archiveTargetNames"
       :preset-name="archivePresetName" :save-project-expert="saveProjectResume" @saved="refreshArchivedExperts">
       <template #extra>
@@ -849,7 +905,7 @@ import {
   saveExpertFee, saveSupplierFee,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
-  archiveManual, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
+  archiveManual, applyScheduleComparison, archiveProjectResumes, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
 } from '../../api/project'
 import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
 
@@ -973,8 +1029,9 @@ const scheduleBadgeText = computed(() => {
   if (!schedule.value) return '待上传'
   if (schedule.value.parseStatus === 'PARSING') return '解析中'
   if (schedule.value.parseStatus === 'FAILED') return '解析失败'
-  if (speakers.value.length) return '已完成'
-  if (schedule.value.parseStatus === 'DONE') return '待确认'
+  if (schedule.value.parseStatus === 'DONE') {
+    return candidates.value.length || comparison.value ? '待确认' : '已完成'
+  }
   return '待解析'
 })
 const scheduleBadgeClass = computed(() => {
@@ -985,8 +1042,10 @@ const scheduleBadgeClass = computed(() => {
 async function fetchSchedule({ preserveDraft = false } = {}) {
   const data = await getScheduleOverview(projectId)
   schedule.value = data?.schedule || null
+  parseRevision.value = data?.parseRevision || null
   candidates.value = data?.candidates || []
   speakers.value = data?.speakers || []
+  comparison.value = data?.comparison || null
   if (preserveDraft) {
     const linkedById = new Map(candidates.value.map(row => [row.id, row]))
     candidateDraft.value = candidateDraft.value.map(row => {
@@ -1020,8 +1079,8 @@ async function onScheduleFile(file) {
   }
   try {
     await uploadSchedule(projectId, file.raw)
-    ElMessage.success('日程已上传并自动解析中，结果为候选，请在列表中确认')
-    await fetchDetail()
+    await Promise.all([fetchDetail({ refreshSchedule: false }), fetchSchedule()])
+    ElMessage.success('日程已上传')
   } catch (e) {
     // 校验失败提示
   }
@@ -1055,7 +1114,7 @@ async function doParse() {
   try {
     await parseSchedule(projectId, schedule.value.id)
     await fetchSchedule()
-    ElMessage.success('解析完成，请在候选列表中确认')
+    ElMessage.success(candidates.value.length ? '解析完成，请保存新增候选' : '解析完成，无新增候选')
   } catch (e) {
     await fetchSchedule()
   } finally {
@@ -1113,9 +1172,88 @@ async function doConfirm() {
     ElMessage.warning('存在姓名为空的候选行，请补齐或移除')
     return
   }
-  speakers.value = await confirmSpeakers(projectId, payload)
+  speakers.value = await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, payload)
   ElMessage.success('参会专家已确认保存')
-  fetchSchedule()
+  await Promise.all([fetchSchedule(), fetchDetail({ refreshSchedule: false })])
+}
+
+async function discardCandidates() {
+  await ElMessageBox.confirm('放弃当前全部新增候选？已保存的参会专家会保留。', '放弃候选', { type: 'warning' })
+  await doConfirm()
+}
+
+const comparison = ref(null)
+const parseRevision = ref(null)
+const comparisonVisible = ref(false)
+const acceptedChanges = ref([])
+const savingComparison = ref(false)
+
+watch(() => comparison.value?.token, (token) => {
+  if (token && canOperate.value) openComparison()
+})
+
+function openComparison() {
+  acceptedChanges.value = []
+  comparisonVisible.value = true
+}
+
+function describeAppearance(row) {
+  return [roleLabel(row.role), row.segmentTime, row.segmentTitle].filter(Boolean).join(' / ')
+}
+
+function relatedCandidates(saved) {
+  return candidates.value.filter(candidate => {
+    if (saved.expertId && candidate.expertId) return saved.expertId === candidate.expertId
+    const compact = name => String(name || '').replace(/\s+/g, '')
+    return compact(saved.expertName) === compact(candidate.expertName)
+  })
+}
+
+async function saveComparison(accepted) {
+  if (savingComparison.value || !comparison.value) return
+  savingComparison.value = true
+  try {
+    await applyScheduleComparison(projectId, schedule.value.id, comparison.value.token, accepted)
+    comparisonVisible.value = false
+    await Promise.all([fetchSchedule({ preserveDraft: true }), fetchDetail({ refreshSchedule: false })])
+  } finally {
+    savingComparison.value = false
+  }
+}
+
+function goToScheduleCandidates() {
+  document.getElementById('schedule-candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+const quickArchiveInput = ref(null)
+const quickArchiveRunning = ref(false)
+const quickArchiveResults = ref([])
+const quickArchiveResultVisible = ref(false)
+
+async function quickArchive(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length || quickArchiveRunning.value || candidates.value.length) return
+  if (files.length > 10) {
+    ElMessage.warning('单次最多选择 10 份简历')
+    return
+  }
+  quickArchiveRunning.value = true
+  quickArchiveResults.value = []
+  try {
+    for (const file of files) {
+      try {
+        const results = await archiveProjectResumes(projectId, [file])
+        quickArchiveResults.value.push(...results)
+      } catch (error) {
+        quickArchiveResults.value.push({ fileName: file.name, error: error.message || '上传失败，请重试' })
+      }
+    }
+    quickArchiveResultVisible.value = true
+    await refreshArchivedExperts()
+  } finally {
+    quickArchiveRunning.value = false
+  }
 }
 
 const manualName = ref('')
@@ -1129,7 +1267,9 @@ async function doAddSpeaker() {
 }
 
 // ---- 库外专家建档（手动 / 批量简历，Owner 2026-11-09） ----
-const outArchiveCount = computed(() => speakers.value.filter((sp) => !sp.expertId).length)
+const outArchiveCount = computed(() => archiveTargetNames.value.length)
+const otherRequiredTemplates = computed(() => missingRequiredTemplates.value.filter(item => !item.startsWith('专家匹配入库')
+  || (!candidates.value.length && !outArchiveCount.value)))
 const archiveVisible = ref(false)
 const manualArchiveVisible = ref(false)
 const archiveRunning = ref(false)

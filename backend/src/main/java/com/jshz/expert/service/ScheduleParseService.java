@@ -62,6 +62,9 @@ public class ScheduleParseService {
     private final ProjectStorageService storageService;
     private final com.fasterxml.jackson.databind.ObjectMapper json;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.transaction.support.TransactionTemplate transactions;
+
     /** 日程单文件上限：单一真源 application.yml expert.upload.doc-max-bytes（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 全局 50MB 对齐）。 */
     @Value("${expert.upload.doc-max-bytes:52428800}")
     private long docMaxBytes;
@@ -232,20 +235,95 @@ public class ScheduleParseService {
         Map<String, Object> m = new LinkedHashMap<>();
         ProjectSchedule current = currentSchedule(projectId);
         m.put("schedule", current);
-        m.put("candidates", current == null ? List.of()
-                : speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
-                        .eq(ProjectSpeaker::getProjectId, projectId)
-                        .eq(ProjectSpeaker::getScheduleId, current.getId())
-                        .eq(ProjectSpeaker::getConfirmed, 0)
-                        .orderByAsc(ProjectSpeaker::getId)));
-        m.put("speakers", speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
-                .eq(ProjectSpeaker::getProjectId, projectId)
-                .eq(ProjectSpeaker::getConfirmed, 1)
-                .orderByAsc(ProjectSpeaker::getId)));
+        var parsed = parsedResult(current);
+        m.put("parseRevision", parsed.path("revision").asText(null));
+        m.put("comparison", comparison(parsed));
+        var saved = confirmedSpeakers(projectId);
+        m.put("candidates", visibleCandidates(projectId, current, saved));
+        m.put("speakers", saved);
         // 候选/正式记录补专家档案姓名单位（库外专家前端标记）
         attachExpertInfo(m.get("candidates"));
         attachExpertInfo(m.get("speakers"));
         return m;
+    }
+
+    private List<ProjectSpeaker> visibleCandidates(Long projectId, ProjectSchedule schedule, List<ProjectSpeaker> saved) {
+        if (schedule == null) return List.of();
+        return speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
+                        .eq(ProjectSpeaker::getProjectId, projectId).eq(ProjectSpeaker::getScheduleId, schedule.getId())
+                        .eq(ProjectSpeaker::getConfirmed, 0).orderByAsc(ProjectSpeaker::getId)).stream()
+                .filter(row -> saved.stream().noneMatch(old ->
+                        old.getScheduleId() != null && ScheduleSpeakerDiff.sameAppearance(old, row)))
+                .toList();
+    }
+
+    private List<ProjectSpeaker> confirmedSpeakers(Long projectId) {
+        return speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
+                .eq(ProjectSpeaker::getProjectId, projectId)
+                .eq(ProjectSpeaker::getConfirmed, 1)
+                .orderByAsc(ProjectSpeaker::getId));
+    }
+
+    private ProjectSchedule lockCurrentSchedule(Long projectId, Long scheduleId) {
+        ProjectSchedule current = scheduleMapper.selectOne(new LambdaQueryWrapper<ProjectSchedule>()
+                .eq(ProjectSchedule::getProjectId, projectId)
+                .eq(ProjectSchedule::getIsCurrent, 1)
+                .eq(scheduleId != null, ProjectSchedule::getId, scheduleId)
+                .last("FOR UPDATE"));
+        if (current == null) throw new BusinessException("当前日程已变化，请刷新后重试");
+        return current;
+    }
+
+    private record Comparison(String token, List<ScheduleSpeakerDiff.Change> changes) {}
+
+    private com.fasterxml.jackson.databind.JsonNode parsedResult(ProjectSchedule schedule) {
+        if (schedule == null || !"DONE".equals(schedule.getParseStatus()) || schedule.getRawResult() == null) {
+            return json.createObjectNode();
+        }
+        try {
+            return json.readTree(schedule.getRawResult());
+        } catch (IOException e) {
+            throw new BusinessException("日程解析结果无法读取，请重新解析");
+        }
+    }
+
+    private Comparison comparison(com.fasterxml.jackson.databind.JsonNode parsed) {
+        try {
+            return parsed.hasNonNull("comparison") ? json.treeToValue(parsed.get("comparison"), Comparison.class) : null;
+        } catch (IOException e) {
+            throw new BusinessException("日程差异记录无法读取，请重新解析");
+        }
+    }
+
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public void applyComparison(Long projectId, Long scheduleId, String token, List<Long> accepted, AuthUser user) {
+        Project project = projectService.requireProject(projectId);
+        projectService.requireOperable(project, user);
+        ProjectSchedule current = lockCurrentSchedule(projectId, scheduleId);
+        var parsed = parsedResult(current);
+        Comparison diff = comparison(parsed);
+        if (diff == null || !diff.token().equals(token)) throw new BusinessException("日程差异已变化，请刷新后重试");
+        if (!diff.changes().stream().map(change -> change.before().getId()).toList().containsAll(accepted)) {
+            throw new BusinessException("待处理参会记录已变化，请刷新后重试");
+        }
+        for (var change : diff.changes()) {
+            ProjectSpeaker before = change.before();
+            if (!accepted.contains(before.getId())) continue;
+            var target = new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ProjectSpeaker>()
+                    .eq(ProjectSpeaker::getId, before.getId()).eq(ProjectSpeaker::getProjectId, projectId)
+                    .eq(ProjectSpeaker::getConfirmed, 1).eq(ProjectSpeaker::getScheduleId, before.getScheduleId())
+                    .eq(ProjectSpeaker::getRole, before.getRole());
+            ProjectSpeaker after = change.after();
+            int affected = after == null ? speakerMapper.delete(target) : speakerMapper.update(null, target
+                    .set(ProjectSpeaker::getScheduleId, scheduleId).set(ProjectSpeaker::getRole, after.getRole())
+                    .set(ProjectSpeaker::getSegmentTitle, after.getSegmentTitle())
+                    .set(ProjectSpeaker::getSegmentTime, after.getSegmentTime()));
+            if (affected != 1) throw new BusinessException("参会记录已变化，请重新解析");
+        }
+        ((com.fasterxml.jackson.databind.node.ObjectNode) parsed).remove("comparison");
+        current.setRawResult(parsed.toString());
+        scheduleMapper.updateById(current);
+        if (!accepted.isEmpty()) projectService.operationRecord(user, "应用日程参会记录变更 " + accepted.size() + " 条", "PROJECT", projectId);
     }
 
     @SuppressWarnings("unchecked")
@@ -277,14 +355,16 @@ public class ScheduleParseService {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
         ProjectSchedule s = scheduleMapper.selectById(scheduleId);
-        if (s == null || !projectId.equals(s.getProjectId())) {
+        if (s == null || !projectId.equals(s.getProjectId()) || !Integer.valueOf(1).equals(s.getIsCurrent())) {
             throw new BusinessException("日程不存在");
         }
         if (!"PENDING".equals(s.getParseStatus()) && !"FAILED".equals(s.getParseStatus()) && !"DONE".equals(s.getParseStatus())) {
             throw new BusinessException("日程正在解析中，请稍后");
         }
-        s.setParseStatus("PARSING");
-        scheduleMapper.updateById(s);
+        int started = scheduleMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<ProjectSchedule>()
+                .eq(ProjectSchedule::getId, scheduleId).eq(ProjectSchedule::getIsCurrent, 1)
+                .eq(ProjectSchedule::getParseStatus, s.getParseStatus()).set(ProjectSchedule::getParseStatus, "PARSING"));
+        if (started != 1) throw new BusinessException("日程已变化，请刷新后重试");
         long begin = System.currentTimeMillis();
         try {
             byte[] bytes = projectService.storageRead(s.getFilePath());
@@ -293,33 +373,31 @@ public class ScheduleParseService {
             }
             Extracted ext = extract(s.getFileName(), bytes);
             List<ProjectSpeaker> result = parseInternal(s, ext);
-            s.setParseStatus("DONE");
-            s.setParseMessage("解析到 " + result.size() + " 位参会专家（候选，请人工确认）");
-            try {
-                s.setRawResult(json.writeValueAsString(Map.of(
-                        "count", result.size(),
-                        "tableRows", ext.tableRows.size(),
-                        "textChars", ext.plainText == null ? 0 : ext.plainText.length())));
-            } catch (Exception ignored) {
-            }
-            scheduleMapper.updateById(s);
-            // 替换本日程未确认候选
-            speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
-                    .eq(ProjectSpeaker::getScheduleId, s.getId())
-                    .eq(ProjectSpeaker::getConfirmed, 0));
-            for (ProjectSpeaker sp : result) {
-                sp.setProjectId(projectId);
-                sp.setScheduleId(s.getId());
-                sp.setConfirmed(0);
-                sp.setCreatedBy(user == null ? null : user.getUserId());
-                speakerMapper.insert(sp);
-            }
-            log.info("日程解析完成 project={} file={} 耗时={}ms 候选={}人",
-                    projectId, s.getFileName(), System.currentTimeMillis() - begin, result.size());
-            return speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
-                    .eq(ProjectSpeaker::getScheduleId, s.getId())
-                    .eq(ProjectSpeaker::getConfirmed, 0)
-                    .orderByAsc(ProjectSpeaker::getId));
+            List<ProjectSpeaker> additions = transactions.execute(status -> {
+                ProjectSchedule locked = lockCurrentSchedule(projectId, scheduleId);
+                var diff = ScheduleSpeakerDiff.compare(confirmedSpeakers(projectId), result);
+                String revision = java.util.UUID.randomUUID().toString();
+                var raw = json.createObjectNode().put("revision", revision).put("count", result.size()).put("tableRows", ext.tableRows.size())
+                        .put("textChars", ext.plainText == null ? 0 : ext.plainText.length());
+                if (!diff.changes().isEmpty()) {
+                    raw.set("comparison", json.valueToTree(new Comparison(revision, diff.changes())));
+                }
+                locked.setParseStatus("DONE");
+                locked.setParseMessage("解析到 " + result.size() + " 条参会记录，新增候选 " + diff.additions().size() + " 条");
+                locked.setRawResult(raw.toString());
+                scheduleMapper.updateById(locked);
+                clearCandidates(projectId, scheduleId);
+                for (ProjectSpeaker sp : diff.additions()) {
+                    sp.setProjectId(projectId);
+                    sp.setScheduleId(scheduleId);
+                    sp.setConfirmed(0);
+                    sp.setCreatedBy(user == null ? null : user.getUserId());
+                    speakerMapper.insert(sp);
+                }
+                return diff.additions();
+            });
+            log.info("日程解析完成 project={} file={} 耗时={}ms", projectId, s.getFileName(), System.currentTimeMillis() - begin);
+            return additions;
         } catch (BusinessException e) {
             s.setParseStatus("FAILED");
             s.setParseMessage(e.getMessage());
@@ -763,8 +841,8 @@ public class ScheduleParseService {
 
     /**
      * 批量简历建档（Owner 2026-11-09 需求：库外专家随批入档）：
-     * 多份简历 → 复用 ResumeParseService 提取 姓名/单位/职称/简介 → 复用 ProjectService.createExpertCard
-     * 建档并自动关联项目专家名单 → 按解析姓名回绑本项目参会专家（含候选）中未关联的同名行。
+     * 多份简历 → 从正文解析姓名与单位 → 校验当前项目正式待建档名单
+     * → 在单份事务中建档、关联项目专家名单并回绑同名的正式出场。
      * 单文件失败不影响其余；每文件结果逐条返回。
      */
     public List<Map<String, Object>> archiveByResumes(Long projectId, List<org.springframework.web.multipart.MultipartFile> files, AuthUser user) {
@@ -784,7 +862,7 @@ public class ScheduleParseService {
             try {
                 byte[] bytes = file.getBytes();
                 ResumeParseService.ResumeParseResult parsed =
-                        resumeParseService.parse(fileName == null ? "" : fileName, bytes);
+                        resumeParseService.parse(fileName == null ? "" : fileName, bytes, false);
                 Map<String, String> fields = parsed.fields();
                 String name = fields.get("姓名");
                 if (name == null || name.isBlank()) {
@@ -793,20 +871,47 @@ public class ScheduleParseService {
                     results.add(r);
                     continue;
                 }
+                if (strOf(fields.get("单位")).isEmpty()) throw new BusinessException("未能从简历识别出单位，请手动建档");
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("name", name);
                 body.put("unit", fields.get("单位"));
                 body.put("title", fields.get("职称"));
                 body.put("profile", fields.get("简介"));
                 body.put("contact", fields.get("联系方式"));
-                Expert saved = createExpertForProject(project, body, null, user);
+                transactions.executeWithoutResult(status -> {
+                    ProjectSchedule current = currentSchedule(projectId);
+                    if (current != null) current = lockCurrentSchedule(projectId, current.getId());
+                    var savedRows = speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
+                            .eq(ProjectSpeaker::getProjectId, projectId).eq(ProjectSpeaker::getConfirmed, 1)
+                            .last("FOR UPDATE"));
+                    if (current != null && ("PARSING".equals(current.getParseStatus())
+                            || !visibleCandidates(projectId, current, savedRows).isEmpty())) {
+                        throw new BusinessException("请先完成日程解析并处理候选");
+                    }
+                    var sameName = savedRows.stream()
+                            .filter(row -> normalizeName(name).equals(normalizeName(row.getExpertName()))).toList();
+                    if (sameName.isEmpty()) throw new BusinessException("无法匹配当前项目的待建档专家");
+                    if (sameName.stream().anyMatch(row -> row.getExpertId() != null)
+                            || expertService.count(new LambdaQueryWrapper<Expert>().eq(Expert::getName, name.trim())) > 0) {
+                        throw new BusinessException("专家已建档或存在同名档案，请人工确认");
+                    }
+                    Expert saved = createExpertForProject(project, body, null, user);
+                    for (ProjectSpeaker target : sameName) {
+                        target.setExpertId(saved.getId());
+                        speakerMapper.updateById(target);
+                    }
+                    r.put("expertId", saved.getId());
+                    r.put("expertName", saved.getName());
+                    r.put("boundSpeakers", sameName.size());
+                });
                 r.put("ok", true);
-                r.put("expertId", saved.getId());
-                r.put("expertName", saved.getName());
-                r.put("boundSpeakers", bindSpeakersByNativeName(projectId, saved.getId(), saved.getName()));
-            } catch (Exception e) {
+            } catch (BusinessException e) {
                 r.put("ok", false);
-                r.put("error", "建档失败：" + e.getMessage());
+                r.put("error", e.getMessage());
+            } catch (Exception e) {
+                log.warn("批量简历建档失败 project={} errorType={}", projectId, e.getClass().getSimpleName());
+                r.put("ok", false);
+                r.put("error", "建档失败，请重试或使用手动建档");
             }
             results.add(r);
         }
@@ -900,14 +1005,22 @@ public class ScheduleParseService {
 
     // ==================== 确认 / 手动补录 / 删除 ====================
 
-    /** 人工确认保存：整表覆盖式提交正式参会专家。 */
-    public List<ProjectSpeaker> confirm(Long projectId, List<Map<String, Object>> items, AuthUser user) {
+    /** 确认新增候选，保留已有正式参会记录。 */
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public List<ProjectSpeaker> confirm(Long projectId, Long scheduleId, String parseRevision,
+                                        List<Map<String, Object>> items, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
         if (items == null) {
             throw new BusinessException("确认内容不能为空");
         }
-        List<ProjectSpeaker> keep = new ArrayList<>();
+        ProjectSchedule current = lockCurrentSchedule(projectId, scheduleId);
+        if (!"DONE".equals(current.getParseStatus())) throw new BusinessException("请等待当前日程解析完成");
+        if (parseRevision != null && !parseRevision.equals(parsedResult(current).path("revision").asText(null))) {
+            throw new BusinessException("解析候选已变化，请刷新后重试");
+        }
+        List<ProjectSpeaker> keep = new ArrayList<>(confirmedSpeakers(projectId));
+        int added = 0;
         for (Map<String, Object> item : items) {
             String name = item.get("expertName") == null ? "" : String.valueOf(item.get("expertName")).trim();
             if (name.isEmpty()) {
@@ -926,23 +1039,28 @@ public class ScheduleParseService {
             sp.setSegmentTitle(blankToNull(strOrNull(item.get("segmentTitle"))));
             sp.setSegmentTime(blankToNull(strOrNull(item.get("segmentTime"))));
             Object sid = item.get("scheduleId");
-            sp.setScheduleId(sid == null ? null : parseNullableId(sid));
+            if (sid != null && !current.getId().equals(parseNullableId(sid))) {
+                throw new BusinessException("候选来源日程已变化，请刷新后重试");
+            }
+            sp.setScheduleId(current.getId());
             sp.setConfirmed(1);
-            keep.add(sp);
-        }
-        speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
-                .eq(ProjectSpeaker::getProjectId, projectId)
-                .eq(ProjectSpeaker::getConfirmed, 1));
-        for (ProjectSpeaker sp : keep) {
+            if (keep.stream().anyMatch(old -> old.getScheduleId() != null && ScheduleSpeakerDiff.sameAppearance(old, sp))) continue;
             sp.setCreatedBy(user == null ? null : user.getUserId());
             speakerMapper.insert(sp);
+            keep.add(sp);
+            added++;
         }
-        projectService.operationRecord(user, "确认项目「" + project.getName() + "」参会专家 " + keep.size() + " 人",
+        clearCandidates(projectId, current.getId());
+        projectService.operationRecord(user, "确认项目「" + project.getName() + "」新增参会专家 " + added + " 条",
                 "PROJECT", projectId);
-        return speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
+        return confirmedSpeakers(projectId);
+    }
+
+    private void clearCandidates(Long projectId, Long scheduleId) {
+        speakerMapper.delete(new LambdaQueryWrapper<ProjectSpeaker>()
                 .eq(ProjectSpeaker::getProjectId, projectId)
-                .eq(ProjectSpeaker::getConfirmed, 1)
-                .orderByAsc(ProjectSpeaker::getId));
+                .eq(ProjectSpeaker::getScheduleId, scheduleId)
+                .eq(ProjectSpeaker::getConfirmed, 0));
     }
 
     /** 手动补录一条（解析失败/遗漏兜底）。 */
