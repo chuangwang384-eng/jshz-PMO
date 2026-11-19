@@ -292,6 +292,51 @@ def recover_background_detail(image, portrait):
     return grown
 
 
+def ellipse_crop_radius(alpha):
+    """识别圆形/椭圆形排版裁切，允许长轴两侧被画布截断。"""
+    mask = np.asarray(alpha) >= 128
+    height, width = mask.shape
+    rows = np.flatnonzero(mask.any(axis=1))
+    left = mask[rows].argmax(axis=1)
+    right = width - 1 - mask[rows, ::-1].argmax(axis=1)
+    paired = (left > 0) & (right < width - 1)
+    if paired.sum() < max(12, height // 5):
+        return None
+    x = (left[paired] + right[paired]) / width
+    if np.std(x) > 0.015:
+        return None
+    y = rows[paired] / height
+    span = (right[paired] - left[paired] + 1) / (2 * width)
+    a, b, c = np.linalg.lstsq(np.column_stack((y*y, y, np.ones_like(y))), span*span, rcond=None)[0]
+    if a >= 0:
+        return None
+    center_y = -b / (2 * a)
+    radius_x_sq = c - a * center_y**2
+    if radius_x_sq <= 0:
+        return None
+    dy = np.arange(height)[:, None] / height - center_y
+    dx = (np.arange(width) + .5) / width - np.mean(x) / 2 - .5 / width
+    radius = np.sqrt((dx*dx - a*dy*dy) / radius_x_sq)
+    ellipse = radius <= 1
+    if (mask & ellipse).sum() / (mask | ellipse).sum() < .97:
+        return None
+    return radius
+
+
+def remove_ellipse_frame(image, radius):
+    """用裁切内侧的背景色覆盖外圈装饰，保持输入尺寸。"""
+    rgba = np.array(image)
+    y = np.arange(image.height)[:, None]
+    upper_ring = (radius >= .73) & (radius <= .89) & (y < image.height * .6) & (rgba[..., 3] >= 240)
+    if not upper_ring.any():
+        return image
+    background = np.median(rgba[upper_ring, :3], axis=0).astype(np.uint8)
+    frame = radius > .955
+    rgba[frame, :3] = background
+    rgba[frame, 3] = 0
+    return Image.fromarray(rgba)
+
+
 def refine(image):
     """证件照抠图精修（2026-11-17 修复"仅识别到人头/人像发虚"）。
 
@@ -300,11 +345,16 @@ def refine(image):
     处理链：分辨率预处理 → 背景分割 → alpha 硬化 → 人物主体提取 → 裁剪边界判定。
     """
     global session
+    framed = False
     if image.mode in ("RGBA", "LA") or "transparency" in image.info:
         rgba = image.convert("RGBA")
         histogram = rgba.getchannel("A").histogram()
         if histogram[0] >= 0.01 * image.width * image.height and sum(histogram[128:]) > 0:
-            return crop_portrait(rgba)
+            radius = ellipse_crop_radius(rgba.getchannel("A"))
+            if radius is None:
+                return crop_portrait(rgba)
+            image = remove_ellipse_frame(rgba, radius)
+            framed = True
     if modnet_session is not None:
         try:
             return crop_portrait(modnet_cutout(image))
@@ -317,7 +367,8 @@ def refine(image):
 
     # 1) 分辨率预处理：低像素照片先超分（EDSR/LapSRN），再统一放大到最长边 640
     #    （u2net 内部 320 输入）；大图不放大（Java 侧 resizePortraitInput 已把 >1200 缩到 1200）。
-    image = upscale_if_lowres(image)
+    if not framed:
+        image = upscale_if_lowres(image)
     width, height = image.size
     longest = max(width, height)
     if longest < 640:
@@ -350,6 +401,8 @@ def refine(image):
     if restored.any():
         rgba[restored] = np.asarray(image.convert("RGBA"))[restored]
         alpha[restored] = 255
+    if framed:
+        alpha = np.minimum(alpha, np.asarray(image.getchannel("A")))
     rgba[..., 3] = alpha
     return crop_portrait(Image.fromarray(rgba))
 
