@@ -36,9 +36,8 @@
                   <span v-else class="fin-optional">选填</span>
                 </span>
               </template>
-              <!-- 日期 -->
-              <el-date-picker v-if="f.type === 'date'" v-model="form[f.key]" type="date"
-                value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" />
+              <el-input v-if="f.type === 'project'" :model-value="projectValues[f.key]"
+                readonly placeholder="请在编辑项目中维护" />
               <!-- 金额 -->
               <el-input-number v-else-if="f.type === 'number'" v-model="form[f.key]"
                 :min="0" :controls="false" :precision="2" placeholder="0.00" style="width: 100%" />
@@ -83,6 +82,7 @@ const props = defineProps({
   projectId: { type: [String, Number], required: true },
   phaseId: { type: [String, Number], required: true },
   projectType: { type: String, default: '' },
+  projectInfo: { type: Object, required: true },
   readonly: { type: Boolean, default: false }
 })
 const emit = defineEmits(['saved'])
@@ -91,6 +91,7 @@ const TYPE_LABELS = { PLATFORM: '平台类项目', DIRECT_PAY: '直付类项目'
 const TONE_COLORS = { type: '#91ACE0', meeting: '#ACD78E', biz: '#F7D667', remark: '#BFBFBF' }
 
 const OUR_COMPANY_OPTIONS = ['景帅', '华秀', '偌君', '会信盈']
+const PLATFORM_COMPANIES = ['河南景帅', '郑州华秀', '河南偌君', '河南云展汇', '上海独家记忆', '北京际格']
 const SUB_TYPE_OPTIONS = ['单会立项', '系列会立项', '系列单场立项']
 const EXPENSE_TYPE_OPTIONS = ['会议费', '设计费', '物料费', '其他']
 
@@ -102,13 +103,13 @@ const SCHEMAS = {
     ] },
     { tone: 'meeting', title: '会议信息', fields: [
       { key: 'platform', label: '依托平台', type: 'text', placeholder: '如：北京医学检验学会' },
-      { key: 'ourCompany', label: '我方公司', type: 'select', options: OUR_COMPANY_OPTIONS, required: true },
-      { key: 'ourOwner', label: '我方项目负责人', type: 'text' },
+      { key: 'ourCompany', label: '我方公司', type: 'select', options: PLATFORM_COMPANIES, required: true },
+      { key: 'ourOwner', label: '我方项目负责人', type: 'project' },
       { key: 'dept', label: '会议归属部门', type: 'text' },
-      { key: 'meetingDate', label: '会议日期', type: 'date', required: true },
+      { key: 'meetingDate', label: '会议日期', type: 'project', required: true },
       { key: 'clientContact', label: '客户对接人', type: 'text' },
-      { key: 'location', label: '地点', type: 'select', options: ['线上', '线下'] },
-      { key: 'meetingName', label: '会议/项目名称', type: 'textarea', required: true, full: true }
+      { key: 'location', label: '地点', type: 'text', placeholder: '请输入会议地点' },
+      { key: 'meetingName', label: '会议/项目名称', type: 'project', required: true, full: true }
     ] },
     { tone: 'biz', title: '企业信息', fields: [
       { key: 'sponsorAmount', label: '赞助金额（元）', type: 'number' },
@@ -122,17 +123,17 @@ const SCHEMAS = {
   ],
   DIRECT_PAY: [
     { tone: 'type', title: '项目类型', fields: [
-      { key: 'subType', label: '细分类型', type: 'select', options: SUB_TYPE_OPTIONS, required: true }
+      { key: 'subType', label: '细分类型', type: 'select', options: ['有合同', '无合同'], required: true }
     ] },
     { tone: 'meeting', title: '会议信息', fields: [
       { key: 'ourCompany', label: '我方公司', type: 'select', options: OUR_COMPANY_OPTIONS, required: true },
       { key: 'expenseType', label: '费用类型', type: 'select', options: EXPENSE_TYPE_OPTIONS },
-      { key: 'ourOwner', label: '我方项目负责人', type: 'text' },
+      { key: 'ourOwner', label: '我方项目负责人', type: 'project' },
       { key: 'dept', label: '会议归属部门', type: 'text' },
-      { key: 'meetingDate', label: '日期', type: 'date', required: true },
+      { key: 'meetingDate', label: '会议日期', type: 'project', required: true },
       { key: 'clientContact', label: '客户对接人', type: 'text' },
-      { key: 'location', label: '地点', type: 'select', options: ['线上', '线下'] },
-      { key: 'meetingName', label: '会议/项目名称', type: 'textarea', required: true, full: true }
+      { key: 'location', label: '地点', type: 'text', placeholder: '请输入会议地点' },
+      { key: 'meetingName', label: '会议/项目名称', type: 'project', required: true, full: true }
     ] },
     { tone: 'biz', title: '提供内容',
       note: '恒瑞需填写所有信息，其他公司仅需公司名称及省区',
@@ -150,10 +151,10 @@ const SCHEMAS = {
   ],
   KEY: [
     { tone: 'meeting', title: '会议信息', fields: [
-      { key: 'meetingDate', label: '日期', type: 'date', required: true },
+      { key: 'meetingDate', label: '会议日期', type: 'project', required: true },
       { key: 'clientContact', label: '客户对接人', type: 'text' },
-      { key: 'location', label: '地点', type: 'select', options: ['线上', '线下'] },
-      { key: 'meetingName', label: '会议/项目名称', type: 'textarea', required: true, full: true }
+      { key: 'location', label: '地点', type: 'text', placeholder: '请输入会议地点' },
+      { key: 'meetingName', label: '会议/项目名称', type: 'project', required: true, full: true }
     ] },
     { tone: 'biz', title: '提供内容', fields: [
       { key: 'clientOwner', label: '客户负责人', type: 'text' },
@@ -168,10 +169,19 @@ const SCHEMAS = {
 const typeLabel = computed(() => TYPE_LABELS[props.projectType] || props.projectType || '')
 const sections = computed(() => SCHEMAS[props.projectType] || [])
 
+const projectValues = computed(() => {
+  const { name, ownerName, meetingStartDate, meetingEndDate } = props.projectInfo
+  return {
+    meetingName: name || '',
+    ourOwner: ownerName || '',
+    meetingDate: [...new Set([meetingStartDate, meetingEndDate].filter(Boolean))].join(' 至 ')
+  }
+})
+
 const form = reactive({})
 const meta = reactive({ updateBy: '', updateTime: '' })
 const saving = ref(false)
-const loadedKey = ref('')
+let loadVersion = 0
 
 function blankForm() {
   const next = {}
@@ -182,16 +192,23 @@ function blankForm() {
 }
 
 async function load() {
-  const key = `${props.projectId}@${props.phaseId}`
-  loadedKey.value = key
+  const loadId = ++loadVersion
   Object.keys(form).forEach((k) => delete form[k])
   try {
     const data = await getStageForm(props.projectId, props.phaseId)
-    if (loadedKey.value !== key) return
+    if (loadId !== loadVersion) return
     const saved = data?.formData || {}
     const base = blankForm()
-    for (const k of Object.keys(base)) {
-      form[k] = saved[k] !== undefined && saved[k] !== null ? saved[k] : ''
+    const defaults = { dept: props.projectInfo.teamLabel, clientContact: props.projectInfo.clientName }
+    for (const field of sections.value.flatMap(section => section.fields)) {
+      const { key, options } = field
+      let value = saved[key] ?? defaults[key] ?? base[key]
+      const platformCompany = key === 'ourCompany' && props.projectType === 'PLATFORM'
+      if (platformCompany) {
+        value = { 景帅: '河南景帅', 华秀: '郑州华秀', 偌君: '河南偌君' }[value] ?? value
+      }
+      const changedOptions = platformCompany || (key === 'subType' && props.projectType === 'DIRECT_PAY')
+      form[key] = changedOptions && !options.includes(value) ? '' : value
     }
     meta.updateBy = data?.updateBy || ''
     meta.updateTime = data?.updateTime || ''
@@ -205,10 +222,14 @@ watch(() => [props.projectId, props.phaseId, props.projectType], load, { immedia
 async function save() {
   if (!sections.value.length) return
   // 建议必填校验（前端拦截；后端为宽松存储，不阻断历史数据）
+  const payload = { ...form }
+  for (const key of Object.keys(projectValues.value)) {
+    if (key in payload) payload[key] = projectValues.value[key]
+  }
   const missing = []
   for (const sec of sections.value) {
     for (const f of sec.fields) {
-      if (f.required && (form[f.key] === '' || form[f.key] === null || form[f.key] === undefined)) {
+      if (f.required && (payload[f.key] === '' || payload[f.key] === null || payload[f.key] === undefined)) {
         missing.push(f.label)
       }
     }
@@ -221,7 +242,7 @@ async function save() {
   try {
     const data = await saveStageForm(props.projectId, {
       phaseId: Number(props.phaseId),
-      formData: { ...form }
+      formData: payload
     })
     meta.updateBy = data?.updateBy || ''
     meta.updateTime = data?.updateTime || ''

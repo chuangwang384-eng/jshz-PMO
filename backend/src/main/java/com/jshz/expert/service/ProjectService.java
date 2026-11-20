@@ -1021,6 +1021,19 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
      * 读取某项目某阶段的表单数据（无记录时 formData 返回 null）。
      * 权限：项目可读者即可查看（与阶段资料同口径）。
      */
+    private void applyFinanceProjectValues(Project project, Long phaseId, Map<String, Object> fields) {
+        if (!"会前财务资料上传".equals(docPhaseName(project, phaseId))) return;
+        fields.put("meetingName", project.getName());
+        LocalDate start = project.getMeetingStartDate();
+        LocalDate end = project.getMeetingEndDate();
+        String meetingDate = start != null && end != null && !start.equals(end)
+                ? start + " 至 " + end : java.util.Objects.toString(start != null ? start : end, "");
+        fields.put("meetingDate", meetingDate);
+        if ("PLATFORM".equals(project.getProjectType()) || "DIRECT_PAY".equals(project.getProjectType())) {
+            fields.put("ourOwner", usernameOf(project.getOwnerId()));
+        }
+    }
+
     public Map<String, Object> getStageForm(Long id, Long phaseId, AuthUser user) {
         Project project = requireProject(id);
         requireProjectReadable(project, user);
@@ -1041,7 +1054,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             m.put("updateTime", null);
             return m;
         }
-        m.put("formData", parseStageFormData(form.getFormData()));
+        Map<String, Object> fields = new LinkedHashMap<>(parseStageFormData(form.getFormData()));
+        applyFinanceProjectValues(project, phaseId, fields);
+        m.put("formData", fields);
         m.put("updateBy", form.getUpdateBy() == null ? null : usernameOf(form.getUpdateBy()));
         m.put("updateTime", form.getUpdateTime() == null ? null : form.getUpdateTime().format(DT_FMT));
         return m;
@@ -1070,7 +1085,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         String json;
         try {
-            json = objectMapper.writeValueAsString(formData == null ? Map.of() : formData);
+            if (formData == null) formData = new LinkedHashMap<>();
+            applyFinanceProjectValues(project, phaseId, formData);
+            json = objectMapper.writeValueAsString(formData);
         } catch (Exception e) {
             throw new BusinessException("表单数据序列化失败");
         }
@@ -1107,7 +1124,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             return Map.of();
         }
         try {
-            return objectMapper.readValue(json, Map.class);
+            Map<String, Object> fields = objectMapper.readValue(json, Map.class);
+            return fields == null ? Map.of() : fields;
         } catch (Exception e) {
             return Map.of();
         }
@@ -2085,7 +2103,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 资料所属阶段名（新项目直接查字典，快照项目走配置口径）。 */
     private String docPhaseName(Long projectId, Long phaseId) {
         if (phaseId == null) return "";
-        Project project = requireProject(projectId);
+        return docPhaseName(requireProject(projectId), phaseId);
+    }
+
+    private String docPhaseName(Project project, Long phaseId) {
         Map<String, Object> rules = snapshotOrNull(project);
         if (rules != null) {
             try {

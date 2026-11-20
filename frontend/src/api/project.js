@@ -46,40 +46,12 @@ export function restoreProject(id) {
 }
 
 // 调派专家
-export function addProjectExpert(id, data) {
-  return request.post(`/project/${id}/experts`, data)
-}
-
 // 移出专家（留痕）
-export function removeProjectExpert(id, expertId) {
-  return request.delete(`/project/${id}/experts/${expertId}`)
-}
-
 // 新建专家卡并自动关联（留痕）
-export function createExpertCard(id, data) {
-  return request.post(`/project/${id}/experts/new-card`, data)
-}
-
 // 关联供应商（用途自动带出）
-export function addProjectSupplier(id, data) {
-  return request.post(`/project/${id}/suppliers`, data)
-}
-
 // 移出供应商（留痕）
-export function removeProjectSupplier(id, supplierId) {
-  return request.delete(`/project/${id}/suppliers/${supplierId}`)
-}
-
 // 登记专家劳务费
-export function saveExpertFee(id, expertId, fee) {
-  return request.put(`/project/${id}/experts/${expertId}/fee`, { fee })
-}
-
 // 填写供应商费用
-export function saveSupplierFee(id, supplierId, fee) {
-  return request.put(`/project/${id}/suppliers/${supplierId}/fee`, { fee })
-}
-
 // 上传分阶段资料
 export function uploadProjectDoc(id, phaseId, file) {
   const fd = new FormData()
@@ -111,32 +83,10 @@ export function saveStageForm(id, data) {
 }
 
 // 登记预算金额
-export function registerBudget(id, amount) {
-  return request.put(`/project/${id}/budget`, { amount })
-}
-
 // 登记合同（自动带出专家敏感字段）
-export function createProjectContract(id, data) {
-  return request.post(`/project/${id}/contracts`, data)
-}
-
 // 修改合同敏感字段（同步回写 expert_info 留痕）
-export function updateContractSensitive(id, contractId, data) {
-  return request.put(`/project/${id}/contracts/${contractId}/sensitive`, data)
-}
-
 // 上传合同文件
-export function uploadContractFile(id, contractId, file) {
-  const fd = new FormData()
-  fd.append('file', file)
-  return request.post(`/project/${id}/contracts/${contractId}/file`, fd)
-}
-
 // 发起合同审批（复用现有审批流）
-export function submitContractApproval(id, contractId) {
-  return request.post(`/project/${id}/contracts/${contractId}/approval`)
-}
-
 // 导出 xlsx（含专家/供应商明细；DOWNLOAD 留痕）
 export function exportProjects(params) {
   return downloadFile('/project/export', params)

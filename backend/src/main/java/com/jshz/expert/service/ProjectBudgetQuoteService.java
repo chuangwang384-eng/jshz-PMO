@@ -55,6 +55,32 @@ public class ProjectBudgetQuoteService {
 
     @Transactional
     public ProjectBudgetQuote generate(Long projectId, Generate request, AuthUser user) {
+        return generate(projectId, request, user, null);
+    }
+
+    @Transactional
+    public void archiveConfirmed(Long projectId, AuthUser user, ProjectBudgetExportService exporter) {
+        Project project = projects.requireProject(projectId);
+        projects.requireOperable(project, user);
+        if (!ProjectService.PHASE_BUDGET_MAKING.equals(projects.phaseNameOf(project))) return;
+        ProjectBudget budget = budgetService.lockBudget(projectId);
+        requireConfirmed(budget, "请先完成内部确认");
+        var identity = json.createArrayNode()
+                .add("confirmed-project-quote").add(project.getPhaseId()).add(project.getName())
+                .add(project.getClientCompany()).add(project.getClientName())
+                .add(java.util.Objects.toString(project.getMeetingStartDate(), ""))
+                .add(java.util.Objects.toString(project.getMeetingEndDate(), ""))
+                .add(budget.getRemark()).add(budget.getServiceRate()).add(budget.getTaxRate());
+        for (ProjectBudgetItem item : budgetService.lockedItems(budget.getId())) {
+            identity.addArray().add(item.getSection()).add(item.getName()).add(item.getQuantity())
+                    .add(item.getUnit()).add(item.getUnitPrice()).add(item.getRemark());
+        }
+        String key = UUID.nameUUIDFromBytes(identity.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        generate(projectId, new Generate(key, null), user, exporter);
+    }
+
+    private ProjectBudgetQuote generate(Long projectId, Generate request, AuthUser user,
+                                        ProjectBudgetExportService exporter) {
         Project project = projects.requireProject(projectId);
         projects.requireOperable(project, user);
         String requestKey;
@@ -76,7 +102,7 @@ public class ProjectBudgetQuoteService {
         requireConfirmed(budget, "请先完成内部确认");
         List<ProjectBudgetItem> items = budgetService.lockedItems(budget.getId());
         List<ProjectBudgetItem> exported = items.stream().filter(i -> i.getQuantity().signum() > 0).toList();
-        if (exported.isEmpty()) {
+        if (exporter == null && exported.isEmpty()) {
             throw new BusinessException("报价至少需要一条数量大于零的明细");
         }
         ProjectBudgetQuote latest = quotes.selectOne(new LambdaQueryWrapper<ProjectBudgetQuote>()
@@ -98,7 +124,9 @@ public class ProjectBudgetQuoteService {
         doc.setProjectId(projectId);
         doc.setPhaseId(project.getPhaseId());
         doc.setFileName("会议报价-V" + version + ".xlsx");
-        doc.setFilePath(storage.saveBudgetQuote(workbook(project.getName(), version, exported, note)));
+        byte[] content = exporter == null ? workbook(project.getName(), version, exported, note)
+                : exporter.export(projectId, "QUOTE", user);
+        doc.setFilePath(storage.saveBudgetQuote(content));
         doc.setUploadBy(user.getUsername());
         doc.setIsDeleted(0);
         docs.insert(doc);

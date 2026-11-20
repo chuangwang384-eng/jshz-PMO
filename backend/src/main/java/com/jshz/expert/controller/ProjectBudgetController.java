@@ -7,6 +7,8 @@ import com.jshz.expert.entity.ProjectBudgetFeeStandard;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ProjectBudgetExportService;
 import com.jshz.expert.service.ProjectBudgetService;
+import com.jshz.expert.service.ProjectBudgetQuoteService;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,7 @@ public class ProjectBudgetController {
 
     private final ProjectBudgetService budgetService;
     private final ProjectBudgetExportService exportService;
+    private final ProjectBudgetQuoteService quoteService;
     private final ObjectMapper objectMapper;
 
     /** 预算单总览（不存在返回骨架草稿，不落库）。 */
@@ -39,6 +42,7 @@ public class ProjectBudgetController {
     }
 
     /** 整单保存（confirm=false 草稿 / true 确认报价）。 */
+    @Transactional
     @PutMapping("/{id}/meeting-budget")
     public ApiResponse<Map<String, Object>> save(@PathVariable Long id,
                                                  @RequestBody Map<String, Object> body,
@@ -57,14 +61,19 @@ public class ProjectBudgetController {
                 throw new BusinessException("估算参数过长");
             }
         }
-        return ApiResponse.ok(budgetService.save(id, list, remark, confirm, estimateInputs, user));
+        var budget = budgetService.save(id, list, remark, confirm, estimateInputs, user);
+        if (confirm) quoteService.archiveConfirmed(id, user, exportService);
+        return ApiResponse.ok(budget);
     }
 
     /** 确认已保存的报价草稿。 */
+    @Transactional
     @PostMapping("/{id}/meeting-budget/confirm")
     public ApiResponse<Map<String, Object>> confirm(@PathVariable Long id,
                                                     @AuthenticationPrincipal AuthUser user) {
-        return ApiResponse.ok(budgetService.confirm(id, user));
+        var budget = budgetService.confirm(id, user);
+        quoteService.archiveConfirmed(id, user, exportService);
+        return ApiResponse.ok(budget);
     }
 
     /**

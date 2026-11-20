@@ -60,7 +60,7 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="举办时间">
+          <el-form-item label="会议日期">
             <el-date-picker
               v-model="meetingRange"
               type="daterange"

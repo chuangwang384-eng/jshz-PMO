@@ -91,6 +91,65 @@ class ProjectBudgetQuoteServiceTest {
     }
 
     @Test
+    void confirmingSameBudgetArchivesTheExportOnce() {
+        var project = new Project();
+        project.setId(4L);
+        project.setPhaseId(10L);
+        project.setName("会议");
+        var budget = new ProjectBudget();
+        budget.setId(20L);
+        budget.setStatus("CONFIRMED");
+        var item = new ProjectBudgetItem();
+        item.setName("场地");
+        item.setQuantity(BigDecimal.ONE);
+        item.setUnitPrice(BigDecimal.TEN);
+        when(projects.requireProject(4L)).thenReturn(project);
+        when(projects.phaseNameOf(project)).thenReturn("会议预算制作");
+        when(budgetService.lockBudget(4L)).thenReturn(budget);
+        when(budgetService.lockedItems(20L)).thenReturn(List.of(item));
+        var exporter = mock(ProjectBudgetExportService.class);
+        byte[] excel = {1, 2, 3};
+        when(exporter.export(4L, "QUOTE", user)).thenReturn(excel);
+        when(storage.saveBudgetQuote(excel)).thenReturn("project_quote_test.xlsx");
+        when(docs.insert(any(ProjectDoc.class))).thenAnswer(invocation -> {
+            ProjectDoc doc = invocation.getArgument(0);
+            assertThat(doc.getPhaseId()).isEqualTo(10L);
+            doc.setId(30L);
+            return 1;
+        });
+        var saved = new java.util.concurrent.atomic.AtomicReference<ProjectBudgetQuote>();
+        when(quotes.insert(any(ProjectBudgetQuote.class))).thenAnswer(invocation -> {
+            saved.set(invocation.getArgument(0));
+            return 1;
+        });
+        when(quotes.selectOne(any())).thenAnswer(invocation -> {
+            var query = (com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<?>)
+                    invocation.getArgument(0);
+            query.getSqlSegment();
+            var previous = saved.get();
+            return previous != null && query.getParamNameValuePairs().containsValue(previous.getRequestKey())
+                    ? previous : null;
+        });
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), "test"), ProjectBudgetQuote.class);
+
+        var quoteService = service();
+        quoteService.archiveConfirmed(4L, user, exporter);
+        String firstKey = saved.get().getRequestKey();
+        item.setId(999L);
+        quoteService.archiveConfirmed(4L, user, exporter);
+        verify(exporter).export(4L, "QUOTE", user);
+        assertThat(saved.get().getDocId()).isEqualTo(30L);
+        assertThat(saved.get().getRequestKey()).isEqualTo(firstKey);
+
+        item.setUnitPrice(BigDecimal.valueOf(11));
+        quoteService.archiveConfirmed(4L, user, exporter);
+        verify(exporter, times(2)).export(4L, "QUOTE", user);
+        assertThat(saved.get().getRequestKey()).isNotEqualTo(firstKey);
+    }
+
+    @Test
     void retryReturnsExistingVersionWithoutWritingAnotherFile() {
         when(projects.requireProject(4L)).thenReturn(new Project());
         var quote = new ProjectBudgetQuote();

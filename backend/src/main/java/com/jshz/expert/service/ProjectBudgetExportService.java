@@ -74,7 +74,8 @@ public class ProjectBudgetExportService {
     private CellStyle summaryMoneyStyle;
     private CellStyle grandMoneyStyle;
 
-    public byte[] export(Long projectId, String docType, AuthUser user) {
+    // 每次导出创建的样式只能用于同一个工作簿。
+    public synchronized byte[] export(Long projectId, String docType, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireProjectReadable(project, user);
         ProjectBudget budget = budgetMapper.selectOne(new LambdaQueryWrapper<ProjectBudget>()

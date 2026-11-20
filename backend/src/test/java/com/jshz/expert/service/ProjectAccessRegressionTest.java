@@ -80,39 +80,27 @@ class ProjectAccessRegressionTest {
         return phase;
     }
 
-    @Test void budgetAdvancementRequiresGeneratedQuote() {
+    @Test void budgetAdvancementRequiresConfirmation() {
         setupBudgetStage();
-        when(docs.listBudgetQuotePaths(1L, 10L)).thenReturn(List.of());
+        when(budgetMapper.selectCount(any())).thenReturn(0L);
 
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.changePhase(1L, 11L, null, user(2L)));
 
-        assertTrue(error.getMessage().contains("生成报价文件"));
+        assertTrue(error.getMessage().contains("预算未确认"));
         verify(projects, never()).updateById(any(Project.class));
     }
 
-    @Test void quoteRecordWithoutItsFileCannotCompleteBudgetStage() {
-        setupBudgetStage();
-        when(docs.listBudgetQuotePaths(1L, 10L)).thenReturn(List.of("project_quote_missing.xlsx"));
-
-        BusinessException error = assertThrows(BusinessException.class,
-                () -> service.changePhase(1L, 11L, null, user(2L)));
-
-        assertTrue(error.getMessage().contains("生成报价文件"));
-        verify(storage).resolveFile("project_quote_missing.xlsx");
-    }
-
-    @Test void generatedQuoteAllowsBudgetAdvancementWithoutCustomerConfirmation() {
+    @Test void previouslyConfirmedBudgetKeepsAdvancementWithoutRetroactiveArchive() {
         Project project = setupBudgetStage();
         project.setCategory("ONLINE");
-        when(docs.listBudgetQuotePaths(1L, 10L)).thenReturn(List.of("project_quote_v1.xlsx"));
-        when(storage.resolveFile("project_quote_v1.xlsx")).thenReturn(java.nio.file.Path.of("project_quote_v1.xlsx"));
 
         service.changePhase(1L, 11L, null, user(2L));
 
         assertEquals(11L, project.getPhaseId());
         verify(projects).updateById(project);
         verify(phaseHistory).insert(any(ProjectPhaseHistory.class));
+        verify(docs, never()).listBudgetQuotePaths(any(), any());
     }
 
     // ==================== 日程上传阶段：专家全匹配推进校验（2026-11-17） ====================
