@@ -87,8 +87,14 @@ public class ProjectBudgetExportService {
                 .orderByAsc(ProjectBudgetItem::getSort));
         boolean cost = "COST".equalsIgnoreCase(docType);
         try (XSSFWorkbook wb = new XSSFWorkbook()) {
-            // POI 公式无缓存结果，强制 Excel/WPS 打开时全量重算（LibreOffice 旧版也依赖此标记）
-            wb.setForceFormulaRecalculation(true);
+            // POI 公式无缓存结果，强制打开时全量重算；setForceFormulaRecalculation 在 POI 5.4
+            // 不落盘（实测 calcId 未变），故直接写 CTWorkbook 的 calcPr 标记（1.0.90 二次修复）
+            var calcPr = wb.getCTWorkbook().getCalcPr();
+            if (calcPr == null) {
+                calcPr = wb.getCTWorkbook().addNewCalcPr();
+            }
+            calcPr.setCalcId(0);
+            calcPr.setFullCalculationOnLoad(true);
             initStyles(wb);
             Sheet sheet = wb.createSheet(cost ? "会议成本单" : "会议报价单");
             sheet.setDisplayGridlines(false);
