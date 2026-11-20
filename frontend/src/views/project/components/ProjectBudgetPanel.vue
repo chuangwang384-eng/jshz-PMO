@@ -335,7 +335,8 @@ function applySaved(data) {
     return { ...row, quantity: null, unitPrice: Number(row.unitPrice) === 0 ? null : row.unitPrice }
   })
   remark.value = budget.value?.remark || ''
-  removedSections.value = SECTIONS.filter(s => s.optional && !raw.some(row => row.section === s.key)).map(s => s.key)
+  // 2026-11-21：七大项分节默认全部可见（空大项不再自动隐藏），由用户按需「移除本节」或从收费库添加细项。
+  removedSections.value = []
   estimateState.value = JSON.parse(budget.value?.estimateInputs || '{}')
 }
 

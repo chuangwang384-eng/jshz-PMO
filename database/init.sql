@@ -2127,25 +2127,9 @@ CREATE TABLE IF NOT EXISTS `project_budget_fee_standard` (
   UNIQUE KEY `uk_pbfs_key` (`fee_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会议预算收费标准默认值';
 
-INSERT IGNORE INTO `project_budget_fee_standard` (`fee_key`,`name`,`default_value`,`unit`,`remark`) VALUES
-('MC_INTERLUDE',    '串场',                '500',   '元/场',   '公司收取'),
-('MC_LETTER',       '沟通函及延展',        '500',   '元/场',   '公司收取'),
-('AGENDA_UP',       '日程上浮',            '5,10',  '张',      '参会人员基础上浮张数'),
-('MAT_DESKCARD_UP', '台卡上浮',            '10,20', '张',      '参会人员基础上浮张数'),
-('MAT_STAND',       '展架（易拉宝）',      '4',     '个/场',   '按每场 4 个易拉宝匹配'),
-('MAT_BANNER',      '条幅',                NULL,    '',        '按酒店提供尺寸，默认写真布，视需求报价'),
-('MAT_PRINT_OTHER', '其他打印物料',        '500',   '元',      '按 500 预估'),
-('MAT_ROSTRUM_FLOWER','讲台花',            '300,400','元',     '按 300-400 预估'),
-('MAT_FLOWER_OTHER','桌花及其他花束',      NULL,    '',        '视需求报价'),
-('MAT_DESIGN',      '物料设计费',          NULL,    '',        '视需求报价'),
-('GIFT_UNIT',       '礼品单价',            '200,300','元/份',  '和客户确认是否需要，按 200-300 预估'),
-('STAFF_DAY',       '人员费',              '500',   '元/人/天','固定费用；交通/住宿据实报销'),
-('STAFF_TRAVEL',    '人员交通/住宿',       NULL,    '',        '据实报销，不做预算预估'),
-('EST_TEA_RATIO',       '茶歇人数比例（估算）',   '70',   '%',     '对客报价估算：参会总人数 × 比例，向上取 5 的倍数'),
-('EST_FLIGHT_FARE',     '机票估算单价',          '2000', '元/人',  '大交通选择飞机时的估算单价'),
-('EST_PLATFORM_FIRST',  '平台专车单价-一线城市',  '200',  '元/人',  '地面交通选择平台专车，城市档位为一线城市时的估算单价'),
-('EST_PLATFORM_OTHER',  '平台专车单价-其他城市',  '100',  '元/人',  '地面交通选择平台专车，城市档位为其他城市时的估算单价'),
-('EST_HOTEL_ROOMS',     '住宿默认预留间数（估算）','2',   '间',     '无外埠人员时的住宿预留间数');
+-- 2026-11-21：原无类目收费项种子（MC_INTERLUDE/AGENDA_UP/STAFF_DAY/EST_* 等 18 条）已移除，
+-- 见迁移 20261121_cleanup_no_catalog_fees.sql（Owner 授权删除无类目收费项）。收费标准库仅保留下方 171 条有类目模板项。
+-- 估算面板所需参数（茶歇比例/住宿预留间数等）由前端 budgetEstimate.js ESTIMATE_RULES 兜底常量提供，不依赖收费库行。
 
 -- ---------- 4.x 专家资料文件（2026-11-20；迁移 database/migration/20261120_expert_document.sql） ----------
 CREATE TABLE IF NOT EXISTS `expert_document` (

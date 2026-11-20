@@ -60,27 +60,22 @@ class ProjectBudgetServiceTest {
     }
 
     @Test
-    void offlineSkeletonPrefillsFeeStandardsWithLowBoundOfRange() {
+    void offlineSkeletonKeepsOnlyHotelDetails() {
+        // 2026-11-21 行为变更：线下骨架仅酒店保留默认细项（场地/住宿/用餐/茶歇），
+        // 其余六大项（交通/搭建/物料/媒体/礼品/人员）不再预填，由用户从收费标准库添加。
         when(projectService.requireProject(1L)).thenReturn(project("OFFLINE"));
         when(budgetMapper.selectOne(any())).thenReturn(null);
-        when(feeStandardMapper.selectList(any())).thenReturn(List.of(
-                fee("MC_INTERLUDE", "500", "元/场"),
-                fee("MAT_ROSTRUM_FLOWER", "300,400", "元"),
-                fee("STAFF_DAY", "500", "元/人/天"),
-                fee("GIFT_UNIT", "200,300", "元/份")));
 
         Map<String, Object> result = service.overview(1L, user);
         @SuppressWarnings("unchecked")
         List<ProjectBudgetItem> items = (List<ProjectBudgetItem>) result.get("items");
 
-        assertThat(items).extracting(ProjectBudgetItem::getSection).contains("HOTEL", "TRAFFIC", "BUILD", "MATERIAL", "MEDIA", "GIFT", "STAFF");
-        ProjectBudgetItem mc = items.stream().filter(i -> "MC_INTERLUDE".equals(i.getItemKey())).findFirst().orElseThrow();
-        assertThat(mc.getUnitPrice()).isEqualByComparingTo("500");
-        ProjectBudgetItem flower = items.stream().filter(i -> "MAT_ROSTRUM_FLOWER".equals(i.getItemKey())).findFirst().orElseThrow();
-        assertThat(flower.getUnitPrice()).isEqualByComparingTo("300"); // 区间取低值
-        assertThat(flower.getRemark()).contains("300-400");
-        ProjectBudgetItem staff = items.stream().filter(i -> "STAFF_DAY".equals(i.getItemKey())).findFirst().orElseThrow();
-        assertThat(staff.getUnitPrice()).isEqualByComparingTo("500");
+        assertThat(items).hasSize(4);
+        assertThat(items).extracting(ProjectBudgetItem::getSection).containsOnly("HOTEL");
+        assertThat(items).extracting(ProjectBudgetItem::getName)
+                .containsExactly("场地费", "住宿费", "用餐费", "茶歇费");
+        assertThat(items).extracting(ProjectBudgetItem::getItemKey)
+                .containsExactly(null, "HOTEL_ROOM", null, "HOTEL_TEA");
     }
 
     @Test

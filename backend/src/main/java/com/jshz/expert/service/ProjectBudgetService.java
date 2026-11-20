@@ -380,7 +380,6 @@ public class ProjectBudgetService {
      * ONLINE 一行空报价。区间默认值（如 300,400）取低值预填，备注保留区间说明。
      */
     private List<ProjectBudgetItem> skeleton(ProjectBudget budget) {
-        Map<String, ProjectBudgetFeeStandard> fees = activeFeeStandards();
         List<ProjectBudgetItem> list = new ArrayList<>();
         int sort = 0;
         if ("ONLINE".equals(budget.getCategory())) {
@@ -402,41 +401,13 @@ public class ProjectBudgetService {
             }
             return list;
         }
-        // HOTEL 酒店：场地/住宿/用餐/茶歇
+        // HOTEL 酒店：保留默认细项（场地/住宿/用餐/茶歇），住宿/茶歇仍由估算面板按人数自动估量。
         list.add(item(budget, "HOTEL", null, "场地费", null, null, sort++));
         list.add(estimateItem(budget, "HOTEL", "HOTEL_ROOM", "住宿费", "间", sort++));
         list.add(item(budget, "HOTEL", null, "用餐费", null, null, sort++));
         list.add(estimateItem(budget, "HOTEL", "HOTEL_TEA", "茶歇费", "人", sort++));
-        // TRAFFIC 交通：大交通按专家人数预估 + 地面交通（车队专车/平台专车）
-        list.add(estimateItem(budget, "TRAFFIC", "TRAFFIC_MAIN", "大交通费（按专家人数预估）", "人", sort++));
-        list.add(estimateItem(budget, "TRAFFIC", "TRAFFIC_FLEET", "地面交通-车队专车", "次", sort++));
-        list.add(estimateItem(budget, "TRAFFIC", "TRAFFIC_PLATFORM", "地面交通-平台专车", "人", sort++));
-        // BUILD 搭建（非必需）：签到背景板/LED 屏/影音设备
-        list.add(item(budget, "BUILD", null, "签到背景板", null, null, sort++));
-        list.add(item(budget, "BUILD", null, "LED 屏幕", null, null, sort++));
-        list.add(item(budget, "BUILD", null, "影音设备", null, null, sort++));
-        // MATERIAL 物料：设计费 + 公司收取（串场/沟通函及延展）+ 明细项（默认值取收费标准）
-        list.add(item(budget, "MATERIAL", "MAT_DESIGN", "物料设计费", null, null, sort++));
-        list.add(feeItem(budget, fees, "MC_INTERLUDE", "串场", BigDecimal.ONE, "MATERIAL", sort++));
-        list.add(feeItem(budget, fees, "MC_LETTER", "沟通函及延展", BigDecimal.ONE, "MATERIAL", sort++));
-        list.add(materialQuantityItem(budget, fees, "AGENDA_UP", "日程", "张", sort++));
-        list.add(materialQuantityItem(budget, fees, "MAT_DESKCARD_UP", "台卡", "张", sort++));
-        list.add(materialQuantityItem(budget, fees, "MAT_STAND", "展架（易拉宝）", "个", sort++));
-        list.add(item(budget, "MATERIAL", "MAT_BANNER", "条幅（按酒店尺寸，默认写真布）", null, null, sort++));
-        list.add(feeItem(budget, fees, "MAT_PRINT_OTHER", "其他打印物料", BigDecimal.ONE, "MATERIAL", sort++));
-        list.add(feeItem(budget, fees, "MAT_ROSTRUM_FLOWER", "讲台花", BigDecimal.ONE, "MATERIAL", sort++));
-        list.add(item(budget, "MATERIAL", "MAT_FLOWER_OTHER", "桌花及其他花束（视需求报价）", null, null, sort++));
-        // MEDIA 媒体（非必需）
-        list.add(item(budget, "MEDIA", null, "媒体费", null, null, sort++));
-        // GIFT 礼品（和客户确认是否需要）
-        list.add(feeItem(budget, fees, "GIFT_UNIT", "礼品", null, "GIFT", sort++));
-        // STAFF 人员：固定 500/人/天 + 交通住宿据实报销（说明行）
-        ProjectBudgetItem staff = feeItem(budget, fees, "STAFF_DAY", "人员费", BigDecimal.ZERO, "STAFF", sort++);
-        if (staff != null) {
-            staff.setUnit("人天");
-            list.add(staff);
-        }
-        list.add(item(budget, "STAFF", "STAFF_TRAVEL", "人员交通/住宿（据实报销）", null, null, sort++));
+        // 2026-11-21：其余六大项（交通/搭建/物料/媒体/礼品/人员）不再预填默认细项，
+        // 仅保留大项分节，由用户从收费标准库（171 条模板费用项）按需添加。
         return list.stream().filter(Objects::nonNull).toList();
     }
 
