@@ -24,3 +24,9 @@
 - 下一步先重新取得管理员授权并执行恢复脚本，读取 logs/project-finance-primary-reload-1.0.99.log 并检查代理指回 8080。保留影子进程至 Nginx 确认完全切换。随后以管理员权限执行前端发布，检查入口 hash、/project/56、匿名接口 401 和两条健康端点。
 - 前端发布使用 scripts/deploy-frontend-graceful.ps1 -StagedDist <LOCAL_PATH> -ReleaseId 1.0.99-project-finance-quote-20261120 -Apply。
 - 后端回滚包 backend/releases/1.0.99-20261120_173211/previous-expert-system.jar 应与 1.0.98 制品校验一致。没有新增迁移，历史记录保留。前端恢复前不要重复运行全栈发布脚本。
+
+## 恢复结果
+
+2026-11-20 17:57（北京时间），恢复脚本修正端口替换表达式后，管理员批准执行。已优雅切回 8080，并发布 1.0.99 前端快照。项目入口、匿名权限、直连与代理、前后端候选及回滚制品校验均通过。状态为已上线待生产业务验收。上述暂停点仅保留历史记录。见 [发布与回滚记录](../../releases/20261120-project-finance-quote-1.0.99.md)。
+
+8082 的本机影子进程已退出生产路由。普通权限清理被系统拒绝，自动审批也拦截了提权清理命令，最后核对仍由 Java PID 44220 监听。
