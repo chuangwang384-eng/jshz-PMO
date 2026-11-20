@@ -47,3 +47,13 @@ Owner 提供历史结算单/成本单/预算单 4 份 + 公司报价单/成本�
 
 - 前端：`1.0.88-budget-cost-export.nginx-before.txt` 指针回滚；后端蓝绿归档旧实例
 - 数据库：扩列向后兼容（旧包不读写新列），171 条库数据保留无害
+
+## 补充：1.0.89→1.0.92 追加发布（同日，验收反馈三修复）
+
+| 版本 | 内容 | 提交 |
+| --- | --- | --- |
+| 1.0.89 | ①新增收费项"失效"修复：库扩到 160+ 条后空行 append 在末尾且被筛选挡住——改为**置顶插入+清除类目/关键字筛选**；②新增**删除收费项**：`DELETE /api/project/config/budget-fee-standards/{feeKey}`，被预算明细引用（item_key 计数>0）时 400 提示条数，未引用物理删除；操作列全部行显示删除/移除（修复 filteredRows 与 rows 下标错位，按行对象定位） | 见 git log |
+| 1.0.89 | ③导出公式修复：POI `setCellValue("=..")` 存成文本导致 Excel 不计算——改 `setCellFormula`；美化：标题合并 16pt、表头灰底白字、分节行底色、全表细边框、金额 `#,##0.00`、冻结表头、去网格线 | 同上 |
+| 1.0.90-92 | 强制打开重算：POI 5.4 `setForceFormulaRecalculation` 不落盘（实测），直接写 `calcPr calcId=0 + fullCalcOnLoad=true`（方法名 `setFullCalcOnLoad`） | `5095213`/后续 |
+
+验证（实测）：导出件 5 个公式单元格全部 data_type=f、0 个文本伪公式；`workbook.xml` 含 `fullCalcOnLoad="true"`；删除接口双向实测（MC_INTERLUDE 引用 2 条→400 拒绝；未引用项→删除成功）；配置页实测新增后 160 条、首行为置顶空行、每行有删除按钮。
