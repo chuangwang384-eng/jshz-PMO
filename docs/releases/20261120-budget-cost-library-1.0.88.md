@@ -57,3 +57,23 @@ Owner 提供历史结算单/成本单/预算单 4 份 + 公司报价单/成本�
 | 1.0.90-92 | 强制打开重算：POI 5.4 `setForceFormulaRecalculation` 不落盘（实测），直接写 `calcPr calcId=0 + fullCalcOnLoad=true`（方法名 `setFullCalcOnLoad`） | `5095213`/后续 |
 
 验证（实测）：导出件 5 个公式单元格全部 data_type=f、0 个文本伪公式；`workbook.xml` 含 `fullCalcOnLoad="true"`；删除接口双向实测（MC_INTERLUDE 引用 2 条→400 拒绝；未引用项→删除成功）；配置页实测新增后 160 条、首行为置顶空行、每行有删除按钮。
+
+## 补充：1.0.93 项目配置模块体验修复（2026-11-21，纯前端，验收后上线）
+
+Owner 反馈：项目配置卡顿严重、删除失效、新增希望弹窗化。提交 `4bb6c85`，graceful 发布（ReleaseId `1.0.93-config-ux`，后端保持 1.0.92）。
+
+| 问题 | 根因 | 修复 |
+| --- | --- | --- |
+| 删除失效 | `ElMessageBox` 使用但**未 import**，点删除抛 ReferenceError 无反应 | 补 import |
+| 卡顿严重 | 160+ 行 × 每行 8 个输入组件 ≈1300 重型组件一次全渲染 | 分页每页 20 行（el-pagination），筛选/加载重置页码 |
+| 新增改弹窗 | Owner 要求 | 表单弹窗（类目/名称/默认值/成本/最低利润/单位/备注），确认后置顶插入，点保存入库 |
+| 保存后串场景（验收中发现的既有 bug） | 后端 saveFeeStandards 返回 listFeeStandards(null) 全场景，前端 save 后直接全量替换当前页签 | 保存成功后 `await load()` 重载当前页签，场景隔离 |
+
+**验收证据（预览服务器伺服同一 dist + 生产后端，王创管理员会话实测）**：
+- 分页：仅渲染 20 行（共 159 条），翻页正常；
+- 新增弹窗：填写「验收测试项ABC」(888/元场) → 确认 → 置顶（159→160）→ 保存入库（DB 实查 OFF_MWOKH69218/OFFLINE/888）；
+- 删除：搜索定位 → 删除确认弹窗正常弹出（ElMessageBox 修复生效）→ 确认 → 删除成功（DB COUNT=0，线下回 159）；
+- 场景隔离：线下 159 / 线上 30，无混串；
+- 线上核验：root→1.0.93-config-ux，bundle index-BjYx-4R9.js 含 v1.0.93，探针 200×3。
+
+**环境备注**：本机 Node v24 与 Vite 5 dev server 不兼容（启动后 HTTP 无响应），验收改用自写静态+代理服务器伺服已构建 dist（剥离 Origin 头绕开 CORS 白名单），验收后已关闭清理。
