@@ -26,7 +26,7 @@
         <el-input v-model="keyword" placeholder="搜索名称/详细内容" clearable style="width: 240px"/>
         <span class="hint-text" style="align-self:center">共 {{ filteredRows.length }} 条</span>
       </div>
-      <el-table v-loading="loading" :data="filteredRows" row-key="feeKey" size="default" stripe empty-text="暂无收费项">
+      <el-table v-loading="loading" :data="pagedRows" row-key="feeKey" size="default" stripe empty-text="暂无收费项">
         <el-table-column label="类目" width="110">
           <template #default="{ row }">{{ CATALOGS[row.catalog] || '-' }}</template>
         </el-table-column>
@@ -81,18 +81,60 @@
         </el-table-column>
       </el-table>
 
+      <!-- 分页（2026-11-21 卡顿修复）：160+ 行全量渲染约 1300 个输入组件导致页面卡死，改为每页 20 行 -->
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="filteredRows.length"
+        layout="total, prev, pager, next"
+        style="margin-top: 12px; justify-content: flex-end"
+      />
+
       <div class="fee-actions">
-        <el-button plain @click="addRow">+ 新增收费项</el-button>
+        <el-button plain @click="openAddDialog">+ 新增收费项</el-button>
         <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">保存修改</el-button>
         <span role="status" class="hint-text">{{ dirty ? '有未保存的修改' : '暂无未保存修改' }}</span>
       </div>
     </div>
+
+    <!-- 新增收费项弹窗（2026-11-21 Owner 要求）：表单化录入，确认后置顶插入列表，点「保存修改」入库 -->
+    <el-dialog v-model="addVisible" title="新增收费项" width="520px" append-to-body>
+      <el-form :model="addForm" label-width="96px">
+        <el-form-item label="类目">
+          <el-select v-model="addForm.catalog" placeholder="选择类目（可空）" clearable style="width: 100%">
+            <el-option v-for="(label, key) in CATALOGS" :key="key" :label="label" :value="key"/>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="收费项名称">
+          <el-input v-model="addForm.name" placeholder="必填" maxlength="100"/>
+        </el-form-item>
+        <el-form-item label="默认值(元)">
+          <el-input v-model="addForm.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'"/>
+        </el-form-item>
+        <el-form-item label="成本价(元)">
+          <el-input-number v-model="addForm.costPrice" :min="0" :precision="2" :controls="false" style="width: 100%"/>
+        </el-form-item>
+        <el-form-item label="最低利润(元)">
+          <el-input-number v-model="addForm.minProfit" :min="0" :precision="2" :controls="false" style="width: 100%"/>
+        </el-form-item>
+        <el-form-item label="单位">
+          <el-input v-model="addForm.unit" placeholder="元/场 等"/>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="addForm.remark" maxlength="200"/>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAdd">确认添加</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { listBudgetFeeStandards, saveBudgetFeeStandards, deleteBudgetFeeStandard } from '../../api/project'
 import { quantityRules, estimateRuleMeta } from '../project/components/budgetEstimate'
 import { apiErrorMessage } from '../../utils/common'
@@ -138,14 +180,42 @@ function stripped(list) {
   }))
 }
 
-function addRow() {
-  // 键不展示，自动生成（保存时按 feeKey 幂等 upsert）。
-  // 2026-11-20 修复"新增失效"：库扩到 160+ 条后空行 append 在末尾且被筛选挡住，感知不到——
-  // 改为置顶插入并清除类目/关键字筛选，保证新行立即可见。
+// 分页（2026-11-21 卡顿修复）：160+ 行 × 8 输入组件全量渲染卡死，每页 20 行
+const page = ref(1)
+const pageSize = 20
+const pagedRows = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return filteredRows.value.slice(start, start + pageSize)
+})
+watch([catalogFilter, keyword], () => { page.value = 1 })
+
+// 新增收费项弹窗（2026-11-21 Owner 要求弹窗化）
+const addVisible = ref(false)
+const addForm = ref({})
+function openAddDialog() {
+  addForm.value = { catalog: '', name: '', defaultValue: isOnline.value ? '' : '500', costPrice: null, minProfit: null, unit: '', remark: '' }
+  addVisible.value = true
+}
+function confirmAdd() {
+  const f = addForm.value
+  if (!f.name || !f.name.trim()) {
+    ElMessage.warning('收费项名称不能为空')
+    return
+  }
   const key = (isOnline.value ? 'OL_' : 'OFF_') + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 90 + 10)
   catalogFilter.value = ''
   keyword.value = ''
-  rows.value.unshift({ feeKey: key, name: '', defaultValue: isOnline.value ? '' : '500', unit: '', remark: '', isActive: 1, _new: true })
+  page.value = 1
+  rows.value.unshift({
+    feeKey: key, name: f.name.trim(), scene: scene.value, catalog: f.catalog || null,
+    defaultValue: (f.defaultValue || '').trim() || null,
+    costPrice: f.costPrice == null ? null : Number(f.costPrice),
+    minProfit: f.minProfit == null ? null : Number(f.minProfit),
+    unit: (f.unit || '').trim() || null, remark: (f.remark || '').trim() || null,
+    isActive: 1, _new: true
+  })
+  addVisible.value = false
+  ElMessage.success('已添加到列表顶部，请点击「保存修改」入库')
 }
 
 // 删除收费项（2026-11-20）：被预算明细引用时后端拒绝；本地未保存行直接移除。
@@ -172,6 +242,7 @@ async function removeRow(row) {
 async function load() {
   loading.value = true
   error.value = ''
+  page.value = 1
   try {
     const data = await listBudgetFeeStandards(scene.value)
     rows.value = (Array.isArray(data) ? data : []).map((r) => ({ ...r }))
@@ -195,9 +266,10 @@ async function save() {
   }
   saving.value = true
   try {
-    const data = await saveBudgetFeeStandards(list)
-    rows.value = (Array.isArray(data) ? data : []).map((r) => ({ ...r }))
-    original.value = JSON.stringify(stripped(rows.value))
+    await saveBudgetFeeStandards(list)
+    // 后端 saveFeeStandards 返回全场景（listFeeStandards(null)），直接赋值会把线上项混进线下页签
+    // （2026-11-21 修复）：保存成功后重载当前页签，保证场景隔离并重置分页。
+    await load()
     ElMessage.success('收费标准已保存')
   } catch (e) {
     ElMessage.error(apiErrorMessage(e, '保存失败'))
