@@ -1,7 +1,8 @@
 -- ============================================================
 -- 专家库系统 数据库初始化脚本（生产结构基线）
--- 生成时间: 2026-11-12 17:21:18；2026-11-16 补齐 4 张表（AI 助手 1 + 会议预算 3，见文末第四节）
--- 来源: 生产库 expert_system 实际结构（纳入 85 张业务/结构表；排除 16 张历史备份/迁移标记表）
+-- 生成时间: 2026-11-12 17:21:18；2026-11-16 补齐 4 张表（AI 助手 1 + 会议预算 3，见文末第四节）；
+--           2026-11-20 并入项目类型与阶段表单（project.project_type 列 + project_stage_form 表）
+-- 来源: 生产库 expert_system 实际结构（纳入 88 张业务/结构表；排除历史备份/迁移标记表）
 -- 适用: MySQL 8.x
 --
 -- 组成:
@@ -744,7 +745,8 @@ CREATE TABLE IF NOT EXISTS `permission` (
 CREATE TABLE IF NOT EXISTS `project` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL COMMENT '项目名称（必填）',
-  `category` varchar(20) NOT NULL COMMENT '大类：ONLINE 线上 / OFFLINE 线下（固定）',
+  `category` varchar(20) NOT NULL COMMENT '大类：ONLINE 线上 / OFFLINE 线下（前端展示名「地点」）',
+  `project_type` varchar(20) DEFAULT NULL COMMENT '项目类型：PLATFORM 平台类 / DIRECT_PAY 直付类 / KEY 重点类',
   `type_id` bigint DEFAULT NULL COMMENT '类型 project_type.id',
   `start_date` date DEFAULT NULL COMMENT '计划开始时间',
   `end_date` date DEFAULT NULL COMMENT '计划结束时间',
@@ -769,6 +771,7 @@ CREATE TABLE IF NOT EXISTS `project` (
   KEY `idx_project_owner` (`owner_id`),
   KEY `idx_project_type` (`type_id`),
   KEY `idx_project_category` (`category`),
+  KEY `idx_project_ptype` (`project_type`),
   KEY `idx_project_status` (`status`),
   KEY `idx_project_team` (`team`),
   KEY `idx_project_city` (`city_id`)
@@ -783,6 +786,20 @@ CREATE TABLE IF NOT EXISTS `project_assistant` (
   UNIQUE KEY `uk_pa_project_user` (`project_id`,`user_id`),
   KEY `idx_pa_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='项目协助人（多选，全员可选）';
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE IF NOT EXISTS `project_stage_form` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `project_id` bigint NOT NULL COMMENT '项目 project.id',
+  `phase_id` bigint NOT NULL COMMENT '阶段 project_phase.id',
+  `form_data` json NOT NULL COMMENT '表单数据（按项目类型差异化字段）',
+  `create_by` bigint DEFAULT NULL COMMENT '创建人 sys_user.id',
+  `update_by` bigint DEFAULT NULL COMMENT '最后修改人 sys_user.id',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_psf_project_phase` (`project_id`,`phase_id`),
+  KEY `idx_psf_phase` (`phase_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='项目阶段表单（会前财务资料上传等按项目类型差异化填写）';
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE IF NOT EXISTS `project_config_request` (
   `request_id` varchar(64) NOT NULL,

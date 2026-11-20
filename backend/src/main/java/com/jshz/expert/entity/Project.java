@@ -25,8 +25,11 @@ public class Project {
     /** 项目名称（会议名称，必填） */
     private String name;
 
-    /** 大类：ONLINE 线上 / OFFLINE 线下（会议类型，固定） */
+    /** 大类：ONLINE 线上 / OFFLINE 线下（前端展示名「地点」，2026-11-20 起改称，字段保留） */
     private String category;
+
+    /** 项目类型：PLATFORM 平台类 / DIRECT_PAY 直付类 / KEY 重点类（必填，2026-11-20 新增） */
+    private String projectType;
 
     /** 团队：DEPT1 项目一部 / DEPT2 项目二部 / DEPT3 项目三部（必填，服务层校验） */
     private String team;

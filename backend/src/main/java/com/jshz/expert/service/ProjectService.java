@@ -41,8 +41,10 @@ import com.jshz.expert.mapper.ProjectPhaseMapper;
 import com.jshz.expert.mapper.ProjectPhaseTemplateRelMapper;
 import com.jshz.expert.entity.ProjectSchedule;
 import com.jshz.expert.entity.ProjectSpeaker;
+import com.jshz.expert.entity.ProjectStageForm;
 import com.jshz.expert.mapper.ProjectScheduleMapper;
 import com.jshz.expert.mapper.ProjectSpeakerMapper;
+import com.jshz.expert.mapper.ProjectStageFormMapper;
 import com.jshz.expert.mapper.ProjectSupplierMapper;
 import com.jshz.expert.mapper.ProjectTemplateMapper;
 import com.jshz.expert.mapper.ProjectTypeMapper;
@@ -76,6 +78,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -106,6 +109,19 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             "DEPT2", "项目二部",
             "DEPT3", "项目三部");
 
+    /** 项目类型合法值（2026-11-20 新增，固定三类；前端展示名见 PROJECT_TYPE_LABELS） */
+    public static final Set<String> PROJECT_TYPES = Set.of("PLATFORM", "DIRECT_PAY", "KEY");
+
+    /** 项目类型展示名 */
+    private static final Map<String, String> PROJECT_TYPE_LABELS = Map.of(
+            "PLATFORM", "平台类项目",
+            "DIRECT_PAY", "直付类项目",
+            "KEY", "重点类项目");
+
+    String projectTypeLabelOf(String projectType) {
+        return projectType == null ? "" : PROJECT_TYPE_LABELS.getOrDefault(projectType, projectType);
+    }
+
     private final ProjectTypeMapper typeMapper;
     private final ProjectBudgetMapper budgetMapper;
     private final ProjectTypePhaseRelMapper typePhaseRelMapper;
@@ -134,6 +150,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private final ProjectConfigurationService configuration;
     private final ProjectScheduleMapper scheduleMapper;
     private final ProjectSpeakerMapper speakerMapper;
+    private final ProjectStageFormMapper stageFormMapper;
     private final com.jshz.expert.mapper.ComplianceProjectTodoMapper complianceProjectTodoMapper;
     private final com.jshz.expert.mapper.ComplianceProjectDocBindingMapper complianceProjectDocBindingMapper;
 
@@ -351,7 +368,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         String category = str(body.get("category"));
         if (!"ONLINE".equals(category) && !"OFFLINE".equals(category)) {
-            throw new BusinessException("会议类型必须为线上(ONLINE)或线下(OFFLINE)");
+            throw new BusinessException("地点必须为线上(ONLINE)或线下(OFFLINE)");
+        }
+        // 项目类型（2026-11-20 新增，必填，固定三类）
+        String projectType = str(body.get("projectType"));
+        if (!PROJECT_TYPES.contains(projectType)) {
+            throw new BusinessException("项目类型必须为平台类(PLATFORM)/直付类(DIRECT_PAY)/重点类(KEY)");
         }
         // 团队（2026-11-09 新增，必填，固定三个部）
         String team = str(body.get("team"));
@@ -389,6 +411,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Project project = new Project();
         project.setName(name.trim());
         project.setCategory(category);
+        project.setProjectType(projectType);
         project.setTeam(team);
         project.setCityId(cityId);
         project.setMeetingStartDate(meetingStart);
@@ -436,9 +459,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         String category = str(body.get("category"));
         if (StringUtils.hasText(category)) {
             if (!"ONLINE".equals(category) && !"OFFLINE".equals(category)) {
-                throw new BusinessException("会议类型必须为线上(ONLINE)或线下(OFFLINE)");
+                throw new BusinessException("地点必须为线上(ONLINE)或线下(OFFLINE)");
             }
             project.setCategory(category);
+        }
+        // 项目类型（2026-11-20 新增；编辑时携带才校验，存量项目为空可补填）
+        if (body.containsKey("projectType")) {
+            String projectType = str(body.get("projectType"));
+            if (!PROJECT_TYPES.contains(projectType)) {
+                throw new BusinessException("项目类型必须为平台类(PLATFORM)/直付类(DIRECT_PAY)/重点类(KEY)");
+            }
+            project.setProjectType(projectType);
         }
         String team = str(body.get("team"));
         if (StringUtils.hasText(team)) {
@@ -984,6 +1015,104 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 "PROJECT", id, null);
     }
 
+    // ==================== 项目阶段表单（2026-11-20：会前财务资料上传按项目类型差异化填写） ====================
+
+    /**
+     * 读取某项目某阶段的表单数据（无记录时 formData 返回 null）。
+     * 权限：项目可读者即可查看（与阶段资料同口径）。
+     */
+    public Map<String, Object> getStageForm(Long id, Long phaseId, AuthUser user) {
+        Project project = requireProject(id);
+        requireProjectReadable(project, user);
+        if (phaseId == null) {
+            throw new BusinessException("阶段不能为空");
+        }
+        ProjectStageForm form = stageFormMapper.selectOne(new LambdaQueryWrapper<ProjectStageForm>()
+                .eq(ProjectStageForm::getProjectId, id)
+                .eq(ProjectStageForm::getPhaseId, phaseId)
+                .orderByDesc(ProjectStageForm::getId)
+                .last("LIMIT 1"));
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("projectId", id);
+        m.put("phaseId", phaseId);
+        if (form == null) {
+            m.put("formData", null);
+            m.put("updateBy", null);
+            m.put("updateTime", null);
+            return m;
+        }
+        m.put("formData", parseStageFormData(form.getFormData()));
+        m.put("updateBy", form.getUpdateBy() == null ? null : usernameOf(form.getUpdateBy()));
+        m.put("updateTime", form.getUpdateTime() == null ? null : form.getUpdateTime().format(DT_FMT));
+        return m;
+    }
+
+    /**
+     * 保存某项目某阶段的表单数据（整包覆盖 upsert，不做历史版本）。
+     * body: {phaseId, formData:{...}}；权限与阶段资料上传同口径（requireOperable）。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> saveStageForm(Long id, Map<String, Object> body, AuthUser user) {
+        Project project = requireProject(id);
+        requireOperable(project, user);
+        Long phaseId = toLong(body.get("phaseId"));
+        if (phaseId == null) {
+            throw new BusinessException("阶段不能为空");
+        }
+        validatePhaseForProject(project, phaseId);
+        Object raw = body.get("formData");
+        Map<String, Object> formData;
+        try {
+            formData = objectMapper.convertValue(raw,
+                    objectMapper.getTypeFactory().constructMapType(LinkedHashMap.class, String.class, Object.class));
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("表单数据必须为 JSON 对象");
+        }
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(formData == null ? Map.of() : formData);
+        } catch (Exception e) {
+            throw new BusinessException("表单数据序列化失败");
+        }
+        Long userId = ParamUtils.userIdOf(user);
+        ProjectStageForm form = stageFormMapper.selectOne(new LambdaQueryWrapper<ProjectStageForm>()
+                .eq(ProjectStageForm::getProjectId, id)
+                .eq(ProjectStageForm::getPhaseId, phaseId)
+                .orderByDesc(ProjectStageForm::getId)
+                .last("LIMIT 1"));
+        if (form == null) {
+            form = new ProjectStageForm();
+            form.setProjectId(id);
+            form.setPhaseId(phaseId);
+            form.setFormData(json);
+            form.setCreateBy(userId);
+            form.setUpdateBy(userId);
+            stageFormMapper.insert(form);
+        } else {
+            form.setFormData(json);
+            form.setUpdateBy(userId);
+            stageFormMapper.updateById(form);
+        }
+        operationLogService.record(userId, ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPLOAD_DOC,
+                "项目「" + project.getName() + "」保存阶段表单（阶段：" + phaseNameOf(project) + "）",
+                "PROJECT", id, null);
+        return getStageForm(id, phaseId, user);
+    }
+
+    /** 阶段表单 JSON 解析（脏数据兜底返回空 Map，不抛异常阻断详情页）。 */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseStageFormData(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json, Map.class);
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
     // ==================== 预算 ====================
 
     /** 登记预算金额（BUDGET 模板内容）。 */
@@ -1198,7 +1327,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         List<Project> projects = collectProjects(keyword, status, startBegin, startEnd, endBegin, endEnd, ownerId, category, team, cityId, assistantId, user);
         Workbook wb = new XSSFWorkbook();
         Sheet sheet = wb.createSheet("项目列表");
-        String[] headers = {"项目ID", "会议名称", "会议类型", "团队", "会议城市", "项目开始时间", "项目结束时间", "举办开始", "举办结束", "总负责人", "协助人", "客户单位", "客户姓名", "当前阶段", "状态", "预算金额", "备注", "创建时间"};
+        String[] headers = {"项目ID", "会议名称", "项目类型", "地点", "团队", "会议城市", "项目开始时间", "项目结束时间", "举办开始", "举办结束", "总负责人", "协助人", "客户单位", "客户姓名", "当前阶段", "状态", "预算金额", "备注", "创建时间"};
         Row head = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {
             head.createCell(i).setCellValue(headers[i]);
@@ -1208,22 +1337,23 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             Row row = sheet.createRow(r++);
             row.createCell(0).setCellValue(p.getId() == null ? "" : String.valueOf(p.getId()));
             row.createCell(1).setCellValue(p.getName() == null ? "" : p.getName());
-            row.createCell(2).setCellValue("ONLINE".equals(p.getCategory()) ? "线上" : ("OFFLINE".equals(p.getCategory()) ? "线下" : ""));
-            row.createCell(3).setCellValue(teamLabelOf(p.getTeam()));
-            row.createCell(4).setCellValue(cityNameOf(p.getCityId()));
-            row.createCell(5).setCellValue(p.getStartDate() == null ? "" : p.getStartDate().format(DATE_FMT));
-            row.createCell(6).setCellValue(p.getEndDate() == null ? "" : p.getEndDate().format(DATE_FMT));
-            row.createCell(7).setCellValue(p.getMeetingStartDate() == null ? "" : p.getMeetingStartDate().format(DATE_FMT));
-            row.createCell(8).setCellValue(p.getMeetingEndDate() == null ? "" : p.getMeetingEndDate().format(DATE_FMT));
-            row.createCell(9).setCellValue(usernameOf(p.getOwnerId()));
-            row.createCell(10).setCellValue(String.join("、", assistantNamesOf(p.getId())));
-            row.createCell(11).setCellValue(p.getClientCompany() == null ? "" : p.getClientCompany());
-            row.createCell(12).setCellValue(p.getClientName() == null ? "" : p.getClientName());
-            row.createCell(13).setCellValue(phaseNameOf(p));
-            row.createCell(14).setCellValue(statusText(p));
-            row.createCell(15).setCellValue(p.getBudgetAmount() == null ? "" : p.getBudgetAmount().toPlainString());
-            row.createCell(16).setCellValue(p.getRemark() == null ? "" : p.getRemark());
-            row.createCell(17).setCellValue(p.getCreateTime() == null ? "" : p.getCreateTime().format(DT_FMT));
+            row.createCell(2).setCellValue(projectTypeLabelOf(p.getProjectType()));
+            row.createCell(3).setCellValue("ONLINE".equals(p.getCategory()) ? "线上" : ("OFFLINE".equals(p.getCategory()) ? "线下" : ""));
+            row.createCell(4).setCellValue(teamLabelOf(p.getTeam()));
+            row.createCell(5).setCellValue(cityNameOf(p.getCityId()));
+            row.createCell(6).setCellValue(p.getStartDate() == null ? "" : p.getStartDate().format(DATE_FMT));
+            row.createCell(7).setCellValue(p.getEndDate() == null ? "" : p.getEndDate().format(DATE_FMT));
+            row.createCell(8).setCellValue(p.getMeetingStartDate() == null ? "" : p.getMeetingStartDate().format(DATE_FMT));
+            row.createCell(9).setCellValue(p.getMeetingEndDate() == null ? "" : p.getMeetingEndDate().format(DATE_FMT));
+            row.createCell(10).setCellValue(usernameOf(p.getOwnerId()));
+            row.createCell(11).setCellValue(String.join("、", assistantNamesOf(p.getId())));
+            row.createCell(12).setCellValue(p.getClientCompany() == null ? "" : p.getClientCompany());
+            row.createCell(13).setCellValue(p.getClientName() == null ? "" : p.getClientName());
+            row.createCell(14).setCellValue(phaseNameOf(p));
+            row.createCell(15).setCellValue(statusText(p));
+            row.createCell(16).setCellValue(p.getBudgetAmount() == null ? "" : p.getBudgetAmount().toPlainString());
+            row.createCell(17).setCellValue(p.getRemark() == null ? "" : p.getRemark());
+            row.createCell(18).setCellValue(p.getCreateTime() == null ? "" : p.getCreateTime().format(DT_FMT));
         }
 
         Sheet expertSheet = wb.createSheet("项目专家明细");
@@ -2043,6 +2173,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("id", project.getId());
         m.put("name", project.getName());
         m.put("category", project.getCategory());
+        m.put("projectType", project.getProjectType());
         m.put("team", project.getTeam());
         m.put("cityId", project.getCityId());
         m.put("meetingStartDate", project.getMeetingStartDate() == null ? null : project.getMeetingStartDate().toString());

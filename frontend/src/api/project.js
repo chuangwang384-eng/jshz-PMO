@@ -98,6 +98,18 @@ export function saveRichText(id, data) {
   return request.put(`/project/${id}/docs/richtext`, data)
 }
 
+// ==================== 项目阶段表单（2026-11-20：会前财务资料上传按项目类型差异化填写） ====================
+
+// 读取阶段表单（phaseId 必填；无记录时 formData=null）
+export function getStageForm(id, phaseId) {
+  return request.get(`/project/${id}/stage-form`, { params: { phaseId } })
+}
+
+// 保存阶段表单（整包覆盖：{phaseId, formData:{...}}）
+export function saveStageForm(id, data) {
+  return request.put(`/project/${id}/stage-form`, data)
+}
+
 // 登记预算金额
 export function registerBudget(id, amount) {
   return request.put(`/project/${id}/budget`, { amount })

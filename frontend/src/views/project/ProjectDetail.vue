@@ -12,7 +12,8 @@
           <span v-else class="ui-badge ui-badge-success">有效</span>
         </div>
         <div class="pd-meta">
-          <span>会议类型：{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span>
+          <span v-if="detail.projectType">项目类型：{{ PROJECT_TYPE_LABELS[detail.projectType] || detail.projectType }}</span>
+          <span>地点：{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span>
           <span>团队：{{ detail.teamLabel || '-' }}</span>
           <span v-if="detail.cityName">会议城市：{{ detail.cityName }}</span>
           <span>总负责人：{{ detail.ownerName || '-' }}</span>
@@ -98,7 +99,31 @@
             <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
           </div>
 
-          <el-empty v-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
+          <!-- 会前财务资料上传阶段（2026-11-20）：按项目类型差异化表单 + 附件补充 -->
+          <template v-if="isFinanceViewing && phaseState(viewPhaseObj) !== 'future'">
+            <ProjectFinanceForm
+              :key="`${projectId}-${viewPhaseObj.id}`"
+              :project-id="projectId"
+              :phase-id="viewPhaseObj.id"
+              :project-type="detail.projectType || ''"
+              :readonly="!canOperatePhase"
+              @saved="fetchDetail" />
+            <div class="fin-attach-row">
+              <el-upload v-if="canOperatePhase" :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
+                <el-button size="small" type="primary" plain>上传附件资料到本阶段</el-button>
+              </el-upload>
+              <span class="hint-text">合同、发票、会议通知等附件资料在此上传，与表单一并作为本阶段材料</span>
+            </div>
+            <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
+              <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
+                <a href="javascript:void(0)" class="doc-name" @click="openFilePreview(d)">{{ d.fileName }}</a>
+                <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
+                <el-button v-if="canOperatePhase" link type="danger" style="margin-left: 12px" @click="removeDoc(d)">删除</el-button>
+              </div>
+            </template>
+            <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
+          </template>
+          <el-empty v-else-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
           <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
           <template v-else-if="isBudgetViewing && phaseState(viewPhaseObj) !== 'future'">
             <ProjectBudgetPanel :key="projectId" :project-id="projectId" :readonly="!canOperatePhase"
@@ -296,7 +321,8 @@
           <div class="ui-card pd-info-card">
             <div class="pd-sec-title">项目属性</div>
             <div class="info-row"><span class="info-k">会议名称</span><span class="info-v">{{ detail.name }}</span></div>
-            <div class="info-row"><span class="info-k">会议类型</span><span class="info-v">{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span></div>
+            <div class="info-row"><span class="info-k">项目类型</span><span class="info-v"><span v-if="detail.projectType" class="ui-badge ui-badge-info">{{ PROJECT_TYPE_LABELS[detail.projectType] || detail.projectType }}</span><template v-else>-</template></span></div>
+            <div class="info-row"><span class="info-k">地点</span><span class="info-v">{{ detail.category === 'ONLINE' ? '线上' : '线下' }}</span></div>
             <div class="info-row"><span class="info-k">团队</span><span class="info-v">{{ detail.teamLabel || '-' }}</span></div>
             <div class="info-row"><span class="info-k">会议城市</span><span class="info-v">{{ detail.cityName || '-' }}</span></div>
           </div>
@@ -886,6 +912,7 @@ import { handleProjectComplianceTodo } from '../../api/compliance'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
 import ProjectBudgetPanel from './components/ProjectBudgetPanel.vue'
+import ProjectFinanceForm from './components/ProjectFinanceForm.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
 import { uploadLimits, ensureUploadLimits, toMb } from '../../utils/limits'
@@ -908,6 +935,8 @@ import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.
 
 const route = useRoute()
 const projectId = route.params.id
+// 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
+const PROJECT_TYPE_LABELS = { PLATFORM: '平台类项目', DIRECT_PAY: '直付类项目', KEY: '重点类项目' }
 const loading = ref(false)
 const detail = ref({})
 const complianceView = ref('PENDING')
@@ -1380,6 +1409,9 @@ const isBudgetStage = computed(() => {
 const isFlowStage = computed(() => isAgendaStage.value || isBudgetStage.value)
 // 阶段资料区当前查看的是预算阶段（含查看历史/未来阶段时的只读预览；future 由上层空态拦截）
 const isBudgetViewing = computed(() => viewPhaseObj.value?.name === BUDGET_PHASE_NAME)
+// 2026-11-20 会前财务资料上传：专用差异化表单视图（按项目类型分支），不再是纯占位
+const FINANCE_PHASE_NAME = '会前财务资料上传'
+const isFinanceViewing = computed(() => viewPhaseObj.value?.name === FINANCE_PHASE_NAME)
 const PLACEHOLDER_PHASE_NAMES = new Set([
   '会前财务资料上传',
   '串场制作',
@@ -2061,6 +2093,7 @@ async function downloadProjectFile(d) {
 .doc-name { color: var(--ui-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-meta { color: var(--ui-text-muted); font-size: 12px; margin-left: auto; flex-shrink: 0; }
 .upload-area { margin-top: 6px; }
+.fin-attach-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--ui-border-weak); }
 .rich-view { white-space: pre-wrap; color: var(--ui-text-sub); }
 .hint-text { color: var(--ui-text-muted); font-size: 13px; }
 .mask-tip { color: var(--ui-text-muted); font-size: 12px; margin-left: 6px; }

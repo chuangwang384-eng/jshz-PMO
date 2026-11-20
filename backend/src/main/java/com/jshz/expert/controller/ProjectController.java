@@ -323,6 +323,26 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    /** 读取阶段表单（2026-11-20：会前财务资料上传等按项目类型差异化填写；无记录 formData=null）。 */
+    @GetMapping("/{id}/stage-form")
+    public ApiResponse<Map<String, Object>> getStageForm(@PathVariable Long id,
+                                                         @RequestParam("phaseId") Long phaseId,
+                                                         @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectService.getStageForm(id, phaseId, user));
+    }
+
+    /** 保存阶段表单（整包覆盖 upsert；body: {phaseId, formData}）。 */
+    @PutMapping("/{id}/stage-form")
+    public ApiResponse<Map<String, Object>> saveStageForm(@PathVariable Long id,
+                                                          @RequestBody Map<String, Object> body,
+                                                          @AuthenticationPrincipal AuthUser user) {
+        Long phaseId = ParamUtils.parseLong(body == null ? null : body.get("phaseId"), null);
+        if (phaseId == null) {
+            throw new BusinessException("阶段参数缺失，无法保存表单");
+        }
+        return ApiResponse.ok(projectService.saveStageForm(id, body, user));
+    }
+
     /** 登记预算金额。 */
     @PutMapping("/{id}/budget")
     public ApiResponse<Void> registerBudget(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {

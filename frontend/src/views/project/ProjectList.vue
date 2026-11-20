@@ -16,7 +16,7 @@
           <el-option label="项目二部" value="DEPT2" />
           <el-option label="项目三部" value="DEPT3" />
         </el-select>
-        <el-select v-model="filters.category" placeholder="会议类型" aria-label="会议类型" clearable @change="handleSearch">
+        <el-select v-model="filters.category" placeholder="地点" aria-label="地点" clearable @change="handleSearch">
           <el-option label="线上" value="ONLINE" />
           <el-option label="线下" value="OFFLINE" />
         </el-select>
@@ -71,7 +71,7 @@
         <el-table-column label="会议名称" min-width="210">
           <template #default="{ row }">
             <button type="button" class="project-name" @click.stop="goDetail(row.id)">{{ row.name }}</button>
-            <div class="cell-meta">{{ row.category === 'ONLINE' ? '线上' : '线下' }}<template v-if="row.cityName"> · {{ row.cityName }}</template></div>
+            <div class="cell-meta"><span v-if="row.projectType" class="ptype-tag">{{ PROJECT_TYPE_LABELS[row.projectType] || row.projectType }}</span>{{ row.category === 'ONLINE' ? '线上' : '线下' }}<template v-if="row.cityName"> · {{ row.cityName }}</template></div>
           </template>
         </el-table-column>
         <el-table-column label="当前阶段" width="180">
@@ -165,6 +165,9 @@ import {
   listPhaseOptions, listProjectUsers
 } from '../../api/project'
 import { listSupplierCities } from '../../api/supplier'
+
+// 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
+const PROJECT_TYPE_LABELS = { PLATFORM: '平台类', DIRECT_PAY: '直付类', KEY: '重点类' }
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -393,6 +396,7 @@ onMounted(async () => {
 .project-name { background: none; border: 0; padding: 0; text-align: left; font: inherit; font-weight: 650; color: #1f5086; cursor: pointer; overflow-wrap: anywhere; }
 .project-name:hover { text-decoration: underline; }
 .cell-meta { font-size: 12px; color: #596a82; overflow-wrap: anywhere; }
+.ptype-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 3px; background: #ecf2ff; color: #3a6cf6; font-size: 11px; line-height: 18px; vertical-align: baseline; }
 .row-actions { gap: 8px; flex-wrap: nowrap; }
 .pagination-wrap { margin-top: 0; display: flex; justify-content: flex-end; padding: 14px 16px; overflow-x: auto; }
 @media (max-width: 680px) {

@@ -6,15 +6,27 @@
         <el-input v-model="form.name" maxlength="100" show-word-limit placeholder="必填，如：2026 全国经销商大会" />
       </el-form-item>
       <el-row :gutter="8">
-        <el-col :span="8">
-          <el-form-item label="会议类型" required>
+        <el-col :span="12">
+          <!-- 2026-11-20：原「会议类型」改名为「地点」（字段仍为 category ONLINE/OFFLINE），新增「项目类型」 -->
+          <el-form-item label="项目类型" required>
+            <el-select v-model="form.projectType" placeholder="平台类/直付类/重点类" style="width: 100%">
+              <el-option label="平台类项目" value="PLATFORM" />
+              <el-option label="直付类项目" value="DIRECT_PAY" />
+              <el-option label="重点类项目" value="KEY" />
+            </el-select>
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="地点" required>
             <el-select v-model="form.category" placeholder="线上/线下" style="width: 100%">
               <el-option label="线上" value="ONLINE" />
               <el-option label="线下" value="OFFLINE" />
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="8">
+      </el-row>
+      <el-row :gutter="8">
+        <el-col :span="12">
           <el-form-item label="团队" required>
             <el-select v-model="form.team" placeholder="选择部门" style="width: 100%">
               <el-option label="项目一部" value="DEPT1" />
@@ -23,7 +35,7 @@
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="12">
           <el-form-item label="会议城市">
             <el-select v-model="form.cityId" placeholder="非必填" clearable filterable style="width: 100%">
               <el-option-group v-for="g in cityGroups" :key="g.province" :label="g.province">
@@ -141,7 +153,7 @@ const cityGroups = computed(() => {
 })
 
 const form = reactive({
-  id: null, name: '', category: 'OFFLINE', team: null, cityId: null,
+  id: null, name: '', category: 'OFFLINE', projectType: null, team: null, cityId: null,
   ownerId: null,
   assistantIds: [],
   clientCompany: '', clientName: '', remark: ''
@@ -155,6 +167,7 @@ watch(
     form.id = p?.id ?? null
     form.name = p?.name ?? ''
     form.category = p?.category ?? 'OFFLINE'
+    form.projectType = p?.projectType ?? null
     form.team = p?.team ?? null
     form.cityId = p?.cityId ?? null
     form.ownerId = p?.ownerId ?? authStore.id ?? null // 新建默认当前登录人（总负责人全员可选）
@@ -184,7 +197,11 @@ async function save() {
     return
   }
   if (!form.category || !form.ownerId) {
-    ElMessage.warning('会议类型/总负责人必填')
+    ElMessage.warning('地点/总负责人必填')
+    return
+  }
+  if (!form.projectType) {
+    ElMessage.warning('项目类型必填（平台类/直付类/重点类）')
     return
   }
   if (meetingRange.value?.[0] && meetingRange.value[1] < meetingRange.value[0]) {
@@ -196,6 +213,7 @@ async function save() {
     const data = {
       name: form.name.trim(),
       category: form.category,
+      projectType: form.projectType,
       team: form.team,
       cityId: form.cityId || null,
       meetingStartDate: meetingRange.value?.[0] || null,
