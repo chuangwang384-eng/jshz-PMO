@@ -87,6 +87,8 @@ public class ProjectBudgetExportService {
                 .orderByAsc(ProjectBudgetItem::getSort));
         boolean cost = "COST".equalsIgnoreCase(docType);
         try (XSSFWorkbook wb = new XSSFWorkbook()) {
+            // POI 公式无缓存结果，强制 Excel/WPS 打开时全量重算（LibreOffice 旧版也依赖此标记）
+            wb.setForceFormulaRecalculation(true);
             initStyles(wb);
             Sheet sheet = wb.createSheet(cost ? "会议成本单" : "会议报价单");
             sheet.setDisplayGridlines(false);
