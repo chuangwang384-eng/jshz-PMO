@@ -257,6 +257,30 @@ public class ProjectBudgetService {
         return listFeeStandards(null);
     }
 
+    /**
+     * 删除收费项（2026-11-20）：已被预算明细引用（project_budget_item.item_key）时拒绝，
+     * 提示引用条数（可改为停用）；未引用才物理删除。
+     */
+    @Transactional
+    public void deleteFeeStandard(String feeKey, AuthUser user) {
+        if (feeKey == null || feeKey.isBlank()) {
+            throw new BusinessException("fee_key 不能为空");
+        }
+        ProjectBudgetFeeStandard entity = feeStandardMapper.selectOne(
+                new LambdaQueryWrapper<ProjectBudgetFeeStandard>().eq(ProjectBudgetFeeStandard::getFeeKey, feeKey));
+        if (entity == null) {
+            throw new BusinessException("收费项不存在或已删除");
+        }
+        Long refs = itemMapper.selectCount(new LambdaQueryWrapper<ProjectBudgetItem>()
+                .eq(ProjectBudgetItem::getItemKey, feeKey));
+        if (refs != null && refs > 0) {
+            throw new BusinessException("该收费项已被 " + refs + " 条预算明细引用，不能删除；如需下架请改为停用");
+        }
+        feeStandardMapper.delete(new LambdaQueryWrapper<ProjectBudgetFeeStandard>()
+                .eq(ProjectBudgetFeeStandard::getFeeKey, feeKey));
+        log.info("收费标准删除 {} by={}", feeKey, user == null ? null : user.getUserId());
+    }
+
     // ==================== 内部 ====================
 
     private String categoryOf(Project project) {

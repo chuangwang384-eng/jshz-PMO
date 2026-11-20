@@ -74,10 +74,9 @@
             <el-switch v-model="row.isActive" :active-value="1" :inactive-value="0" size="small"/>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="70" align="center">
-          <template #default="{ $index }">
-            <el-button v-if="rows[$index]._new" link type="danger" size="small" @click="rows.splice($index, 1)">移除</el-button>
-            <span v-else class="hint-text">内置</span>
+        <el-table-column label="操作" width="90" align="center">
+          <template #default="{ row }">
+            <el-button link type="danger" size="small" @click="removeRow(row)">{{ row._new ? '移除' : '删除' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -94,7 +93,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { listBudgetFeeStandards, saveBudgetFeeStandards } from '../../api/project'
+import { listBudgetFeeStandards, saveBudgetFeeStandards, deleteBudgetFeeStandard } from '../../api/project'
 import { quantityRules, estimateRuleMeta } from '../project/components/budgetEstimate'
 import { apiErrorMessage } from '../../utils/common'
 
@@ -140,9 +139,34 @@ function stripped(list) {
 }
 
 function addRow() {
-  // 键不展示，自动生成（保存时按 feeKey 幂等 upsert）
+  // 键不展示，自动生成（保存时按 feeKey 幂等 upsert）。
+  // 2026-11-20 修复"新增失效"：库扩到 160+ 条后空行 append 在末尾且被筛选挡住，感知不到——
+  // 改为置顶插入并清除类目/关键字筛选，保证新行立即可见。
   const key = (isOnline.value ? 'OL_' : 'OFF_') + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 90 + 10)
-  rows.value.push({ feeKey: key, name: '', defaultValue: isOnline.value ? '' : '500', unit: '', remark: '', isActive: 1, _new: true })
+  catalogFilter.value = ''
+  keyword.value = ''
+  rows.value.unshift({ feeKey: key, name: '', defaultValue: isOnline.value ? '' : '500', unit: '', remark: '', isActive: 1, _new: true })
+}
+
+// 删除收费项（2026-11-20）：被预算明细引用时后端拒绝；本地未保存行直接移除。
+// 注意 filteredRows 与 rows 下标不同，必须按行对象定位。
+async function removeRow(row) {
+  if (!row) return
+  if (row._new) {
+    rows.value = rows.value.filter((r) => r !== row)
+    return
+  }
+  await ElMessageBox.confirm(
+    `确认删除收费项「${row.name || row.feeKey}」？删除后不可恢复；已被预算明细引用的收费项无法删除。`,
+    '删除收费项', { type: 'warning', confirmButtonText: '确认删除' }
+  )
+  try {
+    await deleteBudgetFeeStandard(row.feeKey)
+    ElMessage.success('收费项已删除')
+    await load()
+  } catch (e) {
+    ElMessage.error(apiErrorMessage(e, '删除失败'))
+  }
 }
 
 async function load() {

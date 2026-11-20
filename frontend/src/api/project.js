@@ -258,6 +258,11 @@ export function saveBudgetFeeStandards(rows) {
   return request.put('/project/config/budget-fee-standards', { rows })
 }
 
+// 删除收费项（2026-11-20；被预算明细引用时后端拒绝并提示条数）
+export function deleteBudgetFeeStandard(feeKey) {
+  return request.delete(`/project/config/budget-fee-standards/${encodeURIComponent(feeKey)}`)
+}
+
 // 导出报价单/成本单 xlsx（2026-11-20，历史结算单共性结构；docType=QUOTE|COST）
 export function exportBudgetDoc(id, docType) {
   return request.get(`/project/${id}/meeting-budget/export`, { responseType: 'blob', params: { docType } })

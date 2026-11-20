@@ -103,6 +103,14 @@ public class ProjectBudgetController {
         return ApiResponse.ok(budgetService.saveFeeStandards(list, user));
     }
 
+    /** 删除收费项（2026-11-20）：被预算明细引用时 400 并提示条数。 */
+    @DeleteMapping("/config/budget-fee-standards/{feeKey}")
+    public ApiResponse<Void> deleteFeeStandard(@PathVariable String feeKey,
+                                               @AuthenticationPrincipal AuthUser user) {
+        budgetService.deleteFeeStandard(feeKey, user);
+        return ApiResponse.ok(null);
+    }
+
     /** 请求体中 List 元素到 Map 的类型窄化（save/saveFeeStandards 共用，非 List 或元素非 Map 一律丢弃）。 */
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> mapList(Object raw) {
