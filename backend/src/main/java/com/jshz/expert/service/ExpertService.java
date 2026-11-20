@@ -33,6 +33,7 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
 
     private final PhotoStorageService photoStorageService;
     private final DownloadAuditService downloadAuditService;
+    private final ExpertDocumentService expertDocumentService;
 
     /**
      * 列表高级筛选条件（全部可选，组合生效；Owner 2026-11-07 确认口径）。
@@ -290,6 +291,8 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         if (StringUtils.hasText(expert.getIdCardBack())) {
             photoStorageService.deletePhoto(expert.getIdCardBack());
         }
+        // 级联删除资质资料（登记行+物理文件，2026-11-20）
+        expertDocumentService.deleteByExpert(id);
         this.removeById(id);
     }
 

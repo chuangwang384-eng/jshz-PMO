@@ -2135,3 +2135,19 @@ INSERT IGNORE INTO `project_budget_fee_standard` (`fee_key`,`name`,`default_valu
 ('EST_PLATFORM_FIRST',  '平台专车单价-一线城市',  '200',  '元/人',  '地面交通选择平台专车，城市档位为一线城市时的估算单价'),
 ('EST_PLATFORM_OTHER',  '平台专车单价-其他城市',  '100',  '元/人',  '地面交通选择平台专车，城市档位为其他城市时的估算单价'),
 ('EST_HOTEL_ROOMS',     '住宿默认预留间数（估算）','2',   '间',     '无外埠人员时的住宿预留间数');
+
+-- ---------- 4.x 专家资料文件（2026-11-20；迁移 database/migration/20261120_expert_document.sql） ----------
+CREATE TABLE IF NOT EXISTS `expert_document` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `expert_id` BIGINT NOT NULL COMMENT '专家 id（expert.id）',
+  `file_name` VARCHAR(255) NOT NULL COMMENT '原始文件名（展示用）',
+  `stored_name` VARCHAR(255) NOT NULL COMMENT '物理存储文件名（expertdoc_<expertId>_<ts>.<ext>）',
+  `file_size` BIGINT NOT NULL DEFAULT 0 COMMENT '字节数',
+  `created_by` BIGINT NULL COMMENT '上传人用户 id',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY `idx_expert_document_expert` (`expert_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='专家资料文件（医生证等资质资料）';
+
+INSERT IGNORE INTO `permission` (`code`, `name`, `type`, `method`, `path`) VALUES
+('expert:edit', '专家资料上传', 2, 'POST', '/api/experts/*/documents'),
+('expert:edit', '专家资料删除', 2, 'DELETE', '/api/experts/*/documents/*');

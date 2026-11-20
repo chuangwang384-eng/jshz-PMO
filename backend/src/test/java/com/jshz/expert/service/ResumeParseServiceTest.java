@@ -140,6 +140,11 @@ class ResumeParseServiceTest {
         assertEquals("李测试", service.nameFromFileName("3、李测试_某某医院.docx"));
         assertEquals("张三", service.nameFromFileName("张三简历.docx"));
         assertEquals("陈珂", service.nameFromFileName("河南省肿瘤医院-陈珂简介新.pptx"));
+        // 2026-11-20 任云案例：文件名带"简洁版/精简版/简版/完整版"版式变体（正文无姓名，文件名是唯一来源）
+        assertEquals("任云", service.nameFromFileName("任云简介简洁版.docx"));
+        assertEquals("任云", service.nameFromFileName("任云简介精简版.docx"));
+        assertEquals("任云", service.nameFromFileName("任云简介简版.docx"));
+        assertEquals("任云", service.nameFromFileName("任云简介完整版.docx"));
         assertNull(service.nameFromFileName("1 广州荔湾中心医院.pptx"));
         assertNull(service.nameFromFileName("个人简历.docx"));
         assertNull(service.nameFromFileName(null));

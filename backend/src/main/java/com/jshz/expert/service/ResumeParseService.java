@@ -219,8 +219,8 @@ public class ResumeParseService {
         return false;
     }
 
-    /** 简历类后缀词（可带"最新/新版"变体与纯数字版次，如"简历2""简介2024"）。 */
-    private static final String RESUME_SUFFIX_PATTERN = "(?:个人简介|专家简介|的简历|简历|简介)+(?:最新版|新版|更新版|最新|新)?\\d*";
+    /** 简历类后缀词（可带"最新/新版/简洁版"等版式变体与纯数字版次，如"简历2""简介2024""简介简洁版"）。 */
+    private static final String RESUME_SUFFIX_PATTERN = "(?:个人简介|专家简介|的简历|简历|简介)+(?:最新版|新版|更新版|最新|新|简洁版|精简版|简版|完整版)?\\d*";
 
     String nameFromFileName(String fileName) {
         return nameFromFileName(fileName, List.of());

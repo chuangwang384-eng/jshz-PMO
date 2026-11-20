@@ -413,3 +413,4 @@
 - 2026-11-20 日程解析候选「移除」不生效修复 + 参会专家手动解析按钮（已完成待验收，未发布）：移除候选现同步丢弃后端记录，待办条数随之清零；`PUT /project/{id}/speakers` 新增"candidateId+空列表=丢弃该候选"语义。见 [任务记录](tasks/20261120_schedule_candidate_remove_fix.md)。
 - 2026-11-20 **1.0.84 已发布**（`1606575`，后端蓝绿+前端 graceful，零迁移）：日程解析候选逐条「移除」现同步丢弃后端记录（待办随之清零），参会专家标题旁新增「手动解析」按钮。线上核验 `/health`=1.0.84/`1606575`、前端 bundle 含 v1.0.84、连续探针 200。剩业务验收（移除候选→待办清零、手动解析可用）。见 [发布记录](releases/20261120-sched-candidate-fix-1.0.84.md)。
 - 2026-11-20 **1.0.85 已发布**（`63651a8`，纯前端 graceful，后端保持 1.0.84）：同名同单位专家对比弹窗左右卡新增来源徽标与顶部色条（蓝=专家库已有档案、橙=本次简历解析），说明行标注左右含义，解决两卡难以区分的问题。剩业务验收。见 [发布记录](releases/20261120-dup-source-badge-1.0.85.md)。
+- 2026-11-20 **照片限额 5MB→10MB + 专家详情资料上传（医生证等）已完成待验收、未发布**：photo-max-bytes 10MB（yml 真源+兜底同步）；新表 expert_document + GET/POST/DELETE /api/experts/{id}/documents + /api/files-doc/** 静态映射 + 详情弹窗「资料文件」区；迁移 20261120_expert_document 随发布执行（执行后业务表 87，architecture.md 计数须回写）。见 [任务交接](tasks/20261120_expert_doc_upload_photolimit.md)。

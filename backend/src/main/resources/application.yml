@@ -46,6 +46,9 @@ expert:
     storage-dir: '${STORAGE_ROOT:D:\jshz-PMO}\照片库'
     # 审批流临时照片目录（需求3：提交申请前预上传，审批通过后归档到正式照片库）
     temp-dir: '${STORAGE_ROOT:D:\jshz-PMO}\照片库_tmp'
+  # 专家资料文件存储根目录（医生证等资质资料，2026-11-20；expert_document 表登记）
+  document:
+    storage-dir: '${STORAGE_ROOT:D:\jshz-PMO}\专家资料库'
   # 知识文档存储根目录（知识星球：会议执行/协会合规要求/企业合规要求/客户喜好）
   knowledge:
     storage-dir: '${STORAGE_ROOT:D:\jshz-PMO}\知识文档库'
@@ -79,7 +82,7 @@ expert:
   # 上传限额单一真源（方案 D，2026-11-13）：前端经 GET /api/meta/limits 读取做预校验，
   # 调整限额只改此处；前端兜底默认值见 frontend/src/utils/limits.js（须同步）
   upload:
-    photo-max-bytes: 5242880        # 照片单文件 ≤5MB（照片/头像预校验）
+    photo-max-bytes: 10485760       # 照片单文件 ≤10MB（证件照/身份证/头像预校验，2026-11-20 Owner 要求 5MB→10MB）
     resume-max-bytes: 31457280      # 简历单文件 ≤30MB（单份解析）
     doc-max-bytes: 52428800         # 知识/项目资料/日程单文件 ≤50MB（multipart 上限见 spring.servlet.multipart）
   # 存储占用预警阈值（单目录字节；Owner 2026-11-12 存储管理工具）

@@ -22,7 +22,7 @@ import java.util.Map;
 @RequestMapping("/api/meta")
 public class MetaController {
 
-    @Value("${expert.upload.photo-max-bytes:5242880}")
+    @Value("${expert.upload.photo-max-bytes:10485760}")
     private long photoMaxBytes;
 
     @Value("${expert.upload.resume-max-bytes}")

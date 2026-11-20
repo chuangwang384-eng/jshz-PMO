@@ -88,3 +88,23 @@ export function parseResume(file, { contentNameOnly = false } = {}) {
     params: contentNameOnly ? { contentNameOnly: true } : undefined
   })
 }
+
+// 专家资料文件（医生证等资质资料，2026-11-20）：列表 / 上传 / 删除
+export function listExpertDocuments(id) {
+  return request.get(`/experts/${id}/documents`)
+}
+
+export function uploadExpertDocument(id, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post(`/experts/${id}/documents`, formData)
+}
+
+export function deleteExpertDocument(id, docId) {
+  return request.delete(`/experts/${id}/documents/${docId}`)
+}
+
+// 专家资料文件访问（/api/files-doc，需登录；供 <a> 下载或图片预览）
+export function expertDocumentUrl(storedName) {
+  return '/api/files-doc/' + encodeURIComponent(storedName)
+}

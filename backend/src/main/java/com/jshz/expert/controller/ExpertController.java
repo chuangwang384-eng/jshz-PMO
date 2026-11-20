@@ -6,6 +6,7 @@ import com.jshz.expert.common.PageResult;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.DownloadAuditService;
+import com.jshz.expert.service.ExpertDocumentService;
 import com.jshz.expert.service.ExpertService;
 import com.jshz.expert.service.ExportService;
 import com.jshz.expert.service.OperationLogService;
@@ -50,6 +51,7 @@ import java.util.Map;
 public class ExpertController {
 
     private final ExpertService expertService;
+    private final ExpertDocumentService expertDocumentService;
     private final ExportService exportService;
     private final DownloadAuditService downloadAuditService;
     private final OperationLogService operationLogService;
@@ -179,6 +181,46 @@ public class ExpertController {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("count", downloadAuditService.countByExpertId(id));
         return ApiResponse.ok(data);
+    }
+
+    // ==================== 资料文件（医生证等，2026-11-20） ====================
+
+    /**
+     * 资料列表：GET /api/experts/{id}/documents（登录即可，与照片一致）。
+     */
+    @GetMapping("/{id}/documents")
+    public ApiResponse<List<com.jshz.expert.entity.ExpertDocument>> documents(@PathVariable Long id) {
+        return ApiResponse.ok(expertDocumentService.listByExpert(id));
+    }
+
+    /**
+     * 上传资料：POST /api/experts/{id}/documents（multipart 文件字段 file；权限 expert:edit，见 permission 数据）。
+     * 访问地址为 /api/files-doc/{storedName}。
+     */
+    @PostMapping("/{id}/documents")
+    public ApiResponse<com.jshz.expert.entity.ExpertDocument> uploadDocument(@PathVariable Long id,
+                                                                             @RequestParam("file") MultipartFile file,
+                                                                             @AuthenticationPrincipal AuthUser authUser,
+                                                                             HttpServletRequest request) {
+        com.jshz.expert.entity.ExpertDocument doc = expertDocumentService.upload(id, file, ParamUtils.userIdOf(authUser));
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
+                OperationLogService.ACTION_UPDATE_EXPERT, "上传专家资料「" + doc.getFileName() + "」",
+                "EXPERT", id, request);
+        return ApiResponse.ok(doc);
+    }
+
+    /**
+     * 删除资料：DELETE /api/experts/{id}/documents/{docId}（权限 expert:edit）。
+     */
+    @DeleteMapping("/{id}/documents/{docId}")
+    public ApiResponse<Void> deleteDocument(@PathVariable Long id, @PathVariable Long docId,
+                                            @AuthenticationPrincipal AuthUser authUser,
+                                            HttpServletRequest request) {
+        expertDocumentService.deleteDocument(id, docId);
+        operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
+                OperationLogService.ACTION_UPDATE_EXPERT, "删除专家资料 #" + docId,
+                "EXPERT", id, request);
+        return ApiResponse.ok(null);
     }
 
     // ==================== 新增 / 修改 / 删除 ====================

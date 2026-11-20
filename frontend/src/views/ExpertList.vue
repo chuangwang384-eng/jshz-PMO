@@ -369,6 +369,28 @@
             </template>
           </el-input>
         </el-form-item>
+        <!-- 资料上传（2026-11-20）：医生证等资质资料，与照片/字段保存解耦，上传即生效 -->
+        <div class="doc-section">
+          <div class="doc-section-title">
+            资料文件（医生证等资质资料）
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.pdf"
+              :on-change="onPickDocument"
+            >
+              <el-button size="small" type="primary" plain :loading="docUploading">上传资料</el-button>
+            </el-upload>
+          </div>
+          <p v-if="!expertDocuments.length" class="doc-empty">暂无资料，支持图片或 pdf，单文件 ≤{{ toMb(uploadLimits.docMaxBytes) }}MB</p>
+          <div v-else class="doc-list">
+            <div v-for="doc in expertDocuments" :key="doc.id" class="doc-row">
+              <a :href="expertDocumentUrl(doc.storedName)" target="_blank" class="doc-name">{{ doc.fileName }}</a>
+              <span class="doc-meta">{{ formatDocSize(doc.fileSize) }} · {{ doc.createTime }}</span>
+              <el-button v-permission="'expert:edit'" link type="danger" size="small" @click="removeDocument(doc)">删除</el-button>
+            </div>
+          </div>
+        </div>
         <el-alert
           type="info"
           :closable="false"
@@ -600,7 +622,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters, parseResume } from '../api/expert'
+import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters, parseResume, listExpertDocuments, uploadExpertDocument, deleteExpertDocument, expertDocumentUrl } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
 
@@ -803,6 +825,7 @@ async function openDetail(row) {
   const data = await getExpert(row.id, canEditExpert.value ? { sensitive: 1 } : undefined)
   if(sequence !== detailSequence)return
   detail.value = data
+  loadExpertDocuments(data.id)
   // 统一视图初始化：详情弹窗文本字段统一回填 editForm（管理员免审批直写 / 员工审批流共用）
   if (canEditExpert.value) {
     adminPhotoPreview.photo = ''
@@ -859,6 +882,57 @@ async function openDetail(row) {
     }
   }
   if(sequence === detailSequence) detailVisible.value = true
+}
+
+// ---- 资料文件（医生证等资质资料，2026-11-20）：上传即生效，与照片/字段保存解耦 ----
+const expertDocuments = ref([])
+const docUploading = ref(false)
+const DOC_ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'pdf']
+
+async function loadExpertDocuments(expertId) {
+  expertDocuments.value = []
+  if (!expertId) return
+  try {
+    expertDocuments.value = await listExpertDocuments(expertId) || []
+  } catch (e) {
+    // 请求层已提示；列表失败不阻断详情弹窗
+  }
+}
+
+async function onPickDocument(f) {
+  const raw = f?.raw
+  if (!raw || docUploading.value) return
+  const ext = raw.name.split('.').pop().toLowerCase()
+  if (!DOC_ALLOWED_EXT.includes(ext)) {
+    ElMessage.warning('资料仅支持图片（jpg/jpeg/png/gif/webp/bmp）或 pdf 文件')
+    return
+  }
+  if (raw.size > uploadLimits.docMaxBytes) {
+    ElMessage.warning(`文件大小不能超过 ${toMb(uploadLimits.docMaxBytes)}MB`)
+    return
+  }
+  docUploading.value = true
+  try {
+    await uploadExpertDocument(detail.value.id, raw)
+    ElMessage.success('资料已上传')
+    await loadExpertDocuments(detail.value.id)
+  } finally {
+    docUploading.value = false
+  }
+}
+
+async function removeDocument(doc) {
+  await ElMessageBox.confirm(`确认删除资料「${doc.fileName}」？删除后不可恢复。`, '删除资料', { type: 'warning' })
+  await deleteExpertDocument(detail.value.id, doc.id)
+  ElMessage.success('资料已删除')
+  await loadExpertDocuments(detail.value.id)
+}
+
+function formatDocSize(bytes) {
+  const n = Number(bytes) || 0
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'MB'
+  if (n >= 1024) return (n / 1024).toFixed(0) + 'KB'
+  return n + 'B'
 }
 
 // 复制字段值到剪贴板：优先 navigator.clipboard，不可用时兜底 document.execCommand('copy')
@@ -1803,4 +1877,13 @@ watch(() => route.query.expertId, async id => {
   height: 80px;
   border-radius: 50%;
 }
+
+/* 资料文件区（医生证等资质资料，2026-11-20） */
+.doc-section { margin: 4px 0 12px; }
+.doc-section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 600; color: var(--ui-text-main); }
+.doc-empty { margin: 0; font-size: 12px; color: var(--ui-text-muted); }
+.doc-list { display: flex; flex-direction: column; gap: 4px; }
+.doc-row { display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-radius: 4px; background: var(--ui-bg-hover, #f5f7fa); }
+.doc-row .doc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-primary); }
+.doc-row .doc-meta { flex-shrink: 0; font-size: 12px; color: var(--ui-text-sub); }
 </style>

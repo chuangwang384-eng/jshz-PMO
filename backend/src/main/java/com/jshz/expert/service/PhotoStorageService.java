@@ -32,7 +32,7 @@ public class PhotoStorageService {
 
     public PhotoStorageService(@Value("${expert.photo.storage-dir}") String storageDir,
                                @Value("${expert.photo.temp-dir}") String tempDir,
-                               @Value("${expert.upload.photo-max-bytes:5242880}") long maxBytes) {
+                               @Value("${expert.upload.photo-max-bytes:10485760}") long maxBytes) {
         this.storageDir = FileNames.normalizeDir(storageDir);
         this.maxBytes = maxBytes;
         try {
