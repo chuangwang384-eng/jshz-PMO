@@ -1,6 +1,6 @@
 {
   "name": "expert-system-frontend",
-  "version": "1.0.83",
+  "version": "1.0.84",
   "private": true,
   "description": "专家库系统前端应用（Vue 3）",
   "type": "module",

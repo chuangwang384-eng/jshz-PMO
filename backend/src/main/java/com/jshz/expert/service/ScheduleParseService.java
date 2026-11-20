@@ -1057,7 +1057,9 @@ public class ScheduleParseService {
             throw new BusinessException("解析候选已变化，请刷新后重试");
         }
         if (candidateId != null) {
-            if (items.size() != 1 || speakerMapper.delete(candidateScope(projectId, current.getId())
+            // items 为空 = 仅丢弃该条候选（2026-11-20：支持前端逐条移除解析候选）；非空则必须恰好 1 条（确认保存）。
+            boolean discardOnly = items.isEmpty();
+            if ((!discardOnly && items.size() != 1) || speakerMapper.delete(candidateScope(projectId, current.getId())
                     .eq(ProjectSpeaker::getId, candidateId)) != 1) {
                 throw new BusinessException("该候选已变化，请刷新后重试");
             }
@@ -1094,8 +1096,13 @@ public class ScheduleParseService {
             added++;
         }
         if (candidateId == null) clearCandidates(projectId, current.getId());
-        projectService.operationRecord(user, "确认项目「" + project.getName() + "」新增参会专家 " + added + " 条",
-                "PROJECT", projectId);
+        if (candidateId != null && items.isEmpty()) {
+            projectService.operationRecord(user, "在项目「" + project.getName() + "」移除 1 条解析候选",
+                    "PROJECT", projectId);
+        } else {
+            projectService.operationRecord(user, "确认项目「" + project.getName() + "」新增参会专家 " + added + " 条",
+                    "PROJECT", projectId);
+        }
         return confirmedSpeakers(projectId);
     }
 

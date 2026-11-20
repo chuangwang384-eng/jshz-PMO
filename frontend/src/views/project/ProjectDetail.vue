@@ -250,6 +250,9 @@
             参会专家（已确认 {{ speakers.length }} 人）
             <el-button v-if="canOperate && speakers.length" link type="danger" size="small" :disabled="savingSpeakers"
               @click="clearSavedSpeakers">清空已保存专家</el-button>
+            <!-- 2026-11-20：解析有误/遗漏时手动触发重新解析（与页头「重新解析」同一 doParse） -->
+            <el-button v-if="canOperate && schedule && schedule.parseStatus !== 'PARSING'" link type="primary" size="small"
+              :loading="parsing" @click="doParse">手动解析</el-button>
           </div>
           <el-table v-if="speakers.length" :data="speakers" size="small" stripe>
             <el-table-column prop="expertName" label="姓名" width="120" />
@@ -1151,8 +1154,16 @@ async function loadExpertMatches(value) {
   }
 }
 
-function removeCandidateRow(row) {
-  candidateDraft.value = candidateDraft.value.filter((r) => r !== row)
+async function removeCandidateRow(row) {
+  // 2026-11-20：移除须同步丢弃后端候选，否则右侧「待保存专家信息」待办永远不消失
+  try {
+    await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, [], row.id)
+    // preserveDraft 保留其他行的本地编辑（姓名/角色/专家库匹配）
+    await fetchSchedule({ preserveDraft: true })
+  } catch (e) {
+    // 请求层已提示；失败时仅退回本地移除，刷新后可重试
+    candidateDraft.value = candidateDraft.value.filter((r) => r !== row)
+  }
 }
 
 const savingSpeakers = ref(false)
