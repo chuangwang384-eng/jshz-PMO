@@ -228,7 +228,7 @@ public class KnowledgeDocTextExtractor {
      * PP-OCRv5 整页行识别（Owner 2026-11-11）：调用 LocalTableOcr 的 TSV 输出，
      * 按逐行置信度 ≥60 过滤后拼为文本；运行时未安装/超时/无有效行返回 null（调用方保留 Tesseract 结果）。
      */
-    private String ppOcrLines(java.awt.image.BufferedImage raster) {
+    static String ppOcrLines(java.awt.image.BufferedImage raster) {
         try {
             String tsv = LocalTableOcr.recognize(raster);
             if (tsv == null || tsv.isBlank()) return null;

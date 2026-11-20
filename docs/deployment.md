@@ -797,3 +797,7 @@ temp 将删 99 项 ≈ 169 MB（27 项因被引用跳过）。
 抠图 worker 优先使用 `PHOTOMATTE_MODNET_PATH` 指定的本地 ONNX 权重。默认路径为 `%ProgramFiles%/JSHZ/portrait-matting/modnet.onnx`，变量置空可禁用 MODNet。人像使用原图 RGB 与 MODNet 输出的软 alpha，并沿用透明边距裁剪。模型缺失或加载失败时使用现有 U²-Net 链路。生产部署预置权重并校验 SHA-256，运行时由现有 ONNX Runtime 在本机执行。对照与验证入口见 [抠图评估](handover/tasks/20261118_portrait_matting_modnet_evaluation.md)。
 
 MODNet 试点由 `PHOTOMATTE_MODNET_ENABLED=true|false` 控制。变量未配置时，worker 启动时读取权重同目录默认位置的 `modnet.enabled` 标记。生产可通过移除该标记并重新启动 worker 关闭试点。启用后，MODNet 推理超时或返回空掩码时，解析将返回原图 JPEG 候选。权重缺失或初始化失败时使用 U²-Net。
+
+### 图片简历 OCR
+
+图片简历优先复用已安装的 PP-OCRv5 ONNX 检测和识别模型。后端从 COMPLIANCE_PPOCR_ROOT 指定目录读取模型及运行时，默认使用 Program Files 下的 JSHZ/pp-ocrv5。运行账户需能读取该目录并写入系统临时目录。PP-OCRv5 缺失、繁忙、超时或无有效文本时回退 Tesseract。发布前用含中文正文和照片的图片验证识别字段与简介。

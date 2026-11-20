@@ -445,4 +445,31 @@ class ResumeParseServiceTest {
         assertEquals("信阳市肿瘤医院", result.fields().get("单位"));
         assertEquals("副主任医师", result.fields().get("职称"));
     }
+
+    @Test
+    void extractsHospitalAndDepartmentFromSplitRolesInLongParagraph() {
+        var fields = service.buildResult("个人简介.docx", "示例，副主任医师，肿瘤学硕士，某市中心医院肿瘤科副主任。"
+                + "省抗癌协会委员会常务委员；发表核心期刊论文十余篇。", java.util.List.of(), true).fields();
+        assertEquals("某市中心医院", fields.get("单位"));
+        assertEquals("肿瘤科", fields.get("科室"));
+        assertEquals("副主任医师", fields.get("职称"));
+    }
+
+    @Test
+    void extractsClinicalTitleBeforeAdditionalRole() {
+        var fields = parse("某市中心医院 呼吸与危重症医学科 副主任医师 肺癌学组组长\n"
+                + "海外大学医院访问学者");
+        assertEquals("某市中心医院", fields.get("单位"));
+        assertEquals("呼吸与危重症医学科", fields.get("科室"));
+        assertEquals("副主任医师", fields.get("职称"));
+    }
+
+    @Test
+    void corroboratesNameEndingInKeWithStandaloneHeading() {
+        var fields = service.buildResult("王文科简介.pptx",
+                "王文科\n某市人民医院胸心外科行政副主任、主任医师", java.util.List.of(), true).fields();
+        assertEquals("王文科", fields.get("姓名"));
+        assertEquals("胸心外科", fields.get("科室"));
+        assertEquals("主任医师", fields.get("职称"));
+    }
 }

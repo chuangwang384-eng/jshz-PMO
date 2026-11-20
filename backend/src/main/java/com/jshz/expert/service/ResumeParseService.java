@@ -146,10 +146,13 @@ public class ResumeParseService {
     }
 
     private boolean isCandidateName(String value) {
+        return isNamedPerson(value) && DEPT_SUFFIXES.stream().noneMatch(value::endsWith);
+    }
+
+    private boolean isNamedPerson(String value) {
         return value != null && CHINESE_NAME.matcher(value).matches()
                 && NAME_EXCLUDE_WORDS.stream().noneMatch(value::contains)
                 && ORG_SUFFIXES.stream().noneMatch(value::endsWith)
-                && DEPT_SUFFIXES.stream().noneMatch(value::endsWith)
                 && !value.matches(".*(博士|硕士|学士|医师|教授|主任)$");
     }
 
@@ -220,6 +223,10 @@ public class ResumeParseService {
     private static final String RESUME_SUFFIX_PATTERN = "(?:个人简介|专家简介|的简历|简历|简介)+(?:最新版|新版|更新版|最新|新)?\\d*";
 
     String nameFromFileName(String fileName) {
+        return nameFromFileName(fileName, List.of());
+    }
+
+    private String nameFromFileName(String fileName, List<String> standaloneLines) {
         if (fileName == null || fileName.isBlank()) return null;
         String base = fileName.replaceFirst("(?i)\\.(pdf|docx?|pptx?|jpe?g|png)$", "").trim();
         // 去掉常见后缀词后再分词
@@ -228,7 +235,7 @@ public class ResumeParseService {
         for (String token : tokens) {
             String t = token.replaceFirst("^(?:副本)+", "")
                     .replaceFirst(RESUME_SUFFIX_PATTERN + "$", "");
-            if (isCandidateName(t)) return t;
+            if (isCandidateName(t) || (isNamedPerson(t) && standaloneLines.contains(t))) return t;
         }
         for (String token : tokens) {
             for (String suffix : ORG_SUFFIXES) {
@@ -452,7 +459,10 @@ public class ResumeParseService {
         if (image == null) {
             throw new BusinessException(400, "无法读取图片内容");
         }
-        String text = KnowledgeDocTextExtractor.ocrPage(image, false);
+        String text = KnowledgeDocTextExtractor.ppOcrLines(image);
+        if (text == null && !Thread.currentThread().isInterrupted()) {
+            text = KnowledgeDocTextExtractor.ocrPage(image, false);
+        }
         return buildResult(fileName, text, List.of(image), allowFilenameFallback);
     }
 
@@ -468,6 +478,10 @@ public class ResumeParseService {
         } else {
             // 策略一：多策略本地启发式打底；策略二：本地 LLM 语义抽取（未配置 Ollama 时自动跳过）
             // 内容阶段：组合行（单位+科室+职称）> 标签行 > 散行机构扫描；LLM 只补缺失字段
+            String filenameName = allowFilenameFallback
+                    ? nameFromFileName(fileName, text.lines().map(line -> line.replaceAll("\\s+", "")).toList())
+                    : null;
+            if (filenameName != null && !isCandidateName(filenameName)) fields.put("姓名", filenameName);
             String scannedUnit = extractFields(text, fields);
             if (!fields.containsKey("单位") && scannedUnit != null) {
                 fields.put("单位", scannedUnit);
@@ -506,7 +520,7 @@ public class ResumeParseService {
                             || DEPT_SUFFIXES.stream().noneMatch(val.strip()::endsWith)
                             || membershipLineValue(val, text)
                             || !normalizedText.contains(val.replaceAll("\\s+", "")))) return;
-                    if (!"姓名".equals(key) || (!isCandidateName(fields.get("姓名"))
+                    if (!"姓名".equals(key) || (!isNamedPerson(fields.get("姓名"))
                             && isCandidateName(val) && normalizedText.contains(val))) {
                         fields.put(key, val);
                     }
@@ -514,7 +528,7 @@ public class ResumeParseService {
                 if (!fields.isEmpty()) message = "已结合本地语义模型解析";
             }
             // 无效姓名不算已归入结构化字段，原文仍应进入简介。
-            if (!isCandidateName(fields.get("姓名"))) fields.remove("姓名");
+            if (!isNamedPerson(fields.get("姓名"))) fields.remove("姓名");
             // 2026-11-19 李晓龙案例：Ollama 曾把"许昌中心医院"里的"许昌"当姓名——
             // 表面像人名实为机构/城市名前缀的候选先不填入
             if (isOrgEmbeddedName(fields.get("姓名"), text)) fields.remove("姓名");
@@ -522,7 +536,7 @@ public class ResumeParseService {
             // 文件名第一优先（Owner 2026-11-19）：姓名/单位取文件名候选，但必须与原文比对
             // 通过才填入（比对含省/市宽松变体）；比对不上时保留上面的内容解析结果。
             String compactText = text.replaceAll("\\s+", "");
-            String fnName = allowFilenameFallback ? nameFromFileName(fileName) : null;
+            String fnName = filenameName;
             if (fnName != null && (fields.get("姓名") == null
                     || compactText.contains(fnName)
                     || compactText.contains(fnName.replace("省", "").replace("市", "")))) {
@@ -546,8 +560,12 @@ public class ResumeParseService {
             }
             // 科室 LLM 语义辅助（Owner 2026-11-19）：本地未解析出科室时，收集文中含"科"字的
             // 候选段，交本地 LLM 判定前后组合语义是否为科室（任职委员会/学会不算）。
+            if (fields.get("姓名") != null && fields.get("姓名").equals(fields.get("科室"))) {
+                fields.remove("科室");
+            }
             if (!fields.containsKey("科室")) {
                 List<String> deptCandidates = collectDeptCandidates(text);
+                deptCandidates.remove(fields.get("姓名"));
                 if (!deptCandidates.isEmpty()) {
                     String picked = ollamaService.pickResumeDepartment(deptCandidates);
                     if (picked != null && deptCandidates.contains(picked)) fields.put("科室", picked);
@@ -685,8 +703,10 @@ public class ResumeParseService {
         String full = text.replaceAll("[ \\t]", "");
 
         String name = extractByLabel(cleaned, "姓名", "Name", 2, 20);
-        if (!isCandidateName(name)) {
-            name = null;
+        if (!isNamedPerson(name)) {
+            name = fields.get("姓名");
+        }
+        if (name == null) {
             for (int i = 1; i < cleaned.size(); i++) {
                 if (!cleaned.get(i).matches("个人简介|个人简历")) continue;
                 String preceding = cleaned.get(i - 1).replaceAll("\\s+", "");
@@ -721,6 +741,11 @@ public class ResumeParseService {
         for (int i = 0; i + 2 < cleaned.size(); i++) {
             comboCandidates.add(comboCandidates.get(i) + comboCandidates.get(i + 1) + comboCandidates.get(i + 2));
         }
+        List<String> standaloneClauses = cleaned.stream()
+                .flatMap(line -> java.util.Arrays.stream(line.split("[，,。；;]")))
+                .map(clause -> clause.replaceAll("[ \\t　]", ""))
+                .toList();
+        comboCandidates.addAll(0, standaloneClauses);
         for (String compact : comboCandidates) {
             if (compact.length() > 40 || compact.length() < 8 || compact.contains("简历")) continue;
             if (compact.contains("毕业") || compact.matches("\\d{4}.*")) continue;
@@ -735,11 +760,26 @@ public class ResumeParseService {
             break;
         }
 
+        // 职称可能在前面的独立分句，医院与科室仍可作为同一任职信息提取。
+        String affiliatedUnit = null;
+        if (comboUnit == null) {
+            for (String clause : standaloneClauses) {
+                if (clause.contains("毕业") || MEMBERSHIP_WORDS.stream().anyMatch(clause::contains)) continue;
+                Matcher affiliation = HOSPITAL_DEPARTMENT.matcher(clause);
+                if (!affiliation.matches()) continue;
+                affiliatedUnit = affiliation.group(1);
+                fields.put("科室", affiliation.group(2));
+                break;
+            }
+        }
+
         String unit = extractByLabel(cleaned, "单位", "Unit", 2, 40);
         if (unit != null) {
             // 标签行单位（"工作单位：XXX"）置信度高，净化后直接落定
             unit = sanitizeUnit(unit, name);
             if (unit != null) fields.put("单位", unit);
+        } else if (affiliatedUnit != null) {
+            unit = affiliatedUnit;
         } else if (comboUnit == null) {
             // 2026-11-18 改为强/弱候选分级取最优：
             // 强=整行以机构后缀结尾（"洛阳市中心医院"、"医院河南科技大学第一附属医院"表格标签行）；
@@ -784,10 +824,11 @@ public class ResumeParseService {
         boolean comboHit = comboUnit != null;
 
         String dept = extractByLabel(cleaned, "科室", "Department", 2, 20);
+        if (dept == null) dept = fields.get("科室");
         if (dept == null) {
             for (String line : cleaned) {
                 String compact = line.replace(" ", "");
-                if (compact.length() > 20 || compact.contains("简历")) continue;
+                if (compact.length() > 20 || compact.contains("简历") || compact.equals(name)) continue;
                 if (unit != null && (compact.equals(unit) || unit.contains(compact))) continue;
                 if (DEPT_SUFFIXES.stream().anyMatch(compact::endsWith)
                         && ORG_SUFFIXES.stream().noneMatch(compact::endsWith)) {
@@ -815,7 +856,7 @@ public class ResumeParseService {
         String title = extractByLabel(cleaned, "职称", "Title", 2, 20);
         if (title != null) title = canonicalTitle(title);
         if (title == null) title = extractTitleByLongestMatch(cleaned);
-        if (title != null && !comboHit) fields.put("职称", title);
+        if (title != null) fields.putIfAbsent("职称", title);
 
         Matcher phone = PHONE.matcher(full);
         if (phone.find()) fields.put("联系方式", phone.group());
@@ -971,6 +1012,17 @@ public class ResumeParseService {
      * 访学/学术行被误判为任职行（沿用 2026-11-18 王新帅案例口径）。
      * 返回 {单位, 科室(可为 null), 职称}；不匹配返回 null。
      */
+    private static final String DEPARTMENT_SEGMENT =
+            "([\\p{IsHan}]{1,11}?(?:科|病房|研究室|办公室|中心|部|组))";
+    private static final String ADMIN_ROLE = "(?:行政)?(?:副主任|主任)";
+    private static final Pattern HOSPITAL_DEPARTMENT = Pattern.compile(
+            "([\\p{IsHan}]{2,28}(?:医院|卫生院))" + DEPARTMENT_SEGMENT + "(?:" + ADMIN_ROLE + ")?");
+    private static final Pattern DEPARTMENT_FOLLOWED_BY_TITLE = Pattern.compile(
+            DEPARTMENT_SEGMENT + "(?:" + ADMIN_ROLE + "[、，,])?[：:]?("
+                    + TITLE_WORDS.stream().filter(word -> word.endsWith("医师"))
+                            .collect(java.util.stream.Collectors.joining("|"))
+                    + ").*");
+
     String[] matchUnitDeptTitle(String compact) {
         for (String orgSuffix : ORG_SUFFIXES) {
             boolean hospitalFamily = "医院".equals(orgSuffix) || "卫生院".equals(orgSuffix);
@@ -982,16 +1034,9 @@ public class ResumeParseService {
             // 相邻行拼接防御：单位段混入学位/经历词（"…医学博士湖北省肿瘤医院"）说明跨了语义段，拒绝
             if (unit.matches(".*(博士|硕士|学士|研究生|奖学金|访问学者).*")) continue;
             String rest = compact.substring(orgIdx + orgSuffix.length());
-            // 职称：医师类词按词表顺序扫描（覆盖规则防"副主任中医师"取成"医师"）
-            String[] titleHit = scanTitleOrdered(rest, word -> word.endsWith("医师"));
-            if (titleHit == null) continue;
-            String title = titleHit[0];
-            int titleIdx = Integer.parseInt(titleHit[1]);
-            // 科室段：单位与职称之间、以科室后缀结尾（"微创介入科"）
-            String deptSeg = rest.substring(0, titleIdx);
-            if (deptSeg.length() < 2 || deptSeg.length() > 10) continue;
-            if (DEPT_SUFFIXES.stream().noneMatch(deptSeg::endsWith)) continue;
-            return new String[]{unit, deptSeg, title};
+            Matcher department = DEPARTMENT_FOLLOWED_BY_TITLE.matcher(rest);
+            if (!department.matches()) continue;
+            return new String[]{unit, department.group(1), department.group(2)};
         }
         return null;
     }
