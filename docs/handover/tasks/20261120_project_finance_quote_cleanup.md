@@ -20,7 +20,7 @@
 
 ## 暂停点
 
-- 合并及隔离验收已完成。生产后端的 8080 和 8082 均为 UP / 1.0.99 / 4eba8fa，代理通过 8082 正常响应，前端仍为 1.0.98-project-type-finance。当前恢复进程等待 Windows UAC。
-- 下一步先完成已打开的管理员授权，读取 logs/project-finance-primary-reload-1.0.99.log 并检查代理指回 8080。保留影子进程至 Nginx 确认完全切换。随后以管理员权限执行前端发布，检查入口 hash、/project/56、匿名接口 401 和两条健康端点。
+- 合并及隔离验收已完成。生产后端的 8080 和 8082 均为 UP / 1.0.99 / 4eba8fa，代理通过 8082 正常响应，前端仍为 1.0.98-project-type-finance。自动审查拦截了组合恢复命令，随后使用仅恢复已验证配置的方案申请 Windows UAC，系统返回操作已被用户取消。
+- 下一步先重新取得管理员授权并执行恢复脚本，读取 logs/project-finance-primary-reload-1.0.99.log 并检查代理指回 8080。保留影子进程至 Nginx 确认完全切换。随后以管理员权限执行前端发布，检查入口 hash、/project/56、匿名接口 401 和两条健康端点。
 - 前端发布使用 scripts/deploy-frontend-graceful.ps1 -StagedDist <LOCAL_PATH> -ReleaseId 1.0.99-project-finance-quote-20261120 -Apply。
 - 后端回滚包 backend/releases/1.0.99-20261120_173211/previous-expert-system.jar 应与 1.0.98 制品校验一致。没有新增迁移，历史记录保留。前端恢复前不要重复运行全栈发布脚本。
