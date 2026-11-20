@@ -75,10 +75,12 @@
       <el-option v-for="(match, index) in conflict.matches" :key="index" :value="index" :label="match.label" />
     </el-select>
     <div class="compare">
-      <BatchResumeCard :fields="currentMatch.fields" :photo-url="currentMatch.photoUrl" :label="currentMatch.label" details />
-      <BatchResumeCard :fields="conflict.row.fields" :photo-url="conflict.row.photo?.url" :label="conflict.row.file.name" details />
+      <BatchResumeCard :fields="currentMatch.fields" :photo-url="currentMatch.photoUrl" :label="currentMatch.label" details
+        badge="专家库已有档案" badge-type="lib" />
+      <BatchResumeCard :fields="conflict.row.fields" :photo-url="conflict.row.photo?.url" :label="conflict.row.file.name" details
+        badge="本次简历解析" badge-type="warn" />
     </div>
-    <p class="message">{{ conflict.linkOnly ? '关联后沿用现有档案的资料和证件照。' : '覆盖会使用本次确认的内容，未填写的字段和未选择的照片保留原值。' }}</p>
+    <p class="message">左侧为<b>专家库已有档案</b>（蓝色标识），右侧为<b>本次简历解析结果</b>（橙色标识）。{{ conflict.linkOnly ? '关联后沿用现有档案的资料和证件照。' : '覆盖会使用本次确认的内容，未填写的字段和未选择的照片保留原值。' }}</p>
     <template #footer>
       <el-button @click="resolveConflict('cancel')">{{ conflict.linkOnly ? '暂不关联' : '取消当前简历解析' }}</el-button>
       <el-button v-if="!conflict.linkOnly" @click="resolveConflict('keep')">都保留</el-button>
