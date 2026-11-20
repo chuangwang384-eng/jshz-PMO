@@ -20,7 +20,8 @@
           <span v-if="sec.optional" class="hint-text">非必需</span>
           <span class="budget-sec-total">¥ {{ fmt(sectionTotal(sec.key)) }}</span>
           <el-button v-if="!editingLocked" size="small" text type="primary" style="margin-left: auto"
-                     @click="addRow(sec.key)">+ {{ isOnline ? '自定义费用项' : '添加费用项' }}</el-button>
+                     @click="openLibrary(sec.key)">+ {{ isOnline ? '自定义费用项' : '从收费标准库添加' }}</el-button>
+          <el-button v-if="!editingLocked" size="small" text @click="addRow(sec.key)">+ 空行</el-button>
           <el-button v-if="!editingLocked && !isOnline" size="small" text type="danger"
                      @click="removeSection(sec.key)">移除本节</el-button>
         </div>
@@ -56,8 +57,20 @@
               <el-input-number v-else v-model="row.unitPrice" :min="0" :precision="2" :controls="false" size="small" style="width: 110px"/>
             </template>
           </el-table-column>
+          <el-table-column label="成本单价(元)" width="120">
+            <template #default="{ row }">
+              <span v-if="editingLocked">{{ fmt(row.costPrice) }}</span>
+              <el-input-number v-else v-model="row.costPrice" :min="0" :precision="2" :controls="false" size="small" style="width: 100px"/>
+            </template>
+          </el-table-column>
           <el-table-column label="金额(元)" width="110">
             <template #default="{ row }">{{ fmt(amountOf(row)) }}</template>
+          </el-table-column>
+          <el-table-column label="毛利(元)" width="110">
+            <template #default="{ row }">
+              <span :class="{ 'profit-under': underMinProfit(row) }">{{ fmt(profitOf(row)) }}</span>
+              <div v-if="underMinProfit(row)" class="hint-text" style="color: var(--ui-warning)">低于最低利润 {{ fmt(minProfitOf(row)) }}</div>
+            </template>
           </el-table-column>
           <el-table-column label="备注" min-width="160">
             <template #default="{ row }">
@@ -86,15 +99,53 @@
 
       <div class="budget-total-row">
         <div class="budget-total-summary">
-          <span class="budget-total-label">预算合计</span>
+          <span class="budget-total-label">报价合计</span>
           <strong class="budget-total">¥ {{ fmt(total) }}</strong>
           <span v-if="budget?.status === 'CONFIRMED'" class="ui-badge ui-badge-success">已确认</span>
+          <span class="budget-total-label" style="margin-left: 12px">成本合计 ¥ {{ fmt(costTotal) }}</span>
+          <span class="budget-total-label">毛利 ¥ {{ fmt(total - costTotal) }}</span>
         </div>
         <div v-if="!editingLocked" class="budget-total-actions">
           <el-button :loading="saving" @click="save(false)">保存草稿</el-button>
           <el-button type="primary" :loading="saving" :disabled="!hasItems" @click="save(true)">确认报价</el-button>
         </div>
       </div>
+      <!-- 汇总链（2026-11-20，历史结算单共性口径：费用合计→服务费6%→不含税→增值税6%→含税） -->
+      <div class="budget-summary-chain">
+        <span>费用合计 <b>¥ {{ fmt(total) }}</b></span>
+        <span>服务费(6%) <b>¥ {{ fmt(serviceFee) }}</b></span>
+        <span>不含税总价 <b>¥ {{ fmt(subtotal) }}</b></span>
+        <span>增值税(6%) <b>¥ {{ fmt(taxFee) }}</b></span>
+        <span>含税总价 <b class="budget-grand">¥ {{ fmt(grandTotal) }}</b></span>
+        <el-button size="small" plain :disabled="!budget?.id" :loading="exporting === 'QUOTE'" style="margin-left: auto"
+                   @click="doExport('QUOTE')">导出报价单 Excel</el-button>
+        <el-button size="small" plain :disabled="!budget?.id" :loading="exporting === 'COST'"
+                   @click="doExport('COST')">导出成本单 Excel</el-button>
+      </div>
+      <!-- 收费标准库点选（2026-11-20 灌入公司报价单/成本单模板全部费用项） -->
+      <el-dialog v-model="libraryVisible" title="从收费标准库添加费用项" width="860px" append-to-body>
+        <div style="display:flex; gap:8px; margin-bottom:8px">
+          <el-select v-model="libraryCatalog" placeholder="全部类目" clearable style="width: 180px">
+            <el-option v-for="(label, key) in CATALOGS" :key="key" :label="label" :value="key"/>
+          </el-select>
+          <el-input v-model="libraryKeyword" placeholder="搜索名称/详细内容" clearable style="width: 260px"/>
+        </div>
+        <el-table :data="libraryRows" size="small" stripe max-height="420">
+          <el-table-column label="类目" width="90"><template #default="{ row }">{{ CATALOGS[row.catalog] || row.catalog || '-' }}</template></el-table-column>
+          <el-table-column label="费用项" min-width="200">
+            <template #default="{ row }">{{ row.name }}<div v-if="row.detail" class="hint-text">{{ row.detail }}</div></template>
+          </el-table-column>
+          <el-table-column label="规格" width="110"><template #default="{ row }">{{ row.spec || '-' }}</template></el-table-column>
+          <el-table-column label="报价(元)" width="110"><template #default="{ row }">{{ row.defaultValue ?? '-' }}</template></el-table-column>
+          <el-table-column label="成本(元)" width="110"><template #default="{ row }">{{ row.costPrice ?? '-' }}</template></el-table-column>
+          <el-table-column label="单位" width="100"><template #default="{ row }">{{ row.unit || '-' }}</template></el-table-column>
+          <el-table-column label="操作" width="80">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="pickFromLibrary(row)">添加</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-dialog>
       <ProjectBudgetQuotes v-if="budget" :project-id="projectId" :readonly="readonly"
                            :can-record="canRecord" :confirmed="budget.status === 'CONFIRMED'"
                            :documents="documents" @restored="applySaved" @generated="emit('generated')"/>
@@ -105,7 +156,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getProjectBudget, saveProjectBudget } from '../../../api/project'
+import { getProjectBudget, saveProjectBudget, exportBudgetDoc } from '../../../api/project'
 import { apiErrorMessage, formatMoney as fmt } from '../../../utils/common'
 import ProjectBudgetEstimate from './ProjectBudgetEstimate.vue'
 import ProjectBudgetQuotes from './ProjectBudgetQuotes.vue'
@@ -175,9 +226,79 @@ const needsMainVisual = computed({
 const amountOf = (row) => Number(row.quantity || 0) * Number(row.unitPrice || 0)
 const sectionTotal = (key) => rowsOf(key).reduce((s, r) => s + amountOf(r), 0)
 const total = computed(() => items.value.reduce((s, r) => s + amountOf(r), 0))
+// 成本单维度（2026-11-20）：成本合计、毛利、最低利润提示
+const costTotal = computed(() => items.value.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.costPrice || 0), 0))
+const profitOf = (row) => Number(row.quantity || 0) * (Number(row.unitPrice || 0) - Number(row.costPrice || 0))
+const minProfitOf = (row) => {
+  if (!row.itemKey) return 0
+  const std = (feeStandards.value[row.itemKey])
+  return Number(std?.minProfit || 0)
+}
+const underMinProfit = (row) => {
+  const min = minProfitOf(row)
+  return min > 0 && Number(row.quantity || 0) > 0 && profitOf(row) < min
+}
+// 汇总链（历史结算单共性口径，费率固定 6%/6%，与后端 project_budget.service_rate/tax_rate 一致）
+const serviceFee = computed(() => Math.round(total.value * 0.06 * 100) / 100)
+const subtotal = computed(() => total.value + serviceFee.value)
+const taxFee = computed(() => Math.round(subtotal.value * 0.06 * 100) / 100)
+const grandTotal = computed(() => subtotal.value + taxFee.value)
+
+// 导出报价单/成本单
+const exporting = ref('')
+async function doExport(docType) {
+  exporting.value = docType
+  try {
+    const resp = await exportBudgetDoc(props.projectId, docType)
+    const url = URL.createObjectURL(resp.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = (docType === 'COST' ? '会议成本单' : '会议报价单') + '.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error(apiErrorMessage(e, '导出失败'))
+  } finally {
+    exporting.value = ''
+  }
+}
+
+// 收费标准库点选（模板费用项 171 条：类目/名称/详细内容/规格/报价/成本/最低利润）
+const CATALOGS = { ELEC: '电子物料', PRINT: '小型制作物料', ONLINE: '线上会议及直播', BUILD: '大型搭建物料', STAFF: '人员服务', SPECIAL: '非常规物料' }
+const libraryVisible = ref(false)
+const libraryCatalog = ref('')
+const libraryKeyword = ref('')
+const librarySection = ref(null)
+const libraryRows = computed(() => {
+  const kw = libraryKeyword.value.trim()
+  return Object.values(feeStandards.value || {}).filter((s) => {
+    if (libraryCatalog.value && s.catalog !== libraryCatalog.value) return false
+    if (kw && !(String(s.name || '') + String(s.detail || '')).includes(kw)) return false
+    return true
+  }).slice(0, 200)
+})
+function openLibrary(sectionKey) {
+  librarySection.value = sectionKey
+  libraryVisible.value = true
+}
+function pickFromLibrary(std) {
+  const value = String(std.defaultValue || '')
+  const low = value.includes(',') ? value.split(',')[0] : value
+  items.value.push({
+    section: librarySection.value || (isOnline.value ? 'ONLINE_QUOTE' : 'MATERIAL'),
+    itemKey: std.feeKey,
+    name: std.name || '',
+    quantity: 1,
+    unit: std.unit || '',
+    unitPrice: Number(low) || 0,
+    costPrice: Number(std.costPrice) || 0,
+    remark: std.detail || null
+  })
+  libraryVisible.value = false
+}
 
 function addRow(section) {
-  items.value.push({ section, itemKey: null, name: '', quantity: 1, unit: '', unitPrice: 0, remark: '' })
+  items.value.push({ section, itemKey: null, name: '', quantity: 1, unit: '', unitPrice: 0, costPrice: 0, remark: '' })
 }
 function removeRow(section, idx) {
   const list = rowsOf(section)
@@ -228,6 +349,7 @@ async function save(confirm) {
       quantity: Number(r.quantity || 0),
       unit: r.unit || null,
       unitPrice: Number(r.unitPrice || 0),
+      costPrice: Number(r.costPrice || 0),
       remark: r.remark || null
     })),
     remark: remark.value || null,
@@ -270,4 +392,9 @@ watch(() => props.projectId, load)
 .budget-total-label { color: var(--ui-text-sub); font-size: 13px; }
 .budget-total { color: var(--ui-text-main); font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .hint-text { color: var(--el-text-color-secondary); font-size: 12px; }
+/* 汇总链与利润提示（2026-11-20） */
+.budget-summary-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 12px; margin-top: 10px; border: 1px dashed var(--ui-border-weak); border-radius: var(--ui-radius-lg); color: var(--ui-text-sub); font-size: 13px; }
+.budget-summary-chain b { color: var(--ui-text-main); font-variant-numeric: tabular-nums; }
+.budget-summary-chain .budget-grand { color: var(--ui-primary); font-size: 15px; }
+.profit-under { color: var(--ui-warning); font-weight: 600; }
 </style>

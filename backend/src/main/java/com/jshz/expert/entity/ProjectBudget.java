@@ -31,6 +31,15 @@ public class ProjectBudget {
     /** 明细合计（服务端计算） */
     private BigDecimal totalAmount;
 
+    /** 成本合计（2026-11-20 成本单维度，服务端计算） */
+    private BigDecimal costTotal;
+
+    /** 服务费率（历史结算单口径 6%） */
+    private BigDecimal serviceRate;
+
+    /** 增值税率（历史结算单口径 6%） */
+    private BigDecimal taxRate;
+
     private String remark;
     private String estimateInputs;
 

@@ -257,3 +257,8 @@ export function listBudgetFeeStandards(scene) {
 export function saveBudgetFeeStandards(rows) {
   return request.put('/project/config/budget-fee-standards', { rows })
 }
+
+// 导出报价单/成本单 xlsx（2026-11-20，历史结算单共性结构；docType=QUOTE|COST）
+export function exportBudgetDoc(id, docType) {
+  return request.get(`/project/${id}/meeting-budget/export`, { responseType: 'blob', params: { docType } })
+}

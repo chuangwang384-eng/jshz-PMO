@@ -5,11 +5,15 @@ import com.jshz.expert.common.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.entity.ProjectBudgetFeeStandard;
 import com.jshz.expert.security.AuthUser;
+import com.jshz.expert.service.ProjectBudgetExportService;
 import com.jshz.expert.service.ProjectBudgetService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -24,6 +28,7 @@ import java.util.Map;
 public class ProjectBudgetController {
 
     private final ProjectBudgetService budgetService;
+    private final ProjectBudgetExportService exportService;
     private final ObjectMapper objectMapper;
 
     /** 预算单总览（不存在返回骨架草稿，不落库）。 */
@@ -60,6 +65,25 @@ public class ProjectBudgetController {
     public ApiResponse<Map<String, Object>> confirm(@PathVariable Long id,
                                                     @AuthenticationPrincipal AuthUser user) {
         return ApiResponse.ok(budgetService.confirm(id, user));
+    }
+
+    /**
+     * 导出报价单/成本单 xlsx（2026-11-20，历史结算单共性结构）。
+     * docType=QUOTE（缺省）报价单 / COST 成本单。
+     */
+    @GetMapping("/{id}/meeting-budget/export")
+    public ResponseEntity<byte[]> export(@PathVariable Long id,
+                                         @RequestParam(defaultValue = "QUOTE") String docType,
+                                         @AuthenticationPrincipal AuthUser user) throws IOException {
+        byte[] bytes = exportService.export(id, docType, user);
+        String filename = java.net.URLEncoder.encode(
+                ("COST".equalsIgnoreCase(docType) ? "会议成本单" : "会议报价单") + ".xlsx",
+                java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename*=UTF-8''" + filename)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
     }
 
     // ==================== 收费标准（管理员设置-项目配置） ====================

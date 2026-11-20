@@ -38,8 +38,14 @@ public class ProjectBudgetItem {
 
     private BigDecimal unitPrice;
 
+    /** 成本单价（2026-11-20 成本单维度） */
+    private BigDecimal costPrice;
+
     /** quantity * unit_price（服务端计算） */
     private BigDecimal amount;
+
+    /** quantity * cost_price（服务端计算，2026-11-20） */
+    private BigDecimal costAmount;
 
     private String remark;
 

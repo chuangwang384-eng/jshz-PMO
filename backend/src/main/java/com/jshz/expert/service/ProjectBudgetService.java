@@ -100,6 +100,7 @@ public class ProjectBudgetService {
 
         List<ProjectBudgetItem> parsed = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal costTotal = BigDecimal.ZERO;
         int sort = 0;
         for (Map<String, Object> raw : items == null ? List.<Map<String, Object>>of() : items) {
             ProjectBudgetItem it = parseItem(raw, budget, sort++);
@@ -107,9 +108,13 @@ public class ProjectBudgetService {
                 continue;
             }
             total = total.add(it.getAmount());
+            costTotal = costTotal.add(it.getCostAmount());
             parsed.add(it);
         }
         budget.setTotalAmount(total);
+        budget.setCostTotal(costTotal);
+        if (budget.getServiceRate() == null) budget.setServiceRate(new BigDecimal("0.06"));
+        if (budget.getTaxRate() == null) budget.setTaxRate(new BigDecimal("0.06"));
         budget.setStatus(confirm ? "CONFIRMED" : "DRAFT");
         if (budget.getId() == null) {
             budgetMapper.insert(budget);
@@ -222,6 +227,21 @@ public class ProjectBudgetService {
             }
             entity.setName(name);
             entity.setScene(scene);
+            // 收费标准库扩列（2026-11-20）：类目/小类/详细内容/规格/成本价/最低利润
+            entity.setCatalog(str(row.get("catalog")));
+            entity.setCategory(str(row.get("category")));
+            entity.setDetail(str(row.get("detail")));
+            entity.setSpec(str(row.get("spec")));
+            BigDecimal costPrice = decimal(row.get("costPrice"), "成本价");
+            if (costPrice.signum() < 0) {
+                throw new BusinessException("成本价不能为负数");
+            }
+            entity.setCostPrice(costPrice.signum() == 0 ? null : costPrice);
+            BigDecimal minProfit = decimal(row.get("minProfit"), "最低利润");
+            if (minProfit.signum() < 0) {
+                throw new BusinessException("最低利润不能为负数");
+            }
+            entity.setMinProfit(minProfit.signum() == 0 ? null : minProfit);
             entity.setDefaultValue(value == null || value.isBlank() ? null : value);
             entity.setUnit(str(row.get("unit")));
             entity.setRemark(str(row.get("remark")));
@@ -297,6 +317,13 @@ public class ProjectBudgetService {
         it.setUnit(str(raw.get("unit")));
         it.setUnitPrice(price);
         it.setAmount(qty.multiply(price).setScale(2, java.math.RoundingMode.HALF_UP));
+        // 成本单维度（2026-11-20）：成本价可空（按需报价项），金额服务端计算
+        BigDecimal cost = decimal(raw.get("costPrice"), "成本单价");
+        if (cost.signum() < 0) {
+            throw new BusinessException("成本单价不能为负数");
+        }
+        it.setCostPrice(cost);
+        it.setCostAmount(qty.multiply(cost).setScale(2, java.math.RoundingMode.HALF_UP));
         it.setRemark(str(raw.get("remark")));
         it.setSort(sort);
         return it;

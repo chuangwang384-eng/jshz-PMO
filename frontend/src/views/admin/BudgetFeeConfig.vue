@@ -18,10 +18,22 @@
       </el-tabs>
 
       <el-alert v-if="error" :title="error" type="error" :closable="false" class="fee-error"/>
-      <el-table v-loading="loading" :data="rows" row-key="feeKey" size="default" stripe empty-text="暂无收费项">
+      <!-- 2026-11-20 收费标准库：171 条模板费用项，支持类目筛选与关键字搜索 -->
+      <div style="display:flex; gap:8px; margin-bottom:10px">
+        <el-select v-model="catalogFilter" placeholder="全部类目" clearable style="width: 170px">
+          <el-option v-for="(label, key) in CATALOGS" :key="key" :label="label" :value="key"/>
+        </el-select>
+        <el-input v-model="keyword" placeholder="搜索名称/详细内容" clearable style="width: 240px"/>
+        <span class="hint-text" style="align-self:center">共 {{ filteredRows.length }} 条</span>
+      </div>
+      <el-table v-loading="loading" :data="filteredRows" row-key="feeKey" size="default" stripe empty-text="暂无收费项">
+        <el-table-column label="类目" width="110">
+          <template #default="{ row }">{{ CATALOGS[row.catalog] || '-' }}</template>
+        </el-table-column>
         <el-table-column label="收费项名称" min-width="180">
           <template #default="{ row }">
             <el-input v-model="row.name" placeholder="收费项名称" size="small"/>
+            <div v-if="row.detail" class="hint-text">{{ row.detail }}</div>
           </template>
         </el-table-column>
         <el-table-column label="用途与默认值" min-width="174">
@@ -32,6 +44,16 @@
               </span>
               <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'" size="small"/>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="成本价(元)" width="120">
+          <template #default="{ row }">
+            <el-input-number v-model="row.costPrice" :min="0" :precision="2" :controls="false" size="small" style="width: 100px" placeholder="成本"/>
+          </template>
+        </el-table-column>
+        <el-table-column label="最低利润(元)" width="120">
+          <template #default="{ row }">
+            <el-input-number v-model="row.minProfit" :min="0" :precision="2" :controls="false" size="small" style="width: 100px" placeholder="利润"/>
           </template>
         </el-table-column>
         <el-table-column label="单位" width="110">
@@ -86,12 +108,31 @@ const original = ref('')
 const isOnline = computed(() => scene.value === 'ONLINE')
 const dirty = computed(() => JSON.stringify(stripped(rows.value)) !== original.value)
 
+// 收费标准库类目（2026-11-20 灌入公司报价单/成本单模板全部费用项）
+const CATALOGS = { ELEC: '电子物料', PRINT: '小型制作物料', ONLINE: '线上会议及直播', BUILD: '大型搭建物料', STAFF: '人员服务', SPECIAL: '非常规物料' }
+const catalogFilter = ref('')
+const keyword = ref('')
+const filteredRows = computed(() => {
+  const kw = keyword.value.trim()
+  return rows.value.filter((r) => {
+    if (catalogFilter.value && r.catalog !== catalogFilter.value) return false
+    if (kw && !(String(r.name || '') + String(r.detail || '')).includes(kw)) return false
+    return true
+  })
+})
+
 function stripped(list) {
   return list.map((r) => ({
     feeKey: (r.feeKey || '').trim(),
     name: (r.name || '').trim(),
-    scene: scene.value,
+    scene: r.scene || scene.value,
+    catalog: r.catalog || null,
+    category: r.category || null,
+    detail: r.detail || null,
+    spec: r.spec || null,
     defaultValue: (r.defaultValue || '').trim() || null,
+    costPrice: r.costPrice == null || r.costPrice === '' ? null : Number(r.costPrice),
+    minProfit: r.minProfit == null || r.minProfit === '' ? null : Number(r.minProfit),
     unit: (r.unit || '').trim() || null,
     remark: (r.remark || '').trim() || null,
     isActive: r.isActive
@@ -124,8 +165,8 @@ async function save() {
     ElMessage.warning('收费项名称不能为空')
     return
   }
-  if (isOnline.value && list.some((r) => !r.defaultValue)) {
-    ElMessage.warning('线上收费项请填写默认单价（点选生成报价单依赖它）')
+  if (isOnline.value && list.some((r) => !r.defaultValue && !r.catalog)) {
+    ElMessage.warning('线上收费项请填写默认单价（点选生成报价单依赖它；模板库项可留空由项目内手填）')
     return
   }
   saving.value = true
