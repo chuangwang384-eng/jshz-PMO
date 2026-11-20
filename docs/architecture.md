@@ -36,11 +36,11 @@ AIGC:
 
 - 前端为 SPA 应用，构建产物由 Nginx 托管，通过反向代理将 `/api` 请求转发至后端。
 - 后端提供 RESTful 接口，采用分层架构（Controller / Service / Mapper / Entity）。
-- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、用户操作日志（operation_log，B2）、审批流配置（approval_config）、通用申请主表（application，「我的申请」改版）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、文档收藏（knowledge_favorite，C3）、消息通知（notification）、供应商管理（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel，2026-10-26）、企微通讯录同步（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）专家资料文件（expert_document，2026-11-20：医生证等资质资料，文件存专家资料库、经 /api/files-doc/** 登录后访问，上传/删除权限码 expert:edit）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **101 张表**（**85 张业务/结构表 + 10 张历史备份表 + 6 张迁移标记表**，2026-11-16 由 `information_schema` 实测）。备份表如 `approval_config_bak_20261102` / `download_log_customer_backup_20261029` / `knowledge_doc_version_customer_backup_20261029` / `knowledge_document_customer_backup_20261029` / `knowledge_favorite_customer_backup_20261029` / `wecom_migration_uk_username_backup`。`expert_change_request` 虽为历史表但仍参与读取，计入业务表（存量 31 条已迁移至 application，新写入全部走 application，旧表保留不动）。
+- 数据库存放专家信息（expert_info）、登录账号（sys_user）、下载审计（download_log）、用户操作日志（operation_log，B2）、审批流配置（approval_config）、通用申请主表（application，「我的申请」改版）、审批流转记录（approval_record）、审批申请字段模板（approval_template，R-B4）、知识星球文档（knowledge_document / knowledge_doc_version）、文档收藏（knowledge_favorite，C3）、消息通知（notification）、供应商管理（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel，2026-10-26）、企微通讯录同步（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）专家资料文件（expert_document，2026-11-20：医生证等资质资料，文件存专家资料库、经 /api/files-doc/** 登录后访问，上传/删除权限码 expert:edit）以及 RBAC 权限体系（role / permission / role_permission / user_role）等数据，共 **103 张表**（**87 张业务/结构表 + 10 张历史备份表 + 6 张迁移标记表**，2026-11-20 由 `information_schema` 实测）。备份表如 `approval_config_bak_20261102` / `download_log_customer_backup_20261029` / `knowledge_doc_version_customer_backup_20261029` / `knowledge_document_customer_backup_20261029` / `knowledge_favorite_customer_backup_20261029` / `wecom_migration_uk_username_backup`。`expert_change_request` 虽为历史表但仍参与读取，计入业务表（存量 31 条已迁移至 application，新写入全部走 application，旧表保留不动）。
 
-> 2026-11-16 实测：库中 **101 张表**（**85 张业务/结构表** + 10 张 `*_bak_*` 备份表 + 6 张 `mig_*` 迁移标记表）。
+> 2026-11-20 实测：库中 **103 张表**（**87 张业务/结构表** + 10 张 `*_bak_*` 备份表 + 6 张 `mig_*` 迁移标记表）。
 >
-> **DDL 单一可信来源**：`database\init.sql`（全量基线，85 张业务表 + 字典/权限种子，**新环境唯一建表来源**）+ `database\migration\*`（63 个增量，仅服务既有库升级）+ `schema_migration`（迁移版本台账）+ `scripts\db-migrate.ps1`（`-Mode Status/Apply/Bootstrap`）。三方一致性由 `scripts\check-schema-parity.ps1`（只读）强制校验，未通过不得 Bootstrap。
+> **DDL 单一可信来源**：`database\init.sql`（全量基线，87 张业务表 + 字典/权限种子，**新环境唯一建表来源**）+ `database\migration\*`（63 个增量，仅服务既有库升级）+ `schema_migration`（迁移版本台账）+ `scripts\db-migrate.ps1`（`-Mode Status/Apply/Bootstrap`）。三方一致性由 `scripts\check-schema-parity.ps1`（只读）强制校验，未通过不得 Bootstrap。
 
 ## 2. 后端分层
 
@@ -65,7 +65,7 @@ AIGC:
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **101 张表**（85 业务/结构表 + 10 历史备份表 + 6 迁移标记表，2026-11-16 实测），含 RBAC 四表（role / permission / role_permission / user_role）、供应商七表（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel / supplier_image）、企微通讯录同步三表（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）、合规 17 表、项目 16 表、客户 4 表、知识 3 表、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）、知识文档收藏表（knowledge_favorite，C3）、用户操作日志表（operation_log，B2）与通用申请主表（application，「我的申请」改版）。
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **103 张表**（87 业务/结构表 + 10 历史备份表 + 6 迁移标记表，2026-11-20 实测），含 RBAC 四表（role / permission / role_permission / user_role）、供应商七表（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel / supplier_image）、企微通讯录同步三表（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）、合规 17 表、项目 16 表、客户 4 表、知识 3 表、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）、知识文档收藏表（knowledge_favorite，C3）、用户操作日志表（operation_log，B2）与通用申请主表（application，「我的申请」改版）。
 
 下表仅详列**早期核心表**（25 张）的字段说明；合规 / 项目 / 供应商扩展 / 客户等后续模块请直接查看 `backend/src/main/java/com/jshz/expert/entity/` 与 `database/migration/` 对应脚本。
 
