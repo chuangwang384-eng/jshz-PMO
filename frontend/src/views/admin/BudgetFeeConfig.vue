@@ -2,14 +2,14 @@
   <div class="fee-page">
     <header class="fee-heading">
       <h1>项目配置</h1>
-      <p>维护会议预算的参考单价和数量规则。</p>
+      <p>维护会议预算的收费项、类目与参考单价。</p>
     </header>
 
     <div class="ui-card fee-card">
       <el-tabs v-model="scene" class="fee-tabs">
         <el-tab-pane name="OFFLINE">
           <template #label><span class="tab-label">线下收费标准</span></template>
-          <div class="tab-tip">线下估算按用途读取参考单价、数量增量和每场数量。区间值填「低,高」，估算取低值。</div>
+          <div class="tab-tip">线下收费项供「会议预算制作」从收费标准库添加。参考单价区间值填「低,高」，预填取低值。类目可选择已有或输入新建。</div>
         </el-tab-pane>
         <el-tab-pane name="ONLINE">
           <template #label><span class="tab-label">线上收费标准</span></template>
@@ -20,15 +20,21 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" class="fee-error"/>
       <!-- 2026-11-20 收费标准库：171 条模板费用项，支持类目筛选与关键字搜索 -->
       <div style="display:flex; gap:8px; margin-bottom:10px">
-        <el-select v-model="catalogFilter" placeholder="全部类目" clearable style="width: 170px">
-          <el-option v-for="(label, key) in CATALOGS" :key="key" :label="label" :value="key"/>
+        <el-select v-model="catalogFilter" placeholder="全部类目" clearable filterable style="width: 170px">
+          <el-option v-for="o in catalogOptions" :key="o.value" :label="o.label" :value="o.value"/>
         </el-select>
         <el-input v-model="keyword" placeholder="搜索名称/详细内容" clearable style="width: 240px"/>
         <span class="hint-text" style="align-self:center">共 {{ filteredRows.length }} 条</span>
       </div>
       <el-table v-loading="loading" :data="pagedRows" row-key="feeKey" size="default" stripe empty-text="暂无收费项">
-        <el-table-column label="类目" width="110">
-          <template #default="{ row }">{{ CATALOGS[row.catalog] || '-' }}</template>
+        <!-- 2026-11-21：类目可编辑，支持选择已有类目或输入新建类目 -->
+        <el-table-column label="类目" width="160">
+          <template #default="{ row }">
+            <el-select v-model="row.catalog" filterable allow-create default-first-option clearable
+                       placeholder="类目" size="small" style="width: 140px">
+              <el-option v-for="o in catalogOptions" :key="o.value" :label="o.label" :value="o.value"/>
+            </el-select>
+          </template>
         </el-table-column>
         <el-table-column label="收费项名称" min-width="180">
           <template #default="{ row }">
@@ -36,14 +42,10 @@
             <div v-if="row.detail" class="hint-text">{{ row.detail }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="用途与默认值" min-width="174">
+        <!-- 2026-11-21：「用途与默认值」改为「参考单价」，去掉用途徽标，直接编辑参考单价 -->
+        <el-table-column label="参考单价" min-width="150">
           <template #default="{ row }">
-            <div class="fee-default">
-              <span class="ui-badge" :class="(!isOnline && quantityRules[row.feeKey]) || estimateRuleMeta[row.feeKey] ? 'ui-badge-primary' : 'ui-badge-info'">
-                {{ !isOnline && quantityRules[row.feeKey] ? quantityRules[row.feeKey].label : estimateRuleMeta[row.feeKey] ? '估算参数' : '参考单价' }}
-              </span>
-              <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'" size="small"/>
-            </div>
+            <el-input v-model="row.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'" size="small"/>
           </template>
         </el-table-column>
         <el-table-column label="成本价(元)" width="120">
@@ -58,10 +60,7 @@
         </el-table-column>
         <el-table-column label="单位" width="110">
           <template #default="{ row }">
-            <span v-if="!isOnline && quantityRules[row.feeKey]">{{ quantityRules[row.feeKey].unit }}</span>
-            <span v-else-if="!isOnline && row.feeKey === 'STAFF_DAY'">元/人天</span>
-            <span v-else-if="estimateRuleMeta[row.feeKey]">{{ estimateRuleMeta[row.feeKey].unit }}</span>
-            <el-input v-else v-model="row.unit" placeholder="元/场 等" size="small"/>
+            <el-input v-model="row.unit" placeholder="元/场 等" size="small"/>
           </template>
         </el-table-column>
         <el-table-column label="备注" min-width="200">
@@ -101,14 +100,15 @@
     <el-dialog v-model="addVisible" title="新增收费项" width="520px" append-to-body>
       <el-form :model="addForm" label-width="96px">
         <el-form-item label="类目">
-          <el-select v-model="addForm.catalog" placeholder="选择类目（可空）" clearable style="width: 100%">
-            <el-option v-for="(label, key) in CATALOGS" :key="key" :label="label" :value="key"/>
+          <el-select v-model="addForm.catalog" filterable allow-create default-first-option clearable
+                     placeholder="选择已有类目，或输入新类目名称" style="width: 100%">
+            <el-option v-for="o in catalogOptions" :key="o.value" :label="o.label" :value="o.value"/>
           </el-select>
         </el-form-item>
         <el-form-item label="收费项名称">
           <el-input v-model="addForm.name" placeholder="必填" maxlength="100"/>
         </el-form-item>
-        <el-form-item label="默认值(元)">
+        <el-form-item label="参考单价(元)">
           <el-input v-model="addForm.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'"/>
         </el-form-item>
         <el-form-item label="成本价(元)">
@@ -136,7 +136,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listBudgetFeeStandards, saveBudgetFeeStandards, deleteBudgetFeeStandard } from '../../api/project'
-import { quantityRules, estimateRuleMeta } from '../project/components/budgetEstimate'
 import { apiErrorMessage } from '../../utils/common'
 
 const scene = ref('OFFLINE')
@@ -151,6 +150,18 @@ const dirty = computed(() => JSON.stringify(stripped(rows.value)) !== original.v
 
 // 收费标准库类目（2026-11-20 灌入公司报价单/成本单模板全部费用项）
 const CATALOGS = { ELEC: '电子物料', PRINT: '小型制作物料', ONLINE: '线上会议及直播', BUILD: '大型搭建物料', STAFF: '人员服务', SPECIAL: '非常规物料' }
+// 2026-11-21：类目选项 = 内置 6 类 + 数据中已出现的自定义类目，支持新建类目（allow-create）
+const catalogOptions = computed(() => {
+  const opts = Object.entries(CATALOGS).map(([value, label]) => ({ value, label }))
+  const known = new Set(Object.keys(CATALOGS))
+  for (const r of rows.value) {
+    if (r.catalog && !known.has(r.catalog)) {
+      known.add(r.catalog)
+      opts.push({ value: r.catalog, label: CATALOGS[r.catalog] || r.catalog })
+    }
+  }
+  return opts
+})
 const catalogFilter = ref('')
 const keyword = ref('')
 const filteredRows = computed(() => {
@@ -293,8 +304,6 @@ watch(scene, load)
 .fee-card { min-width: 0; padding: clamp(12px, 2vw, 20px); }
 .fee-card :deep(.el-table) { --el-table-header-bg-color: var(--ui-fill); }
 .fee-error { margin-bottom: 12px; }
-.fee-default { display: grid; justify-items: start; gap: 4px; }
-.fee-default .ui-badge { line-height: 18px; }
 .fee-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .fee-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .hint-text { color: var(--ui-text-sub); font-size: 12px; }
