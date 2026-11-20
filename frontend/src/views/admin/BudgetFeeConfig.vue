@@ -36,10 +36,12 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="收费项名称" min-width="180">
+        <el-table-column label="收费项名称 / 明细" min-width="220">
           <template #default="{ row }">
             <el-input v-model="row.name" placeholder="收费项名称" size="small"/>
-            <div v-if="row.detail" class="hint-text">{{ row.detail }}</div>
+            <!-- 2026-11-21：收费项明细（详细内容）改为可编辑 -->
+            <el-input v-model="row.detail" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }"
+                      placeholder="收费项明细（详细内容）" size="small" style="margin-top: 4px"/>
           </template>
         </el-table-column>
         <!-- 2026-11-21：「用途与默认值」改为「参考单价」，去掉用途徽标，直接编辑参考单价 -->
@@ -107,6 +109,10 @@
         </el-form-item>
         <el-form-item label="收费项名称">
           <el-input v-model="addForm.name" placeholder="必填" maxlength="100"/>
+        </el-form-item>
+        <el-form-item label="收费项明细">
+          <el-input v-model="addForm.detail" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }"
+                    placeholder="详细内容/规格说明（可空）" maxlength="500"/>
         </el-form-item>
         <el-form-item label="参考单价(元)">
           <el-input v-model="addForm.defaultValue" :placeholder="isOnline ? '如 8000' : '如 500 或 300,400'"/>
@@ -204,7 +210,7 @@ watch([catalogFilter, keyword], () => { page.value = 1 })
 const addVisible = ref(false)
 const addForm = ref({})
 function openAddDialog() {
-  addForm.value = { catalog: '', name: '', defaultValue: isOnline.value ? '' : '500', costPrice: null, minProfit: null, unit: '', remark: '' }
+  addForm.value = { catalog: '', name: '', detail: '', defaultValue: isOnline.value ? '' : '500', costPrice: null, minProfit: null, unit: '', remark: '' }
   addVisible.value = true
 }
 function confirmAdd() {
@@ -219,6 +225,7 @@ function confirmAdd() {
   page.value = 1
   rows.value.unshift({
     feeKey: key, name: f.name.trim(), scene: scene.value, catalog: f.catalog || null,
+    detail: (f.detail || '').trim() || null,
     defaultValue: (f.defaultValue || '').trim() || null,
     costPrice: f.costPrice == null ? null : Number(f.costPrice),
     minProfit: f.minProfit == null ? null : Number(f.minProfit),
