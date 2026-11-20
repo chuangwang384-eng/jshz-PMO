@@ -258,6 +258,7 @@
                 <img :src="idFrontUrl" class="masked-img" alt="身份证正面（已脱敏）" />
                 <span class="masked-tip">已脱敏</span>
               </div>
+              <span v-else-if="idFrontLoading" class="photo-empty">照片加载中…</span>
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -277,6 +278,7 @@
                 <img :src="idBackUrl" class="masked-img" alt="身份证反面（已脱敏）" />
                 <span class="masked-tip">已脱敏</span>
               </div>
+              <span v-else-if="idBackLoading" class="photo-empty">照片加载中…</span>
               <span v-else class="photo-empty">未上传</span>
             </div>
             <el-upload
@@ -715,6 +717,9 @@ const detail = ref(null)
 // 身份证正反面照片 blob URL（仅脱敏模糊展示，不提供原图预览）
 const idFrontUrl = ref('')
 const idBackUrl = ref('')
+// 身份证大图后台加载占位（2026-11-20）：弹窗先开，图未到时显示"加载中…"而非"未上传"
+const idFrontLoading = ref(false)
+const idBackLoading = ref(false)
 
 // 卡片内直接编辑（需求3：员工视角详情弹窗可编辑，关闭时检测变更生成审批流）
 const TEXT_FIELDS = ['姓名', '单位', '科室', '职称', '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行']
@@ -863,25 +868,33 @@ async function openDetail(row) {
   }
   idFrontUrl.value = ''
   idBackUrl.value = ''
+  // 2026-11-20 修复：弹窗先开、身份证大图后台加载。原逻辑串行 await 两张原图（10MB 限额后
+  // 手机原图可达 7MB+/张），下载完成才 detailVisible，导致打开专家卡延迟约 2s（杨光案例）。
+  if (sequence === detailSequence) detailVisible.value = true
+  idFrontLoading.value = Boolean(data['身份证正面'])
+  idBackLoading.value = Boolean(data['身份证反面'])
   if (data['身份证正面']) {
     try {
       const resp = await fetchPhotoBlob(data['身份证正面'])
-      if(sequence !== detailSequence)return
+      if (sequence !== detailSequence) return
       idFrontUrl.value = URL.createObjectURL(resp.data)
     } catch (e) {
       // 照片不存在或无权限：保持占位
+    } finally {
+      if (sequence === detailSequence) idFrontLoading.value = false
     }
   }
   if (data['身份证反面']) {
     try {
       const resp = await fetchPhotoBlob(data['身份证反面'])
-      if(sequence !== detailSequence)return
+      if (sequence !== detailSequence) return
       idBackUrl.value = URL.createObjectURL(resp.data)
     } catch (e) {
       // 照片不存在或无权限：保持占位
+    } finally {
+      if (sequence === detailSequence) idBackLoading.value = false
     }
   }
-  if(sequence === detailSequence) detailVisible.value = true
 }
 
 // ---- 资料文件（医生证等资质资料，2026-11-20）：上传即生效，与照片/字段保存解耦 ----
