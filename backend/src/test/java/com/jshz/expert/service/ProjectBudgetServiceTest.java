@@ -22,6 +22,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -172,17 +173,26 @@ class ProjectBudgetServiceTest {
     }
 
     @Test
-    void confirmedBudgetRejectsDraftOverwrite() {
+    void confirmedBudgetAllowsEditAndReconfirm() {
+        // 2026-11-21 行为变更：已确认预算允许编辑（移除拒写守卫），重新确认仍 CONFIRMED 并同步项目财务金额。
         when(projectService.requireProject(1L)).thenReturn(project("OFFLINE"));
         ProjectBudget confirmed = new ProjectBudget();
         confirmed.setId(10L);
         confirmed.setProjectId(1L);
         confirmed.setStatus("CONFIRMED");
         when(budgetMapper.selectOne(any())).thenReturn(confirmed);
+        when(budgetMapper.updateById(any(ProjectBudget.class))).thenReturn(1);
+        when(itemMapper.selectList(any())).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.save(1L, List.of(), null, false, user))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("已确认");
+        Map<String, Object> item = Map.<String, Object>of("section", "HOTEL", "name", "场地费",
+                "quantity", 2, "unitPrice", 1000);
+        Map<String, Object> result = service.save(1L, List.of(item), null, true, user);
+
+        ProjectBudget saved = (ProjectBudget) result.get("budget");
+        assertThat(saved.getStatus()).isEqualTo("CONFIRMED");
+        assertThat(saved.getTotalAmount()).isEqualByComparingTo("2000.00");
+        verify(itemMapper).insert(any(ProjectBudgetItem.class));
+        verify(projectService).overrideBudgetAmount(eq(1L), eq(new BigDecimal("2000.00")));
     }
 
     @Test

@@ -1970,11 +1970,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 返回当前阶段缺少的业务材料及必填模板。 */
     private List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
         List<String> missing = new ArrayList<>();
-        if (PHASE_BUDGET_MAKING.equals(phaseName)
-                && docMapper.listBudgetQuotePaths(project.getId(), phaseId).stream()
-                .noneMatch(path -> storageService.resolveFile(path) != null)) {
-            missing.add("生成报价文件");
-        }
+        // 2026-11-21：导出报价单即对客报价，移除「生成报价文件」推进门禁；
+        // 预算阶段推进仅要求预算单 CONFIRMED（见 changePhase 的 confirmedBudgets 校验）。
         // 2026-11-17 需求：日程上传阶段须上传日程且全部参会专家匹配到专家库（project_speaker.expert_id 非空）
         if ("日程上传".equals(phaseName)) {
             ProjectSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ProjectSchedule>()

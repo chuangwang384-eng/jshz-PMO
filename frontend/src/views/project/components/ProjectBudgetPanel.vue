@@ -146,9 +146,7 @@
           </el-table-column>
         </el-table>
       </el-dialog>
-      <ProjectBudgetQuotes v-if="budget" :project-id="projectId" :readonly="readonly"
-                           :can-record="canRecord" :confirmed="budget.status === 'CONFIRMED'"
-                           :documents="documents" @restored="applySaved" @generated="emit('generated')"/>
+      <!-- 2026-11-21：导出报价单即对客报价，移除原「对客报价」生成/客户确认/另存草稿区块（ProjectBudgetQuotes） -->
     </template>
   </div>
 </template>
@@ -159,7 +157,6 @@ import { ElMessage } from 'element-plus'
 import { getProjectBudget, saveProjectBudget, exportBudgetDoc } from '../../../api/project'
 import { apiErrorMessage, formatMoney as fmt } from '../../../utils/common'
 import ProjectBudgetEstimate from './ProjectBudgetEstimate.vue'
-import ProjectBudgetQuotes from './ProjectBudgetQuotes.vue'
 
 const props = defineProps({
   projectId: { type: [String, Number], required: true },
@@ -189,7 +186,9 @@ const remark = ref('')
 const removedSections = ref([])
 const feeStandards = ref({})
 const estimateState = ref({})
-const editingLocked = computed(() => props.readonly || budget.value?.status === 'CONFIRMED' || !!error.value)
+// 2026-11-21：允许编辑已保存（含已确认）的费用明细——去掉 CONFIRMED 锁定，
+// 仅 readonly（无操作权限）或加载失败时锁定。确认状态仍由「确认报价」按钮维护（阶段推进门禁需要）。
+const editingLocked = computed(() => props.readonly || !!error.value)
 
 const isOnline = computed(() => budget.value?.category === 'ONLINE')
 

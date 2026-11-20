@@ -88,9 +88,8 @@ public class ProjectBudgetService {
             budget.setProjectId(projectId);
             budget.setCreatedBy(user == null ? null : user.getUserId());
         }
-        if ("CONFIRMED".equals(budget.getStatus())) {
-            throw new BusinessException("报价单已确认，如需修改请从对客报价版本新建草稿");
-        }
+        // 2026-11-21：允许编辑已保存（含已确认）的费用明细——移除 CONFIRMED 拒写守卫。
+        // 确认状态由 confirm 参数维护：save(true)→CONFIRMED（阶段推进门禁需要），save(false)→DRAFT。
         budget.setCategory(categoryOf(project));
         if ("OFFLINE".equals(budget.getCategory()) && estimateInputs != null) {
             budget.setEstimateInputs(estimateInputs);
@@ -128,6 +127,10 @@ public class ProjectBudgetService {
             it.setBudgetId(budget.getId());
             it.setProjectId(projectId);
             itemMapper.insert(it);
+        }
+        // A16/D3：确认时以会议预算合计覆盖项目财务登记金额（与 confirm() 一致；编辑后重新确认同样同步）
+        if (confirm) {
+            projectService.overrideBudgetAmount(projectId, total);
         }
         log.info("预算保存 project={} items={} total={} confirm={} by={}",
                 projectId, parsed.size(), total, confirm, user == null ? null : user.getUserId());
