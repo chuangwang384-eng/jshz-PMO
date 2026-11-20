@@ -72,7 +72,7 @@ class ProjectResumeAvatarTest {
         Project project = new Project();
         project.setId(55L);
         when(projects.requireProject(55L)).thenReturn(project);
-        ExpertService experts = spy(new ExpertService(null, null));
+        ExpertService experts = spy(new ExpertService(null, null, null));
         doAnswer(invocation -> {
             Expert expert = invocation.getArgument(0);
             assertEquals("测试医院", expert.getUnit());
@@ -136,7 +136,7 @@ class ProjectResumeAvatarTest {
     @Test
     void rollbackDeletesNewAvatarIfExpertUpdateFails() {
         PhotoStorageService storage = mock(PhotoStorageService.class);
-        ExpertService experts = spy(new ExpertService(storage, null));
+        ExpertService experts = spy(new ExpertService(storage, null, null));
         Expert expert = new Expert();
         expert.setId(42L);
         when(storage.savePhoto(photo, 42L, "photo")).thenReturn("avatar_42_123.png");
