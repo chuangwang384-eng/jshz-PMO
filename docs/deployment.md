@@ -801,4 +801,4 @@ MODNet 试点由 `PHOTOMATTE_MODNET_ENABLED=true|false` 控制。变量未配置
 
 ### 图片简历 OCR
 
-图片简历优先复用已安装的 PP-OCRv5 ONNX 检测和识别模型。后端从 COMPLIANCE_PPOCR_ROOT 指定目录读取模型及运行时，默认使用 Program Files 下的 JSHZ/pp-ocrv5。运行账户需能读取该目录并写入系统临时目录。PP-OCRv5 缺失、繁忙、超时或无有效文本时回退 Tesseract。发布前用含中文正文和照片的图片验证识别字段与简介。
+图片简历优先复用已安装的 PP-OCRv5 ONNX 检测和识别模型。后端从 COMPLIANCE_PPOCR_ROOT 指定目录读取模型及运行时，默认使用 Program Files 下的 JSHZ/pp-ocrv5。运行账户需能读取该目录并写入系统临时目录。PP-OCRv5 缺失、繁忙、超时或无有效文本时回退 Tesseract。发布前用含中文正文和照片的图片验证识别字段与简介。无正文且以大图承载简历的 PPT/PPTX 也使用此 OCR 运行环境。

@@ -398,6 +398,8 @@ public class ResumeParseService {
         List<BufferedImage> images = new ArrayList<>();
         StringBuilder text = new StringBuilder();
         boolean unreadableShapes = false;
+        BufferedImage imagePage = null;
+        var pageSize = ppt.getPageSize();
         for (var slide : ppt.getSlides()) {
             List<? extends Shape<?, ?>> shapes;
             try {
@@ -410,14 +412,27 @@ public class ResumeParseService {
                 continue;
             }
             for (var shape : shapes) {
+                int imageCount = images.size();
                 collectSlideShape(shape, text, images);
+                if (imagePage == null && images.size() > imageCount && shape instanceof PictureShape<?, ?> picture) {
+                    var anchor = picture.getAnchor();
+                    // 区分整页简历截图与普通证件照、标识。只用幻灯片上实际出现的图片。
+                    if (anchor != null && anchor.getWidth() >= pageSize.getWidth() * 0.6
+                            && anchor.getHeight() >= pageSize.getHeight() * 0.6) {
+                        imagePage = images.get(imageCount);
+                    }
+                }
             }
         }
         // 包内媒体也包含母版和未引用的装饰图，只有幻灯片图片不足时才使用。
         if (unreadableShapes || images.stream().noneMatch(this::isAvatarLike)) {
             ppt.getPictureData().forEach(picture -> collectImage(images, picture.getData()));
         }
-        return new SlideContent(text.toString(), images);
+        String extractedText = text.toString();
+        if (extractedText.isBlank() && imagePage != null) {
+            extractedText = recognizeResumeImage(enlargeSlideImageForOcr(imagePage));
+        }
+        return new SlideContent(extractedText, images);
     }
 
     private void collectOoxmlParagraphs(XSLFSlide slide, StringBuilder text) {
@@ -459,11 +474,34 @@ public class ResumeParseService {
         if (image == null) {
             throw new BusinessException(400, "无法读取图片内容");
         }
+        return buildResult(fileName, recognizeResumeImage(image), List.of(image), allowFilenameFallback);
+    }
+
+    private BufferedImage enlargeSlideImageForOcr(BufferedImage image) {
+        int longest = Math.max(image.getWidth(), image.getHeight());
+        // 满幅截图缩小后容易丢失密集汉字的笔画，放大时限制最长边，控制 OCR 开销。
+        double scale = Math.min(2.0, 2200.0 / longest);
+        if (scale <= 1.0) return image;
+        int width = (int) Math.round(image.getWidth() * scale);
+        int height = (int) Math.round(image.getHeight() * scale);
+        BufferedImage enlarged = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        var graphics = enlarged.createGraphics();
+        try {
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.drawImage(image, 0, 0, width, height, null);
+        } finally {
+            graphics.dispose();
+        }
+        return enlarged;
+    }
+
+    private String recognizeResumeImage(BufferedImage image) {
         String text = KnowledgeDocTextExtractor.ppOcrLines(image);
         if (text == null && !Thread.currentThread().isInterrupted()) {
             text = KnowledgeDocTextExtractor.ocrPage(image, false);
         }
-        return buildResult(fileName, text, List.of(image), allowFilenameFallback);
+        return text;
     }
 
     // ==================== 字段解析 ====================

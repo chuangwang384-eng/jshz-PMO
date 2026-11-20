@@ -472,4 +472,43 @@ class ResumeParseServiceTest {
         assertEquals("胸心外科", fields.get("科室"));
         assertEquals("主任医师", fields.get("职称"));
     }
+
+    @Test
+    void imageOnlySlideUsesOcrWhileOfficeTextAndSmallPicturesDoNot() throws Exception {
+        var parser = new ResumeParseService(org.mockito.Mockito.mock(OllamaService.class), null);
+        try (var ocr = org.mockito.Mockito.mockStatic(KnowledgeDocTextExtractor.class)) {
+            ocr.when(() -> KnowledgeDocTextExtractor.ppOcrLines(org.mockito.ArgumentMatchers.any()))
+                    .thenReturn("姓名：王小明\n某市中心医院肿瘤科主任医师\n发表论文十余篇");
+            var imageOnly = parser.parse("个人简介.pptx", resumeSlideWithImage(true, false), false);
+            assertEquals("王小明", imageOnly.fields().get("姓名"));
+            assertEquals("某市中心医院", imageOnly.fields().get("单位"));
+            assertEquals("肿瘤科", imageOnly.fields().get("科室"));
+            assertEquals("主任医师", imageOnly.fields().get("职称"));
+            assertTrue(imageOnly.fields().get("简介").contains("发表论文十余篇"));
+            assertFalse(imageOnly.photoCandidates().isEmpty());
+
+            var nativeText = parser.parse("个人简介.pptx", resumeSlideWithImage(true, true), false);
+            assertEquals("张晓丽", nativeText.fields().get("姓名"));
+            assertTrue(parser.parse("个人简介.pptx", resumeSlideWithImage(false, false), false)
+                    .fields().isEmpty());
+            ocr.verify(() -> KnowledgeDocTextExtractor.ppOcrLines(org.mockito.ArgumentMatchers.any()));
+        }
+    }
+
+    private byte[] resumeSlideWithImage(boolean fullPage, boolean hasText) throws Exception {
+        var output = new ByteArrayOutputStream();
+        try (var presentation = new XMLSlideShow()) {
+            var slide = presentation.createSlide();
+            var png = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(960, 540, BufferedImage.TYPE_INT_RGB), "png", png);
+            var picture = slide.createPicture(presentation.addPicture(png.toByteArray(), PictureData.PictureType.PNG));
+            var size = presentation.getPageSize();
+            picture.setAnchor(new java.awt.geom.Rectangle2D.Double(0, 0,
+                    fullPage ? size.width : size.width * 0.2,
+                    fullPage ? size.height : size.height * 0.2));
+            if (hasText) slide.createTextBox().setText("姓名：张晓丽");
+            presentation.write(output);
+        }
+        return output.toByteArray();
+    }
 }
