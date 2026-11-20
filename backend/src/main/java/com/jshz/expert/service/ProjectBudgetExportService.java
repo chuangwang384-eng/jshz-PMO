@@ -94,7 +94,7 @@ public class ProjectBudgetExportService {
                 calcPr = wb.getCTWorkbook().addNewCalcPr();
             }
             calcPr.setCalcId(0);
-            calcPr.setFullCalculationOnLoad(true);
+            calcPr.setFullCalcOnLoad(true);
             initStyles(wb);
             Sheet sheet = wb.createSheet(cost ? "会议成本单" : "会议报价单");
             sheet.setDisplayGridlines(false);
