@@ -47,7 +47,7 @@ class ProjectStageDeliverableTest {
 
     @Test
     void htmlExportEmbedsOnlySupportedImagesAndEscapesSlideText() {
-        var slide = new ProjectShowService.Slide("讲题", "<img src=x onerror=alert(1)>", "主题", "");
+        var slide = new ProjectShowService.Slide("讲题", "<img src=x onerror=alert(1)>", "主题", "", null, null, null);
         var deck = new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), null, null);
         String html = ProjectShowService.render(deck);
         assertTrue(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
@@ -59,7 +59,7 @@ class ProjectStageDeliverableTest {
 
     @Test
     void deckRendersThemeVariantsStepsAndClampsFontScale() {
-        var slide = new ProjectShowService.Slide("会议议程", "议程", "09:00 开幕\n09:10 讲题一", "");
+        var slide = new ProjectShowService.Slide("会议议程", "议程", "09:00 开幕\n09:10 讲题一", "", null, null, null);
         String html = ProjectShowService.render(
                 new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), "tech", 2.0));
         assertTrue(html.contains("t-tech"));
@@ -69,5 +69,37 @@ class ProjectStageDeliverableTest {
         var fallback = new ProjectShowService.Deck(null, List.of(slide), "nope", null);
         assertTrue(ProjectShowService.render(fallback).contains("t-gold"));
         assertTrue(ProjectShowService.render(fallback).contains("k-agenda"));
+    }
+
+    @Test
+    void structuredPageKindsRenderAndLegacyDeckStaysCompatible() {
+        var png = "data:image/png;base64,AAAA";
+        var person = new ProjectShowService.Person("大会主席", "齐秀恒", "教授", "河北中石油中心医院", png);
+        var cover = new ProjectShowService.Slide("中国医药教育协会", "聚例辉煌", "临床应用研讨 · 多学科病例讨论项目", "",
+                "cover", List.of("会议时间|2026-11-18", "会议地点|郑州", "大会主席|齐秀恒 教授"), null);
+        var section = new ProjectShowService.Slide("", "主席致辞", "", "", "section", List.of("01"), List.of(person));
+        var bio = new ProjectShowService.Slide("", "齐秀恒 教授", "", "", "bio", null, List.of(person));
+        var resume = new ProjectShowService.Slide("个人简历", "齐秀恒 教授", "", "",
+                "resume", List.of("河北省抗癌协会理事", "肿瘤中心主任委员"), null);
+        var panel = new ProjectShowService.Slide("多学科讨论", "多学科讨论", "", "", "panel",
+                null, List.of(person, new ProjectShowService.Person("讨论嘉宾", "董桂兰", "教授", "唐山市人民医院", "")));
+        var legacy = new ProjectShowService.Slide("会议环节", "旧结构页", "正文行", "", null, null, null);
+        String html = ProjectShowService.render(
+                new ProjectShowService.Deck("", List.of(cover, section, bio, resume, panel, legacy), "gold", null));
+        assertTrue(html.contains("k-cover"));
+        assertTrue(html.contains("cover-title"));
+        assertTrue(html.contains("ci-k"));
+        assertTrue(html.contains("sec-num"));
+        assertTrue(html.contains("sec-wm"));
+        assertTrue(html.contains("photo-card"));
+        assertTrue(html.contains("role-badge"));
+        assertTrue(html.contains("rp-cols"));
+        assertTrue(html.contains("p-card"));
+        assertTrue(html.contains("p-avatar-word"));
+        assertTrue(html.contains("k-content"));
+        assertFalse(html.contains("k-section-crumb"));
+        // 旧扁平结构（无 kind）回退启发式渲染：单张 deck 的首页按启发式归为封面
+        String legacyOnly = ProjectShowService.render(new ProjectShowService.Deck("", List.of(legacy), "gold", null));
+        assertTrue(legacyOnly.contains("k-cover"));
     }
 }

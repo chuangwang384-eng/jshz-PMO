@@ -48,3 +48,63 @@ export function thanksSlide() {
 export function splitSentences(text) {
   return String(text || '').replace(/\s+/g, ' ').match(/[^。！？;；]+[。！？;；]?/g)?.map(s => s.trim()).filter(Boolean) || []
 }
+
+// ===== 结构化页面模型（2026-11-21，配后端 kind 渲染） =====
+
+// 简历语义分段：换行/分号/句号切分为任职条目，过滤过短碎片，上限 30 条
+export function splitResumeItems(text) {
+  return String(text || '')
+    .split(/[\n；;。]+/)
+    .map(s => s.trim().replace(/^[，,、\s]+/, '').replace(/[，,]$/, ''))
+    .filter(s => s.length >= 4)
+    .slice(0, 30)
+}
+
+// 环节行 → 章节归类：开场致辞类 / 多学科讨论 / 学术报告；茶歇不立章
+export function sectionOf(row) {
+  if (/讨论/.test(row)) return '多学科讨论'
+  if (/茶歇|休息/.test(row)) return ''
+  if (/主持|致辞|开场|签到|上市|仪式/.test(row)) return '开场致辞'
+  return '学术报告'
+}
+
+export function coverSlideV2({ org, title, sub, infos = [] }) {
+  return { label: org || '', title: title || '', body: sub || '', image: '', kind: 'cover', items: infos.slice(0, 12), persons: null }
+}
+
+export function sectionSlideV2({ no, title, person }) {
+  const p = person ? { role: person.role || '', name: person.name || '', title: person.title || '', unit: person.unit || '', image: person.avatar || '' } : null
+  return { label: '', title: title || '', body: '', image: '', kind: 'section', items: no ? [no] : [], persons: p ? [p] : null }
+}
+
+export function bioSlideV2({ label, person }) {
+  return {
+    label: label || '', title: person?.name || '', body: '', image: '', kind: 'bio', items: null,
+    persons: [{ role: person?.role || '', name: person?.name || '', title: person?.title || '', unit: person?.unit || '', image: person?.avatar || '' }]
+  }
+}
+
+export function resumeSlideV2({ person }) {
+  return {
+    label: '个人简历', title: [person?.name, person?.title].filter(Boolean).join(' ') || '专家简介',
+    body: '', image: '', kind: 'resume', items: splitResumeItems(person?.intro || ''), persons: null
+  }
+}
+
+export function panelSlideV2({ label, title, persons }) {
+  return {
+    label: label || '', title: title || '', body: '', image: '', kind: 'panel', items: null,
+    persons: (persons || []).slice(0, 8).map(p => ({
+      role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || ''
+    }))
+  }
+}
+
+// 环节角色推断（可被用户手改覆盖）
+export function guessRole(row, label) {
+  if (/主席/.test(row)) return '大会主席'
+  if (/主持/.test(row) || label === '主持与致辞') return '主持人'
+  if (/讨论/.test(row)) return '讨论嘉宾'
+  if (/致辞/.test(row)) return '致辞嘉宾'
+  return '主讲嘉宾'
+}

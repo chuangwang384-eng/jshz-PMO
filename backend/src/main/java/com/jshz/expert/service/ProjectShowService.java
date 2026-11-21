@@ -25,13 +25,22 @@ public class ProjectShowService {
     private static final Pattern IMAGE = Pattern.compile("data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}");
     private static final int MAX_DECK_SIZE = 10 * 1024 * 1024;
 
-    public record Slide(String label, String title, String body, String image) {}
-
     /**
      * deck.template 取 {@link #THEMES} 中的 id，缺失或未知时回退 gold；fontScale 允许范围 0.8~1.4，
      * 缺失时按 1.0。旧草稿 JSON 无这两个字段，反序列化为 null 后由 render 兜底，勿在读取处直接拆箱。
      */
     public record Deck(String background, List<Slide> slides, String template, Double fontScale) {}
+
+    /** 页面人物（2026-11-21 结构化页面模型）：出场页/讨论墙/过场页共用。image 为已抠图 dataURL，可空。 */
+    public record Person(String role, String name, String title, String unit, String image) {}
+
+    /**
+     * 结构化页面（2026-11-21）：kind 取 cover/section/bio/resume/panel/agenda/ending/content，
+     * 缺失时回退 label 启发式（兼容 1.0.103 及以前的扁平草稿）。items 承载封面信息行（"k|v"）、
+     * 章节编号（首元素）、简历条目；persons 承载页面人物。
+     */
+    public record Slide(String label, String title, String body, String image,
+                        String kind, List<String> items, List<Person> persons) {}
 
     /** 内置串场模板。css 只允许覆盖调色变量与装饰层，页面结构与动画引擎由 render 的公共层承载，禁止复制私有副本。 */
     public record Theme(String id, String name, String css, boolean particles) {}
@@ -42,7 +51,7 @@ public class ProjectShowService {
             radial-gradient(640px 640px at calc(100% + 200px) calc(100% + 220px),rgba(255,150,80,.16),transparent 68%),
             linear-gradient(90deg,transparent,rgba(255,214,140,.06) 45%,rgba(255,236,190,.1) 50%,rgba(255,214,140,.06) 55%,transparent);
             --flow:linear-gradient(100deg,#8a5a1e,#f2c66d 22%,#fff4d6 38%,#f7d98c 50%,#caa050 72%,#8a5a1e);
-            --ink:#fff3dc;--ink-dim:#f3d9ac;--accent:#f2c66d;--rule:rgba(242,198,109,.5);
+            --ink:#fff3dc;--ink-dim:#f3d9ac;--accent:#f2c66d;--rule:rgba(242,198,109,.5);--card:rgba(255,243,220,.07);
             --font-title:"STZhongsong","NSimSun","SimSun",serif;--font-body:"Microsoft YaHei UI","PingFang SC",sans-serif;
             --particle:255,214,140}
             h1,h2{font-family:var(--font-title)}
@@ -55,7 +64,7 @@ public class ProjectShowService {
             radial-gradient(600px 400px at 15% 10%,rgba(88,183,255,.16),transparent 65%),
             radial-gradient(700px 500px at 90% 92%,rgba(46,214,255,.1),transparent 65%);
             --flow:linear-gradient(100deg,#1d5c8f,#58b7ff 25%,#e4f6ff 50%,#58b7ff 75%,#1d5c8f);
-            --ink:#eaf4ff;--ink-dim:#9fc6e8;--accent:#58b7ff;--rule:rgba(88,183,255,.45);
+            --ink:#eaf4ff;--ink-dim:#9fc6e8;--accent:#58b7ff;--rule:rgba(88,183,255,.45);--card:rgba(234,244,255,.07);
             --font-title:"Microsoft YaHei UI","PingFang SC",sans-serif;--font-body:"Microsoft YaHei UI","PingFang SC",sans-serif;
             --particle:120,200,255}
             """, true);
@@ -66,7 +75,7 @@ public class ProjectShowService {
             radial-gradient(700px 420px at 88% 96%,rgba(37,99,199,.08),transparent 70%),
             radial-gradient(500px 320px at 6% 8%,rgba(201,166,74,.08),transparent 70%);
             --flow:linear-gradient(100deg,#1f3d7a,#2563c7 25%,#8db9ff 50%,#2563c7 75%,#1f3d7a);
-            --ink:#1f2329;--ink-dim:#5f6673;--accent:#2563c7;--rule:rgba(31,61,122,.35);
+            --ink:#1f2329;--ink-dim:#5f6673;--accent:#2563c7;--rule:rgba(31,61,122,.35);--card:rgba(31,61,122,.06);
             --font-title:"Microsoft YaHei UI","PingFang SC",sans-serif;--font-body:"Microsoft YaHei UI","PingFang SC",sans-serif;
             --particle:37,99,199}
             """, false);
@@ -77,7 +86,7 @@ public class ProjectShowService {
             radial-gradient(620px 380px at 90% 12%,rgba(47,143,107,.1),transparent 70%),
             radial-gradient(560px 360px at 8% 92%,rgba(47,143,107,.09),transparent 70%);
             --flow:linear-gradient(100deg,#1d5c46,#2f8f6b 25%,#b9ecd2 50%,#2f8f6b 75%,#1d5c46);
-            --ink:#17352a;--ink-dim:#52705f;--accent:#2f8f6b;--rule:rgba(29,92,70,.35);
+            --ink:#17352a;--ink-dim:#52705f;--accent:#2f8f6b;--rule:rgba(29,92,70,.35);--card:rgba(23,53,42,.06);
             --font-title:"STZhongsong","NSimSun",serif;--font-body:"Microsoft YaHei UI","PingFang SC",sans-serif;
             --particle:47,143,107}
             """, false);
@@ -225,6 +234,7 @@ public class ProjectShowService {
             .lines li{display:flex;align-items:baseline;gap:.55em;overflow-wrap:anywhere;color:var(--ink)}
             .lines li::before{content:"";flex:none;width:.55em;height:.55em;transform:rotate(45deg) translateY(-.1em);
               background:var(--accent);box-shadow:0 0 10px var(--rule)}
+            /* 旧版左右人物布局（兼容 1.0.103 前扁平草稿） */
             .bio{flex-direction:row;align-items:center;gap:5%}
             .photo{flex:none;width:23%;aspect-ratio:1/1;margin:0;position:relative;overflow:hidden;
               border:2px solid var(--rule);border-radius:50%;
@@ -236,6 +246,86 @@ public class ProjectShowService {
               animation:sweep 5.5s ease-in-out infinite}
             .bio-main{flex:1;min-width:0}
             .bio-main .crumb{margin-bottom:1em}
+            /* ===== 结构化页面（2026-11-21）：cover/section/bio-v/resume/panel ===== */
+            .cover{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+              text-align:center;position:relative;padding:0 7%}
+            .cover-emblem{width:104px;height:104px;border-radius:50%;border:2px solid var(--rule);
+              position:relative;margin-bottom:26px}
+            .cover-emblem::before{content:"";position:absolute;inset:-16px;border-radius:50%;
+              border:1px dashed var(--rule);animation:spin 26s linear infinite}
+            .cover-emblem i{position:absolute;inset:22px;border-radius:50%;
+              background:radial-gradient(circle at 34% 30%,var(--ink),var(--accent) 55%);
+              box-shadow:0 0 34px var(--rule)}
+            .cover-org{font-size:1.7em;letter-spacing:.42em;text-indent:.42em;color:var(--ink-dim);margin:0 0 30px}
+            .cover-title{font-size:9.2em;line-height:1.08;margin:.06em 0;overflow-wrap:anywhere;max-width:100%}
+            .cover-title.t-long{font-size:5.4em}
+            .cover-sub{font-size:1.9em;letter-spacing:.45em;text-indent:.45em;color:var(--ink-dim);margin:16px 0 0}
+            .cover-line{width:520px;height:2px;margin:42px 0 34px;position:relative;
+              background:linear-gradient(90deg,transparent,var(--accent) 30%,var(--accent) 70%,transparent)}
+            .cover-line::after{content:"";position:absolute;left:50%;top:50%;width:12px;height:12px;
+              transform:translate(-50%,-50%) rotate(45deg);background:var(--accent);box-shadow:0 0 14px var(--rule)}
+            .cover-info{display:flex;flex-direction:column;gap:14px}
+            .ci-row{display:flex;align-items:baseline;gap:14px;font-size:1.5em;overflow-wrap:anywhere}
+            .ci-k{color:var(--ink-dim);letter-spacing:.2em;flex:none}
+            .ci-k::after{content:"｜";color:var(--rule);margin-left:6px}
+            .ci-v{color:var(--ink)}
+            .cover-corner{position:absolute;width:150px;height:150px;border:2px solid var(--rule);opacity:.7}
+            .cover-corner.tl{left:56px;top:52px;border-right:none;border-bottom:none}
+            .cover-corner.br{right:56px;bottom:52px;border-left:none;border-top:none}
+            .sec{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+              text-align:center;position:relative;overflow:hidden}
+            .sec-num{font-size:11em;font-family:Georgia,serif;font-weight:700;line-height:1;color:transparent;
+              -webkit-text-stroke:2px var(--accent);margin-bottom:6px;text-shadow:0 0 60px var(--rule)}
+            .sec-title{font-size:6.6em;letter-spacing:.35em;text-indent:.35em;margin:.08em 0;font-weight:700;
+              overflow-wrap:anywhere}
+            .sec-line{width:420px;height:2px;margin:34px 0 28px;
+              background:linear-gradient(90deg,transparent,var(--accent) 30%,var(--accent) 70%,transparent)}
+            .sec-person strong{font-size:2.1em;letter-spacing:.15em;color:var(--ink)}
+            .sec-person small{font-size:1.1em;color:var(--ink-dim);margin-left:.4em}
+            .sec-person span{display:block;font-size:1.3em;color:var(--ink-dim);margin-top:10px;letter-spacing:.12em}
+            .sec-wm{position:absolute;right:30px;bottom:-46px;font-size:300px;line-height:1;color:transparent;
+              -webkit-text-stroke:1.5px var(--rule);opacity:.28;font-family:var(--font-title);
+              pointer-events:none;user-select:none}
+            .bio-v{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+              text-align:center;padding:0 8%}
+            .photo-card{width:30%;max-height:52%;aspect-ratio:3/4;margin:0;position:relative;overflow:hidden;
+              border:2px solid var(--rule);border-radius:18px;box-shadow:0 18px 48px rgba(0,0,0,.35)}
+            .photo-card img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
+            .photo-card::after{content:"";position:absolute;top:-60%;left:0;width:34%;height:220%;
+              transform:translateX(-180%) rotate(22deg);pointer-events:none;
+              background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);
+              animation:sweep 5.5s ease-in-out infinite}
+            .role-badge{font-size:1.35em;letter-spacing:.3em;text-indent:.3em;color:var(--ink-dim);
+              border:1px solid var(--rule);border-radius:999px;padding:.32em 1.6em;margin:28px 0 14px}
+            .bio-name{font-size:5.2em;line-height:1.15}
+            .bio-name small{font-size:.42em;color:var(--ink-dim);margin-left:.25em;font-family:var(--font-body)}
+            .bio-unit{font-size:1.5em;color:var(--ink-dim);letter-spacing:.15em;margin-top:10px}
+            .resume-page{height:100%;padding:6.5% 8%;display:flex;flex-direction:column}
+            .rp-title{font-size:2.9em;margin:0;font-family:var(--font-title);letter-spacing:.1em}
+            .rp-title span{font-size:.38em;letter-spacing:.6em;color:var(--ink-dim);margin-left:18px}
+            .rp-sub{font-size:1.4em;color:var(--ink-dim);margin:.5em 0 0;letter-spacing:.1em}
+            .rp-rule{height:2px;background:linear-gradient(90deg,var(--accent),transparent 85%);margin:20px 0 44px}
+            .rp-cols{columns:2;column-gap:64px;list-style:none;margin:0;padding:0;flex:1}
+            .rp-cols li{font-size:1.5em;line-height:1.5;margin-bottom:28px;break-inside:avoid;
+              display:flex;gap:.5em;overflow-wrap:anywhere}
+            .rp-cols li::before{content:"";flex:none;width:.5em;height:.5em;transform:rotate(45deg);
+              background:var(--accent);margin-top:.32em;box-shadow:0 0 8px var(--rule)}
+            .panel{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+              text-align:center;padding:0 6%}
+            .panel-eyebrow{font-size:1.15em;letter-spacing:.5em;text-indent:.5em;color:var(--ink-dim);
+              margin:0 0 14px;text-transform:uppercase}
+            .panel h1.flow{font-size:5.4em}
+            .panel-cards{display:flex;flex-wrap:wrap;justify-content:center;gap:2% 2.2%;margin-top:2.6%;width:100%}
+            .p-card{flex:0 0 21%;max-width:21%;background:var(--card);border:1px solid var(--rule);
+              border-radius:16px;padding:5% 3%;display:flex;flex-direction:column;align-items:center}
+            .p-avatar{width:74%;aspect-ratio:1/1;border-radius:50%;object-fit:cover;object-position:center top;
+              border:2px solid var(--rule);display:block}
+            .p-avatar-word{width:74%;aspect-ratio:1/1;border-radius:50%;border:2px solid var(--rule);
+              display:flex;align-items:center;justify-content:center;font-size:3.6em;color:var(--ink-dim);
+              font-family:var(--font-title);background:var(--card)}
+            .p-card figcaption strong{display:block;font-size:1.65em;margin-top:.55em;letter-spacing:.06em}
+            .p-card figcaption small{font-size:.62em;color:var(--ink-dim);margin-left:.25em}
+            .p-card figcaption span{display:block;font-size:1.15em;color:var(--ink-dim);margin-top:.3em}
             .slide [data-step]{transition:opacity .6s cubic-bezier(.22,.85,.3,1),transform .6s cubic-bezier(.22,.85,.3,1),filter .6s ease}
             .slide [data-step].ppt-step-hidden{opacity:0;transform:translateY(30px) scale(.98);filter:blur(6px)}
             .a-in{animation:aIn .7s cubic-bezier(.22,.85,.3,1) both}
@@ -252,6 +342,7 @@ public class ProjectShowService {
             @keyframes aWide{from{opacity:0;letter-spacing:.5em;filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
             @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
             @keyframes sweep{from{transform:translateX(-180%) rotate(22deg)}to{transform:translateX(420%) rotate(22deg)}}
+            @keyframes spin{to{transform:rotate(360deg)}}
             """;
 
     private static String head(Theme theme, double fs, String background) {
@@ -277,9 +368,159 @@ public class ProjectShowService {
         String title = text(slide.title(), 240);
         String body = text(slide.body(), 4000);
         String portrait = image(slide.image());
-        String kind = kindOf(label, title, portrait, first);
+        String kind = slide.kind() == null || slide.kind().isBlank()
+                ? kindOf(label, title, portrait, first) : slide.kind();
         List<String> lines = body.isBlank() ? List.of() : Arrays.stream(body.split("\n"))
                 .map(String::strip).filter(line -> !line.isEmpty()).toList();
+        return switch (kind) {
+            case "cover" -> coverHtml(label, title, lines, slide.items());
+            case "section" -> sectionHtml(label, title, slide.items(), slide.persons());
+            case "resume" -> resumeHtml(label, title, slide.items());
+            case "panel" -> panelHtml(label, title, slide.persons());
+            case "bio" -> structuredBio(slide.persons()) != null
+                    ? bioHtml(label, structuredBio(slide.persons())) : legacyContentHtml(kind, label, title, portrait, lines, first);
+
+            default -> legacyContentHtml(kind, label, title, portrait, lines, first);
+        };
+    }
+
+    /** 出场页主人物：persons 非空取首个有姓名的；否则 null 走旧结构渲染。 */
+    private static Person structuredBio(List<Person> persons) {
+        if (persons == null) return null;
+        for (Person p : persons) {
+            if (p != null && p.name() != null && !p.name().isBlank()) return p;
+        }
+        return null;
+    }
+
+    private static String bioHtml(String label, Person p) {
+        String portrait = image(p.image());
+        String role = text(p.role(), 40);
+        String name = text(p.name(), 60);
+        String title = text(p.title(), 60);
+        String unit = text(p.unit(), 120);
+        StringBuilder s = new StringBuilder("<section class=\"slide k-bio\"><div class=\"bio-v\">");
+        if (!portrait.isEmpty()) {
+            s.append("<figure class=\"photo-card a-in\"><img src=\"").append(portrait).append("\" alt=\"\"></figure>");
+        } else {
+            s.append("<figure class=\"photo-card a-in photo-empty\"></figure>");
+        }
+        if (!role.isEmpty()) s.append("<p class=\"role-badge a-in\" data-step>").append(role).append("</p>");
+        String sizeClass = name.length() > 9 ? " t-long" : "";
+        if (!name.isEmpty()) {
+            s.append("<h1 class=\"flow bio-name a-wide").append(sizeClass).append("\">").append(name);
+            if (!title.isEmpty()) s.append("<small>").append(title).append("</small>");
+            s.append("</h1>");
+        }
+        if (!unit.isEmpty()) s.append("<p class=\"bio-unit a-in\" data-step>").append(unit).append("</p>");
+        if (!label.isEmpty() && !"个人简历".equals(label)) s.append("<p class=\"crumb a-in\" style=\"margin-top:22px\">").append(label).append("</p>");
+        return s.append("</div></section>\n").toString();
+    }
+
+    private static String coverHtml(String label, String title, List<String> bodyLines, List<String> items) {
+        StringBuilder s = new StringBuilder("<section class=\"slide k-cover\"><div class=\"cover\">");
+        s.append("<i class=\"cover-corner tl\"></i><i class=\"cover-corner br\"></i>");
+        s.append("<div class=\"cover-emblem a-in\"><i></i></div>");
+        if (!label.isEmpty()) s.append("<p class=\"cover-org a-in\">").append(label).append("</p>");
+        if (!title.isEmpty()) {
+            String sizeClass = title.length() > 8 ? " t-long" : "";
+            s.append("<h1 class=\"flow cover-title a-wide").append(sizeClass).append("\">").append(title).append("</h1>");
+        }
+        if (!bodyLines.isEmpty()) s.append("<p class=\"cover-sub a-in\">").append(bodyLines.get(0)).append("</p>");
+        s.append("<div class=\"cover-line a-in\"></div>");
+        if (items != null) {
+            int n = Math.min(items.size(), 12);
+            for (int i = 0; i < n; i++) {
+                String item = text(items.get(i), 160);
+                if (item.isEmpty()) continue;
+                String[] kv = item.split("\\|", 2);
+                s.append("<div class=\"ci-row\" data-step");
+                if (kv.length == 2 && !kv[0].isBlank()) {
+                    s.append("><span class=\"ci-k\">").append(kv[0]).append("</span><span class=\"ci-v\">")
+                            .append(kv[1]).append("</span></div>");
+                } else {
+                    s.append("><span class=\"ci-v\">").append(item).append("</span></div>");
+                }
+            }
+        }
+        return s.append("</div></section>\n").toString();
+    }
+
+    private static String sectionHtml(String label, String title, List<String> items, List<Person> persons) {
+        String num = items == null || items.isEmpty() ? "" : text(items.get(0), 12);
+        Person lead = persons == null ? null : Arrays.stream(persons.toArray(new Person[0]))
+                .filter(p -> p != null && p.name() != null && !p.name().isBlank()).findFirst().orElse(null);
+        StringBuilder s = new StringBuilder("<section class=\"slide k-section\"><div class=\"sec\">");
+        String wm = title.length() > 2 ? title.substring(title.length() - 2) : title;
+        if (!wm.isEmpty()) s.append("<div class=\"sec-wm\" aria-hidden=\"true\">").append(wm).append("</div>");
+        if (!num.isEmpty()) s.append("<div class=\"sec-num a-in\">").append(num).append("</div>");
+        if (!title.isEmpty()) s.append("<h1 class=\"sec-title flow a-wide\">").append(title).append("</h1>");
+        s.append("<div class=\"sec-line a-in\"></div>");
+        if (lead != null) {
+            String name = text(lead.name(), 60);
+            String title2 = text(lead.title(), 60);
+            String unit = text(lead.unit(), 120);
+            String role = text(lead.role(), 40);
+            s.append("<div class=\"sec-person a-in\" data-step><strong>");
+            if (!role.isEmpty()) s.append(role).append(" · ");
+            s.append(name);
+            if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
+            s.append("</strong>");
+            if (!unit.isEmpty()) s.append("<span>").append(unit).append("</span>");
+            s.append("</div>");
+        }
+        if (!label.isEmpty() && !"过场".equals(label)) s.append("<p class=\"crumb a-in\" style=\"margin-top:26px\">").append(label).append("</p>");
+        return s.append("</div></section>\n").toString();
+    }
+
+    private static String resumeHtml(String label, String title, List<String> items) {
+        StringBuilder s = new StringBuilder("<section class=\"slide k-resume\"><div class=\"resume-page\">");
+        s.append("<h3 class=\"rp-title a-in\">").append(label.isEmpty() ? "个人简历" : label)
+                .append("<span>RESUME</span></h3>");
+        if (!title.isEmpty()) s.append("<p class=\"rp-sub a-in\">").append(title).append("</p>");
+        s.append("<div class=\"rp-rule a-in\"></div><ul class=\"rp-cols\">");
+        if (items != null) {
+            int n = Math.min(items.size(), 30);
+            for (int i = 0; i < n; i++) {
+                String item = text(items.get(i), 200);
+                if (!item.isEmpty()) s.append("<li data-step>").append(item).append("</li>");
+            }
+        }
+        return s.append("</ul></div></section>\n").toString();
+    }
+
+    private static String panelHtml(String label, String title, List<Person> persons) {
+        StringBuilder s = new StringBuilder("<section class=\"slide k-panel\"><div class=\"panel\">");
+        if (!label.isEmpty()) s.append("<p class=\"panel-eyebrow a-in\">").append(label).append("</p>");
+        if (!title.isEmpty()) s.append("<h1 class=\"flow a-wide\">").append(title).append("</h1>");
+        s.append("<div class=\"rule a-in\"></div><div class=\"panel-cards\">");
+        if (persons != null) {
+            int n = Math.min(persons.size(), 8);
+            for (int i = 0; i < n; i++) {
+                Person p = persons.get(i);
+                if (p == null || p.name() == null || p.name().isBlank()) continue;
+                String name = text(p.name(), 60);
+                String title2 = text(p.title(), 60);
+                String unit = text(p.unit(), 120);
+                String portrait = image(p.image());
+                s.append("<figure class=\"p-card a-in\" data-step>");
+                if (!portrait.isEmpty()) {
+                    s.append("<img class=\"p-avatar\" src=\"").append(portrait).append("\" alt=\"\">");
+                } else {
+                    s.append("<span class=\"p-avatar-word\">").append(name.substring(0, 1)).append("</span>");
+                }
+                s.append("<figcaption><strong>").append(name);
+                if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
+                s.append("</strong>");
+                if (!unit.isEmpty()) s.append("<span>").append(unit).append("</span>");
+                s.append("</figcaption></figure>");
+            }
+        }
+        return s.append("</div></div></section>\n").toString();
+    }
+
+    private static String legacyContentHtml(String kind, String label, String title, String portrait,
+                                            List<String> lines, boolean first) {
         String sizeClass = title.length() > 28 ? " t-xlong" : title.length() > 14 ? " t-long" : "";
         StringBuilder s = new StringBuilder("<section class=\"slide k-").append(kind).append("\">");
         switch (kind) {

@@ -1,6 +1,6 @@
 {
   "name": "expert-system-frontend",
-  "version": "1.0.105",
+  "version": "1.0.106",
   "private": true,
   "description": "专家库系统前端应用（Vue 3）",
   "type": "module",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "@vladmandic/face-api": "^1.7.15",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/core": "^1.41.4",
     "@wangeditor/editor": "^5.1.23",
