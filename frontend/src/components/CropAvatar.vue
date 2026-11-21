@@ -15,7 +15,9 @@
       </div>
     </div>
     <div class="crop-side">
-      <div class="crop-out" :class="{ 'has-frame': frame }">
+      <div class="crop-out" :class="{ 'has-frame': frame }" :style="frame ? {
+        '--frame-size': `${frameFit.scale}%`, '--frame-x': `${50 + frameFit.x}%`, '--frame-y': `${50 + frameFit.y}%`
+      } : {}">
         <img v-if="modelValue" :src="modelValue" alt="圆形头像预览">
         <span v-else class="crop-out-empty">{{ ready ? '生成中' : '等待照片' }}</span>
         <img v-if="frame" class="crop-frame" :src="frame" alt="">
@@ -34,7 +36,8 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 const props = defineProps({
   src: { type: String, default: '' },
   modelValue: { type: String, default: '' },
-  frame: { type: String, default: '' }
+  frame: { type: String, default: '' },
+  frameFit: { type: Object, default: () => ({ scale: 82, x: 0, y: 0 }) }
 })
 const emit = defineEmits(['update:modelValue', 'detecting'])
 
@@ -227,5 +230,7 @@ defineExpose({ render })
 .crop-note { margin: 0; font-size: 11px; color: rgba(255, 243, 220, .45); text-align: center; }
 .crop-out { position: relative; }
 .crop-out.has-frame { border-color: transparent; overflow: visible; }
+.crop-out.has-frame img:not(.crop-frame) { position: absolute; width: var(--frame-size); height: var(--frame-size);
+  left: var(--frame-x); top: var(--frame-y); transform: translate(-50%, -50%); border-radius: 50%; }
 .crop-out .crop-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 </style>

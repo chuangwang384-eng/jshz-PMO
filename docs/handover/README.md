@@ -452,3 +452,5 @@
 - 2026-11-21 [串场向导单页预览与专家头像 1.0.121](tasks/20261121_show_wizard_page_preview.md)
 
 - 2026-11-21 [串场封面设计与公司共享模板 1.0.122](tasks/20261121_show_cover_design.md)
+
+- 2026-11-21 [串场封面文本框与头像框对齐](tasks/20261121_show_cover_controls.md)

@@ -12,6 +12,22 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProjectStageDeliverableTest {
     @Test
+    void exportsResizedCoverWithOfflineFontAndAdjustableAvatarFrame() {
+        var cover = new ProjectShowService.Slide("", "封面", "", "", "cover", null, null, null);
+        var field = new ProjectShowService.CoverField("title", "主标题", "会议", 50.0, 42.0,
+                37.5, 9.0, 120.0, "ma-shan");
+        var deck = new ProjectShowService.Deck("", List.of(cover), "gold", null, null, List.of(field),
+                "data:image/png;base64,AAAA", new ProjectShowService.FrameFit(74.0, 3.0, -5.0));
+        String html = ProjectShowService.render(deck);
+        assertTrue(html.contains(";width:37.5%;height:9.0%;font-size:"));
+        assertTrue(html.contains("font-family:'PMO Ma Shan'"));
+        assertTrue(html.contains("font-src data:"));
+        assertTrue(html.contains("src:url(data:font/woff2;base64,"));
+        assertTrue(html.contains("--frame-size:74.0%;--frame-x:53.0%;--frame-y:45.0%"));
+        assertTrue(html.contains("SIL OPEN FONT LICENSE") || html.contains("SIL Open Font License"));
+    }
+
+    @Test
     void customCoverCoordinatesAndPortraitFrameAreRenderedSafely() {
         var cover = new ProjectShowService.Slide("", "封面", "", "", "cover", null, null, null);
         var section = new ProjectShowService.Slide("", "开场", "", "", "section", List.of("01"),

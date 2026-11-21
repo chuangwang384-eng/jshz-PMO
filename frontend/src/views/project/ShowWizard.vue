@@ -22,24 +22,16 @@
           <span class="tpl-note">{{ t.desc }}</span>
         </button>
       </div>
-      <div class="wiz-actions">
-        <el-select v-model="sharedId" clearable placeholder="选用公司共享模板" @change="applySharedTemplate">
-          <el-option v-for="item in sharedTemplates" :key="item.id" :value="item.id" :label="item.name" />
-        </el-select>
-        <el-button v-if="project.canOperate" @click="storeTemplate(false)">另存为共享模板</el-button>
-        <el-button v-if="project.canOperate && sharedId" @click="storeTemplate(true)">更新共享模板</el-button>
-        <el-button v-if="project.canOperate && sharedId" type="danger" plain @click="dropTemplate">下架共享模板</el-button>
-      </div>
       <div class="dark-card cover-card">
         <p class="block-title">封面定制</p>
         <div class="cover-fields">
-          <label class="field">机构 / 主办方<el-input v-model="cover.org" maxlength="80" placeholder="如：中国医药教育协会" /></label>
-          <label class="field field-grow">主标题<el-input v-model="cover.title" maxlength="60" placeholder="如：聚例辉煌" /></label>
-          <label class="field field-grow">副标题<el-input v-model="cover.sub" maxlength="120" placeholder="如：临床应用研讨 · 多学科病例讨论项目" /></label>
+          <label v-if="hasField('org')" class="field">机构 / 主办方<el-input v-model="cover.org" maxlength="80" placeholder="如：中国医药教育协会" /></label>
+          <label v-if="hasField('title')" class="field field-grow">主标题<el-input v-model="cover.title" maxlength="60" placeholder="如：聚例辉煌" /></label>
+          <label v-if="hasField('sub')" class="field field-grow">副标题<el-input v-model="cover.sub" maxlength="120" placeholder="如：临床应用研讨 · 多学科病例讨论项目" /></label>
         </div>
         <div class="cover-fields">
-          <label class="field">会议地点<el-input v-model="cover.place" maxlength="60" placeholder="如：郑州 · 会场一" /></label>
-          <label class="field field-grow">大会主席<el-input v-model="cover.chair" maxlength="80" placeholder="如：齐秀恒 教授" /></label>
+          <label v-if="hasField('place')" class="field">会议地点<el-input v-model="cover.place" maxlength="60" placeholder="如：郑州 · 会场一" /></label>
+          <label v-if="hasField('chair')" class="field field-grow">大会主席<el-input v-model="cover.chair" maxlength="80" placeholder="如：齐秀恒 教授" /></label>
         </div>
         <div class="cover-fields">
           <label class="field">全局字号
@@ -64,13 +56,38 @@
         </div>
         <div class="cover-canvas" :class="{ 'cover-canvas-tech': template === 'tech' }" ref="coverCanvas"
           :style="background ? { backgroundImage: `linear-gradient(#0002, #0002), url(${background})` } : {}">
-          <button v-for="field in coverFields" :key="field.key" type="button" class="canvas-field"
-            :class="{ 'canvas-title': field.key === 'title' }" :aria-label="`移动${field.label}`"
-            :style="{ left: `${field.x}%`, top: `${field.y}%` }"
-            @pointerdown="startFieldDrag($event, field.key)" @pointermove="moveFieldDrag"
-            @pointerup="stopFieldDrag" @pointercancel="stopFieldDrag" @lostpointercapture="stopFieldDrag"
-            @keydown="nudgeField($event, field.key)">{{ field.value || field.label }}</button>
+          <div v-for="field in coverFields" :key="field.key" class="canvas-field"
+            :class="{ 'canvas-title': field.key === 'title', selected: selectedKey === field.key }"
+            :style="coverFieldStyle(field)">
+            <button type="button" class="canvas-field-text" :aria-label="`编辑${field.label}`"
+              @click="selectedKey = field.key" @pointerdown="startFieldDrag($event, field.key)"
+              @pointermove="moveFieldDrag" @pointerup="stopFieldDrag" @pointercancel="stopFieldDrag"
+              @lostpointercapture="stopFieldDrag" @keydown="nudgeField($event, field.key)">
+              {{ field.value || field.label }}
+            </button>
+            <button type="button" class="canvas-delete" :aria-label="`删除${field.label}`" @click="removeCoverField(field.key)">×</button>
+            <button type="button" class="canvas-resize" :aria-label="`缩放${field.label}`"
+              @pointerdown="startFieldDrag($event, field.key, true)" @pointermove="moveFieldDrag"
+              @pointerup="stopFieldDrag" @pointercancel="stopFieldDrag" @lostpointercapture="stopFieldDrag"
+              @keydown="resizeWithKeys($event, field.key)">◢</button>
+          </div>
         </div>
+        <div v-if="layout.length" class="cover-fields field-settings">
+          <label class="field">编辑文本框
+            <el-select v-model="selectedKey" placeholder="选择文本框" style="width: 190px">
+              <el-option v-for="field in layout" :key="field.key" :label="field.label" :value="field.key" />
+            </el-select>
+          </label>
+          <label v-if="selectedField" class="field">{{ selectedField.label }}字体
+            <el-select v-model="selectedField.font" style="width: 190px">
+              <el-option v-for="font in coverFonts" :key="font.value" :label="font.label" :value="font.value" />
+            </el-select>
+          </label>
+          <label v-if="selectedField" class="field">字号（相对默认值）
+            <el-input-number v-model="selectedField.scale" :min="50" :max="200" :step="10" />
+          </label>
+        </div>
+        <el-button v-if="defaultLayout.some(field => !hasField(field.key))" link @click="restoreDefaultFields">恢复已删除的默认字段</el-button>
       </div>
       <div class="wiz-actions"><el-button type="primary" :disabled="!experts.length" @click="step = 2">下一步：专家信息</el-button></div>
     </section>
@@ -89,6 +106,12 @@
         <el-button v-if="avatarFrame" size="small" @click="avatarFrame = ''">恢复默认头像框</el-button>
         <el-button v-if="editable" :disabled="busy" @click="saveDraft('项目头像框已保存')">保存头像框</el-button>
       </div>
+      <div v-if="avatarFrame" class="cover-fields">
+        <label class="field">框内头像大小（%）<el-input-number v-model="frameFit.scale" :min="40" :max="100" /></label>
+        <label class="field">水平偏移（%）<el-input-number v-model="frameFit.x" :min="-25" :max="25" /></label>
+        <label class="field">垂直偏移（%）<el-input-number v-model="frameFit.y" :min="-25" :max="25" /></label>
+        <el-button size="small" @click="frameFit = { ...defaultFrameFit }">复位</el-button>
+      </div>
       <div v-for="p in experts" :key="p.key" class="dark-card person-card">
         <div class="person-head">
           <strong>{{ p.name || '未命名专家' }}</strong>
@@ -98,7 +121,7 @@
           </el-button>
           <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveDraft('专家信息已保存')">保存</el-button>
         </div>
-        <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" :frame="avatarFrame" @detecting="setDetecting(p.key, $event)" />
+        <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" :frame="avatarFrame" :frame-fit="frameFit" @detecting="setDetecting(p.key, $event)" />
         <p v-else class="person-hint" role="status">{{ p.loading ? '正在读取专家资料和头像，请稍候…' : p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '该专家未关联专家库，将仅生成文字页' }}</p>
         <div class="person-fields">
           <label class="field">姓名<el-input v-model="p.name" maxlength="60" style="width: 140px" /></label>
@@ -230,12 +253,13 @@
 </template>
 
 <script setup>
+import '../../../../backend/src/main/resources/show-fonts/cover-fonts.css'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
-import { getProjectDetail, getScheduleOverview, getShowAgenda, getStageForm, getShowTemplate, getShowTemplates, previewShow, publishShow, removeShowTemplate, saveShowTemplate, saveStageForm } from '../../api/project'
+import { getProjectDetail, getScheduleOverview, getShowAgenda, getStageForm, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
   ROLE_OPTIONS, agendaRows, classifyRow, dedupePhotos, normalizeName, roleLabel, splitResumeItems
 } from '../../utils/showDeck'
@@ -273,12 +297,19 @@ const defaultLayout = [
   { key: 'place', label: '会议地点', x: 50, y: 69 },
   { key: 'chair', label: '大会主席', x: 50, y: 79 }
 ]
-const layout = ref(defaultLayout.map(field => ({ ...field })))
+const layout = ref(defaultLayout.map(normalizeCoverField))
 const coverCanvas = ref(null)
 const background = ref('')
 const avatarFrame = ref('')
-const sharedId = ref('')
-const sharedTemplates = ref([])
+const defaultFrameFit = { scale: 82, x: 0, y: 0 }
+const frameFit = ref({ ...defaultFrameFit })
+const selectedKey = ref('')
+const selectedField = computed(() => layout.value.find(field => field.key === selectedKey.value))
+const coverFonts = [
+  { value: 'default', label: '主题默认', family: 'inherit' },
+  { value: 'ma-shan', label: '马善政毛笔楷书', family: 'PMO Ma Shan' },
+  { value: 'zhi-mang', label: '志莽行书', family: 'PMO Zhi Mang' }
+]
 const draggedPage = ref(null)
 const detectingPeople = new Set()
 let detectNotice
@@ -345,7 +376,6 @@ onMounted(async () => {
   const phase = detail.phases?.find(item => item.name === '串场制作')
   editable.value = Boolean(detail.canOperate && phase && String(detail.phaseId) === String(phase.id))
   phaseId.value = phase?.id || null
-  void refreshTemplates().catch(() => ElMessage.warning('共享模板暂不可用'))
   const [agenda, overview] = await Promise.all([getShowAgenda(id), getScheduleOverview(id)])
   const rawSpeakers = overview?.speakers || []
   const { people, personByRecord } = buildSpeakers(rawSpeakers)
@@ -387,6 +417,7 @@ onMounted(async () => {
       if (!Array.isArray(draft?.coverFields)) return
       loadDesign({ ...draft, theme: draft.template, fields: draft.coverFields }, true)
       avatarFrame.value = draft.avatarFrame || ''
+      frameFit.value = { ...defaultFrameFit, ...draft.frameFit }
       if (fontScales.some(scale => scale.value === draft.fontScale)) fontScale.value = draft.fontScale
       if (Array.isArray(draft.slides) && draft.slides.length) restorePages(draft)
     }).catch(() => ElMessage.warning('无法读取已保存的封面和头像框'))
@@ -532,7 +563,7 @@ function deck(base = currentDeckSlides.value, keepWizardMetadata = false) {
   }))
   const { slides, photos } = dedupePhotos(content)
   return { slides, photos, background: background.value, template: template.value,
-    fontScale: fontScale.value, coverFields: coverFields.value, avatarFrame: avatarFrame.value }
+    fontScale: fontScale.value, coverFields: coverFields.value, avatarFrame: avatarFrame.value, frameFit: frameFit.value }
 }
 
 function pageCount(kind) {
@@ -808,12 +839,7 @@ function mutableSlides() {
   return editableDeck.value
 }
 
-async function refreshTemplates() {
-  sharedTemplates.value = await getShowTemplates(id)
-}
-
 function selectBuiltin(theme) {
-  sharedId.value = ''
   template.value = theme
   background.value = ''
 }
@@ -824,48 +850,8 @@ function loadDesign(design, restoreValues = false) {
   layout.value = design.fields.map(field => {
     const value = restoreValues ? field.value : ''
     if (restoreValues && Object.hasOwn(cover.value, field.key)) cover.value[field.key] = value
-    return { ...field, value }
+    return normalizeCoverField({ ...field, value })
   })
-}
-
-async function applySharedTemplate(templateId) {
-  if (!templateId) return
-  const design = await getShowTemplate(id, templateId)
-  if (sharedId.value === templateId) loadDesign(design)
-}
-
-async function storeTemplate(update) {
-  const previous = sharedTemplates.value.find(item => item.id === sharedId.value)
-  let name
-  try {
-    const response = await ElMessageBox.prompt('模板供公司选用，请勿在名称中填写项目专属信息。', '共享封面模板', {
-      inputValue: update ? previous?.name : '',
-      inputValidator: value => value?.trim() && value.trim().length <= 60 || '请输入 1 至 60 字的模板名称'
-    })
-    name = response.value.trim()
-  } catch {
-    return
-  }
-  const saved = await saveShowTemplate(id, update ? sharedId.value : newId(), {
-    name, theme: template.value, background: background.value,
-    fields: layout.value.map(({ key, label, x, y }) => ({ key, label, x, y }))
-  })
-  await refreshTemplates()
-  sharedId.value = saved.id
-  ElMessage.success('共享模板已保存')
-}
-
-async function dropTemplate() {
-  const templateId = sharedId.value
-  try {
-    await ElMessageBox.confirm('下架后同事将无法再选用此模板。', '下架共享模板', { type: 'warning' })
-  } catch {
-    return
-  }
-  await removeShowTemplate(id, templateId)
-  sharedId.value = ''
-  await refreshTemplates()
-  ElMessage.success('共享模板已下架')
 }
 
 function newId() {
@@ -874,32 +860,79 @@ function newId() {
 }
 
 function addCoverField() {
-  layout.value.push({ key: `field-${newId()}`, label: '自定义字段', value: '', x: 50, y: 88 })
+  const field = normalizeCoverField({ key: `field-${newId()}`, label: '自定义字段', value: '', x: 50, y: 88 })
+  layout.value.push(field)
+  selectedKey.value = field.key
 }
 
 function removeCoverField(key) {
   layout.value = layout.value.filter(field => field.key !== key)
+  if (selectedKey.value === key) selectedKey.value = ''
 }
 
 function setFieldPosition(key, x, y) {
   const field = layout.value.find(item => item.key === key)
   if (!field) return
-  field.x = Math.round(Math.max(5, Math.min(95, x)) * 10) / 10
-  field.y = Math.round(Math.max(5, Math.min(95, y)) * 10) / 10
+  const halfWidth = field.width / 2 + 2
+  const halfHeight = field.height / 2 + 3
+  field.x = Math.round(Math.max(halfWidth, Math.min(100 - halfWidth, x)) * 10) / 10
+  field.y = Math.round(Math.max(halfHeight, Math.min(100 - halfHeight, y)) * 10) / 10
 }
 
-function startFieldDrag(event, key) {
+function hasField(key) {
+  return layout.value.some(field => field.key === key)
+}
+
+function normalizeCoverField(field) {
+  return { width: field.key === 'title' ? 45 : 23, height: field.key === 'title' ? 13 : 8,
+    scale: 100, font: 'default', ...field }
+}
+
+function restoreDefaultFields() {
+  for (const field of defaultLayout) {
+    if (layout.value.length >= 20) break
+    if (!hasField(field.key)) layout.value.push(normalizeCoverField(field))
+  }
+}
+
+function coverFieldStyle(field) {
+  const font = coverFonts.find(item => item.value === field.font)
+  return {
+    left: `${field.x}%`, top: `${field.y}%`, width: `${field.width}%`, height: `${field.height}%`,
+    fontFamily: font?.family, fontSize: `${(field.key === 'title' ? 3.35 : 1.75) * (field.scale ?? 100) / 100}cqw`
+  }
+}
+
+function resizeField(field, x, y) {
+  field.width = Math.round(Math.max(8, Math.min(90, x)) * 10) / 10
+  field.height = Math.round(Math.max(4, Math.min(60, y)) * 10) / 10
+  setFieldPosition(field.key, field.x, field.y)
+}
+
+function resizeWithKeys(event, key) {
+  const offset = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key]
+  if (!offset) return
+  event.preventDefault()
+  const field = layout.value.find(item => item.key === key)
+  resizeField(field, field.width + offset[0], field.height + offset[1])
+}
+
+function startFieldDrag(event, key, resizing = false) {
   if (event.button !== 0) return
   const field = layout.value.find(item => item.key === key)
   const rect = coverCanvas.value.getBoundingClientRect()
-  fieldDrag = { key, pointerId: event.pointerId, x: field.x, y: field.y, left: event.clientX, top: event.clientY, rect }
+  selectedKey.value = key
+  fieldDrag = { key, resizing, width: field.width, height: field.height, pointerId: event.pointerId, x: field.x, y: field.y, left: event.clientX, top: event.clientY, rect }
   event.currentTarget.setPointerCapture(event.pointerId)
 }
 
 function moveFieldDrag(event) {
   if (event.pointerId !== fieldDrag?.pointerId) return
-  const { key, x, y, left, top, rect } = fieldDrag
-  setFieldPosition(key, x + (event.clientX - left) * 100 / rect.width, y + (event.clientY - top) * 100 / rect.height)
+  const { key, x, y, left, top, rect, resizing, width, height } = fieldDrag
+  const dx = (event.clientX - left) * 100 / rect.width
+  const dy = (event.clientY - top) * 100 / rect.height
+  if (resizing) resizeField(layout.value.find(field => field.key === key), width + dx * 2, height + dy * 2)
+  else setFieldPosition(key, x + dx, y + dy)
 }
 
 function stopFieldDrag(event) {
@@ -940,7 +973,10 @@ async function selectArtwork(event, isFrame) {
       return
     }
     const encoded = canvas.toDataURL('image/webp', 0.85)
-    if (isFrame) avatarFrame.value = encoded
+    if (isFrame) {
+      avatarFrame.value = encoded
+      frameFit.value = { ...defaultFrameFit }
+    }
     else background.value = encoded
   } catch {
     ElMessage.error('无法读取这张图片')
@@ -1083,9 +1119,17 @@ function goProject() {
 .cover-canvas { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; container-type: inline-size;
   background: radial-gradient(ellipse at 50% 42%, #7e1414, #3c0707); background-size: cover; background-position: center; color: #fff3dc; }
 .cover-canvas-tech { background-image: radial-gradient(ellipse at 50% 30%, #0d2f4f, #04101d); color: #e9f8ff; }
-.canvas-field { position: absolute; transform: translate(-50%, -50%); max-width: 80%; border: 1px dashed currentColor;
-  color: inherit; background: transparent; font-size: 1.75cqw; cursor: grab; touch-action: none; overflow-wrap: anywhere; }
-.canvas-title { font-size: 3.35cqw; font-weight: 700; }
+.canvas-field { position: absolute; transform: translate(-50%, -50%); border: 1px dashed currentColor; }
+.canvas-field.selected { z-index: 1; outline: 2px solid var(--ui-primary); }
+.canvas-field-text { display: grid; place-items: center; width: 100%; height: 100%; padding: 0 .35em; border: 0;
+  font: inherit; color: inherit; background: transparent; cursor: grab; touch-action: none; user-select: none; overflow-wrap: anywhere; overflow: hidden; }
+.canvas-title { font-weight: 700; }
+.canvas-delete, .canvas-resize { position: absolute; inline-size: 26px; block-size: 26px; padding: 0;
+  border: 1px solid currentColor; border-radius: 4px; background: #211815; color: inherit; font: 16px/1 sans-serif; }
+.canvas-delete { inset: -10px -10px auto auto; cursor: pointer; }
+.canvas-resize { inset: auto -10px -10px auto; cursor: nwse-resize; touch-action: none; user-select: none; }
+.canvas-field button:focus-visible { outline: 2px solid var(--ui-primary); }
+.field-settings { margin-top: 12px; }
 .frame-swatch { width: 54px; aspect-ratio: 1; object-fit: contain; }
 .segment-page:focus-visible { outline: 2px solid var(--ui-primary); }
 .page-preview-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }

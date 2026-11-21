@@ -31,13 +31,70 @@ public class ProjectShowService {
      * 避免一位专家出现在多个环节时照片重复嵌入撑爆体积；旧草稿无 photos、image 直接存 dataURL，两者兼容。
      */
     public record Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos,
-                       List<CoverField> coverFields, String avatarFrame) {
+                       List<CoverField> coverFields, String avatarFrame, FrameFit frameFit) {
+        public Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos,
+                    List<CoverField> coverFields, String avatarFrame) {
+            this(background, slides, template, fontScale, photos, coverFields, avatarFrame, null);
+        }
         public Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos) {
             this(background, slides, template, fontScale, photos, null, null);
         }
     }
 
-    public record CoverField(String key, String label, String value, Double x, Double y) {}
+    public record CoverField(String key, String label, String value, Double x, Double y,
+                             Double width, Double height, Double scale, String font) {
+        public CoverField(String key, String label, String value, Double x, Double y) {
+            this(key, label, value, x, y, null, null, null, null);
+        }
+    }
+
+    public record FrameFit(Double scale, Double x, Double y) {}
+
+    private enum CoverFont {
+        MA_SHAN("ma-shan", "PMO Ma Shan", "MaShanZheng"),
+        ZHI_MANG("zhi-mang", "PMO Zhi Mang", "ZhiMangXing");
+
+        private final String key;
+        private final String family;
+        private final String filename;
+        private final java.util.Map<Integer, String> blocks = new java.util.concurrent.ConcurrentHashMap<>();
+
+        CoverFont(String key, String family, String filename) {
+            this.key = key;
+            this.family = family;
+            this.filename = filename;
+        }
+
+        static CoverFont from(String key) {
+            for (var font : values()) {
+                if (font.key.equals(key)) return font;
+            }
+            return null;
+        }
+
+        void appendCss(StringBuilder html, java.util.Set<Integer> used) {
+            for (int block : used) html.append(blocks.computeIfAbsent(block, this::loadBlock));
+            try (var license = ProjectShowService.class.getResourceAsStream("/show-fonts/" + filename + "-OFL.txt")) {
+                if (license != null) html.append("/*!\n")
+                        .append(new String(license.readAllBytes(), StandardCharsets.UTF_8)).append("\n*/");
+            } catch (IOException error) {
+                throw new IllegalStateException("Unable to load cover font license", error);
+            }
+        }
+
+        private String loadBlock(int block) {
+            String filename = this.filename + "-" + Integer.toHexString(block) + ".woff2";
+            try (var file = ProjectShowService.class.getResourceAsStream("/show-fonts/" + filename)) {
+                if (file == null) return "";
+                return "@font-face{font-family:'" + family + "';src:url(data:font/woff2;base64,"
+                        + java.util.Base64.getEncoder().encodeToString(file.readAllBytes()) + ") format('woff2');"
+                        + "font-display:swap;unicode-range:U+" + Integer.toHexString(block * 128)
+                        + "-" + Integer.toHexString(block * 128 + 127) + "}";
+            } catch (IOException error) {
+                throw new IllegalStateException("Unable to load cover font", error);
+            }
+        }
+    }
 
     /** 页面人物（2026-11-21 结构化页面模型）：出场页/讨论墙/过场页共用。image 为已抠图 dataURL，可空。 */
     public record Person(String role, String name, String title, String unit, String image, String sourceKey) {
@@ -212,7 +269,9 @@ public class ProjectShowService {
             deck.photos().forEach(ProjectShowService::image);
         }
         String frame = image(deck.avatarFrame());
-        StringBuilder html = new StringBuilder(head(theme, fs, background, frame));
+        boolean hasCover = deck.slides().stream().anyMatch(slide -> slide != null && "cover".equals(slide.kind()));
+        StringBuilder html = new StringBuilder(head(theme, fs, background, frame, deck.frameFit(),
+                hasCover ? deck.coverFields() : null));
         for (int i = 0; i < deck.slides().size(); i++) {
             Slide slide = deck.slides().get(i);
             if (slide == null) throw new BusinessException("幻灯片内容无效");
@@ -246,7 +305,7 @@ public class ProjectShowService {
     }
 
     private static final String CSP = "<meta http-equiv=\"Content-Security-Policy\" "
-            + "content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'\">";
+            + "content=\"default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'\">";
 
     /** 公共结构与动画引擎 CSS；主题只经 :root 变量注入。 */
     private static final String BASE_CSS = """
@@ -382,15 +441,20 @@ public class ProjectShowService {
               display:flex;align-items:center;justify-content:center;font-size:2.6em;color:var(--ink-dim);
               font-family:var(--font-title)}
             .sec-p figcaption{font-size:1.15em;color:var(--ink);letter-spacing:.08em}
-            .custom-cover-field{position:absolute;z-index:2;transform:translate(-50%,-50%);max-width:80%;
+            .custom-cover-field{position:absolute;z-index:2;transform:translate(-50%,-50%);
+              display:grid;place-items:center;box-sizing:border-box;padding:0 .35em;overflow:hidden;
               color:var(--ink);font-size:2.1em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere}
             .custom-cover-title{font-size:4em;font-weight:700}
             .avatar-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
             .custom-frame .sec-p-avatar,.custom-frame .resume-portrait{position:relative}
-            .custom-frame .sec-p-avatar > img,.custom-frame .rp2-avatar{border:0}
+            .custom-frame .sec-p-avatar > img:not(.avatar-frame),.custom-frame .rp2-avatar{
+              position:absolute;width:var(--frame-size);height:var(--frame-size);left:var(--frame-x);top:var(--frame-y);
+              border:0;transform:translate(-50%,-50%);box-shadow:none;animation:none}
+            .custom-frame .resume-portrait{aspect-ratio:1}
             .custom-frame .sec-p-avatar > .avatar-frame{border-radius:0;object-fit:contain;box-shadow:none}
             .resume-portrait{position:relative;width:88%;margin:0 auto}
             .resume-portrait .rp2-avatar{display:block;width:100%}
+            .custom-frame .resume-portrait .rp2-avatar{width:var(--frame-size)}
             .sec-p figcaption small{display:block;color:var(--ink-dim);margin-top:.16em}
             /* 空槽位仅编辑模式显示（演示模式隐藏，头像一排居中；编辑模式允许空槽流入第二行） */
             .sec-p-empty{display:none;opacity:.5}
@@ -443,14 +507,32 @@ public class ProjectShowService {
               padding:8px 22px;font-size:15px;letter-spacing:.08em}
             """;
 
-    private static String head(Theme theme, double fs, String background, String frame) {
+    private static String head(Theme theme, double fs, String background, String frame, FrameFit fit, List<CoverField> fields) {
         StringBuilder html = new StringBuilder("""
                 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
                 """).append(CSP).append("\n<title>会议串场</title>\n<style>\n")
                 .append(BASE_CSS)
                 .append(theme.css())
-                .append("\n:root{--fs:").append(fs).append("}\n</style></head>\n<body class=\"")
+                 .append("\n:root{--fs:").append(fs);
+        if (!frame.isEmpty()) {
+            html.append(";--frame-size:").append(bounded(fit == null ? null : fit.scale(), 82, 40, 100)).append('%')
+                    .append(";--frame-x:").append(50 + bounded(fit == null ? null : fit.x(), 0, -25, 25)).append('%')
+                    .append(";--frame-y:").append(50 + bounded(fit == null ? null : fit.y(), 0, -25, 25)).append('%');
+        }
+        html.append("}\n");
+        if (fields != null) {
+            var needed = new java.util.EnumMap<CoverFont, java.util.Set<Integer>>(CoverFont.class);
+            for (CoverField field : fields) {
+                if (field == null || field.value() == null || field.value().isBlank()) continue;
+                CoverFont font = CoverFont.from(field.font());
+                if (font == null) continue;
+                var blocks = needed.computeIfAbsent(font, unused -> new java.util.TreeSet<>());
+                field.value().codePoints().limit(240).forEach(cp -> blocks.add(cp / 128));
+            }
+            needed.forEach((font, blocks) -> font.appendCss(html, blocks));
+        }
+        html.append("</style></head>\n<body class=\"")
                 .append(background.isEmpty() ? "" : "k-on ").append(frame.isEmpty() ? "" : "custom-frame ").append("t-").append(theme.id()).append("\">\n");
         if (theme.particles()) html.append("<canvas id=\"fx\"></canvas>\n");
         // 主 K 只输出一次，由脚本克隆进每一页，避免 dataURL 乘以页数撑爆体积。
@@ -526,6 +608,10 @@ public class ProjectShowService {
         return s.append("</div></section>\n").toString();
     }
 
+    private static double bounded(Double value, double fallback, double min, double max) {
+        return value == null || !Double.isFinite(value) ? fallback : Math.max(min, Math.min(max, value));
+    }
+
     private static String coverFieldsHtml(List<CoverField> fields) {
         if (fields == null) return "";
         if (fields.size() > 20) throw new BusinessException("封面最多可放置 20 个字段");
@@ -537,10 +623,16 @@ public class ProjectShowService {
                 throw new BusinessException("封面字段坐标无效");
             }
             String value = text(field.value(), 240, "封面字段");
-            if (!value.isEmpty()) html.append("<div class=\"custom-cover-field")
-                    .append("title".equals(field.key()) ? " custom-cover-title" : "")
+            if (value.isEmpty()) continue;
+            boolean title = "title".equals(field.key());
+            CoverFont font = CoverFont.from(field.font());
+            html.append("<div class=\"custom-cover-field").append(title ? " custom-cover-title" : "")
                     .append("\" style=\"left:").append(field.x()).append("%;top:").append(field.y())
-                    .append("%\">").append(value).append("</div>");
+                    .append("%;width:").append(bounded(field.width(), title ? 45 : 23, 8, 90))
+                    .append("%;height:").append(bounded(field.height(), title ? 13 : 8, 4, 60))
+                    .append("%;font-size:").append((title ? 3.35 : 1.75) * 19.2 * bounded(field.scale(), 100, 50, 200) / 100).append("px");
+            if (font != null) html.append(";font-family:'").append(font.family).append("',serif");
+            html.append("\">").append(value).append("</div>");
         }
         return html.toString();
     }
