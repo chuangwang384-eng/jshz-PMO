@@ -145,6 +145,12 @@ const routes = [
     meta: { title: '项目管理', requiresAuth: true }
   },
   {
+    path: '/project/:id/show-wizard',
+    name: 'project-show-wizard',
+    component: () => import('../views/project/ShowWizard.vue'),
+    meta: { title: '串场演示向导', requiresAuth: true, menu: false }
+  },
+  {
     path: '/project/:id/show',
     name: 'project-show',
     component: () => import('../views/project/ProjectShowEditor.vue'),

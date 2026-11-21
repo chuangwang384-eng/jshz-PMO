@@ -226,8 +226,8 @@ public class ProjectShowService {
             .lines li::before{content:"";flex:none;width:.55em;height:.55em;transform:rotate(45deg) translateY(-.1em);
               background:var(--accent);box-shadow:0 0 10px var(--rule)}
             .bio{flex-direction:row;align-items:center;gap:5%}
-            .photo{flex:none;width:26%;aspect-ratio:3/4;margin:0;position:relative;overflow:hidden;
-              border:2px solid var(--rule);border-radius:14px;
+            .photo{flex:none;width:23%;aspect-ratio:1/1;margin:0;position:relative;overflow:hidden;
+              border:2px solid var(--rule);border-radius:50%;
               box-shadow:0 18px 48px rgba(0,0,0,.35)}
             .photo img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
             .photo::after{content:"";position:absolute;top:-60%;left:0;width:34%;height:220%;

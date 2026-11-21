@@ -77,6 +77,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
 import { getProjectDetail, getScheduleOverview, getShowAgenda, getStageForm, previewShow, publishShow, saveStageForm } from '../../api/project'
+import { agendaRows, agendaSlides, classifyRow, coverSlide, eventBody, matchSpeakers, personLine, thanksSlide } from '../../utils/showDeck'
 
 const id = useRoute().params.id
 const imageTypes = 'image/png,image/jpeg,image/webp'
@@ -152,32 +153,20 @@ async function generate() {
   busy.value = true
   try {
     const [agenda, overview] = await Promise.all([getShowAgenda(id), getScheduleOverview(id)])
-    const speakers = overview.speakers || []
-    const rows = agenda.length ? agenda : [...new Set(speakers.map(item =>
-      [item.segmentTime, item.segmentTitle, item.expertName].filter(Boolean).join(' · ')))].filter(Boolean)
+    const { rows, speakers } = agendaRows(agenda, overview)
     if (!rows.length) {
       ElMessage.warning('日程中暂未提取到可用环节，可以手动添加页面')
       return
     }
-    const agendaPages = []
-    for (let offset = 0; offset < rows.length; offset += 8) {
-      agendaPages.push(slide('会议议程', '议程', rows.slice(offset, offset + 8).join('\n').slice(0, 4000)))
-    }
     const eventPages = await Promise.all(rows.slice(0, 150).map(async (row) => {
-      const cells = row.split(' · ')
-      const title = (cells.length > 1 ? cells[1] : row).slice(0, 240)
-      const label = /茶歇|休息/.test(row) ? '茶歇' : /主持|致辞|开场/.test(row) ? '主持与致辞' : '会议环节'
-      const matching = speakers.filter(person => person.expertName && (row.includes(person.expertName) ||
-        (person.segmentTitle && row.includes(person.segmentTitle))))
-      const people = matching.map(person =>
-        [person.expertName, person.expertUnit, person.expertTitle].filter(Boolean).join(' '))
-      const item = slide(label, title, [row, ...new Set(people)].join('\n').slice(0, 4000))
-      const expert = matching.find(person => person.expertId)
+      const { label, title } = classifyRow(row)
+      const item = slide(label, title, eventBody([row, ...new Set(matchSpeakers(row, speakers).map(personLine))]))
+      const expert = matchSpeakers(row, speakers).find(person => person.expertId)
       if (expert) item.image = await loadPortrait(expert.expertId)
       return item
     }))
-    slides.value = [slide('会议串场', project.value.name, project.value.meetingStartDate), ...agendaPages,
-      ...eventPages, slide('', '感谢参会')]
+    slides.value = [coverSlide(project.value.name, project.value.meetingStartDate),
+      ...agendaSlides(rows), ...eventPages, thanksSlide()]
     selected.value = 0
   } finally {
     busy.value = false
@@ -255,12 +244,17 @@ function deck() {
   return { slides: slides.value, background: background.value, template: template.value, fontScale: fontScale.value }
 }
 
-// 新网页演示：未保存的草稿即时渲染到新标签页，与归档共用后端模板，产物一致
+// 新网页演示：未保存的草稿即时渲染到新标签页，与归档共用后端模板，产物一致。
+// 注意：request 拦截器已解包 ApiResponse，previewShow resolve 的就是 HTML 字符串本身
 async function presentNewTab() {
   busy.value = true
   try {
-    const { data } = await previewShow(id, deck())
-    const url = URL.createObjectURL(new Blob([data], { type: 'text/html;charset=utf-8' }))
+    const html = await previewShow(id, deck())
+    if (typeof html !== 'string' || !html.startsWith('<')) {
+      ElMessage.error('预览渲染失败，请重试')
+      return
+    }
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
     window.open(url, '_blank')
     setTimeout(() => URL.revokeObjectURL(url), 60000)
   } finally {

@@ -584,7 +584,7 @@
 import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { handleProjectComplianceTodo } from '../../api/compliance'
@@ -609,7 +609,14 @@ import {
 import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = route.params.id
+
+// PPT 制作：新标签页打开三步向导（选模板 → 日程/证件照/简介 → 预览演示）
+function openShowWizard() {
+  const { href } = router.resolve({ name: 'project-show-wizard', params: { id: projectId } })
+  window.open(href, '_blank')
+}
 // 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
 const PROJECT_TYPE_LABELS = { PLATFORM: '平台类项目', DIRECT_PAY: '直付类项目', KEY: '重点类项目' }
 const loading = ref(false)
