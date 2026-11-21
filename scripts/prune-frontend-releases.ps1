@@ -27,7 +27,7 @@
   因此删除更早的快照不影响当前在线页面加载，仅失去「回滚到更早版本」的能力。
 
 .PARAMETER FrontendDir
-  frontend 目录，默认 D:\jshz-PMO\frontend
+  frontend 目录，默认 <仓库根>\frontend（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖）
 
 .PARAMETER NginxConf
   Nginx 站点配置，默认 D:\nginx\conf\conf.d\jshz-pmo.conf
@@ -47,7 +47,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$FrontendDir = 'D:\jshz-PMO\frontend',
+    [string]$FrontendDir = '',
     [string]$NginxConf = 'D:\nginx\conf\conf.d\jshz-pmo.conf',
     [int]$KeepReleases = 5,
     [switch]$KeepLegacyDist,
@@ -55,6 +55,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+if ([string]::IsNullOrWhiteSpace($FrontendDir)) { $FrontendDir = Join-Path $root 'frontend' }
 $script:DeletedCount = 0
 $script:DeletedMB = 0
 

@@ -18,7 +18,7 @@
   回滚依赖 backend\releases 与 frontend\releases，不依赖 builds\。
 
 .PARAMETER BuildsRoot
-  builds 目录，默认 D:\jshz-PMO\builds
+  builds 目录，默认 <仓库根>\builds（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖）
 
 .PARAMETER Keep
   保留最近几个构建目录，默认 5
@@ -32,12 +32,15 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$BuildsRoot = 'D:\jshz-PMO\builds',
+    [string]$BuildsRoot = '',
     [int]$Keep = 5,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+if ([string]::IsNullOrWhiteSpace($BuildsRoot)) { $BuildsRoot = Join-Path $root 'builds' }
 $script:DeletedCount = 0
 $script:DeletedMB = 0
 

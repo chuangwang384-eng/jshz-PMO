@@ -33,7 +33,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$BatFile   = 'D:\jshz-PMO\start-backend.bat'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+$BatFile   = Join-Path $root 'start-backend.bat'
 $BackendSvc   = 'ExpertSystemBackend'
 $NginxSvc     = 'ExpertSystemNginx'
 $NssmParamsKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters'

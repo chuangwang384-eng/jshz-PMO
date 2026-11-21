@@ -22,7 +22,7 @@
   当前脚本所在目录（temp 内自身）不会被删除；删除前校验路径必须位于 temp\ 下。
 
 .PARAMETER TempDir
-  temp 目录，默认 D:\jshz-PMO\temp
+  temp 目录，默认 <仓库根>\temp（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖）
 
 .PARAMETER Keep
   每个类别保留最近几个，默认 5
@@ -39,13 +39,16 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$TempDir = 'D:\jshz-PMO\temp',
+    [string]$TempDir = '',
     [int]$Keep = 5,
     [int]$MinAgeDays = 2,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+if ([string]::IsNullOrWhiteSpace($TempDir)) { $TempDir = Join-Path $root 'temp' }
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $script:DeletedCount = 0
 $script:DeletedMB = 0

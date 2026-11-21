@@ -40,6 +40,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $script:FailCount = 0
 $script:WarnCount = 0
 
@@ -200,7 +202,7 @@ try {
 
 # ---------- 4. 日志文件与轮转产物 ----------
 Write-Step '4. 日志文件与轮转产物'
-$logDir = 'D:\jshz-PMO\logs'
+$logDir = Join-Path $root 'logs'
 $targets = @(
     @{ Name = 'expert-backend.out.log'; Desc = 'NSSM stdout 重定向' },
     @{ Name = 'expert-backend.err.log'; Desc = 'NSSM stderr 重定向' },

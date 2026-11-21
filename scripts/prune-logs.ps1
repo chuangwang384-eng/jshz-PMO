@@ -22,7 +22,7 @@
   当前活动文件 expert-backend.out.log / expert-backend.err.log / expert-app.log 永不删除。
 
 .PARAMETER LogDir
-  日志目录，默认 D:\jshz-PMO\logs
+  日志目录，默认 <仓库根>\logs（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖）
 
 .PARAMETER KeepNssm
   NSSM out / err 轮转产物各自保留个数，默认 10
@@ -39,13 +39,16 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$LogDir = 'D:\jshz-PMO\logs',
+    [string]$LogDir = '',
     [int]$KeepNssm = 10,
     [int]$KeepDeploy = 20,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+if ([string]::IsNullOrWhiteSpace($LogDir)) { $LogDir = Join-Path $root 'logs' }
 $script:DeletedCount = 0
 $script:DeletedBytes = 0
 

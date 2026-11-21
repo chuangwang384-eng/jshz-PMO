@@ -54,10 +54,10 @@ param(
 . (Join-Path $PSScriptRoot 'build-paths.ps1')
 # 标准输出切到 UTF-8(无 BOM)：本脚本经 cmd 重定向落盘的日志文件即为 UTF-8，不再产生 GBK 乱码
 Enable-Utf8Console
-$BackendDir      = 'D:\jshz-PMO\backend'
+$BackendDir      = Join-Path $root 'backend'   # 方案 C 二期：$root 来自 build-paths.ps1→common-paths.ps1（JSHZ_ROOT 可覆盖）
 $TargetJarName   = 'expert-system.jar'   # NSSM AppParameters 固定的正式 jar 名（替换方式保持此名）
-$ReleasesDir     = 'D:\jshz-PMO\backend\releases'
-$DeployDoc       = 'D:\jshz-PMO\docs\deployment.md'
+$ReleasesDir     = Join-Path $BackendDir 'releases'
+$DeployDoc       = Join-Path $root 'docs\deployment.md'
 $NginxConfFile   = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
 $NginxConfBackup = 'D:\nginx\conf\conf.d\backup'
 $NginxExe        = 'D:\nginx\nginx.exe'
@@ -244,7 +244,7 @@ function Step1-Preflight {
     # 因此候选包必须通过 build.version 一致性校验，禁止再按时间戳猜测。
     if ($Version) { $script:NewVersion = $Version }
     else {
-        $verFile = 'D:\jshz-PMO\version.txt'
+        $verFile = Join-Path $root 'version.txt'
         if (Test-Path $verFile) {
             $m = [regex]::Match((Get-Content $verFile -Raw -Encoding UTF8), '(?m)^revision\s*=\s*(.+)\s*$')
             if ($m.Success) { $script:NewVersion = $m.Groups[1].Value.Trim() }

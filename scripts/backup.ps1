@@ -17,7 +17,7 @@
   Backup / Verify / Drill，默认 Backup。
 
 .PARAMETER BackupDir
-  备份根目录，默认 D:\jshz-PMO\backup（时间戳备份位于其下 backup_YYYYMMDD_HHmmss\）。
+  备份根目录，默认 <仓库根>\backup（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖；时间戳备份位于其下 backup_YYYYMMDD_HHmmss\）。
 
 .PARAMETER Keep
   保留份数，默认 5；超出按时间戳最旧优先移入回收站（仅清理 backup_* 目录）。
@@ -37,7 +37,7 @@
 param(
     [ValidateSet('Backup', 'Verify', 'Drill')]
     [string]$Mode = 'Backup',
-    [string]$BackupDir = 'D:\jshz-PMO\backup',
+    [string]$BackupDir = '',
     [int]$Keep = 5,
     [string]$From = '',
     [switch]$NoLog
@@ -45,8 +45,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 环境变量可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+if ([string]::IsNullOrWhiteSpace($BackupDir)) { $BackupDir = Join-Path $root 'backup' }
+
 # ==================== 常量区 ====================
-$ProjectRoot   = 'D:\jshz-PMO'
+$ProjectRoot   = $root
 $LogFile       = Join-Path $ProjectRoot 'logs\backup.log'
 $DrillDoc      = Join-Path $ProjectRoot 'docs\guides\2026-10-26-备份与恢复-演练文档.md'
 $StartBat      = Join-Path $ProjectRoot 'start-backend.bat'

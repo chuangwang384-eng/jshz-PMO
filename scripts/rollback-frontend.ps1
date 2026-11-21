@@ -18,10 +18,10 @@
   仅打印将执行的动作与检查点，不移动、不改任何目录。
 
 .PARAMETER DistRoot
-  生产 dist 目录，默认 D:\jshz-PMO\frontend\dist（可用临时目录演练）。
+  生产 dist 目录，默认 <仓库根>\frontend\dist（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖；可用临时目录演练）。
 
 .PARAMETER ReleasesRoot
-  版本归档根目录，默认 D:\jshz-PMO\frontend\releases。
+  版本归档根目录，默认 <仓库根>\frontend\releases（common-paths.ps1 单一真源，JSHZ_ROOT 可覆盖）。
 
 .EXAMPLE
   .\scripts\rollback-frontend.ps1 -DryRun
@@ -32,14 +32,18 @@
 param(
     [string]$Version = '',
     [switch]$DryRun,
-    [string]$DistRoot = 'D:\jshz-PMO\frontend\dist',
-    [string]$ReleasesRoot = 'D:\jshz-PMO\frontend\releases',
+    [string]$DistRoot = '',
+    [string]$ReleasesRoot = '',
     [string]$NginxConf = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
 )
 
 $ErrorActionPreference = 'Stop'
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
+if ([string]::IsNullOrWhiteSpace($DistRoot))     { $DistRoot = Join-Path $root 'frontend\dist' }
+if ([string]::IsNullOrWhiteSpace($ReleasesRoot)) { $ReleasesRoot = Join-Path $root 'frontend\releases' }
 $FrontendDir = Split-Path $DistRoot -Parent
-$BackupRoot  = 'D:\jshz-PMO\backup\frontend'
+$BackupRoot  = Join-Path $root 'backup\frontend'
 
 # ---------- 工具函数 ----------
 function Write-Step([string]$msg) { Write-Host "`n== $msg ==" -ForegroundColor Cyan }

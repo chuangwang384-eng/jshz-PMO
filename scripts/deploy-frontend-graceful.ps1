@@ -7,6 +7,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'deployment-http.ps1')
+# 仓库根单一真源（方案 C 二期，2026-11-19 收敛；JSHZ_ROOT 可覆盖）
+. (Join-Path $PSScriptRoot 'common-paths.ps1')
 $conf = 'D:\nginx\conf\conf.d\jshz-pmo.conf'
 $text = [IO.File]::ReadAllText($conf)
 $rootMatch = [regex]::Match($text, '(?m)^\s*root\s+([^;]+);')
@@ -16,7 +18,7 @@ $stage = (Resolve-Path -LiteralPath $StagedDist).Path
 foreach ($item in @('index.html','assets')) {
     if (-not (Test-Path -LiteralPath (Join-Path $stage $item))) { throw "Missing staged item: $item" }
 }
-$target = Join-Path 'D:\jshz-PMO\frontend\releases' $ReleaseId
+$target = Join-Path (Join-Path $root 'frontend\releases') $ReleaseId
 $rollback = $target + '.rollback'
 if (Test-Path -LiteralPath $target) { throw 'Release directory already exists; choose a fresh immutable release ID.' }
 if (Test-Path -LiteralPath $rollback) { throw 'Rollback release already exists; choose a fresh release ID.' }
@@ -37,7 +39,7 @@ if (Test-Path -LiteralPath $oldAssets) {
         } else { Copy-Item -LiteralPath $file.FullName -Destination $destination }
     }
 }
-$metadata = 'D:\jshz-PMO\frontend\release-metadata'
+$metadata = Join-Path $root 'frontend\release-metadata'
 New-Item -ItemType Directory -Path $metadata -Force | Out-Null
 $backup = Join-Path $metadata ($ReleaseId + '.nginx-before.txt')
 [IO.File]::WriteAllText($backup, $text)
