@@ -27,9 +27,10 @@ public class ProjectShowService {
 
     /**
      * deck.template 取 {@link #THEMES} 中的 id，缺失或未知时回退 gold；fontScale 允许范围 0.8~1.4，
-     * 缺失时按 1.0。旧草稿 JSON 无这两个字段，反序列化为 null 后由 render 兜底，勿在读取处直接拆箱。
+     * 缺失时按 1.0。photos 为照片池（去重后的 dataURL），页面内 image 字段可用 "ph:{序号}" 引用池中照片，
+     * 避免一位专家出现在多个环节时照片重复嵌入撑爆体积；旧草稿无 photos、image 直接存 dataURL，两者兼容。
      */
-    public record Deck(String background, List<Slide> slides, String template, Double fontScale) {}
+    public record Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos) {}
 
     /** 页面人物（2026-11-21 结构化页面模型）：出场页/讨论墙/过场页共用。image 为已抠图 dataURL，可空。 */
     public record Person(String role, String name, String title, String unit, String image) {}
@@ -185,14 +186,41 @@ public class ProjectShowService {
         Theme theme = themeOf(deck.template());
         double fs = deck.fontScale() == null ? 1.0 : Math.max(0.8, Math.min(1.4, deck.fontScale()));
         String background = image(deck.background());
+        if (deck.photos() != null) {
+            if (deck.photos().size() > 300) throw new BusinessException("照片数量过多，请精简专家资料");
+            deck.photos().forEach(ProjectShowService::image);
+        }
         StringBuilder html = new StringBuilder(head(theme, fs, background));
         for (int i = 0; i < deck.slides().size(); i++) {
             Slide slide = deck.slides().get(i);
             if (slide == null) throw new BusinessException("幻灯片内容无效");
-            html.append(slideHtml(slide, i));
+            html.append(slideHtml(resolvePhotos(slide, deck.photos()), i));
             if (html.length() > MAX_DECK_SIZE) throw new BusinessException("串场文件过大，请压缩图片");
         }
         return html.append(deckTail(theme)).toString();
+    }
+
+    /** 把 "ph:{序号}" 引用解析为照片池中的实际 dataURL；直接存 dataURL 的旧结构原样返回。 */
+    private static Slide resolvePhotos(Slide slide, List<String> photos) {
+        if (photos == null || photos.isEmpty()) return slide;
+        String img = photoOf(slide.image(), photos);
+        List<Person> persons = slide.persons() == null ? null : slide.persons().stream()
+                .map(p -> p == null ? null
+                        : new Person(p.role(), p.name(), p.title(), p.unit(), photoOf(p.image(), photos)))
+                .toList();
+        return new Slide(slide.label(), slide.title(), slide.body(), img, slide.kind(), slide.items(), persons);
+    }
+
+    private static String photoOf(String image, List<String> photos) {
+        if (image == null || !image.startsWith("ph:")) return image;
+        int i;
+        try {
+            i = Integer.parseInt(image.substring(3));
+        } catch (NumberFormatException e) {
+            return "";
+        }
+        if (i < 0 || i >= photos.size()) return "";
+        return photos.get(i);
     }
 
     private static final String CSP = "<meta http-equiv=\"Content-Security-Policy\" "

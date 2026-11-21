@@ -109,3 +109,25 @@ export function guessRole(row, label) {
   if (/致辞/.test(row)) return '致辞嘉宾'
   return '主讲嘉宾'
 }
+
+// 照片池化：同一张照片（dataURL）全稿只存一份到 deck.photos，页面内以 "ph:序号" 引用，
+// 避免一位专家出现在多个环节时照片重复嵌入导致 deck 超 10MB 上限。返回 { slides, photos }。
+export function dedupePhotos(slides) {
+  const photos = []
+  const index = new Map()
+  const refOf = image => {
+    if (!image || image.startsWith('ph:')) return image
+    let i = index.get(image)
+    if (i === undefined) {
+      i = photos.length
+      index.set(image, i)
+      photos.push(image)
+    }
+    return `ph:${i}`
+  }
+  const out = (slides || []).map(s => {
+    const persons = s.persons ? s.persons.map(p => ({ ...p, image: refOf(p.image) })) : s.persons
+    return { ...s, image: refOf(s.image), persons }
+  })
+  return { slides: out, photos }
+}

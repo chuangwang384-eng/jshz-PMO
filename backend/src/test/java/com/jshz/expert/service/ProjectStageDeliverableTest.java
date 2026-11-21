@@ -48,25 +48,25 @@ class ProjectStageDeliverableTest {
     @Test
     void htmlExportEmbedsOnlySupportedImagesAndEscapesSlideText() {
         var slide = new ProjectShowService.Slide("讲题", "<img src=x onerror=alert(1)>", "主题", "", null, null, null);
-        var deck = new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), null, null);
+        var deck = new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), null, null, null);
         String html = ProjectShowService.render(deck);
         assertTrue(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
         assertFalse(html.contains("<img src=x"));
         assertTrue(html.contains("ArrowRight"));
         assertThrows(BusinessException.class, () -> ProjectShowService.render(
-                new ProjectShowService.Deck("data:image/svg+xml;base64,AAAA", List.of(slide), null, null)));
+                new ProjectShowService.Deck("data:image/svg+xml;base64,AAAA", List.of(slide), null, null, null)));
     }
 
     @Test
     void deckRendersThemeVariantsStepsAndClampsFontScale() {
         var slide = new ProjectShowService.Slide("会议议程", "议程", "09:00 开幕\n09:10 讲题一", "", null, null, null);
         String html = ProjectShowService.render(
-                new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), "tech", 2.0));
+                new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), "tech", 2.0, null));
         assertTrue(html.contains("t-tech"));
         assertTrue(html.contains("k-on"));
         assertTrue(html.contains("data-step"));
         assertTrue(html.contains("--fs:1.4"));
-        var fallback = new ProjectShowService.Deck(null, List.of(slide), "nope", null);
+        var fallback = new ProjectShowService.Deck(null, List.of(slide), "nope", null, null);
         assertTrue(ProjectShowService.render(fallback).contains("t-gold"));
         assertTrue(ProjectShowService.render(fallback).contains("k-agenda"));
     }
@@ -85,7 +85,7 @@ class ProjectStageDeliverableTest {
                 null, List.of(person, new ProjectShowService.Person("讨论嘉宾", "董桂兰", "教授", "唐山市人民医院", "")));
         var legacy = new ProjectShowService.Slide("会议环节", "旧结构页", "正文行", "", null, null, null);
         String html = ProjectShowService.render(
-                new ProjectShowService.Deck("", List.of(cover, section, bio, resume, panel, legacy), "gold", null));
+                new ProjectShowService.Deck("", List.of(cover, section, bio, resume, panel, legacy), "gold", null, null));
         assertTrue(html.contains("k-cover"));
         assertTrue(html.contains("cover-title"));
         assertTrue(html.contains("ci-k"));
@@ -102,7 +102,23 @@ class ProjectStageDeliverableTest {
         assertTrue(html.contains("k-content"));
         assertFalse(html.contains("k-section-crumb"));
         // 旧扁平结构（无 kind）回退启发式渲染：单张 deck 的首页按启发式归为封面
-        String legacyOnly = ProjectShowService.render(new ProjectShowService.Deck("", List.of(legacy), "gold", null));
+        String legacyOnly = ProjectShowService.render(new ProjectShowService.Deck("", List.of(legacy), "gold", null, null));
         assertTrue(legacyOnly.contains("k-cover"));
+    }
+
+    @Test
+    void photoPoolReferencesResolveToSingleEmbeddedImage() {
+        var png = "data:image/png;base64,AAAA";
+        var person = new ProjectShowService.Person("大会主席", "齐秀恒", "教授", "河北中石油中心医院", "ph:0");
+        var bio = new ProjectShowService.Slide("", "齐秀恒 教授", "", "", "bio", null, List.of(person));
+        var resume = new ProjectShowService.Slide("个人简历", "齐秀恒 教授", "", "",
+                "resume", List.of("河北省抗癌协会理事"), List.of(person));
+        var deck = new ProjectShowService.Deck("", List.of(bio, resume), "gold", null, List.of(png));
+        String html = ProjectShowService.render(deck);
+        // 池中照片解析后注入页面：出场页与简历页共享同一张池图，共出现两次
+        assertEquals(2, html.split("data:image/png;base64,AAAA", -1).length - 1);
+        assertThrows(BusinessException.class, () -> ProjectShowService.render(
+                new ProjectShowService.Deck("", List.of(bio), "gold", null,
+                        List.of("data:image/svg+xml;base64,AAAA"))));
     }
 }

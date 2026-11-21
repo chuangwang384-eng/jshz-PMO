@@ -80,7 +80,7 @@
               {{ p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '日程中未关联专家库，此环节不生成页面' }}
             </p>
             <div class="person-fields">
-              <label class="field">大会角色<el-input v-model="p.role" maxlength="40" style="width: 150px" /></label>
+              <label class="field">大会角色<el-input v-model="p.roleBySegment[selected]" maxlength="40" style="width: 150px" /></label>
               <label class="field">姓名<el-input v-model="p.name" maxlength="60" style="width: 130px" /></label>
               <label class="field">职称<el-input v-model="p.title" maxlength="60" style="width: 120px" /></label>
               <label class="field field-grow">单位<el-input v-model="p.unit" maxlength="120" /></label>
@@ -147,7 +147,7 @@ import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
 import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
-  agendaRows, classifyRow, coverSlideV2, guessRole, matchSpeakers,
+  agendaRows, classifyRow, coverSlideV2, dedupePhotos, guessRole, matchSpeakers,
   panelSlideV2, bioSlideV2, resumeSlideV2, sectionOf, sectionSlideV2, splitResumeItems, thanksSlide
 } from '../../utils/showDeck'
 
@@ -185,6 +185,22 @@ const editableDeck = ref(null)   // Step3 快照：页内编辑写回这份，�
 const previewFrame = ref(null)
 const previewUrl = ref('')
 const current = computed(() => items.value[selected.value])
+// 专家全局资料池：同一专家（按专家库 ID，无 ID 时按姓名）在多个环节共享同一份**资料**对象
+// （姓名/单位/职称/头像/简介——改一处全部联动）；大会角色按环节独立存 roleBySegment（同一专家
+// 在 A 环节是主席、B 环节可能是主讲）。
+const peoplePool = ref(new Map())
+
+function poolPerson(p) {
+  const key = p.expertId || `name:${p.expertName || ''}`
+  if (!peoplePool.value.has(key)) {
+    peoplePool.value.set(key, {
+      expertId: p.expertId || '', name: p.expertName || '', unit: p.expertUnit || '',
+      title: p.expertTitle || '', intro: '', photoSrc: '', avatar: '',
+      loading: false, loaded: false, roleBySegment: {}
+    })
+  }
+  return peoplePool.value.get(key)
+}
 
 onMounted(async () => {
   const detail = await getProjectDetail(id)
@@ -198,15 +214,17 @@ onMounted(async () => {
     ElMessage.warning('日程中暂未提取到环节，请确认该项目日程阶段已上传日程')
     return
   }
-  items.value = rows.slice(0, 150).map(row => {
+  peoplePool.value = new Map()
+  items.value = rows.slice(0, 150).map((row, segIdx) => {
     const { label, title } = classifyRow(row)
     return {
       row, label, title,
-      people: matchSpeakers(row, speakers).map(p => ({
-        expertId: p.expertId || '', name: p.expertName || '', unit: p.expertUnit || '',
-        title: p.expertTitle || '', role: guessRole(row, label), intro: '',
-        photoSrc: '', avatar: '', loading: false, loaded: false
-      }))
+      people: matchSpeakers(row, speakers).map(p => {
+        const person = poolPerson({ ...p, row, label })
+        // 各环节角色只按该环节推断一次（用户可在表单中手改）
+        if (person.roleBySegment[segIdx] === undefined) person.roleBySegment[segIdx] = guessRole(row, label)
+        return person
+      })
     }
   })
   initCover()
@@ -284,22 +302,26 @@ const builtSlides = computed(() => {
     ].filter(Boolean)
   })]
   for (const group of sections.value) {
-    const lead = group.items.map(ref => ref.item.people[0]).find(p => p && (p.avatar || p.name))
-    slides.push(sectionSlideV2({
-      no: group.no,
-      title: group.name,
-      person: lead ? { role: lead.role, name: lead.name, title: lead.title, unit: lead.unit, avatar: lead.avatar } : null
-    }))
-    for (const { item } of group.items) {
+    const leadRef = group.items.map(ref => ({ ref, p: ref.item.people[0] })).find(x => x.p && (x.p.avatar || x.p.name))
+    const lead = leadRef ? {
+      role: leadRef.p.roleBySegment?.[leadRef.ref.index] || '主持人',
+      name: leadRef.p.name, title: leadRef.p.title, unit: leadRef.p.unit, avatar: leadRef.p.avatar
+    } : null
+    slides.push(sectionSlideV2({ no: group.no, title: group.name, person: lead }))
+    for (const { index: itemIdx, item } of group.items) {
+      const roleOf = p => p.roleBySegment?.[itemIdx] || guessRole(item.row, item.label)
       const people = item.people.filter(p => p.name || p.avatar)
       if (people.length >= 2) {
-        slides.push(panelSlideV2({ label: group.name, title: item.title || group.name, persons: people }))
+        slides.push(panelSlideV2({
+          label: group.name, title: item.title || group.name,
+          persons: people.map(p => ({ ...p, role: roleOf(p) }))
+        }))
       } else if (people.length === 1) {
-        slides.push(bioSlideV2({ label: item.label, person: people[0] }))
+        slides.push(bioSlideV2({ label: item.label, person: { ...people[0], role: roleOf(people[0]) } }))
       }
       // 无专家环节不生成独立页（信息由章节过场页承载）
       for (const p of people) {
-        if (splitResumeItems(p.intro).length) slides.push(resumeSlideV2({ person: p }))
+        if (splitResumeItems(p.intro).length) slides.push(resumeSlideV2({ person: { ...p, role: roleOf(p) } }))
       }
     }
   }
@@ -317,10 +339,9 @@ watch(step, s => {
 })
 
 function deck() {
-  return {
-    slides: editableDeck.value || JSON.parse(JSON.stringify(builtSlides.value)),
-    background: '', template: template.value, fontScale: fontScale.value
-  }
+  const base = editableDeck.value || builtSlides.value
+  const { slides, photos } = dedupePhotos(base)
+  return { slides, photos, background: '', template: template.value, fontScale: fontScale.value }
 }
 
 function pageCount(kind) {

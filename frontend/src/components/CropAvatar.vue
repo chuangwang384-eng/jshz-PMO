@@ -19,7 +19,7 @@
         <img v-if="modelValue" :src="modelValue" alt="圆形头像预览">
         <span v-else class="crop-out-empty">{{ ready ? '生成中' : '等待照片' }}</span>
       </div>
-      <p class="crop-note">输出 400×400 圆形透明 PNG</p>
+      <p class="crop-note">输出 400×400 圆形透明图（WebP）</p>
     </div>
   </div>
 </template>
@@ -41,7 +41,7 @@ const imgEl = ref(null)
 const ready = ref(false)
 const detecting = ref(false)
 const statusText = ref('等待照片')
-const zoomPct = ref(46)
+const zoomPct = ref(62)
 // 选区用相对图片显示尺寸的百分比坐标，避免监听容器尺寸换算
 const cx = ref(50)
 const cy = ref(50)
@@ -93,9 +93,9 @@ function onLoad() {
 function reset() {
   userTouched = false
   cx.value = 50
-  // 人脸通常在照片上半部，圆心默认放 42% 高度处（识别失败时的兜底）
+  // 人脸通常在照片上半部，圆心默认放 42% 高度处（识别失败时的兜底）；默认框放大到含肩
   cy.value = 42
-  zoomPct.value = 46
+  zoomPct.value = 62
   syncRingWidth()
   scheduleRender()
 }
@@ -147,10 +147,10 @@ async function detectFace(force) {
 
 function applyFaceBox(box) {
   const min = Math.min(naturalW, naturalH)
-  // 圆框直径取脸框长边约 1.24 倍（留出发型/肩部余量），圆心用脸框几何中心略上移
-  const rPx = Math.min(Math.max(box.width, box.height) * 0.62, min / 2)
+  // 圆框直径取脸框长边约 1.9 倍（覆盖发型与肩部），圆心用脸框几何中心略下移露出肩颈
+  const rPx = Math.min(Math.max(box.width, box.height) * 0.95, min / 2)
   cx.value = clamp(((box.x + box.width / 2) / naturalW) * 100)
-  cy.value = clamp(((box.y + box.height / 2) / naturalH) * 100)
+  cy.value = clamp(((box.y + box.height * 0.55) / naturalH) * 100)
   zoomPct.value = Math.max(16, Math.min(100, Math.round((rPx / (min / 2)) * 100)))
   syncRingWidth()
   statusText.value = '已自动识别人脸，可微调后保存'
@@ -178,7 +178,9 @@ function render() {
   ctx.clip()
   try {
     ctx.drawImage(img, sx - r, sy - r, r * 2, r * 2, 0, 0, size, size)
-    emit('update:modelValue', canvas.toDataURL('image/png'))
+    // 优先 WebP（同质量体积约为 PNG 的 1/5，透明通道保留），不支持时回退 PNG
+    const url = canvas.toDataURL('image/webp', 0.9)
+    emit('update:modelValue', url.startsWith('data:image/webp') ? url : canvas.toDataURL('image/png'))
   } catch {
     emit('update:modelValue', '')
   }
