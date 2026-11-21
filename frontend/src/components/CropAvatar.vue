@@ -8,7 +8,7 @@
         </div>
       </div>
       <div class="crop-tools">
-        <span class="crop-status">{{ statusText }}</span>
+        <span class="crop-status" role="status">{{ statusText }}</span>
         <el-slider v-model="zoomPct" :min="16" :max="100" style="flex: 1" />
         <el-button size="small" :loading="detecting" @click="detectFace(true)">重新识别</el-button>
         <el-button size="small" @click="reset">重置</el-button>
@@ -147,10 +147,10 @@ async function detectFace(force) {
 
 function applyFaceBox(box) {
   const min = Math.min(naturalW, naturalH)
-  // 圆框直径取脸框长边约 1.9 倍（覆盖发型与肩部），圆心用脸框几何中心略下移露出肩颈
-  const rPx = Math.min(Math.max(box.width, box.height) * 0.95, min / 2)
+  // 圆框直径取脸框长边约 2.2 倍（覆盖发型与肩部），圆心用脸框几何中心略下移露出肩颈
+  const rPx = Math.min(Math.max(box.width, box.height) * 1.1, min / 2)
   cx.value = clamp(((box.x + box.width / 2) / naturalW) * 100)
-  cy.value = clamp(((box.y + box.height * 0.55) / naturalH) * 100)
+  cy.value = clamp(((box.y + box.height * 0.66) / naturalH) * 100)
   zoomPct.value = Math.max(16, Math.min(100, Math.round((rPx / (min / 2)) * 100)))
   syncRingWidth()
   statusText.value = '已自动识别人脸，可微调后保存'

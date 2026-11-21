@@ -349,3 +349,6 @@ PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只�
 - GET /api/project/{id}/show/agenda 从项目当前原始日程提取环节，按现有项目阅读权限提供；编辑器可补录和排序。POST /api/project/{id}/show/ppt 校验 PPT/PPTX 格式，POST /api/project/{id}/show/html 将结构化页面渲染为离线 HTML。归档均要求当前阶段与现有项目操作权限。POST /api/project/{id}/show/preview 将未归档草稿渲染为离线 HTML 字符串返回（不落盘、不写操作记录），与 show/html 共用同一渲染模板，仅需项目阅读权限。
 - 编辑器路由为 /project/:id/show。主 K 和配图支持 PNG、JPEG、WebP，离线 HTML 内嵌图片并强制附件下载。财务、串场制品按项目阅读权限访问，沿用原数据库和文件目录。2026-11-21 起项目详情「PPT 制作」改为新标签打开三步向导路由 /project/:id/show-wizard（ShowWizard.vue：选模板 → 日程提取/专家证件照圆形裁剪/简介提取 → 预览演示），向导产出与编辑器共用 stage-form 草稿（utils/showDeck.js 为议程解析单一真源），编辑器保留为微调与归档入口；bio 页照片卡为圆形（border-radius:50%）。
 - 离线串场 HTML 自 2026-11-21 起内置四套模板（Deck.template：gold 红金盛典 / tech 深蓝科技 / paper 商务简白 / bamboo 青竹学术，缺失或未知回退 gold）与 Deck.fontScale 字号（0.8~1.4，默认 1.0），含流光标题、对话逐条步进（data-step）、16:9 自适应缩放与键盘翻页；主题仅差异在 CSS 变量层，结构与动画引擎为公共层（ProjectShowService.BASE_CSS）。见 [串场模板交接](handover/tasks/20261121_show_deck_themes.md)。
+
+
+串场向导按日程议题及时间段分组，第三、四步共用页面清单。过场页的专家排列保存在既有草稿 persons 数组中，预览及离线归档共用服务端 HTML 渲染。见 [串场向导交接](handover/tasks/20261121_show_wizard_refinement.md)。

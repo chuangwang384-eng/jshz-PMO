@@ -350,9 +350,10 @@ public class ProjectShowService {
               margin-bottom:22px;color:var(--ink)}
             .rp2-list li::before{content:"";flex:none;width:.5em;height:.5em;transform:rotate(45deg);
               background:var(--accent);margin-top:.32em;box-shadow:0 0 8px var(--rule)}
-            .sec-people{display:flex;justify-content:center;gap:2.4%;margin-top:22px;flex-wrap:wrap}
-            .sec-p{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0}
-            .sec-p-avatar{width:110px;height:110px;display:flex;align-items:center;justify-content:center}
+            .sec-people{display:flex;flex-direction:row;justify-content:center;align-items:flex-end;
+              gap:10px;margin-top:22px;width:100%;flex-wrap:nowrap}
+            .sec-p{flex:1 1 0;min-width:0;max-width:128px;display:flex;flex-direction:column;align-items:center;gap:8px;margin:0}
+            .sec-p-avatar{width:min(110px,100%);aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
             .sec-p-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;object-position:center top;
               border:2px solid var(--rule);box-shadow:0 10px 24px rgba(0,0,0,.3)}
             .sec-p-word{width:100%;height:100%;border-radius:50%;border:2px solid var(--rule);
@@ -360,6 +361,11 @@ public class ProjectShowService {
               font-family:var(--font-title)}
             .sec-p figcaption{font-size:1.15em;color:var(--ink);letter-spacing:.08em}
             .sec-p figcaption small{color:var(--ink-dim);margin-left:.2em}
+            /* 空槽位仅编辑模式显示（演示模式隐藏，头像一排居中；编辑模式允许空槽流入第二行） */
+            .sec-p-empty{display:none;opacity:.5}
+            .sec-p-empty .sec-p-word{border-style:dashed}
+            body.hppt-editing .sec-p-empty{display:flex}
+            body.hppt-editing .sec-people{flex-wrap:wrap}
             .fs-bar{display:none;position:absolute;right:26px;top:22px;z-index:8;gap:8px}
             body.hppt-editing .slide.active.k-resume .fs-bar{display:flex}
             .fs-bar button{font:inherit;font-size:16px;padding:4px 14px;cursor:pointer;color:var(--ink);
@@ -719,6 +725,7 @@ public class ProjectShowService {
                   progFill.style.width=((page+1)/slides.length*100)+'%';
                   autoPlay(s);
                   if(editing)ensureFsBar();
+                  window.dispatchEvent(new Event("show-editor-change"));
                 }
                 function next(){const s=slides[page];if(revealNext(s))return;show(page+1);}
                 function prev(){const s=slides[page];if(revealPrev(s))return;show(page-1);}
@@ -735,6 +742,7 @@ public class ProjectShowService {
                   if(editing)ensureFsBar();
                   const tip=document.getElementById('editTip');
                   if(tip)tip.style.display=editing?'block':'none';
+                  window.dispatchEvent(new Event('show-editor-change'));
                 }
                 function ensureFsBar(){
                   const s=slides[page];
@@ -754,6 +762,8 @@ public class ProjectShowService {
                 }
                 window.__toggleEdit=toggleEdit;
                 window.__isEditing=()=>editing;
+                window.__getPage=()=>page;
+                window.__showPage=show;
                 document.getElementById('prev').onclick=prev;
                 document.getElementById('next').onclick=next;
                 document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen?.().catch(()=>{});
