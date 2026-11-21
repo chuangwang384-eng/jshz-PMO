@@ -7,3 +7,10 @@
 - 预检命令为 `scripts/release-full.cmd -Mode Preflight -Version 1.0.120 -Slug show-wizard-refinement`。首次执行缺少 Windows PowerShell 模块搜索路径，恢复系统模块目录后预检通过。
 - 业务复验：选择含 09:20 讲题和 10:15 同名讨论的项目，检查页序、增删后进入第四步、头像换位并保存、归档下载。使用专家原图确认肩颈留白。
 - 发布标准脚本使用 ReleaseId `1.0.120-show-wizard-refinement`，先备份再蓝绿切换。异常按 release-full 回滚，回退目标为发布前的 1.0.118 前端快照及后端制品。
+
+## 实际验证与发布
+
+- 功能提交 `7c3f63d` 已快进合入本地 main。前端构建通过，隔离目录运行 ProjectStageDeliverableTest 共 7 项通过，09:05 / 09:20 / 10:15 同名讨论分组的合成排序回归通过。
+- 生产发布脚本退出码 0。后端直连及 Nginx 代理健康，后端版本 1.0.120 / 7c3f63d。首页连续三次 200 且哈希匹配，主 bundle 标记 1.0.120，匿名专家接口返回 401。
+- 全量备份 `backup/backup_20261121_161148`；前端回滚根目录 `frontend/releases/1.0.118-row-layout`；旧后端 `backend/releases/1.0.120-20261121_161447/previous-expert-system.jar`。执行回滚前需确认生产变更窗口及管理员权限。
+- 技术发布已完成，真实项目的头像取景、页面增删、换位及归档仍待业务验收。已经创建页面快照后，再返回修改专家或角色，当前快照仍保留原有页面内容。
