@@ -43,63 +43,65 @@
           <p class="field-hint">主标题超长时自动缩小；时间/地点/主席留空的行不会出现在封面上。</p>
         </div>
       </div>
-      <div class="wiz-actions"><el-button type="primary" :disabled="!items.length" @click="step = 2">下一步：提取日程</el-button></div>
+      <div class="wiz-actions"><el-button type="primary" :disabled="!experts.length" @click="step = 2">下一步：专家信息</el-button></div>
     </section>
 
-    <!-- 第二步：日程与专家（章节分组 / 人脸预抠图 / 简介语义分段） -->
-    <section v-else-if="step === 2" class="wiz-body wiz-two">
-      <aside class="dark-card seg-list">
-        <template v-for="(group, gi) in groupedItems" :key="group.name">
-          <p class="seg-group">{{ group.no }} · {{ group.name }}</p>
-          <button v-for="ref in group.items" :key="ref.index" type="button" class="seg-item"
-            :class="{ picked: selected === ref.index }" @click="selected = ref.index">
-            <span class="seg-label">{{ ref.item.label }}</span>
-            <span class="seg-text">{{ ref.item.title || ref.item.row }}</span>
-          </button>
-        </template>
-        <el-empty v-if="!items.length" description="未提取到环节" :image-size="60" />
-      </aside>
-
-      <div class="dark-card seg-detail">
-        <template v-if="current">
-          <div class="seg-fields">
-            <label class="field">环节标签<el-input v-model="current.label" maxlength="40" /></label>
-            <label class="field field-grow">环节标题<el-input v-model="current.title" maxlength="240" /></label>
-          </div>
-          <div v-for="(p, pi) in current.people" :key="pi" class="person-card">
-            <div class="person-head">
-              <strong>{{ p.name || `专家 ${pi + 1}` }}</strong>
-              <span class="person-role">{{ p.role }}</span>
-              <el-button size="small" :loading="p.loading" :disabled="!p.expertId || p.loaded" @click="loadPerson(p)">
-                {{ p.loaded ? '已载入' : '从专家库载入' }}
-              </el-button>
-              <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveDraft('专家信息已保存')">保存</el-button>
-            </div>
-            <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" />
-            <p v-else class="person-hint">
-              {{ p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '日程中未关联专家库，此环节不生成页面' }}
-            </p>
-            <div class="person-fields">
-              <label class="field">大会角色<el-input v-model="p.roleBySegment[selected]" maxlength="40" style="width: 150px" /></label>
-              <label class="field">姓名<el-input v-model="p.name" maxlength="60" style="width: 130px" /></label>
-              <label class="field">职称<el-input v-model="p.title" maxlength="60" style="width: 120px" /></label>
-              <label class="field field-grow">单位<el-input v-model="p.unit" maxlength="120" /></label>
-            </div>
-            <label class="field field-grow">个人简介（按句/分号自动分段，每条一菱形项；可手动改写）
-              <el-input v-model="p.intro" type="textarea" :rows="5" maxlength="1500" placeholder="自动载入专家库简介，可修改" />
-            </label>
-            <div v-if="p.intro" class="resume-preview">
-              <span v-for="(seg, si) in splitResumeItems(p.intro)" :key="si" class="resume-chip">{{ seg }}</span>
-              <span v-if="!splitResumeItems(p.intro).length" class="person-hint">内容过短，暂不生成简历页</span>
-            </div>
-          </div>
-          <p v-if="!current.people.length" class="person-hint">该环节未匹配到日程专家，不生成独立页面（信息由章节过场页承载）</p>
-        </template>
-        <el-empty v-else description="从左侧选择环节进行编辑" />
+    <!-- 第二步：专家信息（全局资料池，去重后一次编辑） -->
+    <section v-else-if="step === 2" class="wiz-body">
+      <p class="wiz-desc">
+        已从日程提取 {{ experts.length }} 位参会专家（重复出现只保留一份）。
+        这里的资料是全局的：头像、姓名、单位、职称、简介改一处，所有环节与页面自动联动。
+      </p>
+      <div v-for="p in experts" :key="expertKey(p)" class="dark-card person-card">
+        <div class="person-head">
+          <strong>{{ p.name || '未命名专家' }}</strong>
+          <el-button size="small" :loading="p.loading" :disabled="!p.expertId || p.loaded" @click="loadPerson(p)">
+            {{ p.loaded ? '已载入' : '从专家库载入' }}
+          </el-button>
+          <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveDraft('专家信息已保存')">保存</el-button>
+        </div>
+        <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" />
+        <p v-else class="person-hint">{{ p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '该专家未关联专家库，将仅生成文字页' }}</p>
+        <div class="person-fields">
+          <label class="field">姓名<el-input v-model="p.name" maxlength="60" style="width: 140px" /></label>
+          <label class="field">职称<el-input v-model="p.title" maxlength="60" style="width: 140px" /></label>
+          <label class="field field-grow">单位<el-input v-model="p.unit" maxlength="120" /></label>
+        </div>
+        <label class="field field-grow">个人简介（按句/分号自动分段，每条一菱形项；可手动改写）
+          <el-input v-model="p.intro" type="textarea" :rows="5" maxlength="1500" placeholder="自动载入专家库简介，可修改" />
+        </label>
+        <div v-if="p.intro" class="resume-preview">
+          <span v-for="(seg, si) in splitResumeItems(p.intro)" :key="si" class="resume-chip">{{ seg }}</span>
+          <span v-if="!splitResumeItems(p.intro).length" class="person-hint">内容过短，暂不生成简历页</span>
+        </div>
       </div>
+      <div class="wiz-actions"><el-button type="primary" @click="step = 3">下一步：日程与角色</el-button></div>
     </section>
 
-    <!-- 第三步：内嵌预览 + 所见即所得编辑 + 保存/归档 -->
+    <!-- 第三步：日程与角色（直接调用第二步维护好的专家资料） -->
+    <section v-else-if="step === 3" class="wiz-body">
+      <p class="wiz-desc">日程环节已按章节分组；专家资料自动沿用第二步维护的全局信息，这里只需确认每个环节的角色。</p>
+      <div v-for="group in groupedItems" :key="group.name" class="dark-card seg-group-card">
+        <p class="seg-group">{{ group.no }} · {{ group.name }}</p>
+        <div v-for="ref in group.items" :key="ref.index" class="seg-row">
+          <span class="seg-label">{{ ref.item.label }}</span>
+          <span class="seg-text">{{ ref.item.title || ref.item.row }}</span>
+          <div v-if="ref.item.people.length" class="seg-people">
+            <div v-for="p in ref.item.people" :key="expertKey(p)" class="seg-person">
+              <span class="seg-person-name">{{ p.name || '?' }}</span>
+              <el-select v-model="p.roleBySegment[ref.index]" size="small" style="width: 130px"
+                :aria-label="`${p.name} 在该环节的角色`">
+                <el-option v-for="r in roleOptions" :key="r" :label="r" :value="r" />
+              </el-select>
+            </div>
+          </div>
+          <span v-else class="person-hint">无匹配专家，不生成独立页面</span>
+        </div>
+      </div>
+      <div class="wiz-actions"><el-button type="primary" @click="step = 4">下一步：预览演示</el-button></div>
+    </section>
+
+    <!-- 第四步：内嵌预览 + 所见即所得编辑 + 保存/归档 -->
     <section v-else class="wiz-body">
       <p class="wiz-desc">
         已生成 {{ builtSlides.length }} 页：封面 + {{ sections.length }} 个章节（出场 {{ pageCount('bio') }} /
@@ -132,7 +134,7 @@
 
     <footer class="wiz-foot">
       <el-button v-if="step > 1" :disabled="busy" @click="step -= 1">上一步</el-button>
-      <el-button v-if="step < 3" type="primary" :disabled="busy || (step === 1 && !items.length)" @click="step += 1">
+      <el-button v-if="step < 4" type="primary" :disabled="busy || (step === 1 && !experts.length)" @click="step += 1">
         下一步
       </el-button>
     </footer>
@@ -147,13 +149,12 @@ import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
 import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
-  agendaRows, classifyRow, coverSlideV2, dedupePhotos, guessRole, matchSpeakers,
+  agendaRows, classifyRow, coverSlideV2, dedupePhotos, guessRole, matchSpeakers, ROLE_OPTIONS,
   panelSlideV2, bioSlideV2, resumeSlideV2, sectionOf, sectionSlideV2, splitResumeItems, thanksSlide
 } from '../../utils/showDeck'
 
-// 三步向导（2026-11-21 结构化页面模型 v2）：①模板+封面定制 ②日程/人脸预抠图/简介分段 ③内嵌预览所见即所得编辑。
-// 稿件结构：封面 → 章节过场 → （讨论墙）→ 专家出场 → 简历 → … → 致谢；议程页与无专家文字页已按需求移除。
-// 产出与编辑器共用 stage-form 草稿；预览/归档共用后端 render。
+// 四步向导（2026-11-21 v3 流程）：①模板+封面 ②专家信息（全局资料池一次编辑）③日程与角色（三值下拉，
+// 直接调用②的资料）④内嵌预览所见即所得编辑。稿件结构：封面→章节过场→（讨论墙）→出场→简历→…→致谢。
 const templates = [
   { id: 'gold', name: '红金盛典', desc: '深红金流光，适合庆典与开幕', preview: 'radial-gradient(120% 100% at 50% 40%, #7e1414, #3c0707)' },
   { id: 'tech', name: '深蓝科技', desc: '深蓝网格光束，学术论坛', preview: 'linear-gradient(135deg, #0e3153, #145371)' },
@@ -165,7 +166,8 @@ const fontScales = [
   { value: 1.15, label: '大' },
   { value: 1.3, label: '特大' }
 ]
-const stepNames = ['模板与封面', '日程与专家', '预览演示']
+const roleOptions = ROLE_OPTIONS
+const stepNames = ['模板与封面', '专家信息', '日程与角色', '预览演示']
 
 const route = useRoute()
 const router = useRouter()
@@ -177,29 +179,18 @@ const editable = ref(false)
 const phaseId = ref(null)
 const project = ref({})
 const cover = ref({ org: '', title: '', sub: '', time: '', place: '', chair: '' })
-const items = ref([])
+const items = ref([])          // 日程环节（people 为专家池对象引用）
+const experts = ref([])        // 专家池去重列表（第二步编辑入口）
 const selected = ref(0)
 const busy = ref(false)
 const editing = ref(false)
-const editableDeck = ref(null)   // Step3 快照：页内编辑写回这份，保存后重新渲染
+const editableDeck = ref(null)
 const previewFrame = ref(null)
 const previewUrl = ref('')
 const current = computed(() => items.value[selected.value])
-// 专家全局资料池：同一专家（按专家库 ID，无 ID 时按姓名）在多个环节共享同一份**资料**对象
-// （姓名/单位/职称/头像/简介——改一处全部联动）；大会角色按环节独立存 roleBySegment（同一专家
-// 在 A 环节是主席、B 环节可能是主讲）。
-const peoplePool = ref(new Map())
 
-function poolPerson(p) {
-  const key = p.expertId || `name:${p.expertName || ''}`
-  if (!peoplePool.value.has(key)) {
-    peoplePool.value.set(key, {
-      expertId: p.expertId || '', name: p.expertName || '', unit: p.expertUnit || '',
-      title: p.expertTitle || '', intro: '', photoSrc: '', avatar: '',
-      loading: false, loaded: false, roleBySegment: {}
-    })
-  }
-  return peoplePool.value.get(key)
+function expertKey(p) {
+  return p.expertId || `name:${p.name || ''}`
 }
 
 onMounted(async () => {
@@ -214,19 +205,29 @@ onMounted(async () => {
     ElMessage.warning('日程中暂未提取到环节，请确认该项目日程阶段已上传日程')
     return
   }
-  peoplePool.value = new Map()
+  // 专家资料池：同一专家（专家库 ID / 姓名）只保留一份，多环节共享引用
+  const pool = new Map()
   items.value = rows.slice(0, 150).map((row, segIdx) => {
     const { label, title } = classifyRow(row)
     return {
       row, label, title,
       people: matchSpeakers(row, speakers).map(p => {
-        const person = poolPerson({ ...p, row, label })
-        // 各环节角色只按该环节推断一次（用户可在表单中手改）
-        if (person.roleBySegment[segIdx] === undefined) person.roleBySegment[segIdx] = guessRole(row, label)
+        const key = p.expertId || `name:${p.expertName || ''}`
+        if (!pool.has(key)) {
+          pool.set(key, {
+            expertId: p.expertId || '', name: p.expertName || '', unit: p.expertUnit || '',
+            title: p.expertTitle || '', intro: '', photoSrc: '', avatar: '',
+            loading: false, loaded: false, roleBySegment: {}
+          })
+        }
+        const person = pool.get(key)
+        // 各环节角色只按该环节推断一次（可在第三步下拉改为三种角色之一）
+        if (person.roleBySegment[segIdx] === undefined) person.roleBySegment[segIdx] = guessRole(row)
         return person
       })
     }
   })
+  experts.value = Array.from(pool.values())
   initCover()
 })
 
@@ -236,14 +237,14 @@ function initCover() {
   cover.value.title = detail.name || ''
   cover.value.time = detail.meetingStartDate || ''
   cover.value.place = detail.cityName || ''
-  const chairItem = items.value.find(it => /主席|致辞/.test(it.row) && it.people.length)
-  const chairPerson = chairItem?.people?.[0]
+  const chairPerson = experts.value.find(p => p.roleBySegment &&
+    Object.values(p.roleBySegment).some(r => r === '大会主席'))
   cover.value.chair = chairPerson ? [chairPerson.name, chairPerson.title].filter(Boolean).join(' ') : ''
 }
 
-// 选中环节后自动为其中专家拉取证件照与简介（含人脸预抠图）
-watch(current, item => {
-  (item?.people || []).forEach(p => { if (p.expertId && !p.loaded && !p.loading) loadPerson(p) })
+// 专家载入（池内共享对象，loaded 标志保证只载一次）
+watch(experts, list => {
+  (list || []).forEach(p => { if (p.expertId && !p.loaded && !p.loading) loadPerson(p) })
 }, { immediate: true })
 
 async function loadPerson(p) {
@@ -304,12 +305,12 @@ const builtSlides = computed(() => {
   for (const group of sections.value) {
     const leadRef = group.items.map(ref => ({ ref, p: ref.item.people[0] })).find(x => x.p && (x.p.avatar || x.p.name))
     const lead = leadRef ? {
-      role: leadRef.p.roleBySegment?.[leadRef.ref.index] || '主持人',
+      role: leadRef.p.roleBySegment?.[leadRef.ref.index] || '大会讲者',
       name: leadRef.p.name, title: leadRef.p.title, unit: leadRef.p.unit, avatar: leadRef.p.avatar
     } : null
     slides.push(sectionSlideV2({ no: group.no, title: group.name, person: lead }))
     for (const { index: itemIdx, item } of group.items) {
-      const roleOf = p => p.roleBySegment?.[itemIdx] || guessRole(item.row, item.label)
+      const roleOf = p => p.roleBySegment?.[itemIdx] || guessRole(item.row)
       const people = item.people.filter(p => p.name || p.avatar)
       if (people.length >= 2) {
         slides.push(panelSlideV2({
@@ -329,9 +330,9 @@ const builtSlides = computed(() => {
   return slides
 })
 
-// 进入第三步时冻结快照：页内编辑只写快照，保存后按快照重新渲染
+// 进入第四步时冻结快照：页内编辑只写快照，保存后按快照重新渲染
 watch(step, s => {
-  if (s === 3) {
+  if (s === 4) {
     editableDeck.value = JSON.parse(JSON.stringify(builtSlides.value))
     editing.value = false
     loadPreview()
@@ -489,7 +490,7 @@ function goProject() {
 .wiz-step.done { color: rgba(242, 198, 109, .85); }
 .wiz-body { padding: 26px 0 10px; }
 .wiz-desc { margin: 0 0 18px; font-size: 14px; color: rgba(255, 243, 220, .65); }
-.dark-card { background: rgba(16, 19, 26, .72); border: 1px solid rgba(242, 198, 109, .22); border-radius: 14px; padding: 16px; }
+.dark-card { background: rgba(16, 19, 26, .72); border: 1px solid rgba(242, 198, 109, .22); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
 .block-title { margin: 0 0 12px; font-size: 15px; letter-spacing: .1em; color: rgba(242, 198, 109, .9); }
 .tpl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; max-width: 900px; margin-bottom: 20px; }
 .tpl-card { display: flex; flex-direction: column; gap: 8px; padding: 0 0 14px; background: rgba(16, 19, 26, .72); border: 1px solid rgba(242, 198, 109, .25); border-radius: 14px; overflow: hidden; cursor: pointer; color: #fff3dc; text-align: left; }
@@ -504,18 +505,17 @@ function goProject() {
 .field-hint { margin: 4px 0 0; font-size: 12px; color: rgba(255, 243, 220, .45); }
 .wiz-actions { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
 .wiz-two { display: grid; grid-template-columns: minmax(230px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
-.seg-list { max-height: 70dvh; overflow: auto; }
-.seg-group { margin: 14px 0 6px; font-size: 13px; letter-spacing: .15em; color: rgba(242, 198, 109, .85); border-left: 3px solid rgba(242, 198, 109, .5); padding-left: 8px; }
-.seg-group:first-child { margin-top: 0; }
-.seg-item { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; padding: 8px 10px; margin: 2px 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: rgba(255, 243, 220, .8); cursor: pointer; }
-.seg-item.picked { border-color: rgba(242, 198, 109, .5); background: rgba(242, 198, 109, .1); color: #fff3dc; }
-.seg-label { flex: none; font-size: 11px; border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 8px; }
-.seg-text { font-size: 13px; overflow-wrap: anywhere; }
-.seg-fields { display: flex; gap: 12px; margin-bottom: 12px; }
-.person-card { border-top: 1px dashed rgba(242, 198, 109, .25); padding: 14px 0; display: flex; flex-direction: column; gap: 10px; }
+.seg-group-card { padding: 14px 16px; }
+.seg-group { margin: 0 0 10px; font-size: 14px; letter-spacing: .15em; color: rgba(242, 198, 109, .9); border-left: 3px solid rgba(242, 198, 109, .5); padding-left: 8px; }
+.seg-row { border-top: 1px dashed rgba(242, 198, 109, .2); padding: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.seg-label { display: inline-block; font-size: 11px; border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 8px; color: rgba(242, 198, 109, .85); width: fit-content; }
+.seg-text { font-size: 13.5px; overflow-wrap: anywhere; color: rgba(255, 243, 220, .85); }
+.seg-people { display: flex; flex-wrap: wrap; gap: 10px; }
+.seg-person { display: flex; align-items: center; gap: 8px; background: rgba(242, 198, 109, .08); border: 1px solid rgba(242, 198, 109, .3); border-radius: 10px; padding: 6px 10px; }
+.seg-person-name { font-size: 13px; color: #fff3dc; }
+.person-card { padding: 16px; }
 .person-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .person-head strong { font-size: 15px; letter-spacing: .08em; }
-.person-role { font-size: 12px; color: rgba(242, 198, 109, .8); border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 10px; }
 .person-fields { display: flex; gap: 8px; flex-wrap: wrap; }
 .person-hint { margin: 0; font-size: 12px; color: rgba(255, 243, 220, .45); }
 .resume-preview { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -407,9 +407,9 @@ public class ProjectShowService {
 
     private static String slideHtml(Slide slide, int idx) {
         boolean first = idx == 0;
-        String label = text(slide.label(), 160);
-        String title = text(slide.title(), 240);
-        String body = text(slide.body(), 4000);
+        String label = text(slide.label(), 160, "页面标签");
+        String title = text(slide.title(), 240, "页面标题");
+        String body = text(slide.body(), 4000, "页面正文");
         String portrait = image(slide.image());
         String kind = slide.kind() == null || slide.kind().isBlank()
                 ? kindOf(label, title, portrait, first) : slide.kind();
@@ -438,10 +438,10 @@ public class ProjectShowService {
 
     private static String bioHtml(int idx, String label, Person p) {
         String portrait = image(p.image());
-        String role = text(p.role(), 40);
-        String name = text(p.name(), 60);
-        String title = text(p.title(), 60);
-        String unit = text(p.unit(), 120);
+        String role = text(p.role(), 40, "大会角色");
+        String name = text(p.name(), 60, "姓名");
+        String title = text(p.title(), 60, "职称");
+        String unit = text(p.unit(), 120, "单位");
         StringBuilder s = new StringBuilder("<section class=\"slide k-bio\"><div class=\"bio-v\">");
         if (!portrait.isEmpty()) {
             s.append("<figure class=\"photo-card a-in\"><img src=\"").append(portrait).append("\" alt=\"\"></figure>");
@@ -476,7 +476,7 @@ public class ProjectShowService {
         if (items != null) {
             int n = Math.min(items.size(), 12);
             for (int j = 0; j < n; j++) {
-                String item = text(items.get(j), 160);
+                String item = text(items.get(j), 160, "封面信息行");
                 if (item.isEmpty()) continue;
                 String[] kv = item.split("\\|", 2);
                 s.append("<div class=\"ci-row\" data-step");
@@ -492,7 +492,7 @@ public class ProjectShowService {
     }
 
     private static String sectionHtml(int idx, String label, String title, List<String> items, List<Person> persons) {
-        String num = items == null || items.isEmpty() ? "" : text(items.get(0), 12);
+        String num = items == null || items.isEmpty() ? "" : text(items.get(0), 12, "章节编号");
         Person lead = persons == null ? null : Arrays.stream(persons.toArray(new Person[0]))
                 .filter(p -> p != null && p.name() != null && !p.name().isBlank()).findFirst().orElse(null);
         StringBuilder s = new StringBuilder("<section class=\"slide k-section\"><div class=\"sec\">");
@@ -502,10 +502,10 @@ public class ProjectShowService {
         if (!title.isEmpty()) s.append("<h1 class=\"sec-title flow a-wide\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
         s.append("<div class=\"sec-line a-in\"></div>");
         if (lead != null) {
-            String name = text(lead.name(), 60);
-            String title2 = text(lead.title(), 60);
-            String unit = text(lead.unit(), 120);
-            String role = text(lead.role(), 40);
+            String name = text(lead.name(), 60, "姓名");
+            String title2 = text(lead.title(), 60, "职称");
+            String unit = text(lead.unit(), 120, "单位");
+            String role = text(lead.role(), 40, "大会角色");
             s.append("<div class=\"sec-person a-in\" data-step><strong>");
             if (!role.isEmpty()) s.append("<span").append(ed(idx, "persons[0].role")).append(">").append(role).append("</span> · ");
             s.append("<span").append(ed(idx, "persons[0].name")).append(">").append(name).append("</span>");
@@ -532,7 +532,7 @@ public class ProjectShowService {
         if (items != null) {
             int n = Math.min(items.size(), 30);
             for (int j = 0; j < n; j++) {
-                String item = text(items.get(j), 200);
+                String item = text(items.get(j), 200, "简历条目");
                 if (!item.isEmpty()) s.append("<li data-step").append(ed(idx, "items[" + j + "]")).append(">").append(item).append("</li>");
             }
         }
@@ -549,9 +549,9 @@ public class ProjectShowService {
             for (int j = 0; j < n; j++) {
                 Person p = persons.get(j);
                 if (p == null || p.name() == null || p.name().isBlank()) continue;
-                String name = text(p.name(), 60);
-                String title2 = text(p.title(), 60);
-                String unit = text(p.unit(), 120);
+                String name = text(p.name(), 60, "姓名");
+                String title2 = text(p.title(), 60, "职称");
+                String unit = text(p.unit(), 120, "单位");
                 String portrait = image(p.image());
                 s.append("<figure class=\"p-card a-in\" data-step>");
                 if (!portrait.isEmpty()) {
@@ -728,9 +728,12 @@ public class ProjectShowService {
         return tail.replace("__PARTICLES__", String.valueOf(theme.particles()));
     }
 
-    private static String text(String value, int limit) {
+    private static String text(String value, int limit, String field) {
         if (value == null) return "";
-        if (value.length() > limit) throw new BusinessException("幻灯片文字超出长度限制");
+        if (value.length() > limit) {
+            throw new BusinessException("「" + field + "」超出长度限制（" + value.length() + "/" + limit
+                    + " 字），请缩短后重试；如为简介可按句拆分为多条");
+        }
         return HtmlUtils.htmlEscape(value);
     }
 

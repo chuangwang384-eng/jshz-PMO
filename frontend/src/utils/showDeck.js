@@ -57,6 +57,7 @@ export function splitResumeItems(text) {
     .split(/[\n；;。]+/)
     .map(s => s.trim().replace(/^[，,、\s]+/, '').replace(/[，,]$/, ''))
     .filter(s => s.length >= 4)
+    .map(s => (s.length > 200 ? s.slice(0, 199) + '…' : s))
     .slice(0, 30)
 }
 
@@ -101,13 +102,13 @@ export function panelSlideV2({ label, title, persons }) {
   }
 }
 
-// 环节角色推断（可被用户手改覆盖）
-export function guessRole(row, label) {
+// 大会角色仅三种（2026-11-21 需求），环节角色推断可被用户在「日程与角色」步骤下拉覆盖
+export const ROLE_OPTIONS = ['大会主席', '大会讲者', '讨论嘉宾']
+
+export function guessRole(row) {
   if (/主席/.test(row)) return '大会主席'
-  if (/主持/.test(row) || label === '主持与致辞') return '主持人'
   if (/讨论/.test(row)) return '讨论嘉宾'
-  if (/致辞/.test(row)) return '致辞嘉宾'
-  return '主讲嘉宾'
+  return '大会讲者'
 }
 
 // 照片池化：同一张照片（dataURL）全稿只存一份到 deck.photos，页面内以 "ph:序号" 引用，
