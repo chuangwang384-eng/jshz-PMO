@@ -30,7 +30,6 @@
           <label class="field field-grow">副标题<el-input v-model="cover.sub" maxlength="120" placeholder="如：临床应用研讨 · 多学科病例讨论项目" /></label>
         </div>
         <div class="cover-fields">
-          <label class="field">会议时间<el-input v-model="cover.time" maxlength="60" placeholder="如：2026年11月18日（周三）" /></label>
           <label class="field">会议地点<el-input v-model="cover.place" maxlength="60" placeholder="如：郑州 · 会场一" /></label>
           <label class="field field-grow">大会主席<el-input v-model="cover.chair" maxlength="80" placeholder="如：齐秀恒 教授" /></label>
         </div>
@@ -97,6 +96,15 @@
             </el-select>
           </div>
         </div>
+        <div class="segment-pages">
+          <button v-for="entry in (pagesByGroup.get(g.index) || [])" :key="entry.index"
+            type="button" class="dark-card segment-page" @click="openPagePreview(entry.index)">
+            <span class="slide-kind">{{ kindLabel(entry.slide.kind) }}</span>
+            <strong>{{ entry.slide.title }}</strong>
+            <span v-if="entry.slide.persons?.length">{{ entry.slide.persons.map(p => p.name).filter(Boolean).join('、') }}</span>
+            <span v-if="entry.slide.kind === 'resume' && entry.slide.items?.length">{{ entry.slide.items[0] }}</span>
+          </button>
+        </div>
       </div>
       <p v-if="!groups.length" class="person-hint">日程中暂无已确认的专家记录，请回到日程阶段完成解析与确认</p>
       <div class="wiz-actions"><el-button type="primary" @click="step = 4">下一步：预览演示</el-button></div>
@@ -144,6 +152,7 @@
           <li v-for="(s, i) in currentDeckSlides" :key="i">
             <span class="slide-kind">{{ kindLabel(s.kind) }}</span>{{ s.title || s.label }}
             <span v-if="s.kind === 'section'"> · {{ (s.persons || []).map(p => p.name).filter(Boolean).join('、') }}</span>
+            <el-button v-if="step === 3" link size="small" @click="openPagePreview(i)">预览</el-button>
             <em v-if="slideHasPhoto(s)"> · 含头像</em>
             <el-button link size="small" class="slide-op" :disabled="i === 0" @click="moveSlide(i, -1)">▲</el-button>
             <el-button link size="small" class="slide-op" :disabled="i === currentDeckSlides.length - 1" @click="moveSlide(i, 1)">▼</el-button>
@@ -153,6 +162,13 @@
         </ol>
       </details>
     </section>
+
+    <el-dialog v-model="pagePreviewOpen" title="页面预览" width="min(900px, 94vw)" @closed="clearPagePreview">
+      <p v-if="pagePreviewLoading" role="status">正在生成预览…</p>
+      <p v-else-if="pagePreviewError" role="alert">{{ pagePreviewError }}</p>
+      <iframe v-else-if="pagePreviewUrl" :src="pagePreviewUrl" sandbox="allow-scripts"
+        class="page-preview-frame" title="串场单页预览"></iframe>
+    </el-dialog>
 
     <footer class="wiz-foot">
       <el-button v-if="step > 1" :disabled="busy" @click="step -= 1">上一步</el-button>
@@ -164,14 +180,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
 import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
-  ROLE_OPTIONS, classifyRow, dedupePhotos, normalizeName, roleLabel, splitResumeItems
+  ROLE_OPTIONS, agendaRows, classifyRow, dedupePhotos, normalizeName, roleLabel, splitResumeItems
 } from '../../utils/showDeck'
 
 // 四步向导（2026-11-21 v4 结构引擎）：①模板+封面 ②专家信息（全局资料池）③日程与角色（按议题段落，
@@ -199,7 +215,7 @@ const fontScale = ref(1)
 const editable = ref(false)
 const phaseId = ref(null)
 const project = ref({})
-const cover = ref({ org: '', title: '', sub: '', time: '', place: '', chair: '' })
+const cover = ref({ org: '', title: '', sub: '', place: '', chair: '' })
 const experts = ref([])        // 专家资料池（全局唯一，第二步编辑）
 const groups = ref([])         // 议题段落分组（第三步角色确认与第四步编排）
 const textPageSources = ref([]) // 可手动添加文字页的环节（含无专家环节）
@@ -212,48 +228,64 @@ const editPageIdx = ref(-1)
 const moveBar = ref([])
 const addSegIdx = ref(null)
 
-function expertKey(name, expertId) {
-  return expertId || `name:${normalizeName(name || '')}`
-}
+const pagePreviewOpen = ref(false)
+const pagePreviewUrl = ref('')
+const pagePreviewLoading = ref(false)
+const pagePreviewError = ref('')
+let pagePreviewRequest = 0
+let portraitsReady = Promise.resolve()
 
-// 结构化专家：解析四角色（CHAIR/HOST/SPEAKER/DISCUSSANT）→ 中文；两字姓名去排版空格
-function buildSpeakers(overview) {
-  const raw = overview?.speakers || []
+function buildSpeakers(raw) {
+  const linkedByName = new Map()
+  const personByRecord = new Map()
   const pool = new Map()
-  return raw.map(sp => {
-    const name = normalizeName(sp.expertName || sp.name || '')
-    const key = expertKey(name, sp.expertId || '')
+  const nameOf = sp => normalizeName(sp.expertName || sp.name || '')
+  for (const sp of raw) {
+    if (!sp.expertId) continue
+    const name = nameOf(sp)
+    if (!linkedByName.has(name)) linkedByName.set(name, new Set())
+    linkedByName.get(name).add(String(sp.expertId))
+  }
+  for (const sp of raw) {
+    const name = nameOf(sp)
+    const linked = linkedByName.get(name)
+    const expertId = sp.expertId || (linked?.size === 1 ? [...linked][0] : '')
+    const key = expertId ? `id:${expertId}` : `name:${name}`
+    const unit = sp.expertUnit || sp.unit || ''
+    const title = sp.expertTitle || sp.title || ''
     if (!pool.has(key)) {
-      pool.set(key, {
-        key, expertId: sp.expertId || '', name, unit: sp.expertUnit || sp.unit || '',
-        title: sp.expertTitle || sp.title || '', intro: '', photoSrc: '', avatar: '',
-        loading: false, loaded: false, roleByGroup: {}, roleEnum: sp.role || ''
-      })
+      pool.set(key, { key, expertId, name, unit, title, intro: '', photoSrc: '', avatar: '',
+        originalAvatar: '', loading: false, loaded: false, roleByGroup: {} })
+    } else if (sp.expertId) {
+      const person = pool.get(key)
+      person.unit ||= unit
+      person.title ||= title
     }
-    return pool.get(key)
-  })
+    personByRecord.set(sp, key)
+  }
+  return { people: [...pool.values()], personByRecord }
 }
 
 onMounted(async () => {
   const detail = await getProjectDetail(id)
   project.value = detail
   cover.value.title = detail.name || ''
-  cover.value.time = [...new Set([detail.meetingStartDate, detail.meetingEndDate].filter(Boolean))].join(' 至 ')
   const phase = detail.phases?.find(item => item.name === '串场制作')
   editable.value = Boolean(detail.canOperate && phase && String(detail.phaseId) === String(phase.id))
   phaseId.value = phase?.id || null
   const [agenda, overview] = await Promise.all([getShowAgenda(id), getScheduleOverview(id)])
-  experts.value = buildSpeakers(overview)
+  const rawSpeakers = overview?.speakers || []
+  const { people, personByRecord } = buildSpeakers(rawSpeakers)
+  experts.value = people
+  const byKey = new Map(experts.value.map(p => [p.key, p]))
   // 同名议题按各自时段分组，未标时间的环节保留相对顺序。
   const gmap = []
   const startMinutes = time => {
     const match = time.match(/(\d{1,2})[:：](\d{2})/)
     return match ? Number(match[1]) * 60 + Number(match[2]) : Infinity
   }
-  const rawSpeakers = overview?.speakers || []
   for (const spRaw of rawSpeakers) {
-    const name = normalizeName(spRaw.expertName || spRaw.name || '')
-    const person = experts.value.find(x => x.key === expertKey(name, spRaw.expertId || ''))
+    const person = byKey.get(personByRecord.get(spRaw))
     if (!person) continue
     const title = spRaw.segmentTitle || '未分组环节'
     const time = (spRaw.segmentTime || '').trim().replace(/[：]/g, ':').replace(/[–—－~～至]/g, '-').replace(/\s+/g, '')
@@ -262,13 +294,12 @@ onMounted(async () => {
       g = { title, time, members: [], times: time ? [time] : [] }
       gmap.push(g)
     }
-    // 成员记录绑定该条日程解析的时间与角色（同一位专家在不同议题/时间段各自独立）
+    if (g.members.some(m => m.person.key === person.key)) continue
     g.members.push({
       person,
       time,
       roleLabelV: roleLabel(spRaw.role, title, '')
     })
-    if (!person.roleByGroup) person.roleByGroup = {}
   }
   groups.value = gmap.sort((a, b) => startMinutes(a.time) - startMinutes(b.time)).map((g, index) => {
     for (const m of g.members) {
@@ -281,7 +312,7 @@ onMounted(async () => {
   const { rows } = agendaRows(agenda, overview)
   textPageSources.value = rows.slice(0, 150).map(row => {
     const { label, title } = classifyRow(row)
-    return { label, title, row }
+    return { label, title: withoutTime(title), row: withoutTime(row) }
   })
 })
 
@@ -303,7 +334,7 @@ function initCover() {
 // 专家载入（池内共享对象，loaded 标志保证只载一次）
 watch(experts, list => {
   const safeList = list || []
-  safeList.forEach(p => { if (p.expertId && !p.loaded && !p.loading) loadPerson(p) })
+  portraitsReady = Promise.all(safeList.map(loadPerson))
 }, { immediate: true })
 
 async function loadPerson(p) {
@@ -311,18 +342,25 @@ async function loadPerson(p) {
   p.loading = true
   try {
     const expert = await getExpert(p.expertId)
+    if (!p.intro) p.intro = expert?.原始简介 || expert?.简介 || ''
     if (expert?.照片) {
       const { data } = await fetchPhotoBlob(expert.照片)
-      if (['image/png', 'image/jpeg', 'image/webp'].includes(data.type) && data.size <= 2 * 1024 * 1024) {
-        p.photoSrc = await new Promise(resolve => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = () => resolve('')
-          reader.readAsDataURL(data)
-        })
+      const url = URL.createObjectURL(data)
+      try {
+        const image = new Image()
+        image.src = url
+        await image.decode()
+        const scale = Math.min(1, 800 / Math.max(image.naturalWidth, image.naturalHeight))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height)
+        p.originalAvatar = canvas.toDataURL('image/webp', 0.85)
+        p.photoSrc = p.originalAvatar
+      } finally {
+        URL.revokeObjectURL(url)
       }
     }
-    if (!p.intro) p.intro = expert?.原始简介 || expert?.简介 || ''
     p.loaded = true
   } catch {
     // 专家库读取失败不阻塞向导，字段可手填
@@ -333,37 +371,41 @@ async function loadPerson(p) {
 
 // 稿件编排（v4）：段内先主持过场+简介 → 讲者过场+简介 → 讨论嘉宾按相同时间段同页过场+各简介；
 // 大会主席段（全 CHAIR）自然落在日程最前的段。每个过场页统一编号。
+function withoutTime(value) {
+  return (value || '').replace(/[（(]?\s*\b\d{1,2}[:：]\d{2}(?:\s*[-–—－~～至]\s*\d{1,2}[:：]\d{2})?\s*[）)]?/g, ' ').trim()
+}
+
 const builtSlides = computed(() => {
   const slides = [coverSlideLike()]
   let secNo = 0
-  const pushSection = (title, persons) => {
+  const pushSection = (title, persons, groupIndex) => {
     secNo += 1
     slides.push({
-      label: '', title: title || '', body: '', image: '', kind: 'section',
+      label: '', title: title || '', body: '', image: '', kind: 'section', groupIndex,
       items: [String(secNo).padStart(2, '0')],
       persons: (persons || []).slice(0, 20).map(p => ({
-        role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || ''
+        role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || p.originalAvatar || '', sourceKey: p.key
       })),
       fontSize: null
     })
   }
-  const pushResume = p => {
+  const pushResume = (p, groupIndex) => {
     slides.push({
       label: '个人简历', title: [p.name, p.title].filter(Boolean).join(' ') || '专家简介',
-      body: '', image: '', kind: 'resume',
+      body: '', image: '', kind: 'resume', groupIndex,
       items: splitResumeItems(p.intro || ''), fontSize: null,
-      persons: [{ role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || '' }]
+      persons: [{ role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || p.originalAvatar || '', sourceKey: p.key }]
     })
   }
   for (const g of groups.value) {
     const memberRole = m => m.person.roleByGroup?.[g.index] || m.roleLabelV
     const byRole = role => g.members.filter(m => memberRole(m) === role)
-    const title = g.time ? `${g.title}（${g.time}）` : g.title
+    const title = withoutTime(g.title)
     for (const role of roleOptions) {
       const persons = byRole(role).map(m => ({ ...m.person, role }))
       if (!persons.length) continue
-      pushSection(title, persons)
-      persons.forEach(pushResume)
+      pushSection(title, persons, g.index)
+      persons.forEach(person => pushResume(person, g.index))
     }
   }
   slides.push(thanksSlideLike())
@@ -375,7 +417,6 @@ function coverSlideLike() {
     label: cover.value.org || '', title: cover.value.title || project.value.name || '',
     body: cover.value.sub || '', image: '', kind: 'cover', fontSize: null,
     items: [
-      cover.value.time ? `会议时间|${cover.value.time}` : '',
       cover.value.place ? `会议地点|${cover.value.place}` : '',
       cover.value.chair ? `大会主席|${cover.value.chair}` : ''
     ].filter(Boolean),
@@ -388,9 +429,15 @@ function thanksSlideLike() {
 }
 
 
-function deck() {
-  const base = editableDeck.value || builtSlides.value
-  const { slides, photos } = dedupePhotos(base)
+function deck(base = currentDeckSlides.value) {
+  const portraits = new Map(experts.value.map(p => [p.key, p.avatar || p.originalAvatar]))
+  const content = base.map(({ groupIndex, ...slide }) => ({
+    ...slide,
+    persons: slide.persons?.map(({ sourceKey, ...person }) => ({
+      ...person, image: portraits.get(sourceKey) || person.image
+    })) ?? null
+  }))
+  const { slides, photos } = dedupePhotos(content)
   return { slides, photos, background: '', template: template.value, fontScale: fontScale.value }
 }
 
@@ -454,9 +501,54 @@ watch(step, s => {
 // Step4 当前生效的页面列表（快照优先）
 const currentDeckSlides = computed(() => editableDeck.value || builtSlides.value)
 
+const pagesByGroup = computed(() => {
+  const pages = new Map()
+  currentDeckSlides.value.forEach((slide, index) => {
+    if (slide.groupIndex === undefined) return
+    if (!pages.has(slide.groupIndex)) pages.set(slide.groupIndex, [])
+    pages.get(slide.groupIndex).push({ slide, index })
+  })
+  return pages
+})
+
+function clearPagePreview() {
+  pagePreviewRequest += 1
+  if (pagePreviewUrl.value) URL.revokeObjectURL(pagePreviewUrl.value)
+  pagePreviewUrl.value = ''
+}
+
+async function openPagePreview(index) {
+  const slide = currentDeckSlides.value[index]
+  if (!slide) return
+  clearPagePreview()
+  const request = pagePreviewRequest
+  pagePreviewOpen.value = true
+  pagePreviewLoading.value = true
+  pagePreviewError.value = ''
+  try {
+    await portraitsReady
+    if (request !== pagePreviewRequest || !pagePreviewOpen.value) return
+    const html = await previewShow(id, deck([slide]))
+    if (request !== pagePreviewRequest || !pagePreviewOpen.value) return
+    if (typeof html !== 'string' || !html.startsWith('<')) throw new Error('Invalid preview')
+    pagePreviewUrl.value = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+  } catch {
+    if (request === pagePreviewRequest) pagePreviewError.value = '暂时无法生成页面预览，请重试。'
+  } finally {
+    if (request === pagePreviewRequest) pagePreviewLoading.value = false
+  }
+}
+
+onUnmounted(() => {
+  clearPagePreview()
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+})
+
 async function loadPreview(restore = null) {
   if (step.value !== 4) return
   try {
+    await portraitsReady
+    if (step.value !== 4) return
     const html = await previewShow(id, deck())
     if (typeof html !== 'string' || !html.startsWith('<')) {
       ElMessage.error('预览渲染失败，请重试')
@@ -684,4 +776,8 @@ function goProject() {
 .slide-op { margin-left: 6px; }
 .wiz-foot { display: flex; justify-content: flex-end; gap: 12px; padding-top: 14px; border-top: 1px solid rgba(242, 198, 109, .2); }
 @media (max-width: 760px) { .wiz-two { grid-template-columns: 1fr; } .wiz-steps { margin-left: 0; } }
+.segment-pages { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 14px; }
+.segment-page { display: grid; gap: 6px; padding: 12px; text-align: left; color: inherit; cursor: pointer; }
+.segment-page:focus-visible { outline: 2px solid var(--ui-primary); }
+.page-preview-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
 </style>

@@ -448,3 +448,5 @@
 - 2026-11-21 **1.0.97 已发布**（纯前端 graceful，后端保持 1.0.95）：收费项明细（detail/详细内容）由只读提示改为可编辑 textarea（表格名称列下方），新增弹窗补「收费项明细」字段。后端无需改（saveFeeStandards 早已 setDetail）。王创会话端到端验收：带明细新增→保存→DB 实查 detail 正确→删除清理（170 条）。见 [发布记录](releases/20261121-fee-detail-edit-1.0.97.md)。
 
 - 2026-11-21 [串场制作向导调整 1.0.120](tasks/20261121_show_wizard_refinement.md)
+
+- 2026-11-21 [串场向导单页预览与专家头像 1.0.121](tasks/20261121_show_wizard_page_preview.md)
