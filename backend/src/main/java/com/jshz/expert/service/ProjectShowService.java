@@ -41,7 +41,7 @@ public class ProjectShowService {
      * 章节编号（首元素）、简历条目；persons 承载页面人物。
      */
     public record Slide(String label, String title, String body, String image,
-                        String kind, List<String> items, List<Person> persons) {}
+                        String kind, List<String> items, List<Person> persons, Double fontSize) {}
 
     /** 内置串场模板。css 只允许覆盖调色变量与装饰层，页面结构与动画引擎由 render 的公共层承载，禁止复制私有副本。 */
     public record Theme(String id, String name, String css, boolean particles) {}
@@ -208,7 +208,7 @@ public class ProjectShowService {
                 .map(p -> p == null ? null
                         : new Person(p.role(), p.name(), p.title(), p.unit(), photoOf(p.image(), photos)))
                 .toList();
-        return new Slide(slide.label(), slide.title(), slide.body(), img, slide.kind(), slide.items(), persons);
+        return new Slide(slide.label(), slide.title(), slide.body(), img, slide.kind(), slide.items(), persons, slide.fontSize());
     }
 
     private static String photoOf(String image, List<String> photos) {
@@ -329,18 +329,42 @@ public class ProjectShowService {
             .bio-name small{font-size:.42em;color:var(--ink-dim);margin-left:.25em;font-family:var(--font-body)}
             .bio-unit{font-size:1.5em;color:var(--ink-dim);letter-spacing:.15em;margin-top:10px}
             .resume-page{height:100%;padding:6.5% 8%;display:flex;flex-direction:column}
-            .rp-head{display:flex;align-items:center;gap:34px;margin-bottom:6px}
-            .rp-avatar{flex:none;width:150px;height:150px;border-radius:50%;object-fit:cover;
-              object-position:center top;border:2px solid var(--rule);box-shadow:0 10px 28px rgba(0,0,0,.3)}
-            .rp-title{font-size:2.9em;margin:0;font-family:var(--font-title);letter-spacing:.1em}
-            .rp-title span{font-size:.38em;letter-spacing:.6em;color:var(--ink-dim);margin-left:18px}
-            .rp-sub{font-size:1.4em;color:var(--ink-dim);margin:.5em 0 0;letter-spacing:.1em}
-            .rp-rule{height:2px;background:linear-gradient(90deg,var(--accent),transparent 85%);margin:20px 0 44px}
-            .rp-cols{columns:2;column-gap:64px;list-style:none;margin:0;padding:0;flex:1}
-            .rp-cols li{font-size:1.5em;line-height:1.5;margin-bottom:28px;break-inside:avoid;
-              display:flex;gap:.5em;overflow-wrap:anywhere}
-            .rp-cols li::before{content:"";flex:none;width:.5em;height:.5em;transform:rotate(45deg);
+            .rp2{height:100%;display:flex;gap:4.5%;padding:6.5% 7%}
+            .rp2-left{flex:none;width:23%;display:flex;flex-direction:column;align-items:center;
+              text-align:center;justify-content:center}
+            .rp2-avatar{width:88%;aspect-ratio:1/1;border-radius:50%;object-fit:cover;object-position:center top;
+              border:2px solid var(--rule);box-shadow:0 14px 36px rgba(0,0,0,.3);display:block}
+            .rp2-name{font-size:2.5em;margin:.45em 0 .05em;line-height:1.2;overflow-wrap:anywhere;text-align:center}
+            .rp2-name small{font-size:.42em;color:var(--ink-dim);margin-left:.2em;font-family:var(--font-body)}
+            .rp2-unit{font-size:1.25em;color:var(--ink-dim);margin:8px 0 0;letter-spacing:.1em;line-height:1.5}
+            .rp2-left .role-badge{margin:22px 0 12px;font-size:1.2em}
+            .rp2-main{flex:1;min-width:0;display:flex;flex-direction:column}
+            .rp2-head{font-size:2.5em;margin:0;font-family:var(--font-title);letter-spacing:.1em}
+            .rp2-head span:first-child{color:var(--ink)}
+            .rp2-head span:last-child{font-size:.4em;letter-spacing:.6em;color:var(--ink-dim);margin-left:18px;font-family:var(--font-body)}
+            .rp-rule{height:2px;background:linear-gradient(90deg,var(--accent),transparent 85%);margin:16px 0 34px}
+            .rp2-list{flex:1;display:flex;flex-direction:column;gap:.55em;
+              font-size:calc(1.4em*var(--rfs,1));list-style:none;margin:0;padding:0}
+            .rp2-list.two{columns:2;column-gap:56px;display:block}
+            .rp2-list li{display:flex;gap:.5em;break-inside:avoid;overflow-wrap:anywhere;line-height:1.45;
+              margin-bottom:22px;color:var(--ink)}
+            .rp2-list li::before{content:"";flex:none;width:.5em;height:.5em;transform:rotate(45deg);
               background:var(--accent);margin-top:.32em;box-shadow:0 0 8px var(--rule)}
+            .sec-people{display:flex;justify-content:center;gap:2.4%;margin-top:22px;flex-wrap:wrap}
+            .sec-p{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0}
+            .sec-p-avatar{width:110px;height:110px;display:flex;align-items:center;justify-content:center}
+            .sec-p-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;object-position:center top;
+              border:2px solid var(--rule);box-shadow:0 10px 24px rgba(0,0,0,.3)}
+            .sec-p-word{width:100%;height:100%;border-radius:50%;border:2px solid var(--rule);
+              display:flex;align-items:center;justify-content:center;font-size:2.6em;color:var(--ink-dim);
+              font-family:var(--font-title)}
+            .sec-p figcaption{font-size:1.15em;color:var(--ink);letter-spacing:.08em}
+            .sec-p figcaption small{color:var(--ink-dim);margin-left:.2em}
+            .fs-bar{display:none;position:absolute;right:26px;top:22px;z-index:8;gap:8px}
+            body.hppt-editing .slide.active.k-resume .fs-bar{display:flex}
+            .fs-bar button{font:inherit;font-size:16px;padding:4px 14px;cursor:pointer;color:var(--ink);
+              background:rgba(10,12,16,.8);border:1px solid var(--accent);border-radius:8px}
+            .fs-bar button:hover{background:var(--accent);color:#10131a}
             .panel{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
               text-align:center;padding:0 6%}
             .panel-eyebrow{font-size:1.15em;letter-spacing:.5em;text-indent:.5em;color:var(--ink-dim);
@@ -418,7 +442,7 @@ public class ProjectShowService {
         return switch (kind) {
             case "cover" -> coverHtml(idx, label, title, lines, slide.items());
             case "section" -> sectionHtml(idx, label, title, slide.items(), slide.persons());
-            case "resume" -> resumeHtml(idx, label, title, slide.items(), slide.persons());
+            case "resume" -> resumeHtml(idx, label, title, slide.items(), slide.persons(), slide.fontSize());
             case "panel" -> panelHtml(idx, label, title, slide.persons());
             case "bio" -> structuredBio(slide.persons()) != null
                     ? bioHtml(idx, label, structuredBio(slide.persons())) : legacyContentHtml(idx, kind, label, title, portrait, lines);
@@ -491,44 +515,68 @@ public class ProjectShowService {
         return s.append("</div></section>\n").toString();
     }
 
+    /** 章节过场页：编号+流光标题+章节全体出场专家圆头像（多人时横排，单人与原版一致仅头像+姓名）。 */
     private static String sectionHtml(int idx, String label, String title, List<String> items, List<Person> persons) {
         String num = items == null || items.isEmpty() ? "" : text(items.get(0), 12, "章节编号");
-        Person lead = persons == null ? null : Arrays.stream(persons.toArray(new Person[0]))
-                .filter(p -> p != null && p.name() != null && !p.name().isBlank()).findFirst().orElse(null);
+        List<Person> cast = persons == null ? List.of() : Arrays.stream(persons.toArray(new Person[0]))
+                .filter(p -> p != null && p.name() != null && !p.name().isBlank())
+                .limit(6)
+                .toList();
         StringBuilder s = new StringBuilder("<section class=\"slide k-section\"><div class=\"sec\">");
         String wm = title.length() > 2 ? title.substring(title.length() - 2) : title;
         if (!wm.isEmpty()) s.append("<div class=\"sec-wm\" aria-hidden=\"true\">").append(wm).append("</div>");
         if (!num.isEmpty()) s.append("<div class=\"sec-num a-in\"").append(ed(idx, "items[0]")).append(">").append(num).append("</div>");
         if (!title.isEmpty()) s.append("<h1 class=\"sec-title flow a-wide\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
         s.append("<div class=\"sec-line a-in\"></div>");
-        if (lead != null) {
-            String name = text(lead.name(), 60, "姓名");
-            String title2 = text(lead.title(), 60, "职称");
-            String unit = text(lead.unit(), 120, "单位");
-            String role = text(lead.role(), 40, "大会角色");
-            s.append("<div class=\"sec-person a-in\" data-step><strong>");
-            if (!role.isEmpty()) s.append("<span").append(ed(idx, "persons[0].role")).append(">").append(role).append("</span> · ");
-            s.append("<span").append(ed(idx, "persons[0].name")).append(">").append(name).append("</span>");
-            if (!title2.isEmpty()) s.append("<small").append(ed(idx, "persons[0].title")).append(">").append(title2).append("</small>");
-            s.append("</strong>");
-            if (!unit.isEmpty()) s.append("<span").append(ed(idx, "persons[0].unit")).append(">").append(unit).append("</span>");
+        if (!cast.isEmpty()) {
+            s.append("<div class=\"sec-people a-in\" data-step>");
+            for (int j = 0; j < cast.size(); j++) {
+                Person p = cast.get(j);
+                String name = text(p.name(), 60, "姓名");
+                String portrait = image(p.image());
+                s.append("<figure class=\"sec-p\"><span class=\"sec-p-avatar\">");
+                if (!portrait.isEmpty()) s.append("<img src=\"").append(portrait).append("\" alt=\"\">");
+                else s.append("<span class=\"sec-p-word\">").append(name.substring(0, 1)).append("</span>");
+                s.append("</span><figcaption><span").append(ed(idx, "persons[" + j + "].name")).append(">")
+                        .append(name).append("</span>");
+                String title2 = text(p.title(), 60, "职称");
+                if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
+                s.append("</figcaption></figure>");
+            }
             s.append("</div>");
         }
         return s.append("</div></section>\n").toString();
     }
 
-    private static String resumeHtml(int idx, String label, String title, List<String> items, List<Person> persons) {
+    /** 专家详情页（原简历页）：左栏圆头像+大会角色+流光姓名+单位，右栏简介条目（≤8 条单列，更多两列）。 */
+    private static String resumeHtml(int idx, String label, String title, List<String> items, List<Person> persons, Double fontSize) {
         Person p = persons == null ? null : Arrays.stream(persons.toArray(new Person[0]))
-                .filter(x -> x != null && x.image() != null && !x.image().isBlank()).findFirst().orElse(null);
+                .filter(x -> x != null && x.name() != null && !x.name().isBlank()).findFirst().orElse(null);
         String portrait = p == null ? "" : image(p.image());
-        StringBuilder s = new StringBuilder("<section class=\"slide k-resume\"><div class=\"resume-page\">");
-        s.append("<div class=\"rp-head\">");
-        if (!portrait.isEmpty()) s.append("<img class=\"rp-avatar a-in\" src=\"").append(portrait).append("\" alt=\"\">");
-        s.append("<div><h3 class=\"rp-title a-in\"><span").append(ed(idx, "label")).append(">")
+        String role = p == null ? "" : text(p.role(), 40, "大会角色");
+        String name = p == null ? "" : text(p.name(), 60, "姓名");
+        String title2 = p == null ? "" : text(p.title(), 60, "职称");
+        String unit = p == null ? "" : text(p.unit(), 120, "单位");
+        String fs = fontSize == null ? "" : " style=\"--rfs:" + Math.max(0.7, Math.min(1.5, fontSize)) + "\"";
+        StringBuilder s = new StringBuilder("<section class=\"slide k-resume\"").append(fs)
+                .append("><div class=\"rp2\">");
+        s.append("<aside class=\"rp2-left\">");
+        if (!portrait.isEmpty()) s.append("<img class=\"rp2-avatar a-in\" src=\"").append(portrait).append("\" alt=\"\">");
+        if (!role.isEmpty()) s.append("<p class=\"role-badge a-in\" data-step><span")
+                .append(ed(idx, "persons[0].role")).append(">").append(role).append("</span></p>");
+        if (!name.isEmpty()) {
+            s.append("<h2 class=\"flow rp2-name a-wide\" data-step><span")
+                    .append(ed(idx, "persons[0].name")).append(">").append(name).append("</span>");
+            if (!title2.isEmpty()) s.append("<small").append(ed(idx, "persons[0].title")).append(">").append(title2).append("</small>");
+            s.append("</h2>");
+        }
+        if (!unit.isEmpty()) s.append("<p class=\"rp2-unit a-in\" data-step><span")
+                .append(ed(idx, "persons[0].unit")).append(">").append(unit).append("</span></p>");
+        s.append("</aside><div class=\"rp2-main\">");
+        s.append("<h3 class=\"rp2-head a-in\"><span").append(ed(idx, "label")).append(">")
                 .append(label.isEmpty() ? "个人简历" : label).append("</span><span>RESUME</span></h3>");
-        if (!title.isEmpty()) s.append("<p class=\"rp-sub a-in\"><span").append(ed(idx, "title")).append(">").append(title).append("</span></p>");
-        s.append("</div></div>");
-        s.append("<div class=\"rp-rule a-in\"></div><ul class=\"rp-cols\">");
+        s.append("<div class=\"rp-rule a-in\"></div><ul class=\"rp2-list")
+                .append(items != null && items.size() > 8 ? " two" : "").append("\">");
         if (items != null) {
             int n = Math.min(items.size(), 30);
             for (int j = 0; j < n; j++) {
@@ -536,7 +584,7 @@ public class ProjectShowService {
                 if (!item.isEmpty()) s.append("<li data-step").append(ed(idx, "items[" + j + "]")).append(">").append(item).append("</li>");
             }
         }
-        return s.append("</ul></div></section>\n").toString();
+        return s.append("</ul></div></div></section>\n").toString();
     }
 
     private static String panelHtml(int idx, String label, String title, List<Person> persons) {
@@ -663,10 +711,12 @@ public class ProjectShowService {
                   count.textContent=(page+1)+' / '+slides.length;
                   progFill.style.width=((page+1)/slides.length*100)+'%';
                   autoPlay(s);
+                  if(editing)ensureFsBar();
                 }
                 function next(){const s=slides[page];if(revealNext(s))return;show(page+1);}
                 function prev(){const s=slides[page];if(revealPrev(s))return;show(page-1);}
                 // ===== 所见即所得编辑模式：按 E 或由向导触发；可编辑元素带 data-edit 路径，向导读取写回 =====
+                // 简历页额外提供简介字号批量调整（A−/A＋/恢复），修改记录在 slide.dataset.fsChanged 供向导写回
                 let editing=false;
                 function toggleEdit(){
                   editing=!editing;
@@ -675,8 +725,25 @@ public class ProjectShowService {
                     if(editing){n.setAttribute('contenteditable','true');}
                     else{n.removeAttribute('contenteditable');n.blur();}
                   });
+                  if(editing)ensureFsBar();
                   const tip=document.getElementById('editTip');
                   if(tip)tip.style.display=editing?'block':'none';
+                }
+                function ensureFsBar(){
+                  const s=slides[page];
+                  if(!s||!s.classList.contains('k-resume')||s.querySelector('.fs-bar'))return;
+                  const bar=document.createElement('div');
+                  bar.className='fs-bar';
+                  bar.innerHTML='<button data-fsact="down">简介 A−</button><button data-fsact="up">简介 A＋</button><button data-fsact="reset">恢复默认</button>';
+                  bar.addEventListener('click',ev=>{
+                    const act=ev.target?.dataset?.fsact;
+                    if(!act)return;
+                    const cur=parseFloat(s.dataset.fsChanged||'1')||1;
+                    const v=act==='down'?Math.max(.7,cur-.1):act==='up'?Math.min(1.5,cur+.1):1;
+                    s.dataset.fsChanged=v.toFixed(2);
+                    s.style.setProperty('--rfs',v.toFixed(2));
+                  });
+                  s.appendChild(bar);
                 }
                 window.__toggleEdit=toggleEdit;
                 window.__isEditing=()=>editing;

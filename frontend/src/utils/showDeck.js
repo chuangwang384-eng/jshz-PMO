@@ -15,8 +15,16 @@ export function classifyRow(row) {
 }
 
 export function matchSpeakers(row, speakers) {
-  return (speakers || []).filter(person => person.expertName && (row.includes(person.expertName) ||
-    (person.segmentTitle && row.includes(person.segmentTitle))))
+  // 同一环节内按专家（ID/姓名）去重：日程解析可能在同环节产生多条同一专家的记录
+  const seen = new Set()
+  return (speakers || []).filter(person => {
+    if (!person.expertName) return false
+    if (!(row.includes(person.expertName) || (person.segmentTitle && row.includes(person.segmentTitle)))) return false
+    const key = person.expertId || `name:${person.expertName}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function personLine(person) {
@@ -73,9 +81,13 @@ export function coverSlideV2({ org, title, sub, infos = [] }) {
   return { label: org || '', title: title || '', body: sub || '', image: '', kind: 'cover', items: infos.slice(0, 12), persons: null }
 }
 
-export function sectionSlideV2({ no, title, person }) {
-  const p = person ? { role: person.role || '', name: person.name || '', title: person.title || '', unit: person.unit || '', image: person.avatar || '' } : null
-  return { label: '', title: title || '', body: '', image: '', kind: 'section', items: no ? [no] : [], persons: p ? [p] : null }
+export function sectionSlideV2({ no, title, persons }) {
+  return {
+    label: '', title: title || '', body: '', image: '', kind: 'section', items: no ? [no] : [],
+    persons: (persons || []).slice(0, 6).map(p => ({
+      role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || ''
+    }))
+  }
 }
 
 export function bioSlideV2({ label, person }) {

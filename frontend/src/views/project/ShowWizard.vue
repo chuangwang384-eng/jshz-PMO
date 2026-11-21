@@ -101,11 +101,11 @@
       <div class="wiz-actions"><el-button type="primary" @click="step = 4">下一步：预览演示</el-button></div>
     </section>
 
-    <!-- 第四步：内嵌预览 + 所见即所得编辑 + 保存/归档 -->
+    <!-- 第四步：内嵌预览 + 所见即所得编辑 + 页面增删 + 保存/归档 -->
     <section v-else class="wiz-body">
       <p class="wiz-desc">
-        已生成 {{ builtSlides.length }} 页：封面 + {{ sections.length }} 个章节（出场 {{ pageCount('bio') }} /
-        讨论墙 {{ pageCount('panel') }} / 简历 {{ pageCount('resume') }}）+ 致谢。
+        已生成 {{ currentDeckSlides.length }} 页：封面 + {{ sections.length }} 个章节（讨论墙 {{ pageCount('panel') }} /
+        专家详情 {{ pageCount('resume') }}）+ 致谢。无专家环节可在下方页面清单中手动添加文字页。
         预览内按 <b>E</b> 或点「编辑模式」直接修改页面文字，改完点「保存修改」。
       </p>
       <div class="wiz-actions">
@@ -121,12 +121,20 @@
         </div>
         <iframe ref="previewFrame" class="preview-iframe" title="串场演示预览"></iframe>
       </div>
-      <details class="slide-outline-wrap">
-        <summary>页面清单（{{ builtSlides.length }} 页）</summary>
+      <details class="slide-outline-wrap" open>
+        <summary>页面清单（{{ currentDeckSlides.length }} 页，可删除或添加文字页）</summary>
+        <div class="add-page-row">
+          <el-select v-model="addSegIdx" placeholder="选择要生成文字页的环节" style="width: 340px" size="small">
+            <el-option v-for="(item, i) in items" :key="i" :label="`${item.label} · ${item.title || item.row}`" :value="i" />
+          </el-select>
+          <el-button size="small" :disabled="addSegIdx === null" @click="addTextPage">添加文字页（不放头像，仅文字）</el-button>
+        </div>
         <ol class="slide-outline">
-          <li v-for="(s, i) in builtSlides" :key="i">
+          <li v-for="(s, i) in currentDeckSlides" :key="i">
             <span class="slide-kind">{{ kindLabel(s.kind) }}</span>{{ s.title || s.label }}
             <em v-if="slideHasPhoto(s)"> · 含头像</em>
+            <el-button v-if="i !== 0 && i !== currentDeckSlides.length - 1" link type="danger" size="small"
+              class="slide-del" @click="removeSlide(i)">删除</el-button>
           </li>
         </ol>
       </details>
@@ -150,7 +158,7 @@ import { fetchPhotoBlob, getExpert } from '../../api/expert'
 import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
   agendaRows, classifyRow, coverSlideV2, dedupePhotos, guessRole, matchSpeakers, ROLE_OPTIONS,
-  panelSlideV2, bioSlideV2, resumeSlideV2, sectionOf, sectionSlideV2, splitResumeItems, thanksSlide
+  panelSlideV2, resumeSlideV2, sectionOf, sectionSlideV2, splitResumeItems, thanksSlide
 } from '../../utils/showDeck'
 
 // 四步向导（2026-11-21 v3 流程）：①模板+封面 ②专家信息（全局资料池一次编辑）③日程与角色（三值下拉，
@@ -303,12 +311,14 @@ const builtSlides = computed(() => {
     ].filter(Boolean)
   })]
   for (const group of sections.value) {
-    const leadRef = group.items.map(ref => ({ ref, p: ref.item.people[0] })).find(x => x.p && (x.p.avatar || x.p.name))
-    const lead = leadRef ? {
-      role: leadRef.p.roleBySegment?.[leadRef.ref.index] || '大会讲者',
-      name: leadRef.p.name, title: leadRef.p.title, unit: leadRef.p.unit, avatar: leadRef.p.avatar
-    } : null
-    slides.push(sectionSlideV2({ no: group.no, title: group.name, person: lead }))
+    // 过场页：标题 + 章节全体出场专家头像（≤6 人）
+    const cast = []
+    for (const { index: itemIdx, item } of group.items) {
+      for (const p of item.people.filter(x => x.name || x.avatar)) {
+        cast.push({ role: p.roleBySegment?.[itemIdx] || guessRole(item.row), name: p.name, title: p.title, unit: p.unit, avatar: p.avatar })
+      }
+    }
+    slides.push(sectionSlideV2({ no: group.no, title: group.name, persons: cast }))
     for (const { index: itemIdx, item } of group.items) {
       const roleOf = p => p.roleBySegment?.[itemIdx] || guessRole(item.row)
       const people = item.people.filter(p => p.name || p.avatar)
@@ -317,12 +327,10 @@ const builtSlides = computed(() => {
           label: group.name, title: item.title || group.name,
           persons: people.map(p => ({ ...p, role: roleOf(p) }))
         }))
-      } else if (people.length === 1) {
-        slides.push(bioSlideV2({ label: item.label, person: { ...people[0], role: roleOf(people[0]) } }))
       }
-      // 无专家环节不生成独立页（信息由章节过场页承载）
+      // 专家详情页（头像左+角色/姓名/单位，右简介）：单人与多人环节的每位专家各一页；无专家环节不生成（可后续手动添加文字页）
       for (const p of people) {
-        if (splitResumeItems(p.intro).length) slides.push(resumeSlideV2({ person: { ...p, role: roleOf(p) } }))
+        slides.push(resumeSlideV2({ person: { ...p, role: roleOf(p) } }))
       }
     }
   }
@@ -330,14 +338,43 @@ const builtSlides = computed(() => {
   return slides
 })
 
-// 进入第四步时冻结快照：页内编辑只写快照，保存后按快照重新渲染
+// 进入第四步时冻结快照：页内编辑与页面增删只写快照，保存后按快照重新渲染
 watch(step, s => {
   if (s === 4) {
     editableDeck.value = JSON.parse(JSON.stringify(builtSlides.value))
     editing.value = false
+    addSegIdx.value = null
     loadPreview()
   }
 })
+
+// Step4 当前生效的页面列表（快照优先）
+const currentDeckSlides = computed(() => editableDeck.value || builtSlides.value)
+
+const addSegIdx = ref(null)
+
+// 手动添加文字页（无专家环节的兜底入口）：插入到致谢页之前
+function addTextPage() {
+  if (addSegIdx.value === null || !editableDeck.value) return
+  const item = items.value[addSegIdx.value]
+  if (!item) return
+  const slides = editableDeck.value
+  const at = Math.max(0, slides.length - 1)
+  slides.splice(at, 0, {
+    label: item.label, title: item.title || '', body: item.row, image: '',
+    kind: 'content', items: null, persons: null, fontSize: null
+  })
+  addSegIdx.value = null
+  loadPreview()
+  ElMessage.success('文字页已添加（插在致谢页之前）')
+}
+
+// 删除页面（封面与致谢页不可删）
+function removeSlide(i) {
+  if (!editableDeck.value) return
+  editableDeck.value.slides.splice(i, 1)
+  loadPreview()
+}
 
 function deck() {
   const base = editableDeck.value || builtSlides.value
@@ -346,7 +383,7 @@ function deck() {
 }
 
 function pageCount(kind) {
-  return builtSlides.value.filter(s => s.kind === kind).length
+  return currentDeckSlides.value.filter(s => s.kind === kind).length
 }
 
 function kindLabel(kind) {
@@ -420,19 +457,26 @@ function toggleEdit() {
 }
 
 // 页内编辑 → 按 data-edit 路径写回快照 → 保存草稿 → 重新渲染（所见即所得闭环）
+// 简历页字号批量调整：读取 slide[data-fs-changed] 写回 fontSize
 async function saveEdits() {
   const doc = previewFrame.value?.contentDocument
   if (!doc) {
     ElMessage.warning('预览尚未加载完成，请稍候')
     return
   }
+  const slides = JSON.parse(JSON.stringify(editableDeck.value || builtSlides.value))
   const nodes = doc.querySelectorAll('[data-edit]')
-  if (!nodes.length) {
+  nodes.forEach(el => writeEditPath(slides, el.getAttribute('data-edit'), el.textContent.replace(/\s+/g, ' ').trim()))
+  doc.querySelectorAll('.slide[data-fs-changed]').forEach(el => {
+    const idx = Array.prototype.indexOf.call(doc.querySelectorAll('#deck > .slide'), el)
+    if (idx >= 0 && slides[idx]) slides[idx].fontSize = parseFloat(el.dataset.fsChanged) || null
+  })
+  const hasText = nodes.length > 0
+  const hasFs = doc.querySelectorAll('.slide[data-fs-changed]').length > 0
+  if (!hasText && !hasFs) {
     ElMessage.warning('当前页面没有可保存的修改')
     return
   }
-  const slides = JSON.parse(JSON.stringify(editableDeck.value || builtSlides.value))
-  nodes.forEach(el => writeEditPath(slides, el.getAttribute('data-edit'), el.textContent.replace(/\s+/g, ' ').trim()))
   editableDeck.value = slides
   busy.value = true
   try {
@@ -526,7 +570,9 @@ function goProject() {
 .preview-iframe { display: block; width: 100%; height: min(62dvh, 620px); border: 0; background: #17100e; }
 .slide-outline-wrap { margin-top: 14px; }
 .slide-outline-wrap summary { cursor: pointer; font-size: 13px; color: rgba(242, 198, 109, .8); }
+.add-page-row { display: flex; gap: 10px; align-items: center; margin: 12px 0 4px; flex-wrap: wrap; }
 .slide-outline { margin: 12px 0 0; padding-left: 22px; font-size: 13px; color: rgba(255, 243, 220, .75); display: flex; flex-direction: column; gap: 6px; }
+.slide-del { margin-left: 10px; }
 .slide-kind { display: inline-block; min-width: 52px; text-align: center; font-size: 11px; border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 8px; margin-right: 10px; color: rgba(242, 198, 109, .85); }
 .slide-outline em { font-style: normal; color: rgba(242, 198, 109, .6); font-size: 12px; }
 .wiz-foot { display: flex; justify-content: flex-end; gap: 12px; padding-top: 14px; border-top: 1px solid rgba(242, 198, 109, .2); }
