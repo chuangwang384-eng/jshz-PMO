@@ -12,4 +12,6 @@
 
 - Vite 生产构建通过。隔离 Edge 验证文本框移动、缩放、重叠时选中并删除、字体加载和预览数据，另验证头像框上传及大小参数。
 - ProjectStageDeliverableTest 9 项通过，覆盖旧数据兼容、封面尺寸与字体内嵌、头像框坐标和安全转义。
-- 本轮完成开发分支变更。生产部署及真实项目归档验收未执行。
+- 后续按授权快进合入本地 main，功能提交 eea832b，生产发布 1.0.123-show-cover-controls，退出码 0。
+- 生产后端健康检查、首页连续三次 200 与内容哈希、前端主 bundle 版本通过。通过 Nginx 抽检字体资源返回 200 font/woff2。真实项目的头像框微调与归档仍待验收。
+- 备份 backup/backup_20261121_173734；发布日志 logs/release-full-20261121_173716.log。回滚前端 frontend/releases/1.0.122-show-cover-design，后端旧制品 backend/releases/1.0.123-20261121_174023/previous-expert-system.jar。
