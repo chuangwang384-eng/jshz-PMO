@@ -105,7 +105,7 @@
                 :on-change="uploadShowFile">
                 <el-button type="primary" :loading="showUploading">上传串场 PPT</el-button>
               </el-upload>
-              <el-button @click="$router.push({ name: 'project-show', params: { id: projectId } })">PPT 制作</el-button>
+              <el-button @click="openShowWizard">PPT 制作</el-button>
             </div>
             <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row">
               <el-button link type="primary" @click="downloadProjectFile(d)">{{ d.fileName }}</el-button>

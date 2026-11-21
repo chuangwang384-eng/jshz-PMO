@@ -41,3 +41,11 @@
 - 治本：App.vue 新增版本轮询（每 2 分钟匿名探测 `/health`，与构建期注入的 `VITE_APP_VERSION` 不一致时 ElNotification 提示 Ctrl+F5 刷新，同一版本只提示一次，探测失败静默）。
 - 发布：纯前端 graceful（ReleaseId `1.0.104-version-notify`，staged dist 归档 `builds/1.0.104-build-20261121_104124`），回滚依据 `frontend/release-metadata/1.0.104-version-notify.nginx-before.txt`（指向 1.0.103-show-wizard）。
 - 用户操作：本次仍需手动 Ctrl+F5 一次（1.0.104 生效后，今后发布都会收到提醒）。
+
+## 追加：1.0.105 向导入口修复（2026-11-21 10:55）
+
+- 根因复盘：1.0.103 实现时 `ProjectDetail.vue` 的 script（`openShowWizard`）与模板按钮行的改造**分两次编辑，模板行 Edit 首次报错后遗漏补做**——导致 1.0.103/1.0.104 两版按钮仍是 `$router.push` 进编辑器（用户 v1.0.104 下点按钮进编辑器即此因，与缓存无关）。
+- 修复：按钮行改 `openShowWizard`；构建后校验 ProjectDetail chunk 含 show-wizard 引用、主 bundle 路由表指向 `ProjectDetail-CRpUeh7U.js`、root=`1.0.105-wizard-entry-fix`。
+- 发布：纯前端 graceful（staged dist 归档 `builds/1.0.105-build-20261121_105408`），回滚依据 `1.0.105-wizard-entry-fix.nginx-before.txt`。
+- 用户操作：Ctrl+F5 刷新一次即见向导；今后发布由 1.0.104 的提醒机制自动提示。
+- 技术债记录：graceful 快照 assets 累积 160+ 个历史 ProjectDetail chunk（保留旧 hash 资产的设计使然），后续版本统一清理。
