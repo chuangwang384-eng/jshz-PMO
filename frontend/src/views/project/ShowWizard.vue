@@ -11,7 +11,7 @@
       </div>
     </header>
 
-    <!-- 第一步：模板 + 封面定制（封面文字全部可编辑，渲染与归档同源） -->
+    <!-- 第一步：模板 + 封面定制 -->
     <section v-if="step === 1" class="wiz-body">
       <p class="wiz-desc">第一步：选择模板并定制封面。封面文字与全局字号在此确定，后续随时可回改。</p>
       <div class="tpl-grid">
@@ -73,10 +73,11 @@
               <el-button size="small" :loading="p.loading" :disabled="!p.expertId || p.loaded" @click="loadPerson(p)">
                 {{ p.loaded ? '已载入' : '从专家库载入' }}
               </el-button>
+              <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveDraft('专家信息已保存')">保存</el-button>
             </div>
             <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" />
             <p v-else class="person-hint">
-              {{ p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '日程中未关联专家库，仅生成文字页' }}
+              {{ p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '日程中未关联专家库，此环节不生成页面' }}
             </p>
             <div class="person-fields">
               <label class="field">大会角色<el-input v-model="p.role" maxlength="40" style="width: 150px" /></label>
@@ -92,30 +93,41 @@
               <span v-if="!splitResumeItems(p.intro).length" class="person-hint">内容过短，暂不生成简历页</span>
             </div>
           </div>
-          <p v-if="!current.people.length" class="person-hint">该环节未匹配到日程专家，将仅生成文字页</p>
+          <p v-if="!current.people.length" class="person-hint">该环节未匹配到日程专家，不生成独立页面（信息由章节过场页承载）</p>
         </template>
         <el-empty v-else description="从左侧选择环节进行编辑" />
       </div>
     </section>
 
-    <!-- 第三步：预览与保存 -->
+    <!-- 第三步：内嵌预览 + 所见即所得编辑 + 保存/归档 -->
     <section v-else class="wiz-body">
       <p class="wiz-desc">
-        已生成 {{ builtSlides.length }} 页：封面 + 议程 + {{ sections.length }} 个章节过场 +
-        {{ pageCount('bio') }} 个出场页 / {{ pageCount('panel') }} 个讨论墙 / {{ pageCount('resume') }} 页简历 + 致谢。
-        预览与归档使用同一后端模板渲染。
+        已生成 {{ builtSlides.length }} 页：封面 + {{ sections.length }} 个章节（出场 {{ pageCount('bio') }} /
+        讨论墙 {{ pageCount('panel') }} / 简历 {{ pageCount('resume') }}）+ 致谢。
+        预览内按 <b>E</b> 或点「编辑模式」直接修改页面文字，改完点「保存修改」。
       </p>
       <div class="wiz-actions">
-        <el-button :disabled="busy || !editable" @click="saveDraft">保存草稿</el-button>
-        <el-button type="primary" :disabled="busy" @click="present">预览演示（新标签页）</el-button>
-        <el-button :disabled="busy || !editable" @click="openEditor">进入编辑器微调 / 归档</el-button>
+        <el-button :disabled="busy || !editable" @click="saveDraft('草稿已保存')">保存草稿</el-button>
+        <el-button :disabled="busy" @click="present">新标签演示</el-button>
+        <el-button type="primary" :disabled="busy || !editable" @click="archive">归档 HTML</el-button>
       </div>
-      <ol class="slide-outline">
-        <li v-for="(s, i) in builtSlides" :key="i">
-          <span class="slide-kind">{{ kindLabel(s.kind) }}</span>{{ s.title || s.label }}
-          <em v-if="slideHasPhoto(s)"> · 含头像</em>
-        </li>
-      </ol>
+      <div class="dark-card preview-shell">
+        <div class="preview-bar">
+          <span class="preview-title">演示预览{{ editing ? ' · 编辑模式中（直接点击文字修改）' : ' · 按 E 进入编辑' }}</span>
+          <el-button size="small" @click="toggleEdit">{{ editing ? '退出编辑' : '编辑模式' }}</el-button>
+          <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveEdits">保存修改</el-button>
+        </div>
+        <iframe ref="previewFrame" class="preview-iframe" title="串场演示预览"></iframe>
+      </div>
+      <details class="slide-outline-wrap">
+        <summary>页面清单（{{ builtSlides.length }} 页）</summary>
+        <ol class="slide-outline">
+          <li v-for="(s, i) in builtSlides" :key="i">
+            <span class="slide-kind">{{ kindLabel(s.kind) }}</span>{{ s.title || s.label }}
+            <em v-if="slideHasPhoto(s)"> · 含头像</em>
+          </li>
+        </ol>
+      </details>
     </section>
 
     <footer class="wiz-foot">
@@ -133,13 +145,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
-import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, saveStageForm } from '../../api/project'
+import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
-  agendaRows, agendaSlides, classifyRow, coverSlideV2, guessRole, matchSpeakers,
+  agendaRows, classifyRow, coverSlideV2, guessRole, matchSpeakers,
   panelSlideV2, bioSlideV2, resumeSlideV2, sectionOf, sectionSlideV2, splitResumeItems, thanksSlide
 } from '../../utils/showDeck'
 
-// 三步向导（2026-11-21 结构化页面模型）：①模板+封面定制 ②日程提取/人脸预抠图/简介语义分段 ③预览演示。
+// 三步向导（2026-11-21 结构化页面模型 v2）：①模板+封面定制 ②日程/人脸预抠图/简介分段 ③内嵌预览所见即所得编辑。
+// 稿件结构：封面 → 章节过场 → （讨论墙）→ 专家出场 → 简历 → … → 致谢；议程页与无专家文字页已按需求移除。
 // 产出与编辑器共用 stage-form 草稿；预览/归档共用后端 render。
 const templates = [
   { id: 'gold', name: '红金盛典', desc: '深红金流光，适合庆典与开幕', preview: 'radial-gradient(120% 100% at 50% 40%, #7e1414, #3c0707)' },
@@ -167,6 +180,10 @@ const cover = ref({ org: '', title: '', sub: '', time: '', place: '', chair: '' 
 const items = ref([])
 const selected = ref(0)
 const busy = ref(false)
+const editing = ref(false)
+const editableDeck = ref(null)   // Step3 快照：页内编辑写回这份，保存后重新渲染
+const previewFrame = ref(null)
+const previewUrl = ref('')
 const current = computed(() => items.value[selected.value])
 
 onMounted(async () => {
@@ -265,9 +282,8 @@ const builtSlides = computed(() => {
       cover.value.place ? `会议地点|${cover.value.place}` : '',
       cover.value.chair ? `大会主席|${cover.value.chair}` : ''
     ].filter(Boolean)
-  }), ...agendaSlides(items.value.map(item => item.row))]
+  })]
   for (const group of sections.value) {
-    // 章节过场页：主领人取该章节第一个有头像/姓名的专家
     const lead = group.items.map(ref => ref.item.people[0]).find(p => p && (p.avatar || p.name))
     slides.push(sectionSlideV2({
       no: group.no,
@@ -277,14 +293,11 @@ const builtSlides = computed(() => {
     for (const { item } of group.items) {
       const people = item.people.filter(p => p.name || p.avatar)
       if (people.length >= 2) {
-        // 讨论墙：全部嘉宾头像一页
         slides.push(panelSlideV2({ label: group.name, title: item.title || group.name, persons: people }))
       } else if (people.length === 1) {
         slides.push(bioSlideV2({ label: item.label, person: people[0] }))
-      } else {
-        slides.push({ label: item.label, title: item.title, body: item.row, image: '', kind: 'content', items: null, persons: null })
       }
-      // 每位讨论嘉宾/主讲专家自己的简历页（简介分段非空才生成）
+      // 无专家环节不生成独立页（信息由章节过场页承载）
       for (const p of people) {
         if (splitResumeItems(p.intro).length) slides.push(resumeSlideV2({ person: p }))
       }
@@ -293,6 +306,22 @@ const builtSlides = computed(() => {
   slides.push(thanksSlide())
   return slides
 })
+
+// 进入第三步时冻结快照：页内编辑只写快照，保存后按快照重新渲染
+watch(step, s => {
+  if (s === 3) {
+    editableDeck.value = JSON.parse(JSON.stringify(builtSlides.value))
+    editing.value = false
+    loadPreview()
+  }
+})
+
+function deck() {
+  return {
+    slides: editableDeck.value || JSON.parse(JSON.stringify(builtSlides.value)),
+    background: '', template: template.value, fontScale: fontScale.value
+  }
+}
 
 function pageCount(kind) {
   return builtSlides.value.filter(s => s.kind === kind).length
@@ -306,15 +335,11 @@ function slideHasPhoto(s) {
   return Boolean(s.image || (s.persons || []).some(p => p.image))
 }
 
-function deck() {
-  return { slides: builtSlides.value, background: '', template: template.value, fontScale: fontScale.value }
-}
-
-async function saveDraft() {
+async function saveDraft(msg = '草稿已保存') {
   busy.value = true
   try {
     await saveStageForm(id, { phaseId: phaseId.value, formData: deck() })
-    ElMessage.success('草稿已保存，可在编辑器中继续')
+    ElMessage.success(msg)
   } finally {
     busy.value = false
   }
@@ -336,16 +361,92 @@ async function present() {
   }
 }
 
-async function openEditor() {
-  if (editable.value && phaseId.value) {
-    try {
-      await saveStageForm(id, { phaseId: phaseId.value, formData: deck() })
-    } catch {
-      // 自动保存失败不阻塞跳转，编辑器内仍有草稿兜底
-    }
+async function archive() {
+  busy.value = true
+  try {
+    await publishShow(id, deck())
+    ElMessage.success('HTML 幻灯片已归档到项目文件')
+  } finally {
+    busy.value = false
   }
-  const { href } = router.resolve({ name: 'project-show', params: { id } })
-  window.open(href, '_blank')
+}
+
+async function loadPreview() {
+  try {
+    const html = await previewShow(id, deck())
+    if (typeof html !== 'string' || !html.startsWith('<')) {
+      ElMessage.error('预览渲染失败，请重试')
+      return
+    }
+    editing.value = false
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    if (previewFrame.value) previewFrame.value.src = previewUrl.value
+  } finally {
+    busy.value = false
+  }
+}
+
+function toggleEdit() {
+  const win = previewFrame.value?.contentWindow
+  if (!win || typeof win.__toggleEdit !== 'function') {
+    ElMessage.warning('预览尚未加载完成，请稍候')
+    return
+  }
+  win.__toggleEdit()
+  editing.value = Boolean(win.__isEditing?.())
+}
+
+// 页内编辑 → 按 data-edit 路径写回快照 → 保存草稿 → 重新渲染（所见即所得闭环）
+async function saveEdits() {
+  const doc = previewFrame.value?.contentDocument
+  if (!doc) {
+    ElMessage.warning('预览尚未加载完成，请稍候')
+    return
+  }
+  const nodes = doc.querySelectorAll('[data-edit]')
+  if (!nodes.length) {
+    ElMessage.warning('当前页面没有可保存的修改')
+    return
+  }
+  const slides = JSON.parse(JSON.stringify(editableDeck.value || builtSlides.value))
+  nodes.forEach(el => writeEditPath(slides, el.getAttribute('data-edit'), el.textContent.replace(/\s+/g, ' ').trim()))
+  editableDeck.value = slides
+  busy.value = true
+  try {
+    await saveStageForm(id, { phaseId: phaseId.value, formData: deck() })
+    ElMessage.success('页内修改已保存，预览已刷新')
+    await loadPreview()
+  } finally {
+    busy.value = false
+  }
+}
+
+// data-edit 路径写回：p{i}.title / p{i}.body[j] / p{i}.items[j] / p{i}.items[j].k|v / p{i}.persons[j].field
+function writeEditPath(slides, path, text) {
+  const m = String(path || '').match(/^p(\d+)\.(.+)$/)
+  if (!m) return
+  const slide = slides[+m[1]]
+  if (!slide) return
+  const rest = m[2]
+  let mm
+  if ((mm = rest.match(/^items\[(\d+)\]\.(k|v)$/))) {
+    const j = +mm[1]
+    const cur = (slide.items || [])[j] || ''
+    const parts = cur.split('|')
+    if (mm[2] === 'k') slide.items[j] = text + '|' + (parts[1] ?? '')
+    else slide.items[j] = (parts.length > 1 ? parts[0] + '|' : '') + text
+  } else if ((mm = rest.match(/^items\[(\d+)\]$/))) {
+    if (slide.items) slide.items[+mm[1]] = text
+  } else if ((mm = rest.match(/^body\[(\d+)\]$/))) {
+    const lines = (slide.body || '').split('\n')
+    lines[+mm[1]] = text
+    slide.body = lines.join('\n')
+  } else if ((mm = rest.match(/^persons\[(\d+)\]\.(\w+)$/))) {
+    if (slide.persons?.[+mm[1]]) slide.persons[+mm[1]][mm[2]] = text
+  } else {
+    slide[rest] = text
+  }
 }
 
 function goProject() {
@@ -391,13 +492,19 @@ function goProject() {
 .seg-text { font-size: 13px; overflow-wrap: anywhere; }
 .seg-fields { display: flex; gap: 12px; margin-bottom: 12px; }
 .person-card { border-top: 1px dashed rgba(242, 198, 109, .25); padding: 14px 0; display: flex; flex-direction: column; gap: 10px; }
-.person-head { display: flex; align-items: center; gap: 12px; }
+.person-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .person-head strong { font-size: 15px; letter-spacing: .08em; }
 .person-role { font-size: 12px; color: rgba(242, 198, 109, .8); border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 10px; }
 .person-fields { display: flex; gap: 8px; flex-wrap: wrap; }
 .person-hint { margin: 0; font-size: 12px; color: rgba(255, 243, 220, .45); }
 .resume-preview { display: flex; flex-wrap: wrap; gap: 6px; }
 .resume-chip { font-size: 12px; color: rgba(255, 243, 220, .75); border: 1px solid rgba(242, 198, 109, .3); border-radius: 8px; padding: 3px 10px; max-width: 100%; overflow-wrap: anywhere; }
+.preview-shell { padding: 0; overflow: hidden; }
+.preview-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid rgba(242, 198, 109, .22); }
+.preview-title { flex: 1; font-size: 13px; color: rgba(255, 243, 220, .7); }
+.preview-iframe { display: block; width: 100%; height: min(62dvh, 620px); border: 0; background: #17100e; }
+.slide-outline-wrap { margin-top: 14px; }
+.slide-outline-wrap summary { cursor: pointer; font-size: 13px; color: rgba(242, 198, 109, .8); }
 .slide-outline { margin: 12px 0 0; padding-left: 22px; font-size: 13px; color: rgba(255, 243, 220, .75); display: flex; flex-direction: column; gap: 6px; }
 .slide-kind { display: inline-block; min-width: 52px; text-align: center; font-size: 11px; border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 8px; margin-right: 10px; color: rgba(242, 198, 109, .85); }
 .slide-outline em { font-style: normal; color: rgba(242, 198, 109, .6); font-size: 12px; }

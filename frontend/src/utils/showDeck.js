@@ -87,7 +87,8 @@ export function bioSlideV2({ label, person }) {
 export function resumeSlideV2({ person }) {
   return {
     label: '个人简历', title: [person?.name, person?.title].filter(Boolean).join(' ') || '专家简介',
-    body: '', image: '', kind: 'resume', items: splitResumeItems(person?.intro || ''), persons: null
+    body: '', image: '', kind: 'resume', items: splitResumeItems(person?.intro || ''),
+    persons: [{ role: person?.role || '', name: person?.name || '', title: person?.title || '', unit: person?.unit || '', image: person?.avatar || '' }]
   }
 }
 

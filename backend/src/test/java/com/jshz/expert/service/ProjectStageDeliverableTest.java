@@ -80,7 +80,7 @@ class ProjectStageDeliverableTest {
         var section = new ProjectShowService.Slide("", "主席致辞", "", "", "section", List.of("01"), List.of(person));
         var bio = new ProjectShowService.Slide("", "齐秀恒 教授", "", "", "bio", null, List.of(person));
         var resume = new ProjectShowService.Slide("个人简历", "齐秀恒 教授", "", "",
-                "resume", List.of("河北省抗癌协会理事", "肿瘤中心主任委员"), null);
+                "resume", List.of("河北省抗癌协会理事", "肿瘤中心主任委员"), List.of(person));
         var panel = new ProjectShowService.Slide("多学科讨论", "多学科讨论", "", "", "panel",
                 null, List.of(person, new ProjectShowService.Person("讨论嘉宾", "董桂兰", "教授", "唐山市人民医院", "")));
         var legacy = new ProjectShowService.Slide("会议环节", "旧结构页", "正文行", "", null, null, null);
@@ -94,6 +94,9 @@ class ProjectStageDeliverableTest {
         assertTrue(html.contains("photo-card"));
         assertTrue(html.contains("role-badge"));
         assertTrue(html.contains("rp-cols"));
+        assertTrue(html.contains("rp-avatar"));
+        assertTrue(html.contains("data-edit=\"p0.title\""));
+        assertTrue(html.contains("data-edit=\"p3.items[0]\""));
         assertTrue(html.contains("p-card"));
         assertTrue(html.contains("p-avatar-word"));
         assertTrue(html.contains("k-content"));

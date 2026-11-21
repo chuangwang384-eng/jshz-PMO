@@ -189,7 +189,7 @@ public class ProjectShowService {
         for (int i = 0; i < deck.slides().size(); i++) {
             Slide slide = deck.slides().get(i);
             if (slide == null) throw new BusinessException("幻灯片内容无效");
-            html.append(slideHtml(slide, i == 0));
+            html.append(slideHtml(slide, i));
             if (html.length() > MAX_DECK_SIZE) throw new BusinessException("串场文件过大，请压缩图片");
         }
         return html.append(deckTail(theme)).toString();
@@ -288,8 +288,8 @@ public class ProjectShowService {
               pointer-events:none;user-select:none}
             .bio-v{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
               text-align:center;padding:0 8%}
-            .photo-card{width:30%;max-height:52%;aspect-ratio:3/4;margin:0;position:relative;overflow:hidden;
-              border:2px solid var(--rule);border-radius:18px;box-shadow:0 18px 48px rgba(0,0,0,.35)}
+            .photo-card{width:30%;aspect-ratio:1/1;margin:0;position:relative;overflow:hidden;
+              border:2px solid var(--rule);border-radius:50%;box-shadow:0 18px 48px rgba(0,0,0,.35)}
             .photo-card img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
             .photo-card::after{content:"";position:absolute;top:-60%;left:0;width:34%;height:220%;
               transform:translateX(-180%) rotate(22deg);pointer-events:none;
@@ -301,6 +301,9 @@ public class ProjectShowService {
             .bio-name small{font-size:.42em;color:var(--ink-dim);margin-left:.25em;font-family:var(--font-body)}
             .bio-unit{font-size:1.5em;color:var(--ink-dim);letter-spacing:.15em;margin-top:10px}
             .resume-page{height:100%;padding:6.5% 8%;display:flex;flex-direction:column}
+            .rp-head{display:flex;align-items:center;gap:34px;margin-bottom:6px}
+            .rp-avatar{flex:none;width:150px;height:150px;border-radius:50%;object-fit:cover;
+              object-position:center top;border:2px solid var(--rule);box-shadow:0 10px 28px rgba(0,0,0,.3)}
             .rp-title{font-size:2.9em;margin:0;font-family:var(--font-title);letter-spacing:.1em}
             .rp-title span{font-size:.38em;letter-spacing:.6em;color:var(--ink-dim);margin-left:18px}
             .rp-sub{font-size:1.4em;color:var(--ink-dim);margin:.5em 0 0;letter-spacing:.1em}
@@ -343,6 +346,12 @@ public class ProjectShowService {
             @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
             @keyframes sweep{from{transform:translateX(-180%) rotate(22deg)}to{transform:translateX(420%) rotate(22deg)}}
             @keyframes spin{to{transform:rotate(360deg)}}
+            /* 编辑模式（所见即所得）：按 E 切换 contentEditable，虚线框标记可编辑元素 */
+            [contenteditable="true"]{outline:1.5px dashed var(--accent);outline-offset:4px;border-radius:4px;cursor:text}
+            body.hppt-editing [data-edit]{min-width:1em;display:inline-block}
+            #editTip{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9;
+              background:rgba(10,12,16,.85);color:var(--ink);border:1px solid var(--accent);border-radius:999px;
+              padding:8px 22px;font-size:15px;letter-spacing:.08em}
             """;
 
     private static String head(Theme theme, double fs, String background) {
@@ -363,7 +372,13 @@ public class ProjectShowService {
         return html.append("<div id=\"deck\">\n").toString();
     }
 
-    private static String slideHtml(Slide slide, boolean first) {
+    /** 所见即所得编辑锚点：向导预览按此 data-edit 路径把页面文字写回 deck（p{页序}.{字段路径}）。 */
+    private static String ed(int idx, String path) {
+        return " data-edit=\"p" + idx + "." + path + "\"";
+    }
+
+    private static String slideHtml(Slide slide, int idx) {
+        boolean first = idx == 0;
         String label = text(slide.label(), 160);
         String title = text(slide.title(), 240);
         String body = text(slide.body(), 4000);
@@ -373,14 +388,14 @@ public class ProjectShowService {
         List<String> lines = body.isBlank() ? List.of() : Arrays.stream(body.split("\n"))
                 .map(String::strip).filter(line -> !line.isEmpty()).toList();
         return switch (kind) {
-            case "cover" -> coverHtml(label, title, lines, slide.items());
-            case "section" -> sectionHtml(label, title, slide.items(), slide.persons());
-            case "resume" -> resumeHtml(label, title, slide.items());
-            case "panel" -> panelHtml(label, title, slide.persons());
+            case "cover" -> coverHtml(idx, label, title, lines, slide.items());
+            case "section" -> sectionHtml(idx, label, title, slide.items(), slide.persons());
+            case "resume" -> resumeHtml(idx, label, title, slide.items(), slide.persons());
+            case "panel" -> panelHtml(idx, label, title, slide.persons());
             case "bio" -> structuredBio(slide.persons()) != null
-                    ? bioHtml(label, structuredBio(slide.persons())) : legacyContentHtml(kind, label, title, portrait, lines, first);
+                    ? bioHtml(idx, label, structuredBio(slide.persons())) : legacyContentHtml(idx, kind, label, title, portrait, lines);
 
-            default -> legacyContentHtml(kind, label, title, portrait, lines, first);
+            default -> legacyContentHtml(idx, kind, label, title, portrait, lines);
         };
     }
 
@@ -393,7 +408,7 @@ public class ProjectShowService {
         return null;
     }
 
-    private static String bioHtml(String label, Person p) {
+    private static String bioHtml(int idx, String label, Person p) {
         String portrait = image(p.image());
         String role = text(p.role(), 40);
         String name = text(p.name(), 60);
@@ -405,56 +420,58 @@ public class ProjectShowService {
         } else {
             s.append("<figure class=\"photo-card a-in photo-empty\"></figure>");
         }
-        if (!role.isEmpty()) s.append("<p class=\"role-badge a-in\" data-step>").append(role).append("</p>");
+        if (!role.isEmpty()) s.append("<p class=\"role-badge a-in\" data-step><span")
+                .append(ed(idx, "persons[0].role")).append(">").append(role).append("</span></p>");
         String sizeClass = name.length() > 9 ? " t-long" : "";
         if (!name.isEmpty()) {
-            s.append("<h1 class=\"flow bio-name a-wide").append(sizeClass).append("\">").append(name);
-            if (!title.isEmpty()) s.append("<small>").append(title).append("</small>");
+            s.append("<h1 class=\"flow bio-name a-wide").append(sizeClass).append("\"><span")
+                    .append(ed(idx, "persons[0].name")).append(">").append(name).append("</span>");
+            if (!title.isEmpty()) s.append("<small").append(ed(idx, "persons[0].title")).append(">").append(title).append("</small>");
             s.append("</h1>");
         }
-        if (!unit.isEmpty()) s.append("<p class=\"bio-unit a-in\" data-step>").append(unit).append("</p>");
-        if (!label.isEmpty() && !"个人简历".equals(label)) s.append("<p class=\"crumb a-in\" style=\"margin-top:22px\">").append(label).append("</p>");
+        if (!unit.isEmpty()) s.append("<p class=\"bio-unit a-in\" data-step><span")
+                .append(ed(idx, "persons[0].unit")).append(">").append(unit).append("</span></p>");
         return s.append("</div></section>\n").toString();
     }
 
-    private static String coverHtml(String label, String title, List<String> bodyLines, List<String> items) {
+    private static String coverHtml(int idx, String label, String title, List<String> bodyLines, List<String> items) {
         StringBuilder s = new StringBuilder("<section class=\"slide k-cover\"><div class=\"cover\">");
         s.append("<i class=\"cover-corner tl\"></i><i class=\"cover-corner br\"></i>");
         s.append("<div class=\"cover-emblem a-in\"><i></i></div>");
-        if (!label.isEmpty()) s.append("<p class=\"cover-org a-in\">").append(label).append("</p>");
+        if (!label.isEmpty()) s.append("<p class=\"cover-org a-in\"><span").append(ed(idx, "label")).append(">").append(label).append("</span></p>");
         if (!title.isEmpty()) {
             String sizeClass = title.length() > 8 ? " t-long" : "";
-            s.append("<h1 class=\"flow cover-title a-wide").append(sizeClass).append("\">").append(title).append("</h1>");
+            s.append("<h1 class=\"flow cover-title a-wide").append(sizeClass).append("\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
         }
-        if (!bodyLines.isEmpty()) s.append("<p class=\"cover-sub a-in\">").append(bodyLines.get(0)).append("</p>");
+        if (!bodyLines.isEmpty()) s.append("<p class=\"cover-sub a-in\"><span").append(ed(idx, "body[0]")).append(">").append(bodyLines.get(0)).append("</span></p>");
         s.append("<div class=\"cover-line a-in\"></div>");
         if (items != null) {
             int n = Math.min(items.size(), 12);
-            for (int i = 0; i < n; i++) {
-                String item = text(items.get(i), 160);
+            for (int j = 0; j < n; j++) {
+                String item = text(items.get(j), 160);
                 if (item.isEmpty()) continue;
                 String[] kv = item.split("\\|", 2);
                 s.append("<div class=\"ci-row\" data-step");
                 if (kv.length == 2 && !kv[0].isBlank()) {
-                    s.append("><span class=\"ci-k\">").append(kv[0]).append("</span><span class=\"ci-v\">")
-                            .append(kv[1]).append("</span></div>");
+                    s.append("><span class=\"ci-k\"").append(ed(idx, "items[" + j + "].k")).append(">").append(kv[0])
+                            .append("</span><span class=\"ci-v\"").append(ed(idx, "items[" + j + "].v")).append(">").append(kv[1]).append("</span></div>");
                 } else {
-                    s.append("><span class=\"ci-v\">").append(item).append("</span></div>");
+                    s.append("><span class=\"ci-v\"").append(ed(idx, "items[" + j + "]")).append(">").append(item).append("</span></div>");
                 }
             }
         }
         return s.append("</div></section>\n").toString();
     }
 
-    private static String sectionHtml(String label, String title, List<String> items, List<Person> persons) {
+    private static String sectionHtml(int idx, String label, String title, List<String> items, List<Person> persons) {
         String num = items == null || items.isEmpty() ? "" : text(items.get(0), 12);
         Person lead = persons == null ? null : Arrays.stream(persons.toArray(new Person[0]))
                 .filter(p -> p != null && p.name() != null && !p.name().isBlank()).findFirst().orElse(null);
         StringBuilder s = new StringBuilder("<section class=\"slide k-section\"><div class=\"sec\">");
         String wm = title.length() > 2 ? title.substring(title.length() - 2) : title;
         if (!wm.isEmpty()) s.append("<div class=\"sec-wm\" aria-hidden=\"true\">").append(wm).append("</div>");
-        if (!num.isEmpty()) s.append("<div class=\"sec-num a-in\">").append(num).append("</div>");
-        if (!title.isEmpty()) s.append("<h1 class=\"sec-title flow a-wide\">").append(title).append("</h1>");
+        if (!num.isEmpty()) s.append("<div class=\"sec-num a-in\"").append(ed(idx, "items[0]")).append(">").append(num).append("</div>");
+        if (!title.isEmpty()) s.append("<h1 class=\"sec-title flow a-wide\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
         s.append("<div class=\"sec-line a-in\"></div>");
         if (lead != null) {
             String name = text(lead.name(), 60);
@@ -462,42 +479,47 @@ public class ProjectShowService {
             String unit = text(lead.unit(), 120);
             String role = text(lead.role(), 40);
             s.append("<div class=\"sec-person a-in\" data-step><strong>");
-            if (!role.isEmpty()) s.append(role).append(" · ");
-            s.append(name);
-            if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
+            if (!role.isEmpty()) s.append("<span").append(ed(idx, "persons[0].role")).append(">").append(role).append("</span> · ");
+            s.append("<span").append(ed(idx, "persons[0].name")).append(">").append(name).append("</span>");
+            if (!title2.isEmpty()) s.append("<small").append(ed(idx, "persons[0].title")).append(">").append(title2).append("</small>");
             s.append("</strong>");
-            if (!unit.isEmpty()) s.append("<span>").append(unit).append("</span>");
+            if (!unit.isEmpty()) s.append("<span").append(ed(idx, "persons[0].unit")).append(">").append(unit).append("</span>");
             s.append("</div>");
         }
-        if (!label.isEmpty() && !"过场".equals(label)) s.append("<p class=\"crumb a-in\" style=\"margin-top:26px\">").append(label).append("</p>");
         return s.append("</div></section>\n").toString();
     }
 
-    private static String resumeHtml(String label, String title, List<String> items) {
+    private static String resumeHtml(int idx, String label, String title, List<String> items, List<Person> persons) {
+        Person p = persons == null ? null : Arrays.stream(persons.toArray(new Person[0]))
+                .filter(x -> x != null && x.image() != null && !x.image().isBlank()).findFirst().orElse(null);
+        String portrait = p == null ? "" : image(p.image());
         StringBuilder s = new StringBuilder("<section class=\"slide k-resume\"><div class=\"resume-page\">");
-        s.append("<h3 class=\"rp-title a-in\">").append(label.isEmpty() ? "个人简历" : label)
-                .append("<span>RESUME</span></h3>");
-        if (!title.isEmpty()) s.append("<p class=\"rp-sub a-in\">").append(title).append("</p>");
+        s.append("<div class=\"rp-head\">");
+        if (!portrait.isEmpty()) s.append("<img class=\"rp-avatar a-in\" src=\"").append(portrait).append("\" alt=\"\">");
+        s.append("<div><h3 class=\"rp-title a-in\"><span").append(ed(idx, "label")).append(">")
+                .append(label.isEmpty() ? "个人简历" : label).append("</span><span>RESUME</span></h3>");
+        if (!title.isEmpty()) s.append("<p class=\"rp-sub a-in\"><span").append(ed(idx, "title")).append(">").append(title).append("</span></p>");
+        s.append("</div></div>");
         s.append("<div class=\"rp-rule a-in\"></div><ul class=\"rp-cols\">");
         if (items != null) {
             int n = Math.min(items.size(), 30);
-            for (int i = 0; i < n; i++) {
-                String item = text(items.get(i), 200);
-                if (!item.isEmpty()) s.append("<li data-step>").append(item).append("</li>");
+            for (int j = 0; j < n; j++) {
+                String item = text(items.get(j), 200);
+                if (!item.isEmpty()) s.append("<li data-step").append(ed(idx, "items[" + j + "]")).append(">").append(item).append("</li>");
             }
         }
         return s.append("</ul></div></section>\n").toString();
     }
 
-    private static String panelHtml(String label, String title, List<Person> persons) {
+    private static String panelHtml(int idx, String label, String title, List<Person> persons) {
         StringBuilder s = new StringBuilder("<section class=\"slide k-panel\"><div class=\"panel\">");
-        if (!label.isEmpty()) s.append("<p class=\"panel-eyebrow a-in\">").append(label).append("</p>");
-        if (!title.isEmpty()) s.append("<h1 class=\"flow a-wide\">").append(title).append("</h1>");
+        if (!label.isEmpty()) s.append("<p class=\"panel-eyebrow a-in\"><span").append(ed(idx, "label")).append(">").append(label).append("</span></p>");
+        if (!title.isEmpty()) s.append("<h1 class=\"flow a-wide\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
         s.append("<div class=\"rule a-in\"></div><div class=\"panel-cards\">");
         if (persons != null) {
             int n = Math.min(persons.size(), 8);
-            for (int i = 0; i < n; i++) {
-                Person p = persons.get(i);
+            for (int j = 0; j < n; j++) {
+                Person p = persons.get(j);
                 if (p == null || p.name() == null || p.name().isBlank()) continue;
                 String name = text(p.name(), 60);
                 String title2 = text(p.title(), 60);
@@ -509,50 +531,59 @@ public class ProjectShowService {
                 } else {
                     s.append("<span class=\"p-avatar-word\">").append(name.substring(0, 1)).append("</span>");
                 }
-                s.append("<figcaption><strong>").append(name);
-                if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
+                s.append("<figcaption><strong><span").append(ed(idx, "persons[" + j + "].name")).append(">").append(name).append("</span>");
+                if (!title2.isEmpty()) s.append("<small").append(ed(idx, "persons[" + j + "].title")).append(">").append(title2).append("</small>");
                 s.append("</strong>");
-                if (!unit.isEmpty()) s.append("<span>").append(unit).append("</span>");
+                if (!unit.isEmpty()) s.append("<span").append(ed(idx, "persons[" + j + "].unit")).append(">").append(unit).append("</span>");
                 s.append("</figcaption></figure>");
             }
         }
         return s.append("</div></div></section>\n").toString();
     }
 
-    private static String legacyContentHtml(String kind, String label, String title, String portrait,
-                                            List<String> lines, boolean first) {
+    private static String legacyContentHtml(int idx, String kind, String label, String title, String portrait,
+                                            List<String> lines) {
         String sizeClass = title.length() > 28 ? " t-xlong" : title.length() > 14 ? " t-long" : "";
         StringBuilder s = new StringBuilder("<section class=\"slide k-").append(kind).append("\">");
         switch (kind) {
             case "cover", "ending" -> {
                 s.append("<div class=\"wrap center\">");
-                if (kind.equals("cover") && !label.isEmpty()) s.append("<p class=\"org a-in\">").append(label).append("</p>");
-                if (!title.isEmpty()) s.append("<h1 class=\"flow a-wide").append(sizeClass).append("\">").append(title).append("</h1>");
+                if (kind.equals("cover") && !label.isEmpty()) s.append("<p class=\"org a-in\"><span")
+                        .append(ed(idx, "label")).append(">").append(label).append("</span></p>");
+                if (!title.isEmpty()) s.append("<h1 class=\"flow a-wide").append(sizeClass).append("\"")
+                        .append(ed(idx, "title")).append(">").append(title).append("</h1>");
                 s.append("<div class=\"rule a-in\"></div>");
-                lines.forEach(line -> s.append("<p class=\"info\" data-step>").append(line).append("</p>"));
+                for (int j = 0; j < lines.size(); j++) {
+                    s.append("<p class=\"info\" data-step><span").append(ed(idx, "body[" + j + "]")).append(">")
+                            .append(lines.get(j)).append("</span></p>");
+                }
                 s.append("</div>");
             }
             case "bio" -> {
                 s.append("<div class=\"wrap bio\"><figure class=\"photo a-in\"><img src=\"").append(portrait)
                         .append("\" alt=\"\"></figure><div class=\"bio-main\">");
-                if (!label.isEmpty()) s.append("<p class=\"crumb a-in\">").append(label).append("</p>");
-                if (!title.isEmpty()) s.append("<h1 class=\"flow").append(sizeClass).append("\">").append(title).append("</h1>");
+                if (!label.isEmpty()) s.append("<p class=\"crumb a-in\"><span").append(ed(idx, "label")).append(">").append(label).append("</span></p>");
+                if (!title.isEmpty()) s.append("<h1 class=\"flow").append(sizeClass).append("\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
                 s.append("<div class=\"rule a-in\"></div>");
                 if (!lines.isEmpty()) {
                     s.append("<ul class=\"lines\">");
-                    lines.forEach(line -> s.append("<li data-step>").append(line).append("</li>"));
+                    for (int j = 0; j < lines.size(); j++) {
+                        s.append("<li data-step").append(ed(idx, "body[" + j + "]")).append(">").append(lines.get(j)).append("</li>");
+                    }
                     s.append("</ul>");
                 }
                 s.append("</div></div>");
             }
             default -> {
                 s.append("<div class=\"wrap\">");
-                if (!label.isEmpty()) s.append("<p class=\"crumb a-in\">").append(label).append("</p>");
-                if (!title.isEmpty()) s.append("<h1 class=\"flow").append(sizeClass).append("\">").append(title).append("</h1>");
+                if (!label.isEmpty()) s.append("<p class=\"crumb a-in\"><span").append(ed(idx, "label")).append(">").append(label).append("</span></p>");
+                if (!title.isEmpty()) s.append("<h1 class=\"flow").append(sizeClass).append("\"").append(ed(idx, "title")).append(">").append(title).append("</h1>");
                 s.append("<div class=\"rule a-in\"></div>");
                 if (!lines.isEmpty()) {
                     s.append("<ul class=\"lines\">");
-                    lines.forEach(line -> s.append("<li data-step>").append(line).append("</li>"));
+                    for (int j = 0; j < lines.size(); j++) {
+                        s.append("<li data-step").append(ed(idx, "body[" + j + "]")).append(">").append(lines.get(j)).append("</li>");
+                    }
                     s.append("</ul>");
                 }
                 s.append("</div>");
@@ -574,6 +605,7 @@ public class ProjectShowService {
                 </div><nav id="hud" aria-label="播放控制"><button id="prev">上一页</button>
                 <output id="count"></output><span id="prog"><i id="progFill"></i></span>
                 <button id="full">全屏</button><button id="next">下一页</button></nav>
+                <div id="editTip">编辑模式：直接点击页面文字修改；完成后回向导点「保存修改」</div>
                 <script>
                 const deck=document.getElementById('deck');
                 const slides=Array.from(deck.children);
@@ -606,11 +638,28 @@ public class ProjectShowService {
                 }
                 function next(){const s=slides[page];if(revealNext(s))return;show(page+1);}
                 function prev(){const s=slides[page];if(revealPrev(s))return;show(page-1);}
+                // ===== 所见即所得编辑模式：按 E 或由向导触发；可编辑元素带 data-edit 路径，向导读取写回 =====
+                let editing=false;
+                function toggleEdit(){
+                  editing=!editing;
+                  document.body.classList.toggle('hppt-editing',editing);
+                  document.querySelectorAll('[data-edit]').forEach(n=>{
+                    if(editing){n.setAttribute('contenteditable','true');}
+                    else{n.removeAttribute('contenteditable');n.blur();}
+                  });
+                  const tip=document.getElementById('editTip');
+                  if(tip)tip.style.display=editing?'block':'none';
+                }
+                window.__toggleEdit=toggleEdit;
+                window.__isEditing=()=>editing;
                 document.getElementById('prev').onclick=prev;
                 document.getElementById('next').onclick=next;
                 document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen?.().catch(()=>{});
                 document.addEventListener('keydown',e=>{
                   if(e.target instanceof HTMLButtonElement&&(e.key===' '||e.key==='Enter'))return;
+                  if(e.target instanceof HTMLElement&&e.target.isContentEditable)return;
+                  if((e.key==='e'||e.key==='E')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleEdit();return;}
+                  if(editing)return;
                   if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();next();}
                   else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev();}
                   else if(e.key==='Home')show(0);
