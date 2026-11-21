@@ -248,3 +248,19 @@ export function publishShow(id, deck) {
 export function previewShow(id, deck) {
   return request.post(`/project/${id}/show/preview`, deck, { timeout: 120000 })
 }
+
+export function getShowTemplates(id) {
+  return request.get(`/project/${id}/show/templates`)
+}
+
+export function getShowTemplate(id, templateId) {
+  return request.get(`/project/${id}/show/templates/${templateId}`)
+}
+
+export function saveShowTemplate(id, templateId, design) {
+  return request.put(`/project/${id}/show/templates/${templateId}`, design)
+}
+
+export function removeShowTemplate(id, templateId) {
+  return request.delete(`/project/${id}/show/templates/${templateId}`)
+}

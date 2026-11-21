@@ -12,6 +12,23 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProjectStageDeliverableTest {
     @Test
+    void customCoverCoordinatesAndPortraitFrameAreRenderedSafely() {
+        var cover = new ProjectShowService.Slide("", "封面", "", "", "cover", null, null, null);
+        var section = new ProjectShowService.Slide("", "开场", "", "", "section", List.of("01"),
+                List.of(new ProjectShowService.Person("主席", "测试专家", "教授", "", "ph:0")), null);
+        String image = "data:image/png;base64,AAAA";
+        var field = new ProjectShowService.CoverField("title", "主标题", "<会议>", 31.5, 22.0);
+        String html = ProjectShowService.render(new ProjectShowService.Deck("", List.of(cover, section),
+                "gold", null, List.of(image), List.of(field), image));
+        assertTrue(html.contains("left:31.5%;top:22.0%"));
+        assertTrue(html.contains("&lt;会议&gt;"));
+        assertTrue(html.contains("id=\"avatar-frame\""));
+        assertTrue(html.contains("<small>教授</small>"));
+        var invalid = new ProjectShowService.CoverField("title", "主标题", "会议", Double.NaN, 22.0);
+        assertThrows(BusinessException.class, () -> ProjectShowService.validateCoverDesign("", List.of(invalid)));
+    }
+
+    @Test
     void financeWorkbookKeepsOnlyTheSelectedBusinessSheetAndDictionary() throws Exception {
         byte[] bytes = ProjectFinanceWorkbook.generate("PLATFORM", Map.of(
                 "meetingName", "联调会议", "meetingDate", "2026-11-21", "ourCompany", "河南景帅",

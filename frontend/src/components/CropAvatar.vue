@@ -15,9 +15,10 @@
       </div>
     </div>
     <div class="crop-side">
-      <div class="crop-out">
+      <div class="crop-out" :class="{ 'has-frame': frame }">
         <img v-if="modelValue" :src="modelValue" alt="圆形头像预览">
         <span v-else class="crop-out-empty">{{ ready ? '生成中' : '等待照片' }}</span>
+        <img v-if="frame" class="crop-frame" :src="frame" alt="">
       </div>
       <p class="crop-note">输出 400×400 圆形透明图（WebP）</p>
     </div>
@@ -25,16 +26,17 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 
 // 圆形证件照裁剪：载入照片后自动人脸识别预定位（tiny 模型本地加载，内网可用），
 // 用户可拖动圆框/缩放/重置微调；canvas 输出 400×400 圆形透明 PNG，零后端依赖。
 // 消费方：ShowWizard.vue 专家头像。选区变化自动重导出。
 const props = defineProps({
   src: { type: String, default: '' },
-  modelValue: { type: String, default: '' }
+  modelValue: { type: String, default: '' },
+  frame: { type: String, default: '' }
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'detecting'])
 
 const stageEl = ref(null)
 const imgEl = ref(null)
@@ -186,6 +188,13 @@ function render() {
   }
 }
 
+watch(detecting, value => emit('detecting', value))
+onUnmounted(() => {
+  detectToken += 1
+  clearTimeout(timer)
+  emit('detecting', false)
+})
+
 watch(zoomPct, () => {
   syncRingWidth()
   scheduleRender()
@@ -216,4 +225,7 @@ defineExpose({ render })
 .crop-out img { width: 100%; height: 100%; object-fit: cover; }
 .crop-out-empty { font-size: 12px; color: rgba(255, 243, 220, .5); }
 .crop-note { margin: 0; font-size: 11px; color: rgba(255, 243, 220, .45); text-align: center; }
+.crop-out { position: relative; }
+.crop-out.has-frame { border-color: transparent; overflow: visible; }
+.crop-out .crop-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 </style>

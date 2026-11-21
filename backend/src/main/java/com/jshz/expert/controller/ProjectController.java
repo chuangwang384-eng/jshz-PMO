@@ -15,6 +15,7 @@ import com.jshz.expert.entity.ProjectSchedule;
 import com.jshz.expert.entity.ProjectSpeaker;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ProjectService;
+import com.jshz.expert.service.ProjectShowTemplateService;
 import com.jshz.expert.service.ProjectStorageService;
 import com.jshz.expert.service.ScheduleParseService;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,7 @@ import java.util.Map;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final ProjectShowTemplateService projectShowTemplates;
 
     /** 分页列表（筛选：keyword/status/startBegin/startEnd/endBegin/endEnd/ownerId/category/team/cityId/assistantId；类型/执行人筛选已随概念删除）。 */
     @GetMapping
@@ -370,6 +372,32 @@ public class ProjectController {
     public ApiResponse<String> previewShow(@PathVariable Long id,
             @RequestBody com.jshz.expert.service.ProjectShowService.Deck deck, @AuthenticationPrincipal AuthUser user) {
         return ApiResponse.ok(projectShowService.preview(id, deck, user));
+    }
+
+    @GetMapping("/{id}/show/templates")
+    public ApiResponse<List<ProjectShowTemplateService.Entry>> showTemplates(@PathVariable Long id,
+            @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        return ApiResponse.ok(projectShowTemplates.list(id, user));
+    }
+
+    @GetMapping("/{id}/show/templates/{templateId}")
+    public ApiResponse<ProjectShowTemplateService.Design> showTemplate(@PathVariable Long id,
+            @PathVariable java.util.UUID templateId, @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        return ApiResponse.ok(projectShowTemplates.get(id, templateId, user));
+    }
+
+    @PutMapping("/{id}/show/templates/{templateId}")
+    public ApiResponse<ProjectShowTemplateService.Entry> saveShowTemplate(@PathVariable Long id,
+            @PathVariable java.util.UUID templateId, @RequestBody ProjectShowTemplateService.Design design,
+            @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        return ApiResponse.ok(projectShowTemplates.save(id, templateId, design, user));
+    }
+
+    @DeleteMapping("/{id}/show/templates/{templateId}")
+    public ApiResponse<Void> removeShowTemplate(@PathVariable Long id, @PathVariable java.util.UUID templateId,
+            @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        projectShowTemplates.remove(id, templateId, user);
+        return ApiResponse.ok(null);
     }
 
     /** 登记预算金额。 */

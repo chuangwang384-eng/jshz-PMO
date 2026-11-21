@@ -30,10 +30,21 @@ public class ProjectShowService {
      * 缺失时按 1.0。photos 为照片池（去重后的 dataURL），页面内 image 字段可用 "ph:{序号}" 引用池中照片，
      * 避免一位专家出现在多个环节时照片重复嵌入撑爆体积；旧草稿无 photos、image 直接存 dataURL，两者兼容。
      */
-    public record Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos) {}
+    public record Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos,
+                       List<CoverField> coverFields, String avatarFrame) {
+        public Deck(String background, List<Slide> slides, String template, Double fontScale, List<String> photos) {
+            this(background, slides, template, fontScale, photos, null, null);
+        }
+    }
+
+    public record CoverField(String key, String label, String value, Double x, Double y) {}
 
     /** 页面人物（2026-11-21 结构化页面模型）：出场页/讨论墙/过场页共用。image 为已抠图 dataURL，可空。 */
-    public record Person(String role, String name, String title, String unit, String image) {}
+    public record Person(String role, String name, String title, String unit, String image, String sourceKey) {
+        public Person(String role, String name, String title, String unit, String image) {
+            this(role, name, title, unit, image, null);
+        }
+    }
 
     /**
      * 结构化页面（2026-11-21）：kind 取 cover/section/bio/resume/panel/agenda/ending/content，
@@ -41,7 +52,12 @@ public class ProjectShowService {
      * 章节编号（首元素）、简历条目；persons 承载页面人物。
      */
     public record Slide(String label, String title, String body, String image,
-                        String kind, List<String> items, List<Person> persons, Double fontSize) {}
+                        String kind, List<String> items, List<Person> persons, Double fontSize, Integer groupIndex) {
+        public Slide(String label, String title, String body, String image, String kind,
+                     List<String> items, List<Person> persons, Double fontSize) {
+            this(label, title, body, image, kind, items, persons, fontSize, null);
+        }
+    }
 
     /** 内置串场模板。css 只允许覆盖调色变量与装饰层，页面结构与动画引擎由 render 的公共层承载，禁止复制私有副本。 */
     public record Theme(String id, String name, String css, boolean particles) {}
@@ -179,6 +195,11 @@ public class ProjectShowService {
         render(deck);
     }
 
+    static void validateCoverDesign(String background, List<CoverField> fields) {
+        image(background);
+        coverFieldsHtml(fields);
+    }
+
     static String render(Deck deck) {
         if (deck == null || deck.slides() == null || deck.slides().isEmpty() || deck.slides().size() > 180) {
             throw new BusinessException("请保留 1 至 180 张幻灯片");
@@ -190,11 +211,12 @@ public class ProjectShowService {
             if (deck.photos().size() > 300) throw new BusinessException("照片数量过多，请精简专家资料");
             deck.photos().forEach(ProjectShowService::image);
         }
-        StringBuilder html = new StringBuilder(head(theme, fs, background));
+        String frame = image(deck.avatarFrame());
+        StringBuilder html = new StringBuilder(head(theme, fs, background, frame));
         for (int i = 0; i < deck.slides().size(); i++) {
             Slide slide = deck.slides().get(i);
             if (slide == null) throw new BusinessException("幻灯片内容无效");
-            html.append(slideHtml(resolvePhotos(slide, deck.photos()), i));
+            html.append(slideHtml(resolvePhotos(slide, deck.photos()), i, deck.coverFields()));
             if (html.length() > MAX_DECK_SIZE) throw new BusinessException("串场文件过大，请压缩图片");
         }
         return html.append(deckTail(theme)).toString();
@@ -360,7 +382,16 @@ public class ProjectShowService {
               display:flex;align-items:center;justify-content:center;font-size:2.6em;color:var(--ink-dim);
               font-family:var(--font-title)}
             .sec-p figcaption{font-size:1.15em;color:var(--ink);letter-spacing:.08em}
-            .sec-p figcaption small{color:var(--ink-dim);margin-left:.2em}
+            .custom-cover-field{position:absolute;z-index:2;transform:translate(-50%,-50%);max-width:80%;
+              color:var(--ink);font-size:2.1em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere}
+            .custom-cover-title{font-size:4em;font-weight:700}
+            .avatar-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
+            .custom-frame .sec-p-avatar,.custom-frame .resume-portrait{position:relative}
+            .custom-frame .sec-p-avatar > img,.custom-frame .rp2-avatar{border:0}
+            .custom-frame .sec-p-avatar > .avatar-frame{border-radius:0;object-fit:contain;box-shadow:none}
+            .resume-portrait{position:relative;width:88%;margin:0 auto}
+            .resume-portrait .rp2-avatar{display:block;width:100%}
+            .sec-p figcaption small{display:block;color:var(--ink-dim);margin-top:.16em}
             /* 空槽位仅编辑模式显示（演示模式隐藏，头像一排居中；编辑模式允许空槽流入第二行） */
             .sec-p-empty{display:none;opacity:.5}
             .sec-p-empty .sec-p-word{border-style:dashed}
@@ -412,7 +443,7 @@ public class ProjectShowService {
               padding:8px 22px;font-size:15px;letter-spacing:.08em}
             """;
 
-    private static String head(Theme theme, double fs, String background) {
+    private static String head(Theme theme, double fs, String background, String frame) {
         StringBuilder html = new StringBuilder("""
                 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -420,13 +451,15 @@ public class ProjectShowService {
                 .append(BASE_CSS)
                 .append(theme.css())
                 .append("\n:root{--fs:").append(fs).append("}\n</style></head>\n<body class=\"")
-                .append(background.isEmpty() ? "" : "k-on ").append("t-").append(theme.id()).append("\">\n");
+                .append(background.isEmpty() ? "" : "k-on ").append(frame.isEmpty() ? "" : "custom-frame ").append("t-").append(theme.id()).append("\">\n");
         if (theme.particles()) html.append("<canvas id=\"fx\"></canvas>\n");
         // 主 K 只输出一次，由脚本克隆进每一页，避免 dataURL 乘以页数撑爆体积。
         if (!background.isEmpty()) {
             html.append("<template id=\"theme\"><img class=\"k-bg\" alt=\"\" src=\"").append(background)
                     .append("\"><span class=\"veil\"></span></template>\n");
         }
+        if (!frame.isEmpty()) html.append("<template id=\"avatar-frame\"><img class=\"avatar-frame\" alt=\"\" src=\"")
+                .append(frame).append("\"></template>");
         return html.append("<div id=\"deck\">\n").toString();
     }
 
@@ -435,7 +468,7 @@ public class ProjectShowService {
         return " data-edit=\"p" + idx + "." + path + "\"";
     }
 
-    private static String slideHtml(Slide slide, int idx) {
+    private static String slideHtml(Slide slide, int idx, List<CoverField> fields) {
         boolean first = idx == 0;
         String label = text(slide.label(), 160, "页面标签");
         String title = text(slide.title(), 240, "页面标题");
@@ -446,7 +479,8 @@ public class ProjectShowService {
         List<String> lines = body.isBlank() ? List.of() : Arrays.stream(body.split("\n"))
                 .map(String::strip).filter(line -> !line.isEmpty()).toList();
         return switch (kind) {
-            case "cover" -> coverHtml(idx, label, title, lines, slide.items());
+            case "cover" -> fields == null ? coverHtml(idx, label, title, lines, slide.items())
+                    : "<section class=\"slide k-cover\">" + coverFieldsHtml(fields) + "</section>";
             case "section" -> sectionHtml(idx, label, title, slide.items(), slide.persons());
             case "resume" -> resumeHtml(idx, label, title, slide.items(), slide.persons(), slide.fontSize());
             case "panel" -> panelHtml(idx, label, title, slide.persons());
@@ -490,6 +524,25 @@ public class ProjectShowService {
         if (!unit.isEmpty()) s.append("<p class=\"bio-unit a-in\" data-step><span")
                 .append(ed(idx, "persons[0].unit")).append(">").append(unit).append("</span></p>");
         return s.append("</div></section>\n").toString();
+    }
+
+    private static String coverFieldsHtml(List<CoverField> fields) {
+        if (fields == null) return "";
+        if (fields.size() > 20) throw new BusinessException("封面最多可放置 20 个字段");
+        StringBuilder html = new StringBuilder();
+        for (CoverField field : fields) {
+            if (field == null || field.x() == null || field.y() == null
+                    || !Double.isFinite(field.x()) || !Double.isFinite(field.y())
+                    || field.x() < 0 || field.x() > 100 || field.y() < 0 || field.y() > 100) {
+                throw new BusinessException("封面字段坐标无效");
+            }
+            String value = text(field.value(), 240, "封面字段");
+            if (!value.isEmpty()) html.append("<div class=\"custom-cover-field")
+                    .append("title".equals(field.key()) ? " custom-cover-title" : "")
+                    .append("\" style=\"left:").append(field.x()).append("%;top:").append(field.y())
+                    .append("%\">").append(value).append("</div>");
+        }
+        return html.toString();
     }
 
     private static String coverHtml(int idx, String label, String title, List<String> bodyLines, List<String> items) {
@@ -574,7 +627,8 @@ public class ProjectShowService {
         StringBuilder s = new StringBuilder("<section class=\"slide k-resume\"").append(fs)
                 .append("><div class=\"rp2\">");
         s.append("<aside class=\"rp2-left\">");
-        if (!portrait.isEmpty()) s.append("<img class=\"rp2-avatar a-in\" src=\"").append(portrait).append("\" alt=\"\">");
+        if (!portrait.isEmpty()) s.append("<div class=\"resume-portrait\"><img class=\"rp2-avatar a-in\" src=\"")
+                .append(portrait).append("\" alt=\"\"></div>");
         if (!role.isEmpty()) s.append("<p class=\"role-badge a-in\" data-step><span")
                 .append(ed(idx, "persons[0].role")).append(">").append(role).append("</span></p>");
         if (!name.isEmpty()) {
@@ -714,6 +768,9 @@ public class ProjectShowService {
                   const iv=Math.max(110,Math.min(240,Math.round(1250/Math.max(pend.length,1))));
                   later(function step(){if(revealNext(s))later(step,iv);},420);
                 }
+                const avatarFrame=document.getElementById('avatar-frame');
+                if(avatarFrame) document.querySelectorAll('.sec-p-avatar:has(img),.resume-portrait').forEach(
+                  avatar=>avatar.append(avatarFrame.content.cloneNode(true)));
                 function show(i){
                   clearTimers();
                   const old=slides[page];

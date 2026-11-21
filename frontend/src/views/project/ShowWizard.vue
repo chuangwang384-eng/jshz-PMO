@@ -16,11 +16,19 @@
       <p class="wiz-desc">第一步：选择模板并定制封面。封面文字与全局字号在此确定，后续随时可回改。</p>
       <div class="tpl-grid">
         <button v-for="t in templates" :key="t.id" type="button" class="tpl-card"
-          :class="{ picked: template === t.id }" @click="template = t.id">
+          :class="{ picked: template === t.id }" @click="selectBuiltin(t.id)">
           <span class="tpl-swatch" :style="{ backgroundImage: t.preview }"></span>
           <strong>{{ t.name }}</strong>
           <span class="tpl-note">{{ t.desc }}</span>
         </button>
+      </div>
+      <div class="wiz-actions">
+        <el-select v-model="sharedId" clearable placeholder="选用公司共享模板" @change="applySharedTemplate">
+          <el-option v-for="item in sharedTemplates" :key="item.id" :value="item.id" :label="item.name" />
+        </el-select>
+        <el-button v-if="project.canOperate" @click="storeTemplate(false)">另存为共享模板</el-button>
+        <el-button v-if="project.canOperate && sharedId" @click="storeTemplate(true)">更新共享模板</el-button>
+        <el-button v-if="project.canOperate && sharedId" type="danger" plain @click="dropTemplate">下架共享模板</el-button>
       </div>
       <div class="dark-card cover-card">
         <p class="block-title">封面定制</p>
@@ -39,7 +47,29 @@
               <el-option v-for="f in fontScales" :key="f.value" :label="f.label" :value="f.value" />
             </el-select>
           </label>
-          <p class="field-hint">主标题超长时自动缩小；时间/地点/主席留空的行不会出现在封面上。</p>
+          <label class="field">16:9 主视觉
+            <input type="file" accept="image/png,image/jpeg,image/webp" @change="selectArtwork($event, false)">
+          </label>
+          <el-button v-if="background" size="small" @click="background = ''">移除主视觉</el-button>
+        </div>
+        <div v-for="field in customFields" :key="field.key" class="cover-fields">
+          <label class="field">字段名称<el-input v-model="field.label" maxlength="40" /></label>
+          <label class="field field-grow">字段内容<el-input v-model="field.value" maxlength="240" /></label>
+          <el-button size="small" type="danger" plain @click="removeCoverField(field.key)">删除字段</el-button>
+        </div>
+        <div class="wiz-actions">
+          <el-button :disabled="layout.length >= 20" @click="addCoverField">添加自定义字段</el-button>
+          <el-button @click="openPagePreview(0, coverSlideLike())">预览正式封面</el-button>
+          <el-button v-if="editable" :disabled="busy" @click="saveDraft('封面已保存')">保存项目封面</el-button>
+        </div>
+        <div class="cover-canvas" :class="{ 'cover-canvas-tech': template === 'tech' }" ref="coverCanvas"
+          :style="background ? { backgroundImage: `linear-gradient(#0002, #0002), url(${background})` } : {}">
+          <button v-for="field in coverFields" :key="field.key" type="button" class="canvas-field"
+            :class="{ 'canvas-title': field.key === 'title' }" :aria-label="`移动${field.label}`"
+            :style="{ left: `${field.x}%`, top: `${field.y}%` }"
+            @pointerdown="startFieldDrag($event, field.key)" @pointermove="moveFieldDrag"
+            @pointerup="stopFieldDrag" @pointercancel="stopFieldDrag" @lostpointercapture="stopFieldDrag"
+            @keydown="nudgeField($event, field.key)">{{ field.value || field.label }}</button>
         </div>
       </div>
       <div class="wiz-actions"><el-button type="primary" :disabled="!experts.length" @click="step = 2">下一步：专家信息</el-button></div>
@@ -51,6 +81,14 @@
         已从日程提取 {{ experts.length }} 位参会专家（重复出现只保留一份，两字姓名自动去除排版空格）。
         这里的资料是全局的：头像、姓名、单位、职称、简介改一处，所有环节与页面自动联动。
       </p>
+      <div class="wiz-actions">
+        <label class="field">项目头像框（中心透明的 PNG 或 WebP）
+          <input type="file" accept="image/png,image/webp" @change="selectArtwork($event, true)">
+        </label>
+        <img v-if="avatarFrame" class="frame-swatch" :src="avatarFrame" alt="当前头像框">
+        <el-button v-if="avatarFrame" size="small" @click="avatarFrame = ''">恢复默认头像框</el-button>
+        <el-button v-if="editable" :disabled="busy" @click="saveDraft('项目头像框已保存')">保存头像框</el-button>
+      </div>
       <div v-for="p in experts" :key="p.key" class="dark-card person-card">
         <div class="person-head">
           <strong>{{ p.name || '未命名专家' }}</strong>
@@ -60,7 +98,7 @@
           </el-button>
           <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveDraft('专家信息已保存')">保存</el-button>
         </div>
-        <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" />
+        <CropAvatar v-if="p.photoSrc" v-model="p.avatar" :src="p.photoSrc" :frame="avatarFrame" @detecting="setDetecting(p.key, $event)" />
         <p v-else class="person-hint" role="status">{{ p.loading ? '正在读取专家资料和头像，请稍候…' : p.expertId ? '点击「从专家库载入」获取证件照与简介，系统将自动识别人脸预抠图' : '该专家未关联专家库，将仅生成文字页' }}</p>
         <div class="person-fields">
           <label class="field">姓名<el-input v-model="p.name" maxlength="60" style="width: 140px" /></label>
@@ -90,20 +128,32 @@
           <div v-for="m in g.members" :key="m.person.key" class="seg-person">
             <span class="seg-person-name">{{ m.person.name || '?' }}</span>
             <span v-if="m.time" class="seg-person-time">{{ m.time }}</span>
-            <el-select v-model="m.person.roleByGroup[g.index]" size="small" style="width: 130px"
+            <el-select v-model="m.person.roleByGroup[g.index]" @change="updateSnapshotRole(g.index, m.person)" size="small" style="width: 130px"
               :aria-label="`${m.person.name} 在该段落的角色`">
               <el-option v-for="r in roleOptions" :key="r" :label="r" :value="r" />
             </el-select>
           </div>
         </div>
         <div class="segment-pages">
-          <button v-for="entry in (pagesByGroup.get(g.index) || [])" :key="entry.index"
-            type="button" class="dark-card segment-page" @click="openPagePreview(entry.index)">
-            <span class="slide-kind">{{ kindLabel(entry.slide.kind) }}</span>
-            <strong>{{ entry.slide.title }}</strong>
-            <span v-if="entry.slide.persons?.length">{{ entry.slide.persons.map(p => p.name).filter(Boolean).join('、') }}</span>
-            <span v-if="entry.slide.kind === 'resume' && entry.slide.items?.length">{{ entry.slide.items[0] }}</span>
-          </button>
+          <article v-for="entry in (pagesByGroup.get(g.index) || [])" :key="entry.index"
+            class="dark-card segment-card" :draggable="editable"
+            @dragstart="startPageDrag($event, entry)" @dragend="draggedPage = null"
+            @dragover="allowPageDrop($event, entry)" @drop="dropPage($event, entry)">
+            <button type="button" class="segment-page" @click="openPagePreview(entry.index)">
+              <span class="slide-kind">{{ kindLabel(entry.slide.kind) }}</span>
+              <strong>{{ entry.slide.title }}</strong>
+              <span v-for="person in (entry.slide.persons || [])" :key="person.name + person.role">
+                {{ person.name }}<template v-if="person.role"> · {{ person.role }}</template>
+              </span>
+              <span v-if="entry.slide.kind === 'resume' && entry.slide.items?.length">{{ entry.slide.items[0] }}</span>
+            </button>
+            <button v-if="editable" type="button" class="segment-remove" :aria-label="`删除 ${entry.slide.title}`"
+              @click="removeSlide(entry.index)">×</button>
+            <div v-if="editable" class="segment-order">
+              <el-button link size="small" @click="nudgePage(entry, -1)">前移</el-button>
+              <el-button link size="small" @click="nudgePage(entry, 1)">后移</el-button>
+            </div>
+          </article>
         </div>
       </div>
       <p v-if="!groups.length" class="person-hint">日程中暂无已确认的专家记录，请回到日程阶段完成解析与确认</p>
@@ -182,10 +232,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
-import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
+import { getProjectDetail, getScheduleOverview, getShowAgenda, getStageForm, getShowTemplate, getShowTemplates, previewShow, publishShow, removeShowTemplate, saveShowTemplate, saveStageForm } from '../../api/project'
 import {
   ROLE_OPTIONS, agendaRows, classifyRow, dedupePhotos, normalizeName, roleLabel, splitResumeItems
 } from '../../utils/showDeck'
@@ -216,6 +266,28 @@ const editable = ref(false)
 const phaseId = ref(null)
 const project = ref({})
 const cover = ref({ org: '', title: '', sub: '', place: '', chair: '' })
+const defaultLayout = [
+  { key: 'org', label: '机构 / 主办方', x: 50, y: 20 },
+  { key: 'title', label: '主标题', x: 50, y: 38 },
+  { key: 'sub', label: '副标题', x: 50, y: 55 },
+  { key: 'place', label: '会议地点', x: 50, y: 69 },
+  { key: 'chair', label: '大会主席', x: 50, y: 79 }
+]
+const layout = ref(defaultLayout.map(field => ({ ...field })))
+const coverCanvas = ref(null)
+const background = ref('')
+const avatarFrame = ref('')
+const sharedId = ref('')
+const sharedTemplates = ref([])
+const draggedPage = ref(null)
+const detectingPeople = new Set()
+let detectNotice
+let fieldDrag
+const customFields = computed(() => layout.value.filter(field => !Object.hasOwn(cover.value, field.key)))
+const coverFields = computed(() => layout.value.map(field => ({
+  ...field,
+  value: Object.hasOwn(cover.value, field.key) ? cover.value[field.key] : field.value || ''
+})))
 const experts = ref([])        // 专家资料池（全局唯一，第二步编辑）
 const groups = ref([])         // 议题段落分组（第三步角色确认与第四步编排）
 const textPageSources = ref([]) // 可手动添加文字页的环节（含无专家环节）
@@ -273,6 +345,7 @@ onMounted(async () => {
   const phase = detail.phases?.find(item => item.name === '串场制作')
   editable.value = Boolean(detail.canOperate && phase && String(detail.phaseId) === String(phase.id))
   phaseId.value = phase?.id || null
+  void refreshTemplates().catch(() => ElMessage.warning('共享模板暂不可用'))
   const [agenda, overview] = await Promise.all([getShowAgenda(id), getScheduleOverview(id)])
   const rawSpeakers = overview?.speakers || []
   const { people, personByRecord } = buildSpeakers(rawSpeakers)
@@ -308,6 +381,16 @@ onMounted(async () => {
     return { ...g, index }
   })
   initCover()
+  if (phaseId.value) {
+    void getStageForm(id, phaseId.value).then(saved => {
+      const draft = saved?.formData
+      if (!Array.isArray(draft?.coverFields)) return
+      loadDesign({ ...draft, theme: draft.template, fields: draft.coverFields }, true)
+      avatarFrame.value = draft.avatarFrame || ''
+      if (fontScales.some(scale => scale.value === draft.fontScale)) fontScale.value = draft.fontScale
+      if (Array.isArray(draft.slides) && draft.slides.length) restorePages(draft)
+    }).catch(() => ElMessage.warning('无法读取已保存的封面和头像框'))
+  }
   // 手动文字页候选：日程行（含无专家环节）
   const { rows } = agendaRows(agenda, overview)
   textPageSources.value = rows.slice(0, 150).map(row => {
@@ -429,16 +512,27 @@ function thanksSlideLike() {
 }
 
 
-function deck(base = currentDeckSlides.value) {
+function restorePages(draft) {
+  const resolveImage = image => image?.startsWith('ph:') ? draft.photos?.[Number(image.slice(3))] || '' : image
+  editableDeck.value = draft.slides.map(slide => ({
+    ...slide, groupIndex: slide.groupIndex ?? undefined, image: resolveImage(slide.image),
+    persons: slide.persons?.map(person => ({ ...person, image: resolveImage(person.image) })) ?? null
+  }))
+}
+
+function deck(base = currentDeckSlides.value, keepWizardMetadata = false) {
   const portraits = new Map(experts.value.map(p => [p.key, p.avatar || p.originalAvatar]))
   const content = base.map(({ groupIndex, ...slide }) => ({
     ...slide,
+    ...(keepWizardMetadata && groupIndex !== undefined ? { groupIndex } : {}),
     persons: slide.persons?.map(({ sourceKey, ...person }) => ({
-      ...person, image: portraits.get(sourceKey) || person.image
+      ...person, image: portraits.get(sourceKey) || person.image,
+      ...(keepWizardMetadata && sourceKey ? { sourceKey } : {})
     })) ?? null
   }))
   const { slides, photos } = dedupePhotos(content)
-  return { slides, photos, background: '', template: template.value, fontScale: fontScale.value }
+  return { slides, photos, background: background.value, template: template.value,
+    fontScale: fontScale.value, coverFields: coverFields.value, avatarFrame: avatarFrame.value }
 }
 
 function pageCount(kind) {
@@ -456,7 +550,7 @@ function slideHasPhoto(s) {
 async function saveDraft(msg = '草稿已保存') {
   busy.value = true
   try {
-    await saveStageForm(id, { phaseId: phaseId.value, formData: deck() })
+    await saveStageForm(id, { phaseId: phaseId.value, formData: deck(currentDeckSlides.value, true) })
     ElMessage.success(msg)
   } finally {
     busy.value = false
@@ -517,8 +611,7 @@ function clearPagePreview() {
   pagePreviewUrl.value = ''
 }
 
-async function openPagePreview(index) {
-  const slide = currentDeckSlides.value[index]
+async function openPagePreview(index, slide = currentDeckSlides.value[index]) {
   if (!slide) return
   clearPagePreview()
   const request = pagePreviewRequest
@@ -526,7 +619,7 @@ async function openPagePreview(index) {
   pagePreviewLoading.value = true
   pagePreviewError.value = ''
   try {
-    await portraitsReady
+    if (slide.kind !== 'cover') await portraitsReady
     if (request !== pagePreviewRequest || !pagePreviewOpen.value) return
     const html = await previewShow(id, deck([slide]))
     if (request !== pagePreviewRequest || !pagePreviewOpen.value) return
@@ -541,6 +634,7 @@ async function openPagePreview(index) {
 
 onUnmounted(() => {
   clearPagePreview()
+  detectNotice?.close()
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
 })
 
@@ -621,7 +715,7 @@ async function saveEdits() {
   editableDeck.value = slides
   busy.value = true
   try {
-    await saveStageForm(id, { phaseId: phaseId.value, formData: deck() })
+    await saveStageForm(id, { phaseId: phaseId.value, formData: deck(currentDeckSlides.value, true) })
     ElMessage.success('页内修改已保存，预览已刷新')
     await loadPreview()
   } finally {
@@ -699,6 +793,7 @@ function removeSlide(i) {
 function moveSlide(i, dir) {
   const to = i + dir
   if (to < 0 || to >= currentDeckSlides.value.length) return
+  if (step.value === 3 && currentDeckSlides.value[i].groupIndex !== currentDeckSlides.value[to].groupIndex) return
   const arr = mutableSlides()
   ;[arr[i], arr[to]] = [arr[to], arr[i]]
   loadPreview()
@@ -711,6 +806,207 @@ watch(cover, () => {
 function mutableSlides() {
   if (!editableDeck.value) editableDeck.value = JSON.parse(JSON.stringify(builtSlides.value))
   return editableDeck.value
+}
+
+async function refreshTemplates() {
+  sharedTemplates.value = await getShowTemplates(id)
+}
+
+function selectBuiltin(theme) {
+  sharedId.value = ''
+  template.value = theme
+  background.value = ''
+}
+
+function loadDesign(design, restoreValues = false) {
+  if (templates.some(item => item.id === design.theme)) template.value = design.theme
+  background.value = design.background || ''
+  layout.value = design.fields.map(field => {
+    const value = restoreValues ? field.value : ''
+    if (restoreValues && Object.hasOwn(cover.value, field.key)) cover.value[field.key] = value
+    return { ...field, value }
+  })
+}
+
+async function applySharedTemplate(templateId) {
+  if (!templateId) return
+  const design = await getShowTemplate(id, templateId)
+  if (sharedId.value === templateId) loadDesign(design)
+}
+
+async function storeTemplate(update) {
+  const previous = sharedTemplates.value.find(item => item.id === sharedId.value)
+  let name
+  try {
+    const response = await ElMessageBox.prompt('模板供公司选用，请勿在名称中填写项目专属信息。', '共享封面模板', {
+      inputValue: update ? previous?.name : '',
+      inputValidator: value => value?.trim() && value.trim().length <= 60 || '请输入 1 至 60 字的模板名称'
+    })
+    name = response.value.trim()
+  } catch {
+    return
+  }
+  const saved = await saveShowTemplate(id, update ? sharedId.value : newId(), {
+    name, theme: template.value, background: background.value,
+    fields: layout.value.map(({ key, label, x, y }) => ({ key, label, x, y }))
+  })
+  await refreshTemplates()
+  sharedId.value = saved.id
+  ElMessage.success('共享模板已保存')
+}
+
+async function dropTemplate() {
+  const templateId = sharedId.value
+  try {
+    await ElMessageBox.confirm('下架后同事将无法再选用此模板。', '下架共享模板', { type: 'warning' })
+  } catch {
+    return
+  }
+  await removeShowTemplate(id, templateId)
+  sharedId.value = ''
+  await refreshTemplates()
+  ElMessage.success('共享模板已下架')
+}
+
+function newId() {
+  const hex = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+function addCoverField() {
+  layout.value.push({ key: `field-${newId()}`, label: '自定义字段', value: '', x: 50, y: 88 })
+}
+
+function removeCoverField(key) {
+  layout.value = layout.value.filter(field => field.key !== key)
+}
+
+function setFieldPosition(key, x, y) {
+  const field = layout.value.find(item => item.key === key)
+  if (!field) return
+  field.x = Math.round(Math.max(5, Math.min(95, x)) * 10) / 10
+  field.y = Math.round(Math.max(5, Math.min(95, y)) * 10) / 10
+}
+
+function startFieldDrag(event, key) {
+  if (event.button !== 0) return
+  const field = layout.value.find(item => item.key === key)
+  const rect = coverCanvas.value.getBoundingClientRect()
+  fieldDrag = { key, pointerId: event.pointerId, x: field.x, y: field.y, left: event.clientX, top: event.clientY, rect }
+  event.currentTarget.setPointerCapture(event.pointerId)
+}
+
+function moveFieldDrag(event) {
+  if (event.pointerId !== fieldDrag?.pointerId) return
+  const { key, x, y, left, top, rect } = fieldDrag
+  setFieldPosition(key, x + (event.clientX - left) * 100 / rect.width, y + (event.clientY - top) * 100 / rect.height)
+}
+
+function stopFieldDrag(event) {
+  if (event.pointerId === fieldDrag?.pointerId) fieldDrag = null
+}
+
+function nudgeField(event, key) {
+  const offset = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key]
+  if (!offset) return
+  event.preventDefault()
+  const field = layout.value.find(item => item.key === key)
+  setFieldPosition(key, field.x + offset[0], field.y + offset[1])
+}
+
+async function selectArtwork(event, isFrame) {
+  const input = event.target
+  const file = input.files[0]
+  input.value = ''
+  if (!file) return
+  const formats = isFrame ? ['image/png', 'image/webp'] : ['image/png', 'image/jpeg', 'image/webp']
+  if (!formats.includes(file.type) || file.size > 8 * 1024 * 1024) {
+    ElMessage.warning('请选择允许的图片格式，文件最多 8 MB')
+    return
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    image.src = url
+    await image.decode()
+    const scale = Math.min(1, (isFrame ? 512 : 1600) / Math.max(image.naturalWidth, image.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    if (isFrame && context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data[3] > 32) {
+      ElMessage.warning('头像框的中心需要透明，请上传带透明通道的素材')
+      return
+    }
+    const encoded = canvas.toDataURL('image/webp', 0.85)
+    if (isFrame) avatarFrame.value = encoded
+    else background.value = encoded
+  } catch {
+    ElMessage.error('无法读取这张图片')
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function setDetecting(key, active) {
+  if (active) detectingPeople.add(key)
+  else detectingPeople.delete(key)
+  if (detectingPeople.size && !detectNotice) {
+    detectNotice = ElNotification({ title: '正在解析头像位置', message: '系统正在识别人脸，完成后可微调裁剪。', duration: 0 })
+  } else if (!detectingPeople.size && detectNotice) {
+    detectNotice.close()
+    detectNotice = null
+  }
+}
+
+function startPageDrag(event, entry) {
+  if (!editable.value) return
+  draggedPage.value = entry
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', String(entry.index))
+}
+
+function allowPageDrop(event, entry) {
+  if (draggedPage.value?.slide.groupIndex === entry.slide.groupIndex) {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+function dropPage(event, entry) {
+  const source = draggedPage.value
+  if (!source || source.slide.groupIndex !== entry.slide.groupIndex) return
+  event.preventDefault()
+  draggedPage.value = null
+  moveGroupPage(source, entry)
+}
+
+function moveGroupPage(source, target) {
+  if (source.index === target.index) return
+  const entries = pagesByGroup.value.get(source.slide.groupIndex)
+  const from = entries.findIndex(entry => entry.index === source.index)
+  const to = entries.findIndex(entry => entry.index === target.index)
+  if (from < 0 || to < 0) return
+  const slides = mutableSlides()
+  const pages = entries.map(entry => slides[entry.index])
+  pages.splice(to, 0, pages.splice(from, 1)[0])
+  entries.forEach((entry, index) => { slides[entry.index] = pages[index] })
+}
+
+function updateSnapshotRole(groupIndex, person) {
+  for (const slide of editableDeck.value || []) {
+    if (slide.groupIndex !== groupIndex) continue
+    for (const entry of slide.persons || []) {
+      if (entry.sourceKey === person.key) entry.role = person.roleByGroup[groupIndex]
+    }
+  }
+}
+
+function nudgePage(entry, direction) {
+  const entries = pagesByGroup.value.get(entry.slide.groupIndex)
+  const target = entries[entries.indexOf(entry) + direction]
+  if (target) moveGroupPage(entry, target)
 }
 
 function goProject() {
@@ -777,7 +1073,20 @@ function goProject() {
 .wiz-foot { display: flex; justify-content: flex-end; gap: 12px; padding-top: 14px; border-top: 1px solid rgba(242, 198, 109, .2); }
 @media (max-width: 760px) { .wiz-two { grid-template-columns: 1fr; } .wiz-steps { margin-left: 0; } }
 .segment-pages { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 14px; }
-.segment-page { display: grid; gap: 6px; padding: 12px; text-align: left; color: inherit; cursor: pointer; }
+.segment-card { position: relative; min-width: 0; }
+.segment-card[draggable=true] { cursor: grab; }
+.segment-page { display: grid; gap: 6px; width: 100%; padding: 12px 28px 10px 12px; text-align: left;
+  color: inherit; cursor: pointer; border: 0; background: transparent; }
+.segment-remove { position: absolute; top: 5px; right: 5px; color: inherit; border: 0; background: transparent;
+  font-size: 1.25rem; cursor: pointer; }
+.segment-order { padding: 0 12px 6px; }
+.cover-canvas { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; container-type: inline-size;
+  background: radial-gradient(ellipse at 50% 42%, #7e1414, #3c0707); background-size: cover; background-position: center; color: #fff3dc; }
+.cover-canvas-tech { background-image: radial-gradient(ellipse at 50% 30%, #0d2f4f, #04101d); color: #e9f8ff; }
+.canvas-field { position: absolute; transform: translate(-50%, -50%); max-width: 80%; border: 1px dashed currentColor;
+  color: inherit; background: transparent; font-size: 1.75cqw; cursor: grab; touch-action: none; overflow-wrap: anywhere; }
+.canvas-title { font-size: 3.35cqw; font-weight: 700; }
+.frame-swatch { width: 54px; aspect-ratio: 1; object-fit: contain; }
 .segment-page:focus-visible { outline: 2px solid var(--ui-primary); }
 .page-preview-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
 </style>

@@ -354,3 +354,5 @@ PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只�
 串场向导按日程议题及时间段分组，第三、四步共用页面清单。过场页的专家排列保存在既有草稿 persons 数组中，预览及离线归档共用服务端 HTML 渲染。见 [串场向导交接](handover/tasks/20261121_show_wizard_refinement.md)。
 
 串场单页预览使用既有 HTML 预览接口与独立沙箱。向导将日程时间用于分组和排序，生成稿件省略会议时间。见 [串场交接](handover/tasks/20261121_show_wizard_page_preview.md)。
+
+串场公司共享模板使用项目可读/可操作校验和项目资料库下的独立目录。封面和头像框扩展既有串场 deck，预览与归档共用渲染。见 [接口与交接](handover/tasks/20261121_show_cover_design.md)。

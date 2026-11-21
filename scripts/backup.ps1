@@ -65,6 +65,8 @@ $TestDb   = 'expert_system_restore_test'
 $PhotoDir     = Join-Path $ProjectRoot '照片库'
 $PhotoTmpDir  = Join-Path $ProjectRoot '照片库_tmp'
 $DocDir       = Join-Path $ProjectRoot '知识文档库'
+$StorageRoot = if ($env:STORAGE_ROOT) { $env:STORAGE_ROOT } else { $ProjectRoot }
+$ShowTemplatesDir = Join-Path $StorageRoot '项目资料库\_show_templates'
 
 # ==================== 工具函数 ====================
 function Log([string]$msg) {
@@ -149,7 +151,7 @@ function Test-Artifact([string]$file) {
 
 # 对某备份目录全量校验；任一失败返回 $false
 function Test-BackupSet([string]$dir) {
-    $files = Get-ChildItem -Path $dir -File | Where-Object { $_.Name -match '^(expert_system_.*\.sql|照片库\.zip|照片库_tmp\.zip|知识文档库\.zip)$' }
+    $files = Get-ChildItem -Path $dir -File | Where-Object { $_.Name -match '^(expert_system_.*\.sql|照片库\.zip|照片库_tmp\.zip|知识文档库\.zip|show-templates\.zip)$' }
     if (-not $files.Count) { Log '[校验] 未找到任何备份产物'; return $false }
     $allOk = $true
     foreach ($f in $files) {
@@ -227,6 +229,11 @@ try {
                 @{ Dir = $PhotoDir;    Zip = '照片库.zip';     Fatal = $true },
                 @{ Dir = $PhotoTmpDir; Zip = '照片库_tmp.zip'; Fatal = $false },
                 @{ Dir = $DocDir;      Zip = '知识文档库.zip'; Fatal = $true }
+                if (Test-Path -LiteralPath $ShowTemplatesDir) {
+                    if (Get-ChildItem -LiteralPath $ShowTemplatesDir -Filter '*.json' -File | Select-Object -First 1) {
+                        @{ Dir = $ShowTemplatesDir; Zip = 'show-templates.zip'; Fatal = $true }
+                    }
+                }
             )
             foreach ($t in $dirTargets) {
                 $zipPath = Join-Path $dest $t.Zip
