@@ -7,3 +7,8 @@
 - 模板包含各项目类型合并表头和隐藏数据校验字典，已移除原始模板示例输入。历史财务表单仍可读，在会前财务阶段重新保存即可归档 Excel。历史项目已进入后续阶段时继续按所在阶段处理。历史未归档报价需要执行报价确认以生成归档。
 - 验收命令使用 Java 17 和 Maven 的 ProjectStageDeliverableTest、ProjectAccessRegressionTest、ProjectBudgetQuoteServiceTest、ProjectResumeAvatarTest、ScheduleParseServiceTest，另用 npm run build 验证前端。上线证据另见发布记录。
 - 回滚沿用前后端已有制品，恢复 1.0.99。不涉及数据库回滚，已上传和已归档文件随项目保留。HTML 播放文件以下载交付，建议打开后用箭头键换页，使用正式项目执行一次上传及归档回归。
+
+## 发布结果
+
+已完成待验收。2026-11-21 09:03 前后端已发布生产 1.0.100。Maven 定向回归 47 项通过、前端构建通过、隔离 Edge 流程通过、生成的 HTML 在断网模式可播放。部署健康、入口与静态资源、匿名鉴权和回滚制品检查均通过。真实生产项目的写入验收尚未执行；接手后先在有权限的项目核对报价、财务 Excel 最新一份以及串场附件的实际下载。
+详细证据及回滚位置见 [1.0.100 发布记录](../../releases/20261121-project-stage-deliverables-1.0.100.md)。
