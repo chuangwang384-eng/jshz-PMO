@@ -243,3 +243,8 @@ export function uploadShowPpt(id, file) {
 export function publishShow(id, deck) {
   return request.post(`/project/${id}/show/html`, deck)
 }
+
+// 串场草稿预览：渲染为离线 HTML 字符串返回，不落盘，与归档共用后端同一模板（2026-11-21）
+export function previewShow(id, deck) {
+  return request.post(`/project/${id}/show/preview`, deck, { timeout: 120000 })
+}

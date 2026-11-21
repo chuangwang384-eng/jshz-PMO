@@ -48,12 +48,26 @@ class ProjectStageDeliverableTest {
     @Test
     void htmlExportEmbedsOnlySupportedImagesAndEscapesSlideText() {
         var slide = new ProjectShowService.Slide("讲题", "<img src=x onerror=alert(1)>", "主题", "");
-        var deck = new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide));
+        var deck = new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), null, null);
         String html = ProjectShowService.render(deck);
         assertTrue(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
         assertFalse(html.contains("<img src=x"));
         assertTrue(html.contains("ArrowRight"));
         assertThrows(BusinessException.class, () -> ProjectShowService.render(
-                new ProjectShowService.Deck("data:image/svg+xml;base64,AAAA", List.of(slide))));
+                new ProjectShowService.Deck("data:image/svg+xml;base64,AAAA", List.of(slide), null, null)));
+    }
+
+    @Test
+    void deckRendersThemeVariantsStepsAndClampsFontScale() {
+        var slide = new ProjectShowService.Slide("会议议程", "议程", "09:00 开幕\n09:10 讲题一", "");
+        String html = ProjectShowService.render(
+                new ProjectShowService.Deck("data:image/png;base64,AAAA", List.of(slide), "tech", 2.0));
+        assertTrue(html.contains("t-tech"));
+        assertTrue(html.contains("k-on"));
+        assertTrue(html.contains("data-step"));
+        assertTrue(html.contains("--fs:1.4"));
+        var fallback = new ProjectShowService.Deck(null, List.of(slide), "nope", null);
+        assertTrue(ProjectShowService.render(fallback).contains("t-gold"));
+        assertTrue(ProjectShowService.render(fallback).contains("k-agenda"));
     }
 }

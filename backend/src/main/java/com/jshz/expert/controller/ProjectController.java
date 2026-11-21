@@ -365,6 +365,13 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    /** 串场草稿预览：渲染为离线 HTML 返回，不落盘，与归档共用同一渲染模板。 */
+    @PostMapping("/{id}/show/preview")
+    public ApiResponse<String> previewShow(@PathVariable Long id,
+            @RequestBody com.jshz.expert.service.ProjectShowService.Deck deck, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectShowService.preview(id, deck, user));
+    }
+
     /** 登记预算金额。 */
     @PutMapping("/{id}/budget")
     public ApiResponse<Void> registerBudget(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {

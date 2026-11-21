@@ -6,6 +6,13 @@
       <el-button :disabled="busy || !editable" @click="generate">从日程生成</el-button>
       <label v-if="editable" class="image-field">主 K 背景<input type="file" :accept="imageTypes" @change="pickBackground"></label>
       <el-button v-if="background && editable" @click="background = ''">移除背景</el-button>
+      <el-select v-model="template" :disabled="!editable" class="select-template" aria-label="串场模板">
+        <el-option v-for="item in templates" :key="item.id" :label="item.name" :value="item.id" />
+      </el-select>
+      <el-select v-model="fontScale" :disabled="!editable" class="select-font" aria-label="串场字号">
+        <el-option v-for="item in fontScales" :key="item.value" :label="item.label" :value="item.value" />
+      </el-select>
+      <el-button :disabled="busy || !slides.length" @click="presentNewTab">新网页演示</el-button>
       <el-button :disabled="!slides.length" @click="present">全屏预览</el-button>
       <el-button :disabled="busy || !editable || !slides.length" @click="save">保存草稿</el-button>
       <el-button type="primary" :disabled="busy || !editable || !slides.length" @click="archive">归档 HTML</el-button>
@@ -69,7 +76,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
-import { getProjectDetail, getScheduleOverview, getShowAgenda, getStageForm, publishShow, saveStageForm } from '../../api/project'
+import { getProjectDetail, getScheduleOverview, getShowAgenda, getStageForm, previewShow, publishShow, saveStageForm } from '../../api/project'
 
 const id = useRoute().params.id
 const imageTypes = 'image/png,image/jpeg,image/webp'
@@ -85,9 +92,32 @@ const selected = ref(0)
 const page = ref(0)
 const player = ref(null)
 const background = ref('')
+// 与后端 ProjectShowService.THEMES 成对维护（17.7 状态字典联动约定）；id 取值以后端为准
+const templates = [
+  { id: 'gold', name: '红金盛典' },
+  { id: 'tech', name: '深蓝科技' },
+  { id: 'paper', name: '商务简白' },
+  { id: 'bamboo', name: '青竹学术' },
+]
+const fontScales = [
+  { value: 1, label: '标准' },
+  { value: 1.15, label: '大' },
+  { value: 1.3, label: '特大' },
+]
+// 编辑器示意底色仅传达模板氛围（浅色主题加深色薄纱保证示意文字可读）；正式渲染以后端模板为唯一真源
+const frameTints = {
+  gold: 'radial-gradient(120% 100% at 50% 40%, #7e1414, #3c0707)',
+  tech: 'linear-gradient(135deg, #0e3153, #145371)',
+  paper: 'linear-gradient(rgba(24,34,44,.62), rgba(24,34,44,.62)), linear-gradient(180deg, #f7f8fb, #e6eaf2)',
+  bamboo: 'linear-gradient(rgba(24,34,44,.62), rgba(24,34,44,.62)), radial-gradient(120% 100% at 50% 40%, #f2f9f4, #d3e7db)',
+}
+const template = ref('gold')
+const fontScale = ref(1)
 const current = computed(() => slides.value[selected.value])
 const playing = computed(() => slides.value[page.value])
-const frameStyle = computed(() => background.value ? { backgroundImage: `url("${background.value}")` } : {})
+const frameStyle = computed(() => background.value
+  ? { backgroundImage: `url("${background.value}")` }
+  : { backgroundImage: frameTints[template.value] || frameTints.gold })
 const slide = (label = '', title = '', body = '') => ({ label, title, body, image: '' })
 
 onMounted(async () => {
@@ -106,6 +136,8 @@ onMounted(async () => {
   if (typeof draft?.background === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(draft.background)) {
     background.value = draft.background
   }
+  template.value = templates.some(item => item.id === draft?.template) ? draft.template : 'gold'
+  fontScale.value = fontScales.some(item => item.value === draft?.fontScale) ? draft.fontScale : 1
   ready.value = true
 })
 
@@ -220,7 +252,20 @@ function pickPortrait(event) {
 }
 
 function deck() {
-  return { slides: slides.value, background: background.value }
+  return { slides: slides.value, background: background.value, template: template.value, fontScale: fontScale.value }
+}
+
+// 新网页演示：未保存的草稿即时渲染到新标签页，与归档共用后端模板，产物一致
+async function presentNewTab() {
+  busy.value = true
+  try {
+    const { data } = await previewShow(id, deck())
+    const url = URL.createObjectURL(new Blob([data], { type: 'text/html;charset=utf-8' }))
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function save() {
@@ -294,6 +339,8 @@ function playKey(event) {
 .slide-portrait { float: right; width: 24%; max-height: 65%; object-fit: contain; margin-left: 4%; }
 .slide-fields { display: grid; gap: 12px; margin-top: 16px; }
 .image-field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.select-template { width: 132px; }
+.select-font { width: 96px; }
 .show-player { width: min(95vw, 160vh); max-width: none; padding: 12px; border: 0; }
 .show-player::backdrop { background: #101827; }
 .show-player[open] { width: 100%; max-height: 100%; background: #101827; color: white; }
