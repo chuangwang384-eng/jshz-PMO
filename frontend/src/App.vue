@@ -54,7 +54,7 @@ import DashboardWorkList from './components/DashboardWorkList.vue'
 
 import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox, ElNotification } from 'element-plus'
 import { useAuthStore } from './store/auth'
 import { versionPrefix, versionLabel } from './config/version'
 import ChangePasswordDialog from './components/ChangePasswordDialog.vue'
@@ -63,6 +63,7 @@ import MessageDrawerBell from './components/MessageDrawerBell.vue'
 import AiAssistantDrawer from './components/AiAssistantDrawer.vue'
 import { listAnnouncements, markAnnouncementRead } from './api/announcement'
 import { buildMenuTree } from './utils/menu'
+import request from './api/request'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,6 +71,28 @@ const globalModule = computed(() => route.query.searchMode === 'global' ? ({
  '/experts':'expert','/project':'project','/supplier':'supplier','/knowledge-planet/customer-info':'customer','/knowledge-planet/meeting-execution':'knowledge','/profile/announcements':'announcement'
 })[route.path] || null : null)
 const auth = useAuthStore()
+
+// ===== 新版本提醒（2026-11-21）：SPA 长驻页面在发布后不会自动加载新代码，导致用户看不到新功能。
+// 轮询匿名 /health 比对构建期注入的版本（import.meta.env.VITE_APP_VERSION），不一致时提示手动刷新；
+// 同一新版本只提示一次，探测失败静默，不打断当前操作。 =====
+const BUILD_VERSION = String(import.meta.env.VITE_APP_VERSION || '')
+let notifiedVersion = ''
+setInterval(async () => {
+  try {
+    const health = await request.get('/health', { silent: true })
+    const serverVersion = String(health?.version || '')
+    if (serverVersion && BUILD_VERSION && serverVersion !== BUILD_VERSION && notifiedVersion !== serverVersion) {
+      notifiedVersion = serverVersion
+      ElNotification.warning({
+        title: '系统已更新',
+        message: `检测到新版本 v${serverVersion}（当前页面 v${BUILD_VERSION}）。请按 Ctrl+F5 刷新页面后继续使用。`,
+        duration: 12000
+      })
+    }
+  } catch {
+    // 探测失败静默
+  }
+}, 120 * 1000)
 
 // 登录后空闲时预热工作台懒加载 chunk（vue-router-prefetch/Nuxt 同思路：resolve 后调用懒加载函数，
 // Vite 按 module id 去重，与路由表共用同一 chunk；仅预热网络缓存，不挂载组件、不发业务请求）

@@ -34,3 +34,10 @@
 
 - 向导 Step1 底部存在「下一步」与「下一步：提取日程」双入口（视觉冗余，功能无害，随下次改动优化）。
 - 冒烟项目 62「发布冒烟-待删」仍待管理员删除。
+
+## 追加：1.0.104 新版本提醒（2026-11-21 10:49）
+
+- 背景：1.0.103 发布后用户反馈「线上没有向导」——服务端 root/bundle/chunk 三项核验均正常，根因为 **SPA 长驻页面不整页刷新就不会加载新代码**。
+- 治本：App.vue 新增版本轮询（每 2 分钟匿名探测 `/health`，与构建期注入的 `VITE_APP_VERSION` 不一致时 ElNotification 提示 Ctrl+F5 刷新，同一版本只提示一次，探测失败静默）。
+- 发布：纯前端 graceful（ReleaseId `1.0.104-version-notify`，staged dist 归档 `builds/1.0.104-build-20261121_104124`），回滚依据 `frontend/release-metadata/1.0.104-version-notify.nginx-before.txt`（指向 1.0.103-show-wizard）。
+- 用户操作：本次仍需手动 Ctrl+F5 一次（1.0.104 生效后，今后发布都会收到提醒）。
