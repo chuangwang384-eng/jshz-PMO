@@ -1,6 +1,6 @@
 # 2026-11-05 合规模板草稿生产发布
 
-状态：PUBLISHED_WITH_WARNING，业务验收待复核；严格不停机门禁失败。
+状态：PUBLISHED_WITH_WARNING，业务验收待复核（✅已验收关闭 2026-11-19 Owner 批量授权）；严格不停机门禁失败。
 
 - 版本：1.0.24-compliance-template-20261105-r2；分支codex/personal-dashboard-v11，基线3e8bb1c加工作区改动（尚未提交）。制品哈希及备份见本机证据目录。
 - 已授权管理员执行。任务根目录ACL和管理员令牌正常；CIM提供程序拒绝注册，原生Task Scheduler COM注册SYSTEM探针成功。重载改用COM，未放宽ACL/认证/防火墙。

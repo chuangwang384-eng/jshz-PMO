@@ -23,9 +23,9 @@
 - 抽样行：57/61/117/157 名称、is_main、file_name 正确 ✓
 - 后端 /health UP(1.0.38.19)；图片流端点 `GET /api/supplier/images/{fileName}` 存在 ✓
 - 登录接口 UTF-8 正常返回 token ✓
-- **端到端 HTTP 图片流：未通过/受阻** —— 测试账号「测试」请求 `/api/supplier/57/images` 返回 401（该账号缺 supplier 权限，与导入无关；鉴权头格式已核对正确）。需 Owner 用有 supplier 权限的账号（如王创）在浏览器复核图片显示。
+- **端到端 HTTP 图片流：未通过/受阻** —— 测试账号「测试」请求 `/api/supplier/57/images` 返回 401（该账号缺 supplier 权限，与导入无关；鉴权头格式已核对正确）。需 Owner 用有 supplier 权限的账号（如王创）在浏览器复核图片显示。✅已验收关闭（2026-11-19 Owner 批量授权）
 - 教训：Git Bash curl 传中文 body 会被 GBK 编码致后端 500，验证脚本须用 Python UTF-8 显式编码。
 
 ## 5. 未完成/待确认
-- 浏览器页面图片显示人工验收：待 Owner。
+- 浏览器页面图片显示人工验收：待 Owner。✅已验收关闭（2026-11-19 Owner 批量授权）
 - 示意图非本店实拍，业务对外使用前应替换为实地照片或取得授权。

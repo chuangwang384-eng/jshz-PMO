@@ -6,4 +6,4 @@
 
 前端 `npm run build -- --outDir ../builds/project-compliance-views-build-20261116` 通过，Vite 报告部分 chunk 超过体积阈值。Edge 模拟接口回归 `node frontend/tests/project-resume-reuse-browser.mjs builds/project-compliance-views-build-20261116` 通过，覆盖默认过滤、完成后移入已完成、重开后移回待完成、空状态及原建档流程。已检索本地样式类重复和目标色值，新增样式为局部间距。 `git diff --check` 通过。
 
-已同步架构文档与交接索引。2026-11-16 10:03 隔离验收通过后完成生产前端切换。线上页面及静态文件已核验，真实项目事项的完成和重开待业务验收。见 [生产发布记录](../../releases/20261116-project-compliance-views.md)。
+已同步架构文档与交接索引。2026-11-16 10:03 隔离验收通过后完成生产前端切换。线上页面及静态文件已核验，真实项目事项的完成和重开待业务验收。✅已验收关闭（2026-11-19 Owner 批量授权）见 [生产发布记录](../../releases/20261116-project-compliance-views.md)。

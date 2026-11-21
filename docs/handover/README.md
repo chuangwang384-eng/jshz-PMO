@@ -1,5 +1,12 @@
 # 最新交接摘要
 
+- 2026-11-21 **串场制作模板化已发布 1.0.101，待业务验收**。四套内置模板（红金盛典/深蓝科技/商务简白/青竹学术）+字号档位，流光标题、对话逐步切换、16:9 自适应；新增 /show/preview 只读预览（与归档同模板）与编辑器「新网页演示」。发布中 `-ExpectJarClass` 数组经 powershell -File 拆散致前端步骤中止（护栏拦截无副作用），后端蓝绿成功、前端 graceful 补跑成功，发布后验证全绿（health/root/bundle/首页三连/preview 冒烟 9844B 特征全中）；**坑已记入 deployment.md §4.1**。冒烟项目 62「发布冒烟-待删」待管理员删除。见 [发布与回滚记录](../releases/20261121-show-deck-themes-1.0.101.md) 与 [任务交接](tasks/20261121_show_deck_themes.md)。
+
+- 2026-11-21 **项目阶段交付物与串场制作 1.0.100 已发布，待真实项目验收**。报价和财务文件门禁、串场 PPT 上传与离线网页幻灯片已上线。见 [发布与回滚记录](../releases/20261121-project-stage-deliverables-1.0.100.md)。
+
+- 2026-11-20 **项目类型 + 会前财务资料上传差异化表单已完成待发布（未发布）**：编辑项目「会议类型」改名「地点」（category 值不变），新增必填「项目类型」（平台类/直付类/重点类）；新表 `project_stage_form` + `GET/PUT /project/{id}/stage-form`；会前财务资料上传阶段按项目类型渲染三套差异化表单（字段结构对应《2026年合规立项申请表8.17.xlsx》三个 sheet）并美化 UI。迁移 20261120_project_type_stage_form 已应用登记，parity 全绿（88 业务表）；前后端构建/编译通过；**后端 jar 与前端快照未切换，待发布验收**。见 [任务交接](tasks/20261120_project_type_finance_stage_form.md)。
+- 2026-11-20 **一键发布编排脚本已交付（未执行发布）**：`scripts/release-full.ps1` + `release-full.cmd`（Preflight / Publish / Rollback 三模式；复用既有蓝绿/graceful/备份子脚本，含预检护栏、发布后验证、状态记录、回滚）。预检实跑 EXIT=0、语法 0 错误、计划分支与 .cmd 入口已验证；**Publish/Rollback 执行分支需管理员权限与 -Yes 批准，未实跑**。用法见 `docs/deployment.md` §4.1 与上方任务交接。
+
 - 2026-11-20 **图片型 PPT 简历 OCR 修复已发布 1.0.83，待业务验收**。新增整页图片 OCR，武振明原件及前次四份原件均通过回归。见 [发布与回滚记录](../releases/20261120-image-only-resume-1.0.83.md)。
 
 - 2026-11-20 **专家简历任职字段与图片 OCR 修复已发布 1.0.82，待业务验收**。四份原件回归通过，后端直连、代理、线上制品及回滚制品已核验。见 [发布与回滚记录](../releases/20261120-resume-fields-ocr-1.0.82.md)。

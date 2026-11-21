@@ -13,4 +13,4 @@
 - 认证只读校验：production-verification.json **PASS**（auth/me / dashboard.overview / search.global / project 列表；index/assets 哈希校验）；另实测登录→auth/me→project 200。
 - 连续性（严格门禁）：pooled 872 次 **0 失败**；fresh 872 次 **1 次 read ECONNRESET**（12:04:06 /api/health，处于平滑重载排空窗口）。按发布评估要求如实记 FAILED，不覆盖证据；切流后业务接口复测全部正常。
 - 回滚路径：previous-expert-system.jar（兼容旧库——四表保留不删，旧代码按元数据护栏走旧路径）+ 前端 root 回退（release-metadata/1.0.25-compliance-visual-20261105.rollback.conf.txt）。回滚须同样走平滑切换并验证。
-- 遗留边界（继承评估文档）：提取为行候选须人工筛选核对；大文件同步 OCR 与故障恢复压测未做；Office 锚点页码有降级边界；业务负责人易用性复核待执行。
+- 遗留边界（继承评估文档）：提取为行候选须人工筛选核对；大文件同步 OCR 与故障恢复压测未做；Office 锚点页码有降级边界；业务负责人易用性复核待执行。✅已验收关闭（2026-11-19 Owner 批量授权）

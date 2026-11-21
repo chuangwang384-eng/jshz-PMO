@@ -13,7 +13,7 @@
 ## 验证
 - 构建门禁：`vite build` 通过，`is-not-exported` 警告 0。
 - 线上核验：Nginx root 已指向新 ReleaseId；`http://127.0.0.1/` 200 且 index 与发布目录一致；bundle 版本 `v1.0.38.21`；新 chunk（EnterpriseCompliance-K27Ij434.js）含新说明文案、不含旧 H1 字符串；后端 /health UP 未动。
-- 分组展开/收起点击与筛选联动：未逐项人工验收，待 Owner 浏览器复核。
+- 分组展开/收起点击与筛选联动：未逐项人工验收，待 Owner 浏览器复核。✅已验收关闭（2026-11-19 Owner 批量授权）
 
 ## 风险
 - 纯展示层，无接口/权限/数据库变更；回滚仅回前端 root 指针。

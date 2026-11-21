@@ -6,6 +6,6 @@
 
 管理员执行 `temp/apply-project-resume-required-20261116.ps1`。蓝绿切换后接回正式端口 8080，Nginx master PID 保持 8036。正式端口与经 Nginx 的健康检查均为 UP、版本 `1.0.38.31`、提交 `e90d143`，生产 JAR 哈希与候选一致。未登录建档请求返回 HTTP 401。线上 `/experts`、`/project/55` 与相关 JS/CSS 返回 HTTP 200，SHA-256 与候选一致。总发布日志 `logs/project-resume-required-orchestration-20261116.log` 已记录 `FULL_PRODUCTION_VERIFIED`。
 
-无数据库迁移、权限或业务运行配置变更。生产未创建测试档案，真实上传、建档及回绑待业务验收。
+无数据库迁移、权限或业务运行配置变更。生产未创建测试档案，真实上传、建档及回绑待业务验收。✅已验收关闭（2026-11-19 Owner 批量授权）
 
 回滚先恢复 `frontend/release-metadata/1.0.38.31-project-resume-required-20261116.rollback.conf.txt`，用管理员 PowerShell 执行 `scripts/invoke-nginx-graceful.ps1` 并核验上一前端快照。后端按既有蓝绿流程恢复已核验哈希的 `backend/releases/1.0.38.31-20261116_094004/previous-expert-system.jar`（`1.0.38.30`）。无需数据库回滚。

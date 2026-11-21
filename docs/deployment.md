@@ -51,7 +51,7 @@ AIGC:
 mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 ```
 
-- `init.sql` 是**新环境唯一 DDL 来源**：2026-11-12 按生产库实际结构重建，2026-11-16 补齐 AI 助手与会议预算 4 表，现为 **85 张业务表**全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117+ / role_permission 53+ / supplier_city 349 等）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
+- `init.sql` 是**新环境唯一 DDL 来源**：2026-11-12 按生产库实际结构重建，2026-11-16 补齐 AI 助手与会议预算 4 表，2026-11-20 并入项目类型与阶段表单（`project.project_type` 列 + `project_stage_form` 表），现为 **88 张业务表**全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117+ / role_permission 53+ / supplier_city 349 等）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
 - 语义：`CREATE TABLE IF NOT EXISTS`，**不含 DROP**、不含 `AUTO_INCREMENT` 计数器，可重复执行。
 - 不含：业务数据、用户口令哈希（仅 admin）、历史备份表（`*_bak_*`）、迁移标记表（`mig_*`）。
 - 新环境**不需要重放** `database/migration/` 的 63 个历史脚本；建库后先校验基线完整性，再登记版本台账：
@@ -165,6 +165,59 @@ server {
 }
 ```
 
+## 4.1 一键发布编排（2026-11-20 新增）
+
+`scripts/release-full.ps1` 是**编排层**脚本：不重复实现发布，只按正确顺序调用既有已验证脚本
+（`db-migrate` / `check-schema-parity` / `backup` / `build-all` / `release-backend` /
+`deploy-frontend-graceful` / `invoke-nginx-graceful`），并补齐预检护栏、发布后验证、状态记录与回滚。
+配套 `scripts/release-full.cmd` 用于绕过本机「禁止运行脚本」的执行策略，并转发参数。
+
+前置条件（发布者自行确认）：
+
+1. 以**管理员身份**打开 Windows PowerShell（蓝绿发布需操作 NSSM 服务与 Nginx 配置）。
+2. 数据库迁移已应用：`.\scripts\db-migrate.ps1 -Mode Status` 显示待执行 0 / 漂移 0。
+3. 工作区内容无误：脚本会打印 `git status --short` 清单但**不自动提交**，发布使用工作区当前文件。
+4. 版本号：本次「项目类型 + 会前财务资料表单」应发布为 **1.0.98**（当前 `version.txt`=1.0.97 已被线上前端使用）。
+
+三条命令（Windows PowerShell）：
+
+```powershell
+# 1) 只读预检（无需管理员；不改生产）
+powershell -NoProfile -ExecutionPolicy Bypass -File <LOCAL_PATH> -Mode Preflight -Version 1.0.98
+
+# 2) 正式发布（管理员 + 显式 -Yes 批准）
+powershell -NoProfile -ExecutionPolicy Bypass -File <LOCAL_PATH> -Mode Publish -Version 1.0.98 -Slug project-type-finance -Yes
+
+# 3) 回滚前端（管理员 + -Yes；需连后端一起回退时追加 -IncludeBackend）
+powershell -NoProfile -ExecutionPolicy Bypass -File <LOCAL_PATH> -Mode Rollback -Yes
+```
+
+也可用 `.cmd` 入口：`<LOCAL_PATH> -Mode Preflight -Version 1.0.98`（参数原样转发）。
+
+Publish 流程：版本文件同步（先备份到 `logs/version-backup-*`）→ 全量备份 → 隔离目录全量构建
+→ 制品校验（build-info 版本 + 可选 jar 类）→ 后端蓝绿 → 前端 graceful 快照切换 →
+发布后验证（`/health` 版本、Nginx root、首页 200×3 与 index hash、主 bundle 含 `v<版本>`、API 存活）
+→ 写 `logs/release-state.json`。任一阶段失败即中止并写 `FAILED` 状态，不自动回滚（子脚本自带失败回滚）。
+
+回滚依据：`frontend/release-metadata/<ReleaseId>.nginx-before.txt`（发布前完整 Nginx 配置）、
+`backend/releases/<旧版本>-*/previous-expert-system.jar`（后端归档二进制）。
+本次数据库为加法迁移（新列 + 新表），旧包不读写新列，**不回滚数据库**。
+
+注意事项：
+
+- `-Version` 与 `version.txt` 不同时，脚本自动同步 `version.txt` 与 `frontend/package.json`（不执行 git 提交）。
+- `deploy-backend.ps1` 阶段 11 仍会按既有行为向本文档的发布记录表追加一行。
+- `-ExpectJarClass` 默认校验本次新增的 `ProjectStageForm` / `ProjectStageFormMapper` 两个类；
+  后续复用发布时用 `-ExpectJarClass @()` 清空或换成对应类路径。
+- 脚本不调用 `Enable-Utf8Console`（避免 936 代码页控制台中文乱码）；日志一律由 `logging.ps1`
+  写 UTF-8 无 BOM，子脚本输出经 UTF-8/GBK 双解码兜底后统一落 `logs/release-full-*.log`。
+- `Preflight` 与「未给 -Yes 的 Publish/Rollback」均为只读；**Publish/Rollback 执行分支需管理员权限**。
+  执行分支已于 2026-11-21 随 1.0.101 发布实跑（见 `docs/releases/20261121-show-deck-themes-1.0.101.md`）。
+- **数组参数禁止经 `powershell -File` 跨进程传递**（2026-11-21 1.0.101 发布事故）：`-ExpectJarClass @('a','b')`
+  在提权包装脚本里若以 `powershell -File` 调用编排脚本，数组字面量会被拆成独立位置参数——第二元素误绑 `$ReleaseId`
+  导致前端 graceful 中止（参数校验护栏拦截，无副作用，后端蓝绿不受影响）。提权包装脚本必须用**同进程 `&` 直调 ps1**
+  （`& '<LOCAL_PATH>' -Param @('a','b')`），不要包一层 `powershell -File`。
+
 ## 5. 部署约束
 
 - 所有服务仅监听内网地址，禁止暴露公网端口。
@@ -174,7 +227,7 @@ server {
 
 ## 6. 验收检查项
 
-- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **85 张业务表**（含 `schema_migration`；不含 `*_bak_*` 与 `mig_*` 历史/标记表）
+- [ ] `database/init.sql` 在目标库执行成功，`SHOW TABLES` 确认 **88 张业务表**（含 `schema_migration`；不含 `*_bak_*` 与 `mig_*` 历史/标记表）
 - [ ] `.\scripts\db-migrate.ps1 -Mode Bootstrap` 后 `-Mode Status` 显示「已登记 60 / 待执行 0 / 漂移 0」；新环境表结构应与生产一致（列 721、索引 313）
 - [ ] 后端启动无异常，`GET /health` 返回 UP，`/api/expert/list` 可访问
 - [ ] 审批流接口可用：`GET /api/approval/config`、`POST /api/approval/requests`（修改申请）、`POST /api/approval/create-request`（新增专家申请）
@@ -592,6 +645,16 @@ expert:
 | 2026-11-20 08:38:02 | 1.0.82 | 成功 | expert-system.jar |
 | 2026-11-20 08:54:24 | 1.0.83 | 成功 | expert-system.jar |
 | 2026-11-20 09:28:48 | 1.0.84 | 成功 | expert-system.jar |
+| 2026-11-20 10:35:04 | 1.0.86 | 成功 | expert-system.jar |
+| 2026-11-20 11:30:08 | 1.0.88 | 成功 | expert-system.jar |
+| 2026-11-20 12:05:17 | 1.0.89 | 成功 | expert-system.jar |
+| 2026-11-20 12:12:09 | 1.0.90 | 成功 | expert-system.jar |
+| 2026-11-20 12:22:31 | 1.0.92 | 成功 | expert-system.jar |
+| 2026-11-20 14:27:18 | 1.0.94 | 成功 | expert-system.jar |
+| 2026-11-20 15:02:33 | 1.0.95 | 成功 | expert-system.jar |
+| 2026-11-20 16:51:46 | 1.0.98 | 成功 | expert-system.jar |
+| 2026-11-21 09:01:59 | 1.0.100 | 成功 | expert-system.jar |
+| 2026-11-21 09:50:34 | 1.0.101 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
