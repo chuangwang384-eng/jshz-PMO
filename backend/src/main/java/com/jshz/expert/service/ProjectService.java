@@ -31,7 +31,6 @@ import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.entity.UserRole;
 import com.jshz.expert.mapper.OperationLogMapper;
 import com.jshz.expert.mapper.ProjectAssistantMapper;
-import com.jshz.expert.mapper.ProjectBudgetMapper;
 import com.jshz.expert.mapper.ProjectContractMapper;
 import com.jshz.expert.mapper.ProjectDocMapper;
 import com.jshz.expert.mapper.ProjectExecutorMapper;
@@ -123,7 +122,6 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     private final ProjectTypeMapper typeMapper;
-    private final ProjectBudgetMapper budgetMapper;
     private final ProjectTypePhaseRelMapper typePhaseRelMapper;
     private final ProjectPhaseHistoryMapper phaseHistoryMapper;
     private final ProjectPhaseMapper phaseMapper;
@@ -332,6 +330,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         m.put("timeline", timeline(id, user));
         m.put("canManage", user != null && (user.isAdmin() || user.hasPermission("project:manage")));
         m.put("canAdvance", isOwnerOrCreator(project, user));
+        m.put("canOperate", fullSensitive);
         // REQ-20261102 需求三：回退权限独立字段（2026-11-09 起与推进一致=负责人+创建人）
         m.put("canRollback", isOwnerOrCreator(project, user));
         // 恢复（与取消对称，Owner 2026-11-10）：仅已取消项目且负责人/创建人可见
@@ -598,13 +597,6 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 if (!missing.isEmpty()) {
                     throw new BusinessException("当前阶段「" + current.getName() + "」必填材料未提交，无法推进：缺少 " + String.join("、", missing));
                 }
-                // A16/D3（2026-11-17 负责人拍板）：全部项目类型要求已确认预算才能推进阶段；回退不拦截
-                Long confirmedBudgets = budgetMapper.selectCount(new LambdaQueryWrapper<ProjectBudget>()
-                        .eq(ProjectBudget::getProjectId, project.getId())
-                        .eq(ProjectBudget::getStatus, "CONFIRMED"));
-                if (confirmedBudgets == null || confirmedBudgets == 0) {
-                    throw new BusinessException("预算未确认：请先在「会议预算制作」阶段保存并确认预算单后再推进阶段");
-                }
                 actionType = ProjectPhaseHistory.ACTION_ADVANCE;
             } else {
                 // 回退：相邻与跨级均允许，原因必填
@@ -647,7 +639,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         updateById(patch);
     }
 
-    /** 取消（必填原因）；取消后仍可回退（changePhase 已支持从 CANCELED 恢复）。 */    @Transactional(rollbackFor = Exception.class)
+    /** 取消（必填原因）；取消后仍可回退（changePhase 已支持从 CANCELED 恢复）。 */
+    @Transactional(rollbackFor = Exception.class)
     public void cancel(Long id, String reason, AuthUser user) {
         Project project = requireProject(id);
         if (!isOwnerOrCreator(project, user)) {
@@ -1075,6 +1068,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             throw new BusinessException("阶段不能为空");
         }
         validatePhaseForProject(project, phaseId);
+        ProjectPhase savedPhase = phaseMapper.selectById(phaseId);
+        String savedPhaseName = savedPhase == null ? "" : savedPhase.getName();
+        if ("串场制作".equals(savedPhaseName) || "会前财务资料上传".equals(savedPhaseName)) {
+            project = baseMapper.selectOne(new LambdaQueryWrapper<Project>().eq(Project::getId, id).last("FOR UPDATE"));
+            if (project == null || !phaseId.equals(project.getPhaseId())) throw new BusinessException("只可保存当前阶段");
+            requireOperable(project, user);
+        }
         Object raw = body.get("formData");
         Map<String, Object> formData;
         try {
@@ -1090,6 +1090,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             json = objectMapper.writeValueAsString(formData);
         } catch (Exception e) {
             throw new BusinessException("表单数据序列化失败");
+        }
+        if ("串场制作".equals(savedPhaseName)) {
+            ProjectShowService.validateDraft(objectMapper.convertValue(formData, ProjectShowService.Deck.class));
+        }
+        if ("会前财务资料上传".equals(savedPhaseName)) {
+            byte[] workbook = ProjectFinanceWorkbook.generate(project.getProjectType(), formData);
+            archiveStageDocument(id, phaseId, "project_finance_", "xlsx", "合规立项申请表.xlsx", workbook, user, true);
         }
         Long userId = ParamUtils.userIdOf(user);
         ProjectStageForm form = stageFormMapper.selectOne(new LambdaQueryWrapper<ProjectStageForm>()
@@ -2012,13 +2019,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return storageService.resolveFile(filePath);
     }
 
-    public void requireQuoteFileReadable(String filePath, AuthUser user) {
+    public void requireArchivedFileReadable(String filePath, AuthUser user) {
         ProjectDoc doc = docMapper.selectOne(new LambdaQueryWrapper<ProjectDoc>()
                 .eq(ProjectDoc::getFilePath, filePath)
                 .eq(ProjectDoc::getIsDeleted, 0)
                 .last("LIMIT 1"));
         if (doc == null) {
-            throw new BusinessException(404, "报价文件不存在");
+            throw new BusinessException(404, "项目文件不存在");
         }
         requireProjectReadable(requireProject(doc.getProjectId()), user);
     }
@@ -2118,11 +2125,58 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return p == null ? "" : p.getName();
     }
 
+    private List<ProjectDoc> phaseDocuments(Long projectId, Long phaseId) {
+        return docMapper.selectList(new LambdaQueryWrapper<ProjectDoc>()
+                .eq(ProjectDoc::getProjectId, projectId).eq(ProjectDoc::getPhaseId, phaseId)
+                .eq(ProjectDoc::getIsDeleted, 0));
+    }
+
+    private boolean validArchive(ProjectDoc doc, String prefix) {
+        return Integer.valueOf(0).equals(doc.getIsDeleted()) && doc.getFilePath() != null
+                && doc.getFilePath().startsWith(prefix) && storageService.resolveFile(doc.getFilePath()) != null;
+    }
+
+    void archiveStageDocument(Long projectId, Long phaseId, String prefix, String extension,
+                              String name, byte[] content, AuthUser user, boolean replace) {
+        ProjectDoc doc = replace ? phaseDocuments(projectId, phaseId).stream()
+                .filter(item -> item.getFilePath() != null && item.getFilePath().startsWith(prefix)).findFirst().orElse(null) : null;
+        String path = storageService.saveGenerated(prefix, extension, content);
+        if (doc == null) {
+            doc = new ProjectDoc();
+            doc.setProjectId(projectId);
+            doc.setPhaseId(phaseId);
+            doc.setIsDeleted(0);
+        } else {
+            String previous = doc.getFilePath();
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { storageService.deleteFile(previous); }
+                    });
+        }
+        doc.setFileName(name);
+        doc.setFilePath(path);
+        doc.setUploadBy(user.getUsername());
+        if (doc.getId() == null) docMapper.insert(doc);
+        else docMapper.updateById(doc);
+    }
+
     /** 返回当前阶段缺少的业务材料及必填模板。 */
     private List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
         List<String> missing = new ArrayList<>();
-        // 2026-11-21：导出报价单即对客报价，移除「生成报价文件」推进门禁；
-        // 预算阶段推进仅要求预算单 CONFIRMED（见 changePhase 的 confirmedBudgets 校验）。
+        if (PHASE_BUDGET_MAKING.equals(phaseName)) {
+            boolean archived = docMapper.listBudgetQuotePaths(project.getId(), phaseId).stream()
+                    .anyMatch(path -> path != null && path.startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
+                            && storageService.resolveFile(path) != null);
+            if (!archived) missing.add("保存报价单");
+        }
+        if ("会前财务资料上传".equals(phaseName) && phaseDocuments(project.getId(), phaseId).stream()
+                .noneMatch(doc -> validArchive(doc, "project_finance_"))) {
+            missing.add("保存阶段表单");
+        }
+        if ("串场制作".equals(phaseName) && phaseDocuments(project.getId(), phaseId).stream()
+                .noneMatch(doc -> validArchive(doc, ProjectShowService.FILE_PREFIX))) {
+            missing.add("上传串场 PPT 或归档网页幻灯片");
+        }
         // 2026-11-17 需求：日程上传阶段须上传日程且全部参会专家匹配到专家库（project_speaker.expert_id 非空）
         if ("日程上传".equals(phaseName)) {
             ProjectSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ProjectSchedule>()

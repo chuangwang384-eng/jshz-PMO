@@ -68,7 +68,7 @@
         </section>
 
         <!-- ⑤ 阶段资料区（随查看阶段切换） -->
-        <div class="pd-phase ui-card">
+        <div id="project-stage-materials" class="pd-phase ui-card">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">阶段资料 · {{ viewPhaseObj?.name || '-' }}</span>
             <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
@@ -98,6 +98,19 @@
               </div>
             </template>
             <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
+          </template>
+          <template v-else-if="viewPhaseObj?.name === '串场制作'">
+            <div v-if="canOperatePhase" class="fin-attach-row">
+              <el-upload accept=".ppt,.pptx" :show-file-list="false" :auto-upload="false"
+                :on-change="uploadShowFile">
+                <el-button type="primary" :loading="showUploading">上传串场 PPT</el-button>
+              </el-upload>
+              <el-button @click="$router.push({ name: 'project-show', params: { id: projectId } })">PPT 制作</el-button>
+            </div>
+            <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row">
+              <el-button link type="primary" @click="downloadProjectFile(d)">{{ d.fileName }}</el-button>
+              <span class="doc-meta">{{ d.uploadBy }} · {{ d.createTime }}</span>
+            </div>
           </template>
           <el-empty v-else-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
           <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
@@ -578,6 +591,7 @@ import { handleProjectComplianceTodo } from '../../api/compliance'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ProjectEdit from './ProjectEdit.vue'
 import ProjectBudgetPanel from './components/ProjectBudgetPanel.vue'
+import { uploadShowPpt } from '../../api/project'
 import ProjectFinanceForm from './components/ProjectFinanceForm.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
@@ -1025,7 +1039,7 @@ const isAgendaStage = computed(() => {
 })
 // 2026-11-16 新增「会议预算制作」阶段（位于日程上传之前）：与日程上传同口径的专用阶段视图
 const BUDGET_PHASE_NAME = '会议预算制作'
-const BUDGET_QUOTE_TASK = '生成报价文件'
+const BUDGET_QUOTE_TASK = '保存报价单'
 const isBudgetStage = computed(() => {
   const name = currentPhase.value?.name || detail.value.phaseName || ''
   return name === BUDGET_PHASE_NAME
@@ -1039,7 +1053,6 @@ const FINANCE_PHASE_NAME = '会前财务资料上传'
 const isFinanceViewing = computed(() => viewPhaseObj.value?.name === FINANCE_PHASE_NAME)
 const PLACEHOLDER_PHASE_NAMES = new Set([
   '会前财务资料上传',
-  '串场制作',
   '结算资料上传',
   '会议费用结算及项目结项'
 ])
@@ -1118,7 +1131,9 @@ function isTemplateFulfilled(t) {
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
 const SCHEDULE_UPLOAD_TASK = '上传日程'
 function resolveLabel(m) {
-  if (m === BUDGET_QUOTE_TASK) return '去处理报价'
+  if (m === BUDGET_QUOTE_TASK) return '去保存报价单'
+  if (m === '保存阶段表单') return '去填写表单'
+  if (m.startsWith('上传串场 PPT')) return '去制作串场'
   if (m === SCHEDULE_UPLOAD_TASK) return '去上传日程'
   if (m.startsWith('专家匹配入库')) return '去匹配专家'
   if (m.includes('附件')) return '去上传附件'
@@ -1147,8 +1162,9 @@ async function resolveMissing(m) {
     if (t) editRich(currentPhase.value.id, t.templateId)
     return
   }
-  // 附件等：切到当前阶段（资料区即上传入口）
   viewPhaseId.value = String(detail.value.phaseId)
+  await nextTick()
+  document.getElementById('project-stage-materials')?.scrollIntoView({ block: 'start' })
 }
 
 
@@ -1266,6 +1282,20 @@ function openEdit() {
 }
 
 // ---- 资料 ----
+const showUploading = ref(false)
+
+async function uploadShowFile(file) {
+  if (showUploading.value || !file.raw) return
+  showUploading.value = true
+  try {
+    await uploadShowPpt(projectId, file.raw)
+    await fetchDetail()
+    ElMessage.success('串场 PPT 已归档')
+  } finally {
+    showUploading.value = false
+  }
+}
+
 async function uploadDoc(phaseId, file) {
   if (!file || !file.raw) return
   await uploadProjectDoc(projectId, phaseId, file.raw)

@@ -65,12 +65,16 @@ public class ProjectStorageService {
 
     /** 保存不可覆盖的对客报价文件，事务回滚时清理。 */
     public String saveBudgetQuote(byte[] content) {
-        String fileName = QUOTE_FILE_PREFIX + UUID.randomUUID().toString().replace("-", "") + ".xlsx";
+        return saveGenerated(QUOTE_FILE_PREFIX, "xlsx", content);
+    }
+
+    String saveGenerated(String prefix, String extension, byte[] content) {
+        String fileName = prefix + UUID.randomUUID().toString().replace("-", "") + "." + extension;
         try {
             Files.write(storageDir.resolve(fileName), content, java.nio.file.StandardOpenOption.CREATE_NEW);
         } catch (IOException e) {
             deleteFile(fileName);
-            throw new BusinessException("报价文件保存失败");
+            throw new BusinessException("项目归档文件保存失败");
         }
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {

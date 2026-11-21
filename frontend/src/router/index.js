@@ -145,6 +145,12 @@ const routes = [
     meta: { title: '项目管理', requiresAuth: true }
   },
   {
+    path: '/project/:id/show',
+    name: 'project-show',
+    component: () => import('../views/project/ProjectShowEditor.vue'),
+    meta: { title: '串场制作', requiresAuth: true, menu: false }
+  },
+  {
     path: '/project/:id',
     name: 'project-detail',
     component: () => import('../views/project/ProjectDetail.vue'),

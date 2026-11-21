@@ -5,7 +5,7 @@
       <div class="fin-banner-main">
         <span class="fin-banner-title">会前财务资料</span>
         <span v-if="projectType" class="fin-type-chip">{{ typeLabel }}</span>
-        <span class="fin-banner-text">请根据项目类型填写对应表单，并上传本阶段要求的附件资料。</span>
+        <span class="fin-banner-text">保存表单后，系统会在项目文件中更新合规立项申请表。</span>
       </div>
       <span v-if="meta.updateTime" class="fin-banner-meta">上次保存：{{ meta.updateBy || '-' }} · {{ meta.updateTime }}</span>
       <span v-else class="fin-banner-meta">尚未填写</span>
@@ -58,7 +58,7 @@
 
       <!-- 操作条 -->
       <div v-if="!readonly" class="fin-actions">
-        <span class="fin-actions-hint">带 <span class="fin-required">*</span> 为建议必填项；保存后可随时修改，整包覆盖。</span>
+        <span class="fin-actions-hint">带 <span class="fin-required">*</span> 为必填项。再次保存会更新项目文件。</span>
         <el-button type="primary" :loading="saving" @click="save">保存表单</el-button>
       </div>
     </el-form>

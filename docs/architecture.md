@@ -340,3 +340,11 @@ PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只�
 专家简历按文件签名识别内容为 OOXML 的 `.ppt`，并交给现有 PPTX 解析器。已有透明人像沿用原透明通道并裁剪画布空白。若透明通道符合规则的圆形或椭圆形排版裁切，则先清除外圈装饰，再在原裁切范围内用本地 MODNet 或 U²-Net 分割人像。MODNet 对独立且远离主要人像的前景做连通区域清理，保留主区域软边。见 [圆形模板抠图回归](handover/tasks/20261119_framed_portrait_matte.md)。
 
 项目会前财务资料以项目主数据同步会议日期、会议/项目名称和适用的我方负责人。确认会议报价复用预算行锁、项目文档和报价版本表完成同事务归档，按报价内容去重，项目文件按最新挂载顺序提供预览与下载。设计及兼容边界见 [会前财务资料与报价归档设计](design/2026-11-20-project-finance-quote-cleanup.md)。
+
+
+### 项目阶段交付物（1.0.100）
+
+- 项目详情的 missingRequiredTemplates 与推进接口共用交付物校验。预算阶段校验该项目该阶段已关联报价版本的 Excel，财务阶段校验合规立项 Excel，串场阶段校验归档的 PPT/PPTX 或 HTML。
+- PUT /api/project/{id}/stage-form 复用既有阶段表单。财务按类型填充原 Excel 模板，提交成功后替换上一次归档。串场使用同一接口保存项目草稿。
+- GET /api/project/{id}/show/agenda 从项目当前原始日程提取环节，按现有项目阅读权限提供；编辑器可补录和排序。POST /api/project/{id}/show/ppt 校验 PPT/PPTX 格式，POST /api/project/{id}/show/html 将结构化页面渲染为离线 HTML。归档均要求当前阶段与现有项目操作权限。
+- 编辑器路由为 /project/:id/show。主 K 和配图支持 PNG、JPEG、WebP，离线 HTML 内嵌图片并强制附件下载。财务、串场制品按项目阅读权限访问，沿用原数据库和文件目录。

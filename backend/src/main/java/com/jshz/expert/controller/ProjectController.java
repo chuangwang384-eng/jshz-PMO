@@ -135,7 +135,7 @@ public class ProjectController {
         if (path == null) {
             return org.springframework.http.ResponseEntity.notFound().build();
         }
-        boolean forceDownload = "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
+        boolean forceDownload = fileName.endsWith(".html") || "1".equals(download) || "true".equalsIgnoreCase(String.valueOf(download));
         boolean previewMode = !forceDownload && ("true".equalsIgnoreCase(preview) || "1".equals(preview));
         int dot = fileName.lastIndexOf('.');
         String ext = dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
@@ -153,6 +153,7 @@ public class ProjectController {
         }
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
         headers.setContentType(mediaType);
+        headers.set("X-Content-Type-Options", "nosniff");
         headers.setContentLength(java.nio.file.Files.size(path));
         if (forceDownload) {
             headers.set(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
@@ -190,8 +191,10 @@ public class ProjectController {
 
     /** 报价文件鉴权 + 解析存储文件（防穿越后不存在/非普通文件返回 null）；/files 两个端点共用。 */
     private java.nio.file.Path resolveReadableStoredFile(String fileName, AuthUser user) {
-        if (fileName.startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)) {
-            projectService.requireQuoteFileReadable(fileName, user);
+        if (fileName.startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
+                || fileName.startsWith("project_finance_")
+                || fileName.startsWith(com.jshz.expert.service.ProjectShowService.FILE_PREFIX)) {
+            projectService.requireArchivedFileReadable(fileName, user);
         }
         java.nio.file.Path path = projectService.resolveStoredFile(fileName);
         return path != null && java.nio.file.Files.exists(path) && java.nio.file.Files.isRegularFile(path) ? path : null;
@@ -341,6 +344,25 @@ public class ProjectController {
             throw new BusinessException("阶段参数缺失，无法保存表单");
         }
         return ApiResponse.ok(projectService.saveStageForm(id, body, user));
+    }
+
+    @GetMapping("/{id}/show/agenda")
+    public ApiResponse<List<String>> showAgenda(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectShowService.agenda(id, user));
+    }
+
+    @PostMapping("/{id}/show/ppt")
+    public ApiResponse<Void> uploadShowPpt(@PathVariable Long id, @RequestParam("file") MultipartFile file,
+                                           @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        projectShowService.upload(id, file, user);
+        return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/{id}/show/html")
+    public ApiResponse<Void> publishShow(@PathVariable Long id,
+            @RequestBody com.jshz.expert.service.ProjectShowService.Deck deck, @AuthenticationPrincipal AuthUser user) {
+        projectShowService.publish(id, deck, user);
+        return ApiResponse.ok(null);
     }
 
     /** 登记预算金额。 */
@@ -500,6 +522,7 @@ public class ProjectController {
     // ==================== 日程上传（2026-11-09 流程重塑第一阶段） ====================
 
     private final ScheduleParseService scheduleParseService;
+    private final com.jshz.expert.service.ProjectShowService projectShowService;
     private final com.jshz.expert.service.DocPreviewService docPreviewService;
     private final com.jshz.expert.service.ExcelPreviewService excelPreviewService;
 

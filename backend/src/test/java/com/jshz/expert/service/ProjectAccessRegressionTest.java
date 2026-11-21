@@ -27,10 +27,9 @@ class ProjectAccessRegressionTest {
     @Mock SupplierMapper suppliers;
     @Mock ProjectPhaseMapper phases;
     @Mock ProjectPhaseHistoryMapper phaseHistory;
-    @Mock ProjectBudgetMapper budgetMapper;
     AuthUser user(long id, String... permissions) { return new AuthUser(id,"fixture",false,false,Set.of(),Set.of(permissions)); }
     Project project() { Project p = new Project(); p.setId(1L); p.setOwnerId(2L); p.setStatus("ACTIVE"); return p; }
-    void setup() { ReflectionTestUtils.setField(service,"baseMapper",projects); when(projects.selectById(1L)).thenReturn(project()); lenient().when(budgetMapper.selectCount(any())).thenReturn(1L); }
+    void setup() { ReflectionTestUtils.setField(service,"baseMapper",projects); when(projects.selectById(1L)).thenReturn(project()); }
     @Test void outsiderRejectedBeforeLogQuery() {
         setup(); when(executors.selectCount(any())).thenReturn(0L);
         BusinessException e = assertThrows(BusinessException.class, () -> service.timeline(1L,user(3L)));
@@ -63,7 +62,7 @@ class ProjectAccessRegressionTest {
 
     private Project setupBudgetStage() {
         ReflectionTestUtils.setField(service, "baseMapper", projects);
-        lenient().when(budgetMapper.selectCount(any())).thenReturn(1L);
+
         Project project = project();
         project.setPhaseId(10L);
         when(projects.selectById(1L)).thenReturn(project);
@@ -80,27 +79,28 @@ class ProjectAccessRegressionTest {
         return phase;
     }
 
-    @Test void budgetAdvancementRequiresConfirmation() {
+    @Test void budgetAdvancementRequiresQuoteArchive() {
         setupBudgetStage();
-        when(budgetMapper.selectCount(any())).thenReturn(0L);
+        when(docs.listBudgetQuotePaths(1L, 10L)).thenReturn(List.of());
 
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.changePhase(1L, 11L, null, user(2L)));
 
-        assertTrue(error.getMessage().contains("预算未确认"));
+        assertTrue(error.getMessage().contains("保存报价单"));
         verify(projects, never()).updateById(any(Project.class));
     }
 
-    @Test void previouslyConfirmedBudgetKeepsAdvancementWithoutRetroactiveArchive() {
+    @Test void existingValidQuoteArchiveAllowsAdvancement() {
         Project project = setupBudgetStage();
         project.setCategory("ONLINE");
+        when(docs.listBudgetQuotePaths(1L, 10L)).thenReturn(List.of("project_quote_fixture.xlsx"));
+        when(storage.resolveFile("project_quote_fixture.xlsx")).thenReturn(java.nio.file.Path.of("fixture.xlsx"));
 
         service.changePhase(1L, 11L, null, user(2L));
 
         assertEquals(11L, project.getPhaseId());
         verify(projects).updateById(project);
         verify(phaseHistory).insert(any(ProjectPhaseHistory.class));
-        verify(docs, never()).listBudgetQuotePaths(any(), any());
     }
 
     // ==================== 日程上传阶段：专家全匹配推进校验（2026-11-17） ====================
@@ -110,7 +110,7 @@ class ProjectAccessRegressionTest {
 
     private Project setupScheduleStage() {
         ReflectionTestUtils.setField(service, "baseMapper", projects);
-        lenient().when(budgetMapper.selectCount(any())).thenReturn(1L);
+
         Project project = project();
         project.setPhaseId(11L);
         when(projects.selectById(1L)).thenReturn(project);

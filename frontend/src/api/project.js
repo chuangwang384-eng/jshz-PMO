@@ -229,3 +229,17 @@ export function deleteBudgetFeeStandard(feeKey) {
 export function exportBudgetDoc(id, docType) {
   return request.get(`/project/${id}/meeting-budget/export`, { responseType: 'blob', params: { docType } })
 }
+
+export function getShowAgenda(id) {
+  return request.get(`/project/${id}/show/agenda`, { timeout: 180000 })
+}
+
+export function uploadShowPpt(id, file) {
+  const body = new FormData()
+  body.append('file', file)
+  return request.post(`/project/${id}/show/ppt`, body)
+}
+
+export function publishShow(id, deck) {
+  return request.post(`/project/${id}/show/html`, deck)
+}
