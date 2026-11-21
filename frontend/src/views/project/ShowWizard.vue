@@ -49,12 +49,13 @@
     <!-- 第二步：专家信息（全局资料池，去重后一次编辑） -->
     <section v-else-if="step === 2" class="wiz-body">
       <p class="wiz-desc">
-        已从日程提取 {{ experts.length }} 位参会专家（重复出现只保留一份）。
+        已从日程提取 {{ experts.length }} 位参会专家（重复出现只保留一份，两字姓名自动去除排版空格）。
         这里的资料是全局的：头像、姓名、单位、职称、简介改一处，所有环节与页面自动联动。
       </p>
-      <div v-for="p in experts" :key="expertKey(p)" class="dark-card person-card">
+      <div v-for="p in experts" :key="p.key" class="dark-card person-card">
         <div class="person-head">
           <strong>{{ p.name || '未命名专家' }}</strong>
+          <span class="person-role">{{ roleSummary(p) }}</span>
           <el-button size="small" :loading="p.loading" :disabled="!p.expertId || p.loaded" @click="loadPerson(p)">
             {{ p.loaded ? '已载入' : '从专家库载入' }}
           </el-button>
@@ -78,35 +79,34 @@
       <div class="wiz-actions"><el-button type="primary" @click="step = 3">下一步：日程与角色</el-button></div>
     </section>
 
-    <!-- 第三步：日程与角色（直接调用第二步维护好的专家资料） -->
+    <!-- 第三步：日程与角色（按议题段落分组，直接调用第二步维护好的专家资料） -->
     <section v-else-if="step === 3" class="wiz-body">
-      <p class="wiz-desc">日程环节已按章节分组；专家资料自动沿用第二步维护的全局信息，这里只需确认每个环节的角色。</p>
-      <div v-for="group in groupedItems" :key="group.name" class="dark-card seg-group-card">
-        <p class="seg-group">{{ group.no }} · {{ group.name }}</p>
-        <div v-for="ref in group.items" :key="ref.index" class="seg-row">
-          <span class="seg-label">{{ ref.item.label }}</span>
-          <span class="seg-text">{{ ref.item.title || ref.item.row }}</span>
-          <div v-if="ref.item.people.length" class="seg-people">
-            <div v-for="p in ref.item.people" :key="expertKey(p)" class="seg-person">
-              <span class="seg-person-name">{{ p.name || '?' }}</span>
-              <el-select v-model="p.roleBySegment[ref.index]" size="small" style="width: 130px"
-                :aria-label="`${p.name} 在该环节的角色`">
-                <el-option v-for="r in roleOptions" :key="r" :label="r" :value="r" />
-              </el-select>
-            </div>
+      <p class="wiz-desc">
+        日程已按议题段落分组。稿件页序：段内先「大会主持」的过场页与简介页，再「大会讲者」，讨论嘉宾按相同时间段同页过场；
+        角色沿用日程解析结果（可在下拉改为四种角色之一），资料自动沿用第二步。
+      </p>
+      <div v-for="g in groups" :key="g.title" class="dark-card seg-group-card">
+        <p class="seg-group">{{ g.title }}<span v-if="g.time" class="seg-time">（{{ g.time }}）</span></p>
+        <div class="seg-people">
+          <div v-for="p in g.members" :key="p.key" class="seg-person">
+            <span class="seg-person-name">{{ p.name || '?' }}</span>
+            <el-select v-model="p.roleByGroup[g.index]" size="small" style="width: 130px"
+              :aria-label="`${p.name} 在该段落的角色`">
+              <el-option v-for="r in roleOptions" :key="r" :label="r" :value="r" />
+            </el-select>
           </div>
-          <span v-else class="person-hint">无匹配专家，不生成独立页面</span>
         </div>
       </div>
+      <p v-if="!groups.length" class="person-hint">日程中暂无已确认的专家记录，请回到日程阶段完成解析与确认</p>
       <div class="wiz-actions"><el-button type="primary" @click="step = 4">下一步：预览演示</el-button></div>
     </section>
 
-    <!-- 第四步：内嵌预览 + 所见即所得编辑 + 页面增删 + 保存/归档 -->
+    <!-- 第四步：内嵌预览 + 所见即所得编辑 + 页面增删/排序 + 保存/归档 -->
     <section v-else class="wiz-body">
       <p class="wiz-desc">
-        已生成 {{ currentDeckSlides.length }} 页：封面 + {{ sections.length }} 个章节（讨论墙 {{ pageCount('panel') }} /
-        专家详情 {{ pageCount('resume') }}）+ 致谢。无专家环节可在下方页面清单中手动添加文字页。
-        预览内按 <b>E</b> 或点「编辑模式」直接修改页面文字，改完点「保存修改」。
+        已生成 {{ currentDeckSlides.length }} 页：封面 + {{ pageCount('section') }} 个过场 +
+        {{ pageCount('resume') }} 位专家详情页 + 致谢（无专家环节可在下方手动添加文字页）。
+        预览内按 <b>E</b> 或点「编辑模式」直接修改页面文字；过场页头像顺序用下方工具条调整。
       </p>
       <div class="wiz-actions">
         <el-button :disabled="busy || !editable" @click="saveDraft('草稿已保存')">保存草稿</el-button>
@@ -119,13 +119,21 @@
           <el-button size="small" @click="toggleEdit">{{ editing ? '退出编辑' : '编辑模式' }}</el-button>
           <el-button size="small" type="primary" :disabled="busy || !editable" @click="saveEdits">保存修改</el-button>
         </div>
+        <div v-if="editing && moveBar.length > 1" class="move-bar">
+          <span class="move-label">头像顺序：</span>
+          <template v-for="(p, j) in moveBar" :key="j">
+            <span class="move-chip">{{ p.name || '空槽' }}</span>
+            <el-button size="small" circle :disabled="j === 0" @click="movePerson(j, -1)">◀</el-button>
+            <el-button size="small" circle :disabled="j === moveBar.length - 1" @click="movePerson(j, 1)">▶</el-button>
+          </template>
+        </div>
         <iframe ref="previewFrame" class="preview-iframe" title="串场演示预览"></iframe>
       </div>
       <details class="slide-outline-wrap" open>
-        <summary>页面清单（{{ currentDeckSlides.length }} 页，可删除或添加文字页）</summary>
+        <summary>页面清单（{{ currentDeckSlides.length }} 页，可删除/上移/下移/添加文字页）</summary>
         <div class="add-page-row">
           <el-select v-model="addSegIdx" placeholder="选择要生成文字页的环节" style="width: 340px" size="small">
-            <el-option v-for="(item, i) in items" :key="i" :label="`${item.label} · ${item.title || item.row}`" :value="i" />
+            <el-option v-for="(item, i) in textPageSources" :key="i" :label="`${item.label} · ${item.title || item.row}`" :value="i" />
           </el-select>
           <el-button size="small" :disabled="addSegIdx === null" @click="addTextPage">添加文字页（不放头像，仅文字）</el-button>
         </div>
@@ -133,8 +141,10 @@
           <li v-for="(s, i) in currentDeckSlides" :key="i">
             <span class="slide-kind">{{ kindLabel(s.kind) }}</span>{{ s.title || s.label }}
             <em v-if="slideHasPhoto(s)"> · 含头像</em>
+            <el-button link size="small" class="slide-op" :disabled="i === 0" @click="moveSlide(i, -1)">▲</el-button>
+            <el-button link size="small" class="slide-op" :disabled="i === currentDeckSlides.length - 1" @click="moveSlide(i, 1)">▼</el-button>
             <el-button v-if="i !== 0 && i !== currentDeckSlides.length - 1" link type="danger" size="small"
-              class="slide-del" @click="removeSlide(i)">删除</el-button>
+              class="slide-op" @click="removeSlide(i)">删除</el-button>
           </li>
         </ol>
       </details>
@@ -157,12 +167,13 @@ import CropAvatar from '../../components/CropAvatar.vue'
 import { fetchPhotoBlob, getExpert } from '../../api/expert'
 import { getProjectDetail, getScheduleOverview, getShowAgenda, previewShow, publishShow, saveStageForm } from '../../api/project'
 import {
-  agendaRows, classifyRow, coverSlideV2, dedupePhotos, guessRole, matchSpeakers, ROLE_OPTIONS,
-  panelSlideV2, resumeSlideV2, sectionOf, sectionSlideV2, splitResumeItems, thanksSlide
+  ROLE_OPTIONS, classifyRow, dedupePhotos, normalizeName, roleLabel, splitResumeItems
 } from '../../utils/showDeck'
 
-// 四步向导（2026-11-21 v3 流程）：①模板+封面 ②专家信息（全局资料池一次编辑）③日程与角色（三值下拉，
-// 直接调用②的资料）④内嵌预览所见即所得编辑。稿件结构：封面→章节过场→（讨论墙）→出场→简历→…→致谢。
+// 四步向导（2026-11-21 v4 结构引擎）：①模板+封面 ②专家信息（全局资料池）③日程与角色（按议题段落，
+// 直接调用②资料，角色沿用日程解析四值）④内嵌预览所见即所得编辑+页面增删排序。
+// 稿件结构：封面 → 段内先「大会主持」过场页+简介页 → 「大会讲者」过场页+简介页 → 讨论嘉宾按相同时间段
+// 同页过场+各简介页 → … → 致谢；照片全稿池化（ph: 引用）。
 const templates = [
   { id: 'gold', name: '红金盛典', desc: '深红金流光，适合庆典与开幕', preview: 'radial-gradient(120% 100% at 50% 40%, #7e1414, #3c0707)' },
   { id: 'tech', name: '深蓝科技', desc: '深蓝网格光束，学术论坛', preview: 'linear-gradient(135deg, #0e3153, #145371)' },
@@ -187,18 +198,38 @@ const editable = ref(false)
 const phaseId = ref(null)
 const project = ref({})
 const cover = ref({ org: '', title: '', sub: '', time: '', place: '', chair: '' })
-const items = ref([])          // 日程环节（people 为专家池对象引用）
-const experts = ref([])        // 专家池去重列表（第二步编辑入口）
-const selected = ref(0)
+const experts = ref([])        // 专家资料池（全局唯一，第二步编辑）
+const groups = ref([])         // 议题段落分组（第三步角色确认与第四步编排）
+const textPageSources = ref([]) // 可手动添加文字页的环节（含无专家环节）
 const busy = ref(false)
 const editing = ref(false)
 const editableDeck = ref(null)
 const previewFrame = ref(null)
 const previewUrl = ref('')
-const current = computed(() => items.value[selected.value])
+const editPageIdx = ref(-1)
+const moveBar = ref([])
+const addSegIdx = ref(null)
 
-function expertKey(p) {
-  return p.expertId || `name:${p.name || ''}`
+function expertKey(name, expertId) {
+  return expertId || `name:${normalizeName(name || '')}`
+}
+
+// 结构化专家：解析四角色（CHAIR/HOST/SPEAKER/DISCUSSANT）→ 中文；两字姓名去排版空格
+function buildSpeakers(overview) {
+  const raw = overview?.speakers || []
+  const pool = new Map()
+  return raw.map(sp => {
+    const name = normalizeName(sp.expertName || sp.name || '')
+    const key = expertKey(name, sp.expertId || '')
+    if (!pool.has(key)) {
+      pool.set(key, {
+        key, expertId: sp.expertId || '', name, unit: sp.expertUnit || sp.unit || '',
+        title: sp.expertTitle || sp.title || '', intro: '', photoSrc: '', avatar: '',
+        loading: false, loaded: false, roleByGroup: {}, roleEnum: sp.role || ''
+      })
+    }
+    return pool.get(key)
+  })
 }
 
 onMounted(async () => {
@@ -208,36 +239,48 @@ onMounted(async () => {
   editable.value = Boolean(detail.canOperate && phase && String(detail.phaseId) === String(phase.id))
   phaseId.value = phase?.id || null
   const [agenda, overview] = await Promise.all([getShowAgenda(id), getScheduleOverview(id)])
-  const { rows, speakers } = agendaRows(agenda, overview)
-  if (!rows.length) {
-    ElMessage.warning('日程中暂未提取到环节，请确认该项目日程阶段已上传日程')
-    return
-  }
-  // 专家资料池：同一专家（专家库 ID / 姓名）只保留一份，多环节共享引用
-  const pool = new Map()
-  items.value = rows.slice(0, 150).map((row, segIdx) => {
-    const { label, title } = classifyRow(row)
-    return {
-      row, label, title,
-      people: matchSpeakers(row, speakers).map(p => {
-        const key = p.expertId || `name:${p.expertName || ''}`
-        if (!pool.has(key)) {
-          pool.set(key, {
-            expertId: p.expertId || '', name: p.expertName || '', unit: p.expertUnit || '',
-            title: p.expertTitle || '', intro: '', photoSrc: '', avatar: '',
-            loading: false, loaded: false, roleBySegment: {}
-          })
-        }
-        const person = pool.get(key)
-        // 各环节角色只按该环节推断一次（可在第三步下拉改为三种角色之一）
-        if (person.roleBySegment[segIdx] === undefined) person.roleBySegment[segIdx] = guessRole(row)
-        return person
-      })
+  experts.value = buildSpeakers(overview)
+  // 议题段落分组（保持日程顺序）；segmentTitle 缺失归入「未分组环节」。
+  // 段级时间挂 segTimeByGroup（同一专家多段时各段时间独立）。
+  const gmap = []
+  const rawSpeakers = overview?.speakers || []
+  for (const spRaw of rawSpeakers) {
+    const name = normalizeName(spRaw.expertName || spRaw.name || '')
+    const person = experts.value.find(x => x.key === expertKey(name, spRaw.expertId || ''))
+    if (!person) continue
+    const title = spRaw.segmentTitle || '未分组环节'
+    let g = gmap.find(x => x.title === title)
+    if (!g) {
+      g = { title, members: [], times: [] }
+      gmap.push(g)
     }
+    g.members.push(person)
+    if (spRaw.segmentTime && !g.times.includes(spRaw.segmentTime)) g.times.push(spRaw.segmentTime)
+    person.segTimeByGroup = person.segTimeByGroup || {}
+    person.segTimeByGroup[gmap.indexOf(g)] = spRaw.segmentTime || ''
+    if (!person.roleByGroup) person.roleByGroup = {}
+  }
+  groups.value = gmap.map((g, index) => {
+    for (const m of g.members) {
+      if (m.roleByGroup[index] === undefined) m.roleByGroup[index] = roleLabel(m.roleEnum, g.title, '')
+    }
+    return { ...g, index }
   })
-  experts.value = Array.from(pool.values())
+  // 手动文字页候选：日程行（含无专家环节）
+  const { rows } = agendaRows(agenda, overview)
+  textPageSources.value = rows.slice(0, 150).map(row => {
+    const { label, title } = classifyRow(row)
+    return { label, title, row }
+  })
   initCover()
 })
+
+// 专家在全部段落中的角色汇总（第二步展示）
+function roleSummary(p) {
+  const src = p.roleByGroup ? Object.values(p.roleByGroup) : []
+  const roles = src.filter((v, i, a) => a.indexOf(v) === i)
+  return roles.join(' / ') || '—'
+}
 
 // 封面默认值：项目名/日期/城市 + 第一位大会主席专家
 function initCover() {
@@ -245,14 +288,14 @@ function initCover() {
   cover.value.title = detail.name || ''
   cover.value.time = detail.meetingStartDate || ''
   cover.value.place = detail.cityName || ''
-  const chairPerson = experts.value.find(p => p.roleBySegment &&
-    Object.values(p.roleBySegment).some(r => r === '大会主席'))
+  const chairPerson = experts.value.find(p => roleSummary(p).includes('大会主席'))
   cover.value.chair = chairPerson ? [chairPerson.name, chairPerson.title].filter(Boolean).join(' ') : ''
 }
 
 // 专家载入（池内共享对象，loaded 标志保证只载一次）
 watch(experts, list => {
-  (list || []).forEach(p => { if (p.expertId && !p.loaded && !p.loading) loadPerson(p) })
+  const safeList = list || []
+  safeList.forEach(p => { if (p.expertId && !p.loaded && !p.loading) loadPerson(p) })
 }, { immediate: true })
 
 async function loadPerson(p) {
@@ -280,101 +323,86 @@ async function loadPerson(p) {
   }
 }
 
-// 章节聚类（保持日程顺序）：开场致辞 / 学术报告 / 多学科讨论；茶歇并入前一章节
-const sections = computed(() => {
-  const groups = []
-  for (let i = 0; i < items.value.length; i++) {
-    const item = items.value[i]
-    let name = sectionOf(item.row)
-    if (!name) name = groups.length ? groups[groups.length - 1].name : '开场致辞'
-    let group = groups.find(g => g.name === name)
-    if (!group) {
-      group = { name, items: [] }
-      groups.push(group)
-    }
-    group.items.push({ index: i, item })
-  }
-  return groups.map((g, i) => ({ ...g, no: String(i + 1).padStart(2, '0') }))
-})
-
-const groupedItems = computed(() => sections.value)
-
+// 稿件编排（v4）：段内先主持过场+简介 → 讲者过场+简介 → 讨论嘉宾按相同时间段同页过场+各简介；
+// 大会主席段（全 CHAIR）自然落在日程最前的段。每个过场页统一编号。
 const builtSlides = computed(() => {
-  const slides = [coverSlideV2({
-    org: cover.value.org,
-    title: cover.value.title || project.value.name || '',
-    sub: cover.value.sub,
-    infos: [
-      cover.value.time ? `会议时间|${cover.value.time}` : '',
-      cover.value.place ? `会议地点|${cover.value.place}` : '',
-      cover.value.chair ? `大会主席|${cover.value.chair}` : ''
-    ].filter(Boolean)
-  })]
-  for (const group of sections.value) {
-    // 过场页：标题 + 章节全体出场专家头像（≤6 人）
-    const cast = []
-    for (const { index: itemIdx, item } of group.items) {
-      for (const p of item.people.filter(x => x.name || x.avatar)) {
-        cast.push({ role: p.roleBySegment?.[itemIdx] || guessRole(item.row), name: p.name, title: p.title, unit: p.unit, avatar: p.avatar })
-      }
+  const slides = [coverSlideLike()]
+  let secNo = 0
+  const pushSection = (title, persons) => {
+    secNo += 1
+    slides.push({
+      label: '', title: title || '', body: '', image: '', kind: 'section',
+      items: [String(secNo).padStart(2, '0')],
+      persons: (persons || []).slice(0, 20).map(p => ({
+        role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || ''
+      })),
+      fontSize: null
+    })
+  }
+  const pushResume = p => {
+    slides.push({
+      label: '个人简历', title: [p.name, p.title].filter(Boolean).join(' ') || '专家简介',
+      body: '', image: '', kind: 'resume',
+      items: splitResumeItems(p.intro || ''), fontSize: null,
+      persons: [{ role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || '' }]
+    })
+  }
+  for (const g of groups.value) {
+    const memberWithRole = m => ({ ...m, role: m.roleByGroup?.[g.index] || roleLabel(m.roleEnum, g.title, '') })
+    const byRole = role => g.members.map(memberWithRole).filter(m => m.role === role)
+    const chairs = byRole('大会主席')
+    const hosts = byRole('大会主持')
+    const speakersL = byRole('大会讲者')
+    const discussants = byRole('讨论嘉宾')
+    if (chairs.length) {
+      pushSection(g.title, chairs)
+      chairs.forEach(pushResume)
     }
-    slides.push(sectionSlideV2({ no: group.no, title: group.name, persons: cast }))
-    for (const { index: itemIdx, item } of group.items) {
-      const roleOf = p => p.roleBySegment?.[itemIdx] || guessRole(item.row)
-      const people = item.people.filter(p => p.name || p.avatar)
-      if (people.length >= 2) {
-        slides.push(panelSlideV2({
-          label: group.name, title: item.title || group.name,
-          persons: people.map(p => ({ ...p, role: roleOf(p) }))
-        }))
-      }
-      // 专家详情页（头像左+角色/姓名/单位，右简介）：单人与多人环节的每位专家各一页；无专家环节不生成（可后续手动添加文字页）
-      for (const p of people) {
-        slides.push(resumeSlideV2({ person: { ...p, role: roleOf(p) } }))
+    if (hosts.length) {
+      pushSection(g.title, hosts)
+      hosts.forEach(pushResume)
+    }
+    if (speakersL.length) {
+      pushSection(g.title, speakersL)
+      speakersL.forEach(pushResume)
+    }
+    // 讨论嘉宾按相同时间段同页过场（时间段来自该段解析时间，保持出现顺序）
+    const dg = []
+    for (const m of discussants) {
+      const t = m.segTimeByGroup?.[g.index] || ''
+      let bucket = dg.find(x => x.time === t)
+      if (!bucket) { bucket = { time: t, members: [] }; dg.push(bucket) }
+      bucket.members.push(m)
+    }
+    for (const bucket of dg) {
+      if (bucket.members.length) {
+        pushSection(g.title, bucket.members)
+        bucket.members.forEach(pushResume)
       }
     }
   }
-  slides.push(thanksSlide())
+  slides.push(thanksSlideLike())
   return slides
 })
 
-// 进入第四步时冻结快照：页内编辑与页面增删只写快照，保存后按快照重新渲染
-watch(step, s => {
-  if (s === 4) {
-    editableDeck.value = JSON.parse(JSON.stringify(builtSlides.value))
-    editing.value = false
-    addSegIdx.value = null
-    loadPreview()
+function coverSlideLike() {
+  return {
+    label: cover.value.org || '', title: cover.value.title || project.value.name || '',
+    body: cover.value.sub || '', image: '', kind: 'cover', fontSize: null,
+    items: [
+      cover.value.time ? `会议时间|${cover.value.time}` : '',
+      cover.value.place ? `会议地点|${cover.value.place}` : '',
+      cover.value.chair ? `大会主席|${cover.value.chair}` : ''
+    ].filter(Boolean),
+    persons: null
   }
-})
-
-// Step4 当前生效的页面列表（快照优先）
-const currentDeckSlides = computed(() => editableDeck.value || builtSlides.value)
-
-const addSegIdx = ref(null)
-
-// 手动添加文字页（无专家环节的兜底入口）：插入到致谢页之前
-function addTextPage() {
-  if (addSegIdx.value === null || !editableDeck.value) return
-  const item = items.value[addSegIdx.value]
-  if (!item) return
-  const slides = editableDeck.value
-  const at = Math.max(0, slides.length - 1)
-  slides.splice(at, 0, {
-    label: item.label, title: item.title || '', body: item.row, image: '',
-    kind: 'content', items: null, persons: null, fontSize: null
-  })
-  addSegIdx.value = null
-  loadPreview()
-  ElMessage.success('文字页已添加（插在致谢页之前）')
 }
 
-// 删除页面（封面与致谢页不可删）
-function removeSlide(i) {
-  if (!editableDeck.value) return
-  editableDeck.value.slides.splice(i, 1)
-  loadPreview()
+function thanksSlideLike() {
+  return { label: '', title: '感谢参会', body: '', image: '', kind: 'ending', items: null, persons: null, fontSize: null }
 }
+
+// 段级时间已在议题分组时挂到成员（segTimeByGroup），无需二次遍历
 
 function deck() {
   const base = editableDeck.value || builtSlides.value
@@ -387,7 +415,7 @@ function pageCount(kind) {
 }
 
 function kindLabel(kind) {
-  return ({ cover: '封面', agenda: '议程', section: '过场', bio: '出场', resume: '简历', panel: '讨论', ending: '致谢', content: '文字' })[kind] || '页'
+  return ({ cover: '封面', agenda: '议程', section: '过场', bio: '出场', resume: '详情', panel: '讨论', ending: '致谢', content: '文字' })[kind] || '页'
 }
 
 function slideHasPhoto(s) {
@@ -430,6 +458,19 @@ async function archive() {
   }
 }
 
+// 进入第四步时冻结快照：页内编辑与页面增删只写快照，保存后按快照重新渲染
+watch(step, s => {
+  if (s === 4) {
+    editableDeck.value = JSON.parse(JSON.stringify(builtSlides.value))
+    editing.value = false
+    addSegIdx.value = null
+    loadPreview()
+  }
+})
+
+// Step4 当前生效的页面列表（快照优先）
+const currentDeckSlides = computed(() => editableDeck.value || builtSlides.value)
+
 async function loadPreview() {
   try {
     const html = await previewShow(id, deck())
@@ -454,10 +495,37 @@ function toggleEdit() {
   }
   win.__toggleEdit()
   editing.value = Boolean(win.__isEditing?.())
+  if (editing.value) syncEditPage()
 }
 
-// 页内编辑 → 按 data-edit 路径写回快照 → 保存草稿 → 重新渲染（所见即所得闭环）
-// 简历页字号批量调整：读取 slide[data-fs-changed] 写回 fontSize
+function syncEditPage() {
+  const win = previewFrame.value?.contentWindow
+  if (!win || typeof win.__getPage !== 'function') return
+  editPageIdx.value = win.__getPage()
+  const slide = (editableDeck.value?.slides || [])[editPageIdx.value]
+  moveBar.value = (slide?.persons || []).map(p => ({ name: p.name || '' }))
+}
+
+// 编辑模式下调整过场页头像顺序：交换 editableDeck 中该页 persons 顺序并重渲染，保持编辑态
+async function movePerson(j, dir) {
+  const to = j + dir
+  if (to < 0 || to >= moveBar.value.length) return
+  const slide = (editableDeck.value?.slides || [])[editPageIdx.value]
+  if (!slide?.persons || !slide.persons[to]) return
+  ;[slide.persons[j], slide.persons[to]] = [slide.persons[to], slide.persons[j]]
+  busy.value = true
+  try {
+    await saveStageForm(id, { phaseId: phaseId.value, formData: deck() })
+    await loadPreview()
+    toggleEdit()
+    syncEditPage()
+    ElMessage.success('头像顺序已调整')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 页内编辑 → 按 data-edit 路径写回快照（person 槽位越界自动创建）→ 保存草稿 → 重新渲染
 async function saveEdits() {
   const doc = previewFrame.value?.contentDocument
   if (!doc) {
@@ -489,6 +557,7 @@ async function saveEdits() {
 }
 
 // data-edit 路径写回：p{i}.title / p{i}.body[j] / p{i}.items[j] / p{i}.items[j].k|v / p{i}.persons[j].field
+// person 槽位越界（空槽新增专家）时自动创建
 function writeEditPath(slides, path, text) {
   const m = String(path || '').match(/^p(\d+)\.(.+)$/)
   if (!m) return
@@ -498,21 +567,59 @@ function writeEditPath(slides, path, text) {
   let mm
   if ((mm = rest.match(/^items\[(\d+)\]\.(k|v)$/))) {
     const j = +mm[1]
-    const cur = (slide.items || [])[j] || ''
+    if (!slide.items) slide.items = []
+    while (slide.items.length <= j) slide.items.push('')
+    const cur = slide.items[j] || ''
     const parts = cur.split('|')
     if (mm[2] === 'k') slide.items[j] = text + '|' + (parts[1] ?? '')
     else slide.items[j] = (parts.length > 1 ? parts[0] + '|' : '') + text
   } else if ((mm = rest.match(/^items\[(\d+)\]$/))) {
-    if (slide.items) slide.items[+mm[1]] = text
+    if (!slide.items) slide.items = []
+    while (slide.items.length <= +mm[1]) slide.items.push('')
+    slide.items[+mm[1]] = text
   } else if ((mm = rest.match(/^body\[(\d+)\]$/))) {
     const lines = (slide.body || '').split('\n')
+    while (lines.length <= +mm[1]) lines.push('')
     lines[+mm[1]] = text
     slide.body = lines.join('\n')
   } else if ((mm = rest.match(/^persons\[(\d+)\]\.(\w+)$/))) {
-    if (slide.persons?.[+mm[1]]) slide.persons[+mm[1]][mm[2]] = text
+    const j = +mm[1]
+    if (!slide.persons) slide.persons = []
+    while (slide.persons.length <= j) slide.persons.push({ role: '', name: '', title: '', unit: '', image: '' })
+    slide.persons[j][mm[2]] = text
   } else {
     slide[rest] = text
   }
+}
+
+// 手动添加文字页（无专家环节的兜底入口）：插入到致谢页之前
+function addTextPage() {
+  if (addSegIdx.value === null || !editableDeck.value) return
+  const src = textPageSources.value[addSegIdx.value]
+  if (!src) return
+  const slides = editableDeck.value
+  slides.splice(Math.max(0, slides.length - 1), 0, {
+    label: src.label, title: src.title || '', body: src.row, image: '',
+    kind: 'content', items: null, persons: null, fontSize: null
+  })
+  addSegIdx.value = null
+  loadPreview()
+  ElMessage.success('文字页已添加（插在致谢页之前）')
+}
+
+// 删除页面（封面与致谢页保护）与排序（▲▼ 交换相邻）
+function removeSlide(i) {
+  if (!editableDeck.value) return
+  editableDeck.value.slides.splice(i, 1)
+  loadPreview()
+}
+
+function moveSlide(i, dir) {
+  const to = i + dir
+  if (!editableDeck.value || to < 0 || to >= editableDeck.value.slides.length) return
+  const arr = editableDeck.value.slides
+  ;[arr[i], arr[to]] = [arr[to], arr[i]]
+  loadPreview()
 }
 
 function goProject() {
@@ -548,18 +655,16 @@ function goProject() {
 .field-grow { flex: 1; min-width: 160px; }
 .field-hint { margin: 4px 0 0; font-size: 12px; color: rgba(255, 243, 220, .45); }
 .wiz-actions { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
-.wiz-two { display: grid; grid-template-columns: minmax(230px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .seg-group-card { padding: 14px 16px; }
-.seg-group { margin: 0 0 10px; font-size: 14px; letter-spacing: .15em; color: rgba(242, 198, 109, .9); border-left: 3px solid rgba(242, 198, 109, .5); padding-left: 8px; }
-.seg-row { border-top: 1px dashed rgba(242, 198, 109, .2); padding: 10px 0; display: flex; flex-direction: column; gap: 8px; }
-.seg-label { display: inline-block; font-size: 11px; border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 8px; color: rgba(242, 198, 109, .85); width: fit-content; }
-.seg-text { font-size: 13.5px; overflow-wrap: anywhere; color: rgba(255, 243, 220, .85); }
+.seg-group { margin: 0 0 10px; font-size: 14px; letter-spacing: .12em; color: rgba(242, 198, 109, .9); border-left: 3px solid rgba(242, 198, 109, .5); padding-left: 8px; }
+.seg-time { color: rgba(255, 243, 220, .5); font-size: 12px; }
 .seg-people { display: flex; flex-wrap: wrap; gap: 10px; }
 .seg-person { display: flex; align-items: center; gap: 8px; background: rgba(242, 198, 109, .08); border: 1px solid rgba(242, 198, 109, .3); border-radius: 10px; padding: 6px 10px; }
 .seg-person-name { font-size: 13px; color: #fff3dc; }
 .person-card { padding: 16px; }
 .person-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .person-head strong { font-size: 15px; letter-spacing: .08em; }
+.person-role { font-size: 12px; color: rgba(242, 198, 109, .8); border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 10px; }
 .person-fields { display: flex; gap: 8px; flex-wrap: wrap; }
 .person-hint { margin: 0; font-size: 12px; color: rgba(255, 243, 220, .45); }
 .resume-preview { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -567,14 +672,17 @@ function goProject() {
 .preview-shell { padding: 0; overflow: hidden; }
 .preview-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid rgba(242, 198, 109, .22); }
 .preview-title { flex: 1; font-size: 13px; color: rgba(255, 243, 220, .7); }
+.move-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-bottom: 1px solid rgba(242, 198, 109, .22); }
+.move-label { font-size: 12px; color: rgba(255, 243, 220, .6); }
+.move-chip { font-size: 12px; color: #fff3dc; background: rgba(242, 198, 109, .12); border: 1px solid rgba(242, 198, 109, .4); border-radius: 8px; padding: 3px 10px; }
 .preview-iframe { display: block; width: 100%; height: min(62dvh, 620px); border: 0; background: #17100e; }
 .slide-outline-wrap { margin-top: 14px; }
 .slide-outline-wrap summary { cursor: pointer; font-size: 13px; color: rgba(242, 198, 109, .8); }
 .add-page-row { display: flex; gap: 10px; align-items: center; margin: 12px 0 4px; flex-wrap: wrap; }
 .slide-outline { margin: 12px 0 0; padding-left: 22px; font-size: 13px; color: rgba(255, 243, 220, .75); display: flex; flex-direction: column; gap: 6px; }
-.slide-del { margin-left: 10px; }
 .slide-kind { display: inline-block; min-width: 52px; text-align: center; font-size: 11px; border: 1px solid rgba(242, 198, 109, .4); border-radius: 999px; padding: 1px 8px; margin-right: 10px; color: rgba(242, 198, 109, .85); }
 .slide-outline em { font-style: normal; color: rgba(242, 198, 109, .6); font-size: 12px; }
+.slide-op { margin-left: 6px; }
 .wiz-foot { display: flex; justify-content: flex-end; gap: 12px; padding-top: 14px; border-top: 1px solid rgba(242, 198, 109, .2); }
 @media (max-width: 760px) { .wiz-two { grid-template-columns: 1fr; } .wiz-steps { margin-left: 0; } }
 </style>

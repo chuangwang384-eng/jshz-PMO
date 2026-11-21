@@ -520,7 +520,7 @@ public class ProjectShowService {
         String num = items == null || items.isEmpty() ? "" : text(items.get(0), 12, "章节编号");
         List<Person> cast = persons == null ? List.of() : Arrays.stream(persons.toArray(new Person[0]))
                 .filter(p -> p != null && p.name() != null && !p.name().isBlank())
-                .limit(6)
+                .limit(20)
                 .toList();
         StringBuilder s = new StringBuilder("<section class=\"slide k-section\"><div class=\"sec\">");
         String wm = title.length() > 2 ? title.substring(title.length() - 2) : title;
@@ -536,12 +536,19 @@ public class ProjectShowService {
                 String portrait = image(p.image());
                 s.append("<figure class=\"sec-p\"><span class=\"sec-p-avatar\">");
                 if (!portrait.isEmpty()) s.append("<img src=\"").append(portrait).append("\" alt=\"\">");
-                else s.append("<span class=\"sec-p-word\">").append(name.substring(0, 1)).append("</span>");
+                else s.append("<span class=\"sec-p-word\">").append(name.isEmpty() ? "" : name.substring(0, 1)).append("</span>");
                 s.append("</span><figcaption><span").append(ed(idx, "persons[" + j + "].name")).append(">")
                         .append(name).append("</span>");
                 String title2 = text(p.title(), 60, "职称");
                 if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
                 s.append("</figcaption></figure>");
+            }
+            // 空槽位补齐到两行（每行 5 槽，至少 10 槽）：编辑模式下空槽姓名可直接填写新增专家
+            int slots = Math.max(10, ((cast.size() + 4) / 5) * 5);
+            for (int j = cast.size(); j < slots; j++) {
+                s.append("<figure class=\"sec-p sec-p-empty\"><span class=\"sec-p-avatar\"><span class=\"sec-p-word\"></span></span>")
+                        .append("<figcaption><span").append(ed(idx, "persons[" + j + "].name")).append("></span>")
+                        .append("</figcaption></figure>");
             }
             s.append("</div>");
         }

@@ -84,7 +84,7 @@ export function coverSlideV2({ org, title, sub, infos = [] }) {
 export function sectionSlideV2({ no, title, persons }) {
   return {
     label: '', title: title || '', body: '', image: '', kind: 'section', items: no ? [no] : [],
-    persons: (persons || []).slice(0, 6).map(p => ({
+    persons: (persons || []).slice(0, 20).map(p => ({
       role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || ''
     }))
   }
@@ -114,12 +114,32 @@ export function panelSlideV2({ label, title, persons }) {
   }
 }
 
-// 大会角色仅三种（2026-11-21 需求），环节角色推断可被用户在「日程与角色」步骤下拉覆盖
-export const ROLE_OPTIONS = ['大会主席', '大会讲者', '讨论嘉宾']
+// 大会角色四种（2026-11-21 v4：与日程解析 ProjectSpeaker.ROLE_* 对齐），重要度递减：
+// 大会主席 > 大会主持 > 大会讲者 > 讨论嘉宾；同一专家多角色时取重要度更高者。
+export const ROLE_OPTIONS = ['大会主席', '大会主持', '大会讲者', '讨论嘉宾']
+export const ROLE_RANK = { 大会主席: 0, 大会主持: 1, 大会讲者: 2, 讨论嘉宾: 3 }
+export const ROLE_ENUM_LABEL = { CHAIR: '大会主席', HOST: '大会主持', SPEAKER: '大会讲者', DISCUSSANT: '讨论嘉宾' }
 
-export function guessRole(row) {
-  if (/主席/.test(row)) return '大会主席'
-  if (/讨论/.test(row)) return '讨论嘉宾'
+export function roleRank(role) {
+  return ROLE_RANK[role] ?? 9
+}
+
+// 日程解析的会议角色枚举 → 中文（未知枚举回退关键词推断）
+export function roleLabel(enumRole, fallbackRow, fallbackTitle) {
+  const label = ROLE_ENUM_LABEL[String(enumRole || '').toUpperCase()]
+  return label || guessRole(fallbackRow, fallbackTitle)
+}
+
+// 两字姓名中间的排版空格去除（如「张 燕」→「张燕」）
+export function normalizeName(name) {
+  return String(name || '').replace(/\s+/g, '')
+}
+
+export function guessRole(row, title) {
+  const s = String(row || '') + ' ' + String(title || '')
+  if (/主席/.test(s)) return '大会主席'
+  if (/主持/.test(s)) return '大会主持'
+  if (/讨论|对话/.test(s)) return '讨论嘉宾'
   return '大会讲者'
 }
 
