@@ -311,6 +311,7 @@ Publish 流程：版本文件同步（先备份到 `logs/version-backup-*`）→
 - `STORAGE_ROOT`：全部存储目录统一根前缀（照片库/照片库_tmp/知识文档库/知识文档库_preview/客户附件库/供应商图库/项目资料库/专家资料库），默认 `<LOCAL_PATH>`；机器迁移/换盘只改此变量，无需改代码重编译。
 - `LIBREOFFICE_PATH`：LibreOffice 可执行文件路径，默认 `<LOCAL_PATH> Files\LibreOffice\program\soffice.com`（Office 预览转换）。
 - `CORS_ALLOWED_ORIGINS`：前端来源白名单（逗号分隔），默认 `http://<PRIVATE_IP>:5173,http://localhost:5173,http://<PRIVATE_IP>:5173`；配置项 `security.cors.allowed-origins`，消费点 `SecurityConfig`。
+- `DASHBOARD_QUERY_TIMEOUT_SECONDS`：工作台只读查询超时（2026-11-23 由代码写死 1 秒改为可配），配置项 `expert.dashboard.query-timeout-seconds`，默认 3 秒；消费点 `DashboardReadService`。
 - `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `E:/AI助手开发/pp-ocrv5`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
 - `SR_UPSCALE_PYTHON`：低像素照片超分解释器（默认探测 `<LOCAL_PATH> Files/JSHZ/sr-upscale/venv/Scripts/python.exe`，不存在即整体跳过超分，2026-11-18）；worker 侧另有 `SR_UPSCALE_SCRIPT` / `SR_UPSCALE_MODELS` 覆盖口，缺省同根目录。
 - 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
@@ -678,6 +679,8 @@ expert:
 | 2026-11-23 09:26:11 | 1.0.126 | 成功 | expert-system.jar |
 | 2026-11-23 10:01:28 | 1.0.127 | 成功 | expert-system.jar |
 | 2026-11-23 10:34:14 | 1.0.128 | 成功 | expert-system.jar |
+| 2026-11-23 11:53:32 | 1.0.130 | 成功 | expert-system.jar |
+| 2026-11-23 12:02:03 | 1.0.130 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
