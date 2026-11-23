@@ -454,3 +454,5 @@
 - 2026-11-21 [串场封面设计与公司共享模板 1.0.122](tasks/20261121_show_cover_design.md)
 
 - 2026-11-21 [串场封面文本框与头像框对齐](tasks/20261121_show_cover_controls.md)
+
+- 2026-11-23 [串场单页悬浮编辑 1.0.124](tasks/20261123_show_inline_editor.md)

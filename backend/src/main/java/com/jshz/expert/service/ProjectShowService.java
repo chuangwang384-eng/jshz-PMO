@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 @Service
@@ -109,11 +110,31 @@ public class ProjectShowService {
      * 章节编号（首元素）、简历条目；persons 承载页面人物。
      */
     public record Slide(String label, String title, String body, String image,
-                        String kind, List<String> items, List<Person> persons, Double fontSize, Integer groupIndex) {
+                        String kind, List<String> items, List<Person> persons, Double fontSize, Integer groupIndex, List<ElementLayout> layout) {
         public Slide(String label, String title, String body, String image, String kind,
                      List<String> items, List<Person> persons, Double fontSize) {
-            this(label, title, body, image, kind, items, persons, fontSize, null);
+            this(label, title, body, image, kind, items, persons, fontSize, null, null);
         }
+    }
+
+    public record ElementLayout(String key, Double x, Double y, Double scale, String font) {}
+
+    private static String elementLayouts(List<ElementLayout> values) {
+        if (values == null) return "";
+        if (values.size() > 180) throw new BusinessException("页面编辑元素过多");
+        StringBuilder html = new StringBuilder();
+        for (ElementLayout value : values) {
+            if (value == null || value.key() == null || !value.key().matches("[a-zA-Z0-9_.\\[\\]-]{1,64}")) {
+                throw new BusinessException("页面编辑元素编号无效");
+            }
+            String font = Set.of("sans", "serif", "kai").contains(value.font() == null ? "" : value.font()) ? value.font() : "";
+            html.append("<i data-placement=\"").append(value.key()).append("\" data-x=\"")
+                    .append(bounded(value.x(), 0, -1920, 1920)).append("\" data-y=\"")
+                    .append(bounded(value.y(), 0, -1080, 1080)).append("\" data-scale=\"")
+                    .append(bounded(value.scale(), 100, 40, 250)).append("\" data-font=\"")
+                    .append(font).append("\"></i>");
+        }
+        return html.isEmpty() ? "" : "<template data-layout>" + html + "</template>";
     }
 
     /** 内置串场模板。css 只允许覆盖调色变量与装饰层，页面结构与动画引擎由 render 的公共层承载，禁止复制私有副本。 */
@@ -289,7 +310,7 @@ public class ProjectShowService {
                 .map(p -> p == null ? null
                         : new Person(p.role(), p.name(), p.title(), p.unit(), photoOf(p.image(), photos)))
                 .toList();
-        return new Slide(slide.label(), slide.title(), slide.body(), img, slide.kind(), slide.items(), persons, slide.fontSize());
+        return new Slide(slide.label(), slide.title(), slide.body(), img, slide.kind(), slide.items(), persons, slide.fontSize(), slide.groupIndex(), slide.layout());
     }
 
     private static String photoOf(String image, List<String> photos) {
@@ -451,7 +472,7 @@ public class ProjectShowService {
               position:absolute;width:var(--frame-size);height:var(--frame-size);left:var(--frame-x);top:var(--frame-y);
               border:0;transform:translate(-50%,-50%);box-shadow:none;animation:none}
             .custom-frame .resume-portrait{aspect-ratio:1}
-            .custom-frame .sec-p-avatar > .avatar-frame{border-radius:0;object-fit:contain;box-shadow:none}
+            .custom-frame .sec-p-avatar > .avatar-frame{border:0;border-radius:0;object-fit:contain;box-shadow:none}
             .resume-portrait{position:relative;width:88%;margin:0 auto}
             .resume-portrait .rp2-avatar{display:block;width:100%}
             .custom-frame .resume-portrait .rp2-avatar{width:var(--frame-size)}
@@ -501,6 +522,9 @@ public class ProjectShowService {
             @keyframes spin{to{transform:rotate(360deg)}}
             /* 编辑模式（所见即所得）：按 E 切换 contentEditable，虚线框标记可编辑元素 */
             [contenteditable="true"]{outline:1.5px dashed var(--accent);outline-offset:4px;border-radius:4px;cursor:text}
+            body.single-edit [data-layout-key]{cursor:pointer;outline:1px dashed var(--rule);outline-offset:3px}
+            body.single-edit [data-edit]{cursor:text}
+            body.single-edit .single-selected{outline:2px solid var(--accent);outline-offset:4px}
             body.hppt-editing [data-edit]{min-width:1em;display:inline-block}
             #editTip{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9;
               background:rgba(10,12,16,.85);color:var(--ink);border:1px solid var(--accent);border-radius:999px;
@@ -560,7 +584,7 @@ public class ProjectShowService {
                 ? kindOf(label, title, portrait, first) : slide.kind();
         List<String> lines = body.isBlank() ? List.of() : Arrays.stream(body.split("\n"))
                 .map(String::strip).filter(line -> !line.isEmpty()).toList();
-        return switch (kind) {
+        String rendered = switch (kind) {
             case "cover" -> fields == null ? coverHtml(idx, label, title, lines, slide.items())
                     : "<section class=\"slide k-cover\">" + coverFieldsHtml(fields) + "</section>";
             case "section" -> sectionHtml(idx, label, title, slide.items(), slide.persons());
@@ -571,6 +595,7 @@ public class ProjectShowService {
 
             default -> legacyContentHtml(idx, kind, label, title, portrait, lines);
         };
+        return rendered.replace("</section>", elementLayouts(slide.layout()) + "</section>");
     }
 
     /** 出场页主人物：persons 非空取首个有姓名的；否则 null 走旧结构渲染。 */
@@ -691,7 +716,7 @@ public class ProjectShowService {
                 s.append("</span><figcaption><span").append(ed(idx, "persons[" + j + "].name")).append(">")
                         .append(name).append("</span>");
                 String title2 = text(p.title(), 60, "职称");
-                if (!title2.isEmpty()) s.append("<small>").append(title2).append("</small>");
+                if (!title2.isEmpty()) s.append("<small").append(ed(idx, "persons[" + j + "].title")).append(">").append(title2).append("</small>");
                 s.append("</figcaption></figure>");
             }
             // 空槽位补齐到两行（每行 5 槽，至少 10 槽）：编辑模式下空槽姓名可直接填写新增专家
@@ -863,6 +888,116 @@ public class ProjectShowService {
                 const avatarFrame=document.getElementById('avatar-frame');
                 if(avatarFrame) document.querySelectorAll('.sec-p-avatar:has(img),.resume-portrait').forEach(
                   avatar=>avatar.append(avatarFrame.content.cloneNode(true)));
+                const slideFonts={sans:'Microsoft YaHei, sans-serif',serif:'SimSun, serif',kai:'KaiTi, serif'};
+                let singleEdit=false, selected=null, drag=null;
+                const placements=new Map();
+                const editedText=new Set();
+                const elements=new Map();
+                slides.forEach(slide=>{
+                  const nodes=Array.from(slide.querySelectorAll('[data-edit]'));
+                  nodes.forEach(node=>{
+                    if(node.closest('.sec-p-empty'))return;
+                    node.dataset.layoutKey=node.dataset.edit.split('.').slice(1).join('.');
+                  });
+                  slide.querySelectorAll('.sec-p:not(.sec-p-empty) .sec-p-avatar,.resume-portrait,.photo-card img,.p-avatar,.photo img')
+                    .forEach((node,index)=>node.dataset.layoutKey='avatar-'+index);
+                  const map=new Map(Array.from(slide.querySelectorAll('[data-layout-key]')).map(node=>[node.dataset.layoutKey,node]));
+                  elements.set(slide,map);
+                  const settings=new Map();
+                  placements.set(slide,settings);
+                  slide.querySelector('template[data-layout]')?.content.querySelectorAll('[data-placement]').forEach(entry=>{
+                    const k=entry.dataset.placement;
+                    const node=map.get(k);
+                    if(!node)return;
+                    const value={key:k,x:Number(entry.dataset.x),y:Number(entry.dataset.y),scale:Number(entry.dataset.scale),font:entry.dataset.font};
+                    settings.set(k,value);
+                    applyPlacement(node,value);
+                  });
+                });
+                function applyPlacement(node,value){
+                  if(!node.dataset.baseSize) node.dataset.baseSize=getComputedStyle(node).fontSize;
+                  node.style.translate=value.x+'px '+value.y+'px';
+                  if(value.key.startsWith('avatar-')) node.style.scale=value.scale/100;
+                  else{
+                    node.style.fontSize=parseFloat(node.dataset.baseSize)*value.scale/100+'px';
+                    node.style.fontFamily=slideFonts[value.font]||'';
+                  }
+                }
+                function singleSelected(node){
+                  if(selected)selected.classList.remove('single-selected');
+                  selected=node;
+                  if(!node)return;
+                  node.classList.add('single-selected');
+                  const key=node.dataset.layoutKey;
+                  const value=placements.get(slides[page]).get(key)||{key,x:0,y:0,scale:100,font:''};
+                  parent.postMessage({type:'pmo-slide-selected',value,avatar:key.startsWith('avatar-')},'*');
+                }
+                document.getElementById('deck').addEventListener('click',event=>{
+                  if(!singleEdit)return;
+                  const node=event.target.closest('[data-layout-key]');
+                  if(node)singleSelected(node);
+                });
+                const canvas=document.getElementById('deck');
+                canvas.addEventListener('input',event=>{
+                  if(singleEdit && event.target.dataset.edit)editedText.add(event.target);
+                });
+                canvas.addEventListener('focusin',event=>{
+                  if(singleEdit && event.target.dataset.layoutKey)singleSelected(event.target);
+                });
+                canvas.addEventListener('pointerdown',event=>{
+                  if(!singleEdit || event.button!==0 || !event.altKey)return;
+                  const node=event.target.closest('[data-layout-key]');
+                  if(!node)return;
+                  event.preventDefault();
+                  singleSelected(node);
+                  const key=node.dataset.layoutKey;
+                  const value=placements.get(slides[page]).get(key)||{key,x:0,y:0,scale:100,font:''};
+                  drag={pointer:event.pointerId,left:event.clientX,top:event.clientY,value,node};
+                  canvas.setPointerCapture(event.pointerId);
+                });
+                canvas.addEventListener('pointermove',event=>{
+                  if(drag?.pointer!==event.pointerId)return;
+                  const zoom=canvas.getBoundingClientRect().width/1920||1;
+                  const value={...drag.value,
+                    x:Math.max(-1920,Math.min(1920,Math.round(drag.value.x+(event.clientX-drag.left)/zoom))),
+                    y:Math.max(-1080,Math.min(1080,Math.round(drag.value.y+(event.clientY-drag.top)/zoom)))};
+                  applyPlacement(drag.node,value);
+                  placements.get(slides[page]).set(value.key,value);
+                });
+                canvas.addEventListener('lostpointercapture',()=>{
+                  if(!drag)return;
+                  const node=drag.node;
+                  drag=null;
+                  singleSelected(node);
+                });
+                window.addEventListener('message',event=>{
+                  if(event.source!==parent || !event.data || slides.length!==1)return;
+                  const message=event.data;
+                  const slide=slides[0];
+                  if(message.type==='pmo-slide-edit'){
+                    singleEdit=true;
+                    clearTimers();
+                    stepsOf(slide).forEach(node=>node.classList.remove('ppt-step-hidden'));
+                    document.body.classList.add('single-edit');
+                    elements.get(slide).forEach(node=>{
+                      if(node.dataset.edit)node.contentEditable='plaintext-only';
+                      else node.tabIndex=0;
+                    });
+                  }
+                  if(!singleEdit)return;
+                  if(message.type==='pmo-slide-layout' && selected){
+                    const v=message.value;
+                    const key=selected.dataset.layoutKey;
+                    const value={key,x:Number(v.x)||0,y:Number(v.y)||0,scale:Number(v.scale)||100,font:v.font||''};
+                    applyPlacement(selected,value);
+                    placements.get(slide).set(key,value);
+                  }
+                  if(message.type==='pmo-slide-save'){
+                    const text=Array.from(editedText)
+                      .map(node=>[node.dataset.edit,node.textContent.trim()]);
+                    parent.postMessage({type:'pmo-slide-saved',text,layout:Array.from(placements.get(slide).values())},'*');
+                  }
+                });
                 function show(i){
                   clearTimers();
                   const old=slides[page];

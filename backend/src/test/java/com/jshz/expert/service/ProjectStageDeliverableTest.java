@@ -12,6 +12,25 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProjectStageDeliverableTest {
     @Test
+    void slideLayoutSurvivesPortraitResolutionAndEscapesKeys() {
+        var adjustment = new ProjectShowService.ElementLayout("avatar-0", 125.0, -30.0, 130.0, "");
+        var title = new ProjectShowService.ElementLayout("title", 25.0, 15.0, 110.0, "kai");
+        var person = new ProjectShowService.Person("大会主席", "测试专家", "教授", "", "ph:0");
+        var slide = new ProjectShowService.Slide("", "开场", "", "", "section", List.of("01"),
+                List.of(person), null, 0, List.of(adjustment, title));
+        String photo = "data:image/png;base64,AAAA";
+        var deck = new ProjectShowService.Deck("", List.of(slide), "gold", null, List.of(photo), null, photo);
+        String html = ProjectShowService.render(deck);
+        assertTrue(html.contains("data-placement=\"avatar-0\" data-x=\"125.0\""));
+        assertTrue(html.contains("data-font=\"kai\""));
+        assertTrue(html.contains(".sec-p-avatar > .avatar-frame{border:0"));
+        assertThrows(BusinessException.class, () -> ProjectShowService.render(new ProjectShowService.Deck("",
+                List.of(new ProjectShowService.Slide("", "开场", "", "", "section", List.of("01"),
+                        List.of(person), null, 0, List.of(new ProjectShowService.ElementLayout(
+                                "title\" injected", 0.0, 0.0, 100.0, "")))), "gold", null, List.of(photo))));
+    }
+
+    @Test
     void exportsResizedCoverWithOfflineFontAndAdjustableAvatarFrame() {
         var cover = new ProjectShowService.Slide("", "封面", "", "", "cover", null, null, null);
         var field = new ProjectShowService.CoverField("title", "主标题", "会议", 50.0, 42.0,
@@ -39,7 +58,7 @@ class ProjectStageDeliverableTest {
         assertTrue(html.contains("left:31.5%;top:22.0%"));
         assertTrue(html.contains("&lt;会议&gt;"));
         assertTrue(html.contains("id=\"avatar-frame\""));
-        assertTrue(html.contains("<small>教授</small>"));
+        assertTrue(html.contains(".persons[0].title\">教授</small>"));
         var invalid = new ProjectShowService.CoverField("title", "主标题", "会议", Double.NaN, 22.0);
         assertThrows(BusinessException.class, () -> ProjectShowService.validateCoverDesign("", List.of(invalid)));
     }

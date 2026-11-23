@@ -239,8 +239,33 @@
     <el-dialog v-model="pagePreviewOpen" title="页面预览" width="min(900px, 94vw)" @closed="clearPagePreview">
       <p v-if="pagePreviewLoading" role="status">正在生成预览…</p>
       <p v-else-if="pagePreviewError" role="alert">{{ pagePreviewError }}</p>
-      <iframe v-else-if="pagePreviewUrl" :src="pagePreviewUrl" sandbox="allow-scripts"
-        class="page-preview-frame" title="串场单页预览"></iframe>
+      <div v-else-if="pagePreviewUrl" class="single-page-editor">
+        <iframe ref="singlePageFrame" :src="pagePreviewUrl" sandbox="allow-scripts" @load="singlePageLoaded = true"
+          class="page-preview-frame" title="串场单页预览"></iframe>
+        <button v-if="canEditSinglePage && singlePageLoaded && !singlePageEditing" type="button" class="single-edit-ball"
+          aria-label="编辑当前幻灯片" @click="startSingleEdit">编辑</button>
+        <div v-if="singlePageEditing" class="single-editor-tools" role="group" aria-label="幻灯片编辑工具">
+          <span v-if="!elementSettings">点击文字或头像，也可按住 Alt 拖动</span>
+          <template v-else>
+            <label v-if="!avatarSelected">字体
+              <el-select v-model="elementSettings.font" size="small" @change="sendElementSettings">
+                <el-option label="主题默认" value="" /><el-option label="微软雅黑" value="sans" />
+                <el-option label="宋体" value="serif" /><el-option label="楷体" value="kai" />
+              </el-select>
+            </label>
+            <label>{{ avatarSelected ? '头像大小 %' : '字号 %' }}
+              <el-input-number v-model="elementSettings.scale" :min="40" :max="250" :step="5" size="small" @change="sendElementSettings" />
+            </label>
+            <label>水平位移
+              <el-input-number v-model="elementSettings.x" :min="-1920" :max="1920" :step="10" size="small" @change="sendElementSettings" />
+            </label>
+            <label>垂直位移
+              <el-input-number v-model="elementSettings.y" :min="-1080" :max="1080" :step="10" size="small" @change="sendElementSettings" />
+            </label>
+          </template>
+          <el-button type="primary" size="small" :loading="singlePageSaving" @click="postSinglePage('pmo-slide-save')">保存本页</el-button>
+        </div>
+      </div>
     </el-dialog>
 
     <footer class="wiz-foot">
@@ -335,6 +360,15 @@ const pagePreviewOpen = ref(false)
 const pagePreviewUrl = ref('')
 const pagePreviewLoading = ref(false)
 const pagePreviewError = ref('')
+const singlePageFrame = ref(null)
+const singlePageIndex = ref(-1)
+const singlePageEditing = ref(false)
+const singlePageSaving = ref(false)
+const singlePageLoaded = ref(false)
+const elementSettings = ref(null)
+const avatarSelected = ref(false)
+const canEditSinglePage = computed(() => editable.value && step.value === 3 &&
+  singlePageIndex.value >= 0 && currentDeckSlides.value[singlePageIndex.value]?.kind !== 'cover')
 let pagePreviewRequest = 0
 let portraitsReady = Promise.resolve()
 
@@ -638,6 +672,11 @@ const pagesByGroup = computed(() => {
 
 function clearPagePreview() {
   pagePreviewRequest += 1
+  singlePageIndex.value = -1
+  singlePageEditing.value = false
+  singlePageSaving.value = false
+  singlePageLoaded.value = false
+  elementSettings.value = null
   if (pagePreviewUrl.value) URL.revokeObjectURL(pagePreviewUrl.value)
   pagePreviewUrl.value = ''
 }
@@ -645,6 +684,7 @@ function clearPagePreview() {
 async function openPagePreview(index, slide = currentDeckSlides.value[index]) {
   if (!slide) return
   clearPagePreview()
+  singlePageIndex.value = index
   const request = pagePreviewRequest
   pagePreviewOpen.value = true
   pagePreviewLoading.value = true
@@ -663,7 +703,48 @@ async function openPagePreview(index, slide = currentDeckSlides.value[index]) {
   }
 }
 
+function postSinglePage(type, value) {
+  singlePageFrame.value?.contentWindow?.postMessage({ type, value }, '*')
+}
+
+function startSingleEdit() {
+  if (!canEditSinglePage.value) return
+  singlePageEditing.value = true
+  postSinglePage('pmo-slide-edit')
+}
+
+function sendElementSettings() {
+  postSinglePage('pmo-slide-layout', { ...elementSettings.value })
+}
+
+async function onSinglePageMessage(event) {
+  if (event.source !== singlePageFrame.value?.contentWindow || !singlePageEditing.value || !canEditSinglePage.value) return
+  const message = event.data
+  if (message?.type === 'pmo-slide-selected') {
+    elementSettings.value = message.value
+    avatarSelected.value = message.avatar
+  }
+  if (message?.type !== 'pmo-slide-saved' || singlePageSaving.value) return
+  const index = singlePageIndex.value
+  const request = pagePreviewRequest
+  if (!Array.isArray(message.text) || !Array.isArray(message.layout)) return
+  const pages = JSON.parse(JSON.stringify(currentDeckSlides.value))
+  for (const [path, value] of message.text) writeEditPath(pages, path.replace(/^p0\./, `p${index}.`), value)
+  pages[index].layout = message.layout
+  singlePageSaving.value = true
+  try {
+    await saveStageForm(id, { phaseId: phaseId.value, formData: deck(pages, true) })
+    editableDeck.value = pages
+    ElMessage.success('本页已保存')
+    if (request === pagePreviewRequest) await openPagePreview(index)
+  } finally {
+    if (request === pagePreviewRequest) singlePageSaving.value = false
+  }
+}
+
+onMounted(() => window.addEventListener('message', onSinglePageMessage))
 onUnmounted(() => {
+  window.removeEventListener('message', onSinglePageMessage)
   clearPagePreview()
   detectNotice?.close()
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
@@ -1133,4 +1214,12 @@ function goProject() {
 .frame-swatch { width: 54px; aspect-ratio: 1; object-fit: contain; }
 .segment-page:focus-visible { outline: 2px solid var(--ui-primary); }
 .page-preview-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.single-page-editor { position: relative; }
+.single-edit-ball { position: absolute; top: 10px; right: 10px; width: 48px; height: 48px; border: 0;
+  border-radius: 50%; background: var(--ui-primary); color: white; cursor: pointer; font: inherit; }
+.single-editor-tools { position: absolute; inset: 8px 8px auto auto; display:flex; align-items:end; flex-wrap:wrap;
+  gap:8px; max-width: calc(100% - 16px); padding: 9px; border-radius: 8px;
+  background: #fff; color: var(--ui-text-main); box-shadow: 0 2px 12px #0004; }
+.single-editor-tools label { display:grid; gap: 4px; font-size:12px; }
+.single-editor-tools .el-select { width:106px; }
 </style>
