@@ -87,7 +87,9 @@ public class ComplianceParseService {
                     }
                 }
             }
-            if (candidates.isEmpty() || structured.incomplete()) {
+            // 20261123 修复：structured 为 null（byte[] 入口/无抽取器）时原 || 右侧直接 NPE，
+            // 导致整个解析被判失败且 llmExtract 兜底永不执行
+            if (candidates.isEmpty() || (structured != null && structured.incomplete())) {
                 if (textContent != null) {
                     addParagraphs(candidates, textContent, false);
                 }
@@ -119,8 +121,6 @@ public class ComplianceParseService {
                         return new ParseResult(result,
                                 "已解析 " + result.size() + " 条事项（OCR+LLM 结构化），请核对后发布" + warning);
                     }
-                    result.addAll(fragments);
-                } else {
                     result.addAll(fragments);
                 }
                 return new ParseResult(result,

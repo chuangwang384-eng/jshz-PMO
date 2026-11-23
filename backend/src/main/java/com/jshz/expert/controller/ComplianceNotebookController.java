@@ -1,6 +1,7 @@
 package com.jshz.expert.controller;
 
 import com.jshz.expert.common.ApiResponse;
+import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.ComplianceProjectTodo;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ComplianceNotebookService;
@@ -28,12 +29,14 @@ public class ComplianceNotebookController {
     public ApiResponse<List<Map<String, Object>>> myItems(@RequestParam(required = false) Long documentId,
                                                           @RequestParam(defaultValue = "all") String view,
                                                           @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         return ApiResponse.ok(notebookService.myItems(user, documentId, view));
     }
 
     /** 隐藏一条（仅影响本人记事本）。 */
     @PutMapping("/items/{itemId}/hide")
     public ApiResponse<Void> hide(@PathVariable Long itemId, @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         notebookService.hide(itemId, user);
         return ApiResponse.ok(null);
     }
@@ -41,6 +44,7 @@ public class ComplianceNotebookController {
     /** 恢复显示（幂等）。 */
     @PutMapping("/items/{itemId}/unhide")
     public ApiResponse<Void> unhide(@PathVariable Long itemId, @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         notebookService.unhide(itemId, user);
         return ApiResponse.ok(null);
     }
@@ -49,6 +53,7 @@ public class ComplianceNotebookController {
     @GetMapping("/pushable-projects")
     public ApiResponse<List<Map<String, Object>>> pushableProjects(@RequestParam Long documentId,
                                                                    @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         return ApiResponse.ok(notebookService.pushableProjects(documentId, user));
     }
 
@@ -56,6 +61,7 @@ public class ComplianceNotebookController {
     @PostMapping("/push")
     public ApiResponse<Map<String, Object>> push(@RequestBody Map<String, Object> body,
                                                  @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         Long projectId = body.get("projectId") == null ? null
                 : Long.valueOf(String.valueOf(body.get("projectId")));
         Object ids = body.get("itemIds");
@@ -69,6 +75,7 @@ public class ComplianceNotebookController {
     @GetMapping("/projects/{projectId}/todos")
     public ApiResponse<List<ComplianceProjectTodo>> projectTodos(@PathVariable Long projectId,
                                                                  @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         return ApiResponse.ok(notebookService.projectTodos(projectId, user));
     }
 
@@ -76,11 +83,17 @@ public class ComplianceNotebookController {
     @PutMapping("/todos/{todoId}")
     public ApiResponse<Void> handleTodo(@PathVariable Long todoId, @RequestBody Map<String, Object> body,
                                         @AuthenticationPrincipal AuthUser user) {
+        requireUser(user);
         String status = body.get("status") == null ? null : String.valueOf(body.get("status"));
         Integer rowVersion = body.get("rowVersion") == null ? null
                 : Integer.valueOf(String.valueOf(body.get("rowVersion")));
         notebookService.handleTodo(todoId, status, rowVersion, user);
         return ApiResponse.ok(null);
+    }
+
+    /** 未登录统一 401（对齐 ComplianceV4Controller 口径，避免 service 层 NPE 变 500）。 */
+    private void requireUser(AuthUser user) {
+        if (user == null) throw new BusinessException(401, "未登录");
     }
 
     // ==================== 维护端（knowledge:maintain） ====================

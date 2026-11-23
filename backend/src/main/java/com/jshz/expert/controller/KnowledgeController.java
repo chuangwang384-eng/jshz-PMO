@@ -111,7 +111,8 @@ public class KnowledgeController {
 
     /**
      * 更新文档：PUT /api/knowledge/docs/{id}（multipart：title 可选 + file 必填）。
-     * 主表 version+1、更新文件字段与 update_by/update_time，版本表追加历史记录。登录即可。
+     * 主表 version+1、更新文件字段与 update_by/update_time，版本表追加历史记录。
+     * 权限：knowledge:maintain（控制器 + 业务层双重校验，与上传对齐；20261123 修复缺失校验）。
      */
     @PutMapping("/docs/{id}")
     public ApiResponse<KnowledgeDocument> update(@PathVariable Long id,
@@ -119,6 +120,7 @@ public class KnowledgeController {
                                                  @RequestParam("file") MultipartFile file,
                                                  @AuthenticationPrincipal AuthUser authUser,
                                                  HttpServletRequest request) {
+        requireMaintain(authUser);
         KnowledgeDocument doc = documentService.updateVersion(id, title, file, authUser);
         triggerParse(doc, authUser);
         operationLogService.record(authUser == null ? null : authUser.getUserId(),

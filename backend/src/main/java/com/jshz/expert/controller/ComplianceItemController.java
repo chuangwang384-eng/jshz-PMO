@@ -204,16 +204,19 @@ public class ComplianceItemController {
         return ApiResponse.ok(complianceService.userProgress(userId));
     }
 
-    /** 提醒记录查询（维护人，幂等核对）。 */
+    /**
+     * 提醒记录查询（维护人，幂等核对）。需求21b：服务端分页 + 可选时间范围，
+     * 不再一次性返回某事项全部记录；时间按计划提醒时间（scheduled_time）过滤。
+     */
     @GetMapping("/reminder-logs")
-    public ApiResponse<List<com.jshz.expert.entity.ComplianceReminderLog>> reminderLogs(
+    public ApiResponse<Map<String, Object>> reminderLogs(
             @RequestParam Long itemId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long size,
             @AuthenticationPrincipal AuthUser user) {
         requireMaintainer(user);
-        return ApiResponse.ok(reminderLogMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.jshz.expert.entity.ComplianceReminderLog>()
-                .eq(com.jshz.expert.entity.ComplianceReminderLog::getItemId, itemId)
-                .orderByDesc(com.jshz.expert.entity.ComplianceReminderLog::getScheduledTime)));
+        return ApiResponse.ok(complianceService.reminderLogs(itemId, from, to, page, size));
     }
-
-    private final com.jshz.expert.mapper.ComplianceReminderLogMapper reminderLogMapper;
 }

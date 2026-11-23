@@ -166,6 +166,10 @@ public class ComplianceNotebookService {
                 .eq(ComplianceItem::getDocumentId, documentId)
                 .eq(ComplianceItem::getIsDraft, 0)
                 .eq(ComplianceItem::getWithdrawn, 0));
+        // 20261123 加固：计数校验与逐条更新之间可能有并发发布，更新前再核对一次集合规模
+        if (items.size() != expectedCount) {
+            throw new BusinessException("已发布条目集合已变化（当前 " + items.size() + " 条），请重新确认");
+        }
         for (ComplianceItem it : items) {
             it.setWithdrawn(1);
             it.setWithdrawnBy(user.getUsername());
@@ -334,6 +338,9 @@ public class ComplianceNotebookService {
                 .set(ComplianceProjectTodo::getHandleBy, user.getUsername())
                 .set(ComplianceProjectTodo::getHandleTime, LocalDateTime.now())
                 .setSql("row_version = row_version + 1");
-        todoMapper.update(null, uw);
+        // 20261123 修复：乐观锁条件更新必须检查影响行数，否则并发冲突静默丢失（对齐 V4Service patchTask 口径）
+        if (todoMapper.update(null, uw) != 1) {
+            throw new BusinessException(409, "待办已被他人更新，请刷新后重试");
+        }
     }
 }

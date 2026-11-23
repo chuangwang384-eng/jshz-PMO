@@ -9,7 +9,7 @@
         <KnowledgeDocList category="enterprise-compliance" category-name="企业合规要求" :allow-upload="true" @favorite-changed="onFavoriteChanged" />
       </el-tab-pane>
       <el-tab-pane v-if="auth.hasPermission('knowledge:maintain')" label="模板维护" name="maintenance">
-        <ComplianceTemplateEditor v-if="enabled" />
+        <ComplianceTemplateEditor />
         <MaintenanceBoard :active="pageTab === 'maintenance'" @changed="onFavoriteChanged" />
       </el-tab-pane>
       <el-tab-pane v-if="mode === 'V3'" label="原有待办" name="legacy"><LegacyCompliancePanel /></el-tab-pane>

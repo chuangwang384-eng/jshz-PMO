@@ -91,7 +91,7 @@
         <el-option v-for="p in projects" :key="p.projectId" :label="p.name + (p.compatible ? '' : '（已绑定其他文档）')"
                    :value="p.projectId" :disabled="!p.compatible" />
       </el-select>
-      <div v-if="pushProjectCompatible === false" class="nb-hint" style="margin-top: 8px; color: #f56c6c">
+      <div v-if="pushProjectCompatible === false" class="nb-hint" style="margin-top: 8px; color: var(--ui-danger)">
         该项目已绑定「{{ pushProjectBoundTitle }}」，无法推送本文档条目。
       </div>
       <template #footer>
@@ -165,15 +165,19 @@ function stageText(v) {
 }
 
 async function doHide(it) {
-  await hideNotebookItem(it.id)
-  ElMessage.success('已隐藏（仅影响自己）')
-  load()
+  try {
+    await hideNotebookItem(it.id)
+    ElMessage.success('已隐藏（仅影响自己）')
+    load()
+  } catch { /* 拦截器已统一提示 */ }
 }
 
 async function doUnhide(it) {
-  await unhideNotebookItem(it.id)
-  ElMessage.success('已恢复显示')
-  load()
+  try {
+    await unhideNotebookItem(it.id)
+    ElMessage.success('已恢复显示')
+    load()
+  } catch { /* 拦截器已统一提示 */ }
 }
 
 async function openPush() {
@@ -181,9 +185,11 @@ async function openPush() {
     ElMessage.warning('请先勾选同一文档下的条目')
     return
   }
-  projects.value = await listPushableProjects(selectedDocumentId.value)
-  pushProjectId.value = null
-  pushVisible.value = true
+  try {
+    projects.value = await listPushableProjects(selectedDocumentId.value)
+    pushProjectId.value = null
+    pushVisible.value = true
+  } catch { /* 拦截器已统一提示 */ }
 }
 
 const pushProjectCompatible = computed(() => {
@@ -202,7 +208,7 @@ async function doPush() {
     ElMessage.success(`推送完成：新增 ${r.added} 条，跳过（已存在）${r.skipped} 条`)
     pushVisible.value = false
     checked.value = {}
-  } finally {
+  } catch { /* 拦截器已统一提示 */ } finally {
     pushing.value = false
   }
 }

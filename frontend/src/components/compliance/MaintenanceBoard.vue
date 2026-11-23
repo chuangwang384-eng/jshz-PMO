@@ -156,7 +156,7 @@ async function perform(action, message) {
     ElMessage.success(typeof message === 'function' ? message(result) : message)
     emit('changed')
     await load()
-  } finally {
+  } catch { /* 拦截器已统一提示 */ } finally {
     busy.value = false
   }
 }
@@ -197,36 +197,41 @@ async function remove(row) {
   await perform(() => row.isDraft ? deleteComplianceItem(row.id) : request.post(`/compliance/items/${row.id}/withdraw`), `已${action}`)
 }
 async function clearPublished(group) {
-  const preview = await withdrawPreview(group.id)
-  if (!preview.count || !await ask(`撤下「${preview.documentTitle}」全部 ${preview.count} 条已发布事项？`, '清空已发布事项')) return
-  await perform(() => withdrawDocument(group.id, preview.count), '已清空已发布事项')
+  try {
+    const preview = await withdrawPreview(group.id)
+    if (!preview.count || !await ask(`撤下「${preview.documentTitle}」全部 ${preview.count} 条已发布事项？`, '清空已发布事项')) return
+    await perform(() => withdrawDocument(group.id, preview.count), '已清空已发布事项')
+  } catch { /* 拦截器已统一提示 */ }
 }
 async function clearDraftGroups(group) {
-  const preview = await clearDraftsPreview(group.id)
-  if (!preview.count) { ElMessage.info('该文档暂无候选事项'); return }
-  if (!await ask(`删除「${preview.documentTitle}」全部 ${preview.count} 条候选事项？删除后不可恢复，已发布事项不受影响。`, '清空候选事项')) return
-  await perform(() => clearDrafts(group.id, preview.count), '已清空候选事项')
+  try {
+    const preview = await clearDraftsPreview(group.id)
+    if (!preview.count) { ElMessage.info('该文档暂无候选事项'); return }
+    if (!await ask(`删除「${preview.documentTitle}」全部 ${preview.count} 条候选事项？删除后不可恢复，已发布事项不受影响。`, '清空候选事项')) return
+    await perform(() => clearDrafts(group.id, preview.count), '已清空候选事项')
+  } catch { /* 拦截器已统一提示 */ }
 }
 async function parse(reset) {
   const id = parseDocumentId.value
   if (!id || busy.value) return
-  const preview = await request.get(`/compliance/documents/${id}/reset-preview`)
-  const prompt = reset
-    ? `清空「${preview.documentTitle}」的 ${preview.count} 条事项并重新解析？解析成功后才会撤下已发布事项并替换候选。`
-    : `解析「${preview.documentTitle}」并替换原有候选？已发布事项保留。`
-  if (!await ask(prompt, reset ? '清空并重新解析' : '解析文档')) return
-  // 解析中全屏提示（Owner 2026-11-11）：OCR+大模型识别约需 1-2 分钟
-  const loading = ElLoading.service({
-    lock: true, text: '正在解析文档（OCR + 大模型识别，约需 1-2 分钟，请勿关闭或刷新页面）…',
-    background: 'rgba(0, 0, 0, 0.7)'
-  })
+  let loading = null
   try {
+    const preview = await request.get(`/compliance/documents/${id}/reset-preview`)
+    const prompt = reset
+      ? `清空「${preview.documentTitle}」的 ${preview.count} 条事项并重新解析？解析成功后才会撤下已发布事项并替换候选。`
+      : `解析「${preview.documentTitle}」并替换原有候选？已发布事项保留。`
+    if (!await ask(prompt, reset ? '清空并重新解析' : '解析文档')) return
+    // 解析中全屏提示（Owner 2026-11-11）：OCR+大模型识别约需 1-2 分钟
+    loading = ElLoading.service({
+      lock: true, text: '正在解析文档（OCR + 大模型识别，约需 1-2 分钟，请勿关闭或刷新页面）…',
+      background: 'rgba(0, 0, 0, 0.7)'
+    })
     await perform(
       () => request.post(`/compliance/documents/${id}/reparse`, { reset, expectedCount: preview.count }, { timeout: 300000 }),
       result => `已解析 ${result.parsed} 条候选`
     )
-  } finally {
-    loading.close()
+  } catch { /* 拦截器已统一提示 */ } finally {
+    if (loading) loading.close()
   }
 }
 

@@ -196,6 +196,8 @@ CREATE TABLE IF NOT EXISTS `compliance_execution_task` (
   `source_node_code` varchar(64) NOT NULL COMMENT '模板节点 code（快照来源）',
   `snapshot` json DEFAULT NULL COMMENT '创建时节点快照（title/instruction/options/required/time_rule/input_type）',
   `answer` json DEFAULT NULL COMMENT '本次填写结果（单选code/多选codes/文本）',
+  `answer_unconfirmed` tinyint NOT NULL DEFAULT '0' COMMENT '1=复用的答案待重新确认（手工填写或确认后置 0）',
+  `answer_unconfirmed_source` varchar(200) DEFAULT NULL COMMENT '待确认来源说明（如 复用清单#12 的答案）',
   `applicability` varchar(20) NOT NULL DEFAULT 'APPLICABLE' COMMENT 'APPLICABLE/NOT_APPLICABLE',
   `due_date` date DEFAULT NULL COMMENT '本次计划到期日（空=待排期）',
   `priority` varchar(16) NOT NULL DEFAULT 'MEDIUM' COMMENT 'HIGH/MEDIUM/LOW',

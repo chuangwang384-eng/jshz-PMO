@@ -30,6 +30,12 @@ public class ComplianceExecutionTask {
     /** 本次填写结果（JSON） */
     private String answer;
 
+    /** 1=复用的答案待重新确认（手工填写答案或显式确认后置 0） */
+    private Integer answerUnconfirmed;
+
+    /** 待确认来源说明（如 复用清单#12 的答案） */
+    private String answerUnconfirmedSource;
+
     /** APPLICABLE/NOT_APPLICABLE */
     private String applicability;
 

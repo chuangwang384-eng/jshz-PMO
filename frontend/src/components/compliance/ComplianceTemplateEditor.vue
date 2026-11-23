@@ -217,7 +217,7 @@ async function publish(){
     ElMessage.success(content.value.nodes.length ? '已生效，仅用于之后新建的清单' : '模板事项已清空')
   }catch(error){
     failed.value=true
-    conflict.value=error.code===409
+    conflict.value=error.code===409 || error.response?.status===409
   }finally{activating.value=false}
 }
 async function selectExisting(){
@@ -254,7 +254,7 @@ async function clearItems(){
   content.value.nodes=[]
   chosen.value=null
 }
-function undo(){if(undoStack.value.length){content.value=JSON.parse(undoStack.value.pop());chosen.value=null}}
+function undo(){if(undoStack.value.length){hydrating=true;content.value=JSON.parse(undoStack.value.pop());chosen.value=null;queueMicrotask(()=>{hydrating=false})}}
 async function renameStage(){try{const old=currentStage.value;const {value}=await ElMessageBox.prompt('新名称（最多32字）','阶段改名',{inputValue:old,inputValidator:v=>!!v?.trim() && v.trim().length<=32 && (v.trim()===old || !stages.value.includes(v.trim())) || '名称无效或重复'});checkpoint();content.value.groups=stages.value.filter(g=>g!=='未分组').map(g=>g===old?value.trim():g);for(const n of content.value.nodes)if(stage(n)===old)n.stage=value.trim();currentStage.value=value.trim()}catch{}}
 function shiftStage(delta){const list=stages.value.filter(g=>g!=='未分组'),i=list.indexOf(currentStage.value),j=i+delta;if(j>=0 && j<list.length){checkpoint();[list[i],list[j]]=[list[j],list[i]];content.value.groups=list;const rank=g=>g==='未分组'?-1:list.indexOf(g);content.value.nodes.sort((a,b)=>rank(stage(a))-rank(stage(b)))}}
 async function deleteStage(){try{const old=currentStage.value;await ElMessageBox.confirm('删除阶段后，其事项移动到“未分组”，内容保留。','删除阶段');checkpoint();content.value.groups=stages.value.filter(g=>g!==old && g!=='未分组');for(const n of content.value.nodes)if(stage(n)===old)n.stage='未分组';currentStage.value='未分组'}catch{}}

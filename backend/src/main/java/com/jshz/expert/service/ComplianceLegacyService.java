@@ -19,8 +19,10 @@ public class ComplianceLegacyService {
         } else rows = liveRows(uid);
         Map<Long,Boolean> readable = new HashMap<>();
         for (Map<String,Object> row : rows) {
-            Long id = ((Number)row.get("document_id")).longValue();
-            boolean allowed = readable.computeIfAbsent(id, key -> db.queryForObject("SELECT COUNT(*) FROM knowledge_document WHERE id=? AND status=1 AND category='enterprise-compliance'",Integer.class,key) == 1);
+            // 20261123 修复：document_id 可能为 NULL（事项无来源文档），原写法直接 NPE 致个人历史页 500
+            Object rawId = row.get("document_id");
+            Long id = rawId instanceof Number n ? n.longValue() : null;
+            boolean allowed = id != null && readable.computeIfAbsent(id, key -> db.queryForObject("SELECT COUNT(*) FROM knowledge_document WHERE id=? AND status=1 AND category='enterprise-compliance'",Integer.class,key) == 1);
             if (!allowed) {
                 row.put("title", "来源不可访问的历史事项"); row.put("content", null); row.put("document_title", null);
                 row.put("remark", null); row.put("block_reason", null);

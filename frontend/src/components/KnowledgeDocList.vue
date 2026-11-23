@@ -364,6 +364,12 @@ async function fetchList() {
       docs.value = data?.items || []
       total.value = data?.total || 0
     }
+  } catch (e) {
+    // 20261123 修复：拦截器已统一提示，这里兕底避免 unhandled rejection；失败时清空列表防过期数据
+    if (requestId === listRequestId) {
+      docs.value = []
+      total.value = 0
+    }
   } finally {
     if (requestId === listRequestId) loading.value = false
   }
@@ -438,6 +444,8 @@ async function submitUpload() {
     }
     dialogVisible.value = false
     fetchList()
+  } catch (e) {
+    // 20261123 修复：拦截器已统一提示，保留弹窗便于用户重试，避免 unhandled rejection
   } finally {
     submitting.value = false
   }
@@ -484,6 +492,8 @@ async function handlePreview(row) {
   previewTitle.value = `${row.title}${extOf(row.fileType)}`
   previewMode.value = ''
   previewImageUrl.value = ''
+  // 20261123 修复：重开预览前先释放旧 blob URL，避免短时泄漏
+  if (previewBlobUrl.value) URL.revokeObjectURL(previewBlobUrl.value)
   previewBlobUrl.value = ''
   previewText.value = ''
   pdfDoc.value = null

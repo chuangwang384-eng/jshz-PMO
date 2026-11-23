@@ -94,11 +94,6 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
      * 结果批量填充 downloadCount（C4，仅维护人可见）与 isFavorite（C3，当前用户收藏状态）。
      */
     public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
-                                            long page, long pageSize, AuthUser user) {
-        return pageList(category, keyword, fileType, page, pageSize, user, false);
-    }
-
-    public Page<KnowledgeDocument> pageList(String category, String keyword, String fileType,
                                             long page, long pageSize, AuthUser user, boolean favoritesOnly) {
         LambdaQueryWrapper<KnowledgeDocument> wrapper = new LambdaQueryWrapper<>();
         if (favoritesOnly) {
@@ -163,6 +158,10 @@ public class KnowledgeDocumentService extends ServiceImpl<KnowledgeDocumentMappe
      */
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocument updateVersion(Long id, String title, MultipartFile file, AuthUser user) {
+        // 业务层二次校验（类头约定：过滤器 + 业务层双重校验；20261123 修复更新接口漏校验）
+        if (user == null || !user.hasPermission("knowledge:maintain")) {
+            throw new BusinessException("该操作需要知识星球维护人权限（knowledge:maintain）");
+        }
         KnowledgeDocument doc = getById(id);
         if (doc == null) {
             throw new BusinessException("文档不存在");

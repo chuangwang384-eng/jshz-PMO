@@ -24,7 +24,6 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Row;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -33,8 +32,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,18 +47,6 @@ public class KnowledgeDocTextExtractor {
 
     /** 入库正文长度上限（字符）：大文档截断，兼顾 MEDIUMTEXT 容量与检索意义 */
     private static final int MAX_CHARS = 200_000;
-
-    public String extract(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            return null;
-        }
-        try (InputStream in = file.getInputStream()) {
-            return extract(in, file.getOriginalFilename());
-        } catch (Exception e) {
-            // 抽取失败不阻断主流程：该文档仅不支持内容检索
-            return null;
-        }
-    }
 
     /**
      * P2-7：从磁盘路径流式抽取正文，避免 {@code MultipartFile.getBytes()} 在请求线程产生整文件副本。
@@ -97,13 +82,6 @@ public class KnowledgeDocTextExtractor {
             // 抽取失败不阻断主流程：该文档仅不支持内容检索
             return null;
         }
-    }
-
-    /** Extract reviewable source blocks with stable page/paragraph/table anchors. */
-    public StructuredExtraction extractStructured(MultipartFile file) {
-        if (file == null || file.isEmpty()) return new StructuredExtraction(List.of(), true, "文件为空");
-        try { return extractStructured(file.getBytes(), file.getOriginalFilename()); }
-        catch (Exception e) { return new StructuredExtraction(List.of(), true, "读取文件失败，请人工核对原文件"); }
     }
 
     /** Path 重载（合规解析异步链直接读盘，避免调用方持有整文件 byte[]，Owner 2026-11-10）。 */
@@ -147,12 +125,13 @@ public class KnowledgeDocTextExtractor {
                                 var grid = ComplianceOcrTable.grid(raster);
                                 if (grid != null) {
                                     String anchor = "PDF第" + i + "页";
+                                    // 20261123（需求20）：blocks() 返回已判读列位的栅格，refineRows 复用同一列映射
                                     var table = ComplianceOcrTable.blocks(grid, LocalTableOcr.recognize(raster), anchor);
-                                    if (table.isEmpty() || table.stream().anyMatch(block -> "PAGE".equals(block.kind()))) {
+                                    if (table.isEmpty() || table.blocks().stream().anyMatch(block -> "PAGE".equals(block.kind()))) {
                                         table = ComplianceOcrTable.blocks(grid, ocrPage(raster, true), anchor);
                                     }
                                     if (!table.isEmpty()) {
-                                        blocks.addAll(ComplianceOcrTable.refineRows(raster, grid, table));
+                                        blocks.addAll(ComplianceOcrTable.refineRows(raster, table.grid(), table.blocks()));
                                         continue;
                                     }
                                 }

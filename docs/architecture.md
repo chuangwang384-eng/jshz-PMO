@@ -293,6 +293,15 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 
 正文按段落保留内容，标题根据段落主题及义务关键词生成。表格优先使用项目名称作为标题。表格坐标识别发现明显乱码时，对对应单元格裁剪后使用本地 Tesseract 重识别，每页最多补识别六个单元格。无法确认的行标注需核对原文，其他行及有效比例、金额、比较符号按原识别结果保留。无新增依赖、接口或数据库迁移。
 
+### 合规复用答案、待办来源状态与提醒记录分页（2026-11-23，1.0.134）
+
+对应需求 19/20/21（21a/21b）。三处改动均不改变既有权限边界：写入仍限本人，维护人接口仍要求 `knowledge:maintain`。
+
+- **需求19 复用答案待确认**：`compliance_execution_task` 新增 `answer_unconfirmed`（1=待确认）与 `answer_unconfirmed_source`（来源说明，如「复用清单#12 的答案」）。`reuseExecution(copyAnswers=true)` 复制答案时置位并写入来源；`patchTask` 提交 `answer`（本人手工填写）或 `confirmAnswer=true` 即清除标记并记 `ANSWER_CONFIRM` 事件；`progress=COMPLETED` 时若仍待确认则拒绝完成（同一请求内填写/确认放行）。`executionDetail` / `myTasks` 的每个任务返回 `answerUnconfirmed`、`answerUnconfirmedSource`、`answerUnconfirmedNotice`，供界面渲染醒目提示。空答案不进入待确认态，避免影响正常手工填写。
+- **需求20 OCR 表格非 4 列**：`ComplianceOcrTable.grid` 不再要求恰好 4 条竖线，接受 3~7 条（2~6 个内容列）。列语义由表头判读：含「项目/事项」的单元格为标题列，含「标准/内容/要求」的为正文列；4 竖线标准格式在表头不可判读时回退原列位，保持既有识别结果。非标准格式且表头无法判读、整行空白、标题或正文缺失时按既有规则返回空/PAGE 标记，不生成错误事项草稿。`blocks()` 返回已判读列位的栅格，`refineRows` 复用同一列映射。
+- **需求21a 待办来源状态**：`GET /api/compliance/my-todo` 不再静默隐藏来源下架/删除事项，改为返回 `sourceStatus`（ACTIVE/OFFLINE/MISSING）、`sourceNotice`（如「来源文档已下架，仅供历史参考」）与 `actionable`；可执行项排前，统计只计 `actionable` 项并新增 `sourceUnavailableCount`。`PUT /api/compliance/my-progress/{itemId}` 对来源失效事项直接拒绝，防止误更新。
+- **需求21b 提醒记录分页**：`GET /api/compliance/reminder-logs` 由「按 itemId 全量返回」改为服务端分页（`page`/`size`，默认 1/20，上限 200）并支持 `from`/`to` 按 `scheduled_time` 过滤（支持 `yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm:ss`；仅日期时含当日全天）。返回 `{total,page,size,from,to,items}`；非法分页或起点晚于终点返回业务错误。
+
 - 合规 PDF 候选识别独立版面标题，主题标题覆盖适用对象与段内义务。本地模型仅在无法生成原文候选时兜底，其提示包含封面排除、金额保真及 OCR 核对规则。
 
 简历解析在候选后端 1.0.38.27 中并行运行文字抽取和照片处理。每个后端进程复用本机 U²-Net 工作进程，启动时预热，抠图失败时回退原图 JPEG。见 [交接](handover/tasks/20261113_resume_speed.md)。

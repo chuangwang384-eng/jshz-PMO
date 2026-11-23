@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -563,7 +564,9 @@ public class ComplianceService {
 
         LambdaQueryWrapper<ComplianceItem> qw = new LambdaQueryWrapper<ComplianceItem>()
                 .eq(ComplianceItem::getIsDraft, 0)
-                .ne(ComplianceItem::getStatus, "COMPLETED");
+                .ne(ComplianceItem::getStatus, "COMPLETED")
+                // 20261123 修复：撤下事项不得进入我的待办（与 listItems 口径对齐）
+                .and(w -> w.isNull(ComplianceItem::getWithdrawn).or().eq(ComplianceItem::getWithdrawn, 0));
         if (!docIds.isEmpty() && !assignedItemIds.isEmpty()) {
             qw.and(w -> w.in(ComplianceItem::getDocumentId, docIds).or().in(ComplianceItem::getId, assignedItemIds));
         } else if (!docIds.isEmpty()) {
@@ -574,7 +577,7 @@ public class ComplianceService {
             qw.eq(ComplianceItem::getId, -1L);
         }
         List<ComplianceItem> items = itemMapper.selectList(qw);
-        // 过滤：文档下架（status=0）→ 隐藏
+        // 来源文档批量读取：需求21a 起不再按下架隐藏，而是标注来源状态（ACTIVE/OFFLINE/MISSING）
         Map<Long, KnowledgeDocument> docs = new LinkedHashMap<>();
         Set<Long> allDocIds = items.stream().map(ComplianceItem::getDocumentId).collect(java.util.stream.Collectors.toSet());
         if (!allDocIds.isEmpty()) {
@@ -584,25 +587,36 @@ public class ComplianceService {
         LocalDate today = LocalDate.now();
         int near = 0;
         int overdue = 0;
+        int unavailable = 0;
         List<Map<String, Object>> rows = new ArrayList<>();
         for (ComplianceItem it : items) {
             KnowledgeDocument d = docs.get(it.getDocumentId());
-            if (d == null || d.getStatus() == null || d.getStatus() != 1) continue; // 下架隐藏
+            // 需求21a：来源下架/删除不再静默隐藏，返回来源状态供页面显式提示，避免误以为仍可执行
+            String sourceStatus = d == null ? "MISSING" : (d.getStatus() != null && d.getStatus() == 1 ? "ACTIVE" : "OFFLINE");
+            boolean actionable = "ACTIVE".equals(sourceStatus);
+            if (!actionable) unavailable++;
             ComplianceUserProgress p = progressMapper.selectOne(new LambdaQueryWrapper<ComplianceUserProgress>()
                     .eq(ComplianceUserProgress::getItemId, it.getId())
                     .eq(ComplianceUserProgress::getUserId, userId));
             String progress = p == null ? "UNPROCESSED" : p.getProgressStatus();
             boolean done = "COMPLETED".equals(progress);
             LocalDate due = it.getDueDate();
-            boolean isOverdue = due != null && due.isBefore(today) && !done;
-            boolean isNear = due != null && !due.isBefore(today) && !due.isAfter(today.plusDays(3)) && !done;
-            if (!done) {
+            boolean isOverdue = due != null && due.isBefore(today) && !done && actionable;
+            boolean isNear = due != null && !due.isBefore(today) && !due.isAfter(today.plusDays(3)) && !done && actionable;
+            if (!done && actionable) {
                 if (isOverdue) overdue++;
                 else if (isNear) near++;
             }
             Map<String, Object> m = toMap(it);
-            m.put("documentTitle", d.getTitle());
+            m.put("documentTitle", d == null ? "来源文档已删除（#" + it.getDocumentId() + "）" : d.getTitle());
             m.put("source", (docIds.contains(it.getDocumentId()) ? "收藏" : "") + (assignedItemIds.contains(it.getId()) ? "责任人" : ""));
+            m.put("sourceStatus", sourceStatus);
+            m.put("sourceNotice", switch (sourceStatus) {
+                case "MISSING" -> "来源文档已删除，仅供历史参考";
+                case "OFFLINE" -> "来源文档已下架，仅供历史参考";
+                default -> null;
+            });
+            m.put("actionable", actionable);
             m.put("myProgress", progress);
             m.put("myRemark", p == null ? null : p.getRemark());
             m.put("blockReason", p == null ? null : p.getBlockReason());
@@ -612,8 +626,11 @@ public class ComplianceService {
             m.put("nearDue", isNear);
             rows.add(m);
         }
-        // 排序：高优置顶 → 到期升序（无到期排后）
+        // 排序：可执行优先（来源失效项置底）→ 高优置顶 → 到期升序（无到期排后）
         rows.sort((a, b) -> {
+            boolean aa = Boolean.TRUE.equals(a.get("actionable"));
+            boolean bb = Boolean.TRUE.equals(b.get("actionable"));
+            if (aa != bb) return aa ? -1 : 1;
             int pa = prioRank((String) a.get("priority"));
             int pb = prioRank((String) b.get("priority"));
             if (pa != pb) return pa - pb;
@@ -624,11 +641,15 @@ public class ComplianceService {
             if (db == null) return -1;
             return da.compareTo(db);
         });
-        int todoCount = (int) rows.stream().filter(r -> !"COMPLETED".equals(r.get("myProgress"))).count();
+        int todoCount = (int) rows.stream()
+                .filter(r -> Boolean.TRUE.equals(r.get("actionable")))
+                .filter(r -> !"COMPLETED".equals(r.get("myProgress"))).count();
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("todoCount", todoCount);
         m.put("nearDueCount", near);
         m.put("overdueCount", overdue);
+        // 来源失效（下架/删除）条数：单独统计，不计入可执行待办，避免虚增工作量
+        m.put("sourceUnavailableCount", unavailable);
         m.put("items", rows);
         return m;
     }
@@ -648,7 +669,10 @@ public class ComplianceService {
     public Map<String, Object> updateMyProgress(Long userId, Long itemId, String progressStatus, String remark, String blockReason) {
         rollout.requireV3(userId);
         ComplianceItem it = itemMapper.selectById(itemId);
-        if (it == null || it.getIsDraft() == 1) throw new BusinessException("事项不存在或未发布");
+        // 20261123 修复：已撤下事项不可继续更新个人进度
+        if (it == null || it.getIsDraft() == 1 || Integer.valueOf(1).equals(it.getWithdrawn())) throw new BusinessException("事项不存在、未发布或已撤下");
+        // 需求21a：来源文档下架/删除后仅供历史参考，禁止继续更新进度（与待办 sourceNotice 一致）
+        requireSourceAvailable(it.getDocumentId());
         if (progressStatus != null && !List.of("UNPROCESSED", "PROCESSING", "COMPLETED").contains(progressStatus)) {
             throw new BusinessException("非法的个人进度值");
         }
@@ -757,13 +781,67 @@ public class ComplianceService {
                 .orderByDesc(ComplianceItemHistory::getOperationTime));
     }
 
-    /** 最新文档版本 id（联动用；无版本记录返回 null）。 */
-    public Long latestVersionIdOf(Long docId) {
-        var v = versionMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.jshz.expert.entity.KnowledgeDocVersion>()
-                .eq(com.jshz.expert.entity.KnowledgeDocVersion::getDocId, docId)
-                .orderByDesc(com.jshz.expert.entity.KnowledgeDocVersion::getId)
-                .last("LIMIT 1"));
-        return v.isEmpty() ? null : v.get(0).getId();
+    // ==================== 提醒记录查询（维护人，幂等核对） ====================
+
+    /** 单页上限：避免维护人一次拉全量提醒记录（需求21b）。 */
+    public static final int REMINDER_LOG_MAX_PAGE_SIZE = 200;
+
+    /**
+     * 提醒记录分页查询（需求21b）：按事项 + 可选时间范围（按计划提醒时间过滤），
+     * 服务端分页，默认 20 条/页，上限 {@value #REMINDER_LOG_MAX_PAGE_SIZE} 条。
+     *
+     * @param from 起始时间（包含，支持 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss），空=不限
+     * @param to   结束时间（包含；仅日期时含当日全天），空=不限
+     */
+    public Map<String, Object> reminderLogs(Long itemId, String from, String to, long page, long size) {
+        if (itemId == null) throw new BusinessException("itemId 不能为空");
+        if (page < 1) throw new BusinessException("分页页码须从 1 开始");
+        if (size < 1 || size > REMINDER_LOG_MAX_PAGE_SIZE) {
+            throw new BusinessException("每页条数须在 1 至 " + REMINDER_LOG_MAX_PAGE_SIZE + " 之间");
+        }
+        LocalDateTime start = parseTimeBound(from, false);
+        LocalDateTime end = parseTimeBound(to, true);
+        if (start != null && end != null && start.isAfter(end)) {
+            throw new BusinessException("时间范围起点不能晚于终点");
+        }
+        LambdaQueryWrapper<ComplianceReminderLog> qw = new LambdaQueryWrapper<ComplianceReminderLog>()
+                .eq(ComplianceReminderLog::getItemId, itemId);
+        if (start != null) qw.ge(ComplianceReminderLog::getScheduledTime, start);
+        if (end != null) qw.le(ComplianceReminderLog::getScheduledTime, end);
+        qw.orderByDesc(ComplianceReminderLog::getScheduledTime).orderByDesc(ComplianceReminderLog::getId);
+        var result = reminderLogMapper.selectPage(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), qw);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("total", result.getTotal());
+        m.put("page", page);
+        m.put("size", size);
+        m.put("items", result.getRecords());
+        m.put("from", from == null || from.isBlank() ? null : from.trim());
+        m.put("to", to == null || to.isBlank() ? null : to.trim());
+        return m;
+    }
+
+    /** 解析查询时间边界：日期按当日 00:00:00 起（含当日时按次日 00:00:00 前一瞬）。 */
+    private LocalDateTime parseTimeBound(String value, boolean endOfDay) {
+        if (value == null || value.isBlank()) return null;
+        String text = value.trim();
+        try {
+            if (text.length() <= 10) {
+                LocalDate date = LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE);
+                return endOfDay ? date.atTime(23, 59, 59, 999_000_000) : date.atStartOfDay();
+            }
+            String normalized = text.replace('T', ' ');
+            return LocalDateTime.parse(normalized, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new BusinessException("时间格式不正确（应为 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss）：" + text);
+        }
+    }
+
+    /** 来源文档可用性校验：下架/删除后事项仅供历史参考（需求21a）。 */
+    private void requireSourceAvailable(Long documentId) {
+        KnowledgeDocument doc = documentId == null ? null : documentMapper.selectById(documentId);
+        if (doc == null || doc.getStatus() == null || doc.getStatus() != 1) {
+            throw new BusinessException("来源文档已下架或删除，仅供历史参考，不能更新进度");
+        }
     }
 
     /** 文档永久删除联动：删除该文档事项与责任人；个人进度保留（孤儿数据不展示）。 */

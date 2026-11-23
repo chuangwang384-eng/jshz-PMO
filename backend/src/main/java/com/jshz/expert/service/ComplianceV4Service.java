@@ -82,6 +82,33 @@ public class ComplianceV4Service {
     public static final List<String> PRIORITIES = List.of("HIGH", "MEDIUM", "LOW");
     public static final List<String> PROGRESS_STATES = List.of("UNPROCESSED", "PROCESSING", "COMPLETED");
 
+    /** 复用答案的待确认提示（需求19）：复制来的答案不是本次核对结果，必须显式提醒重新核对。 */
+    public static final String ANSWER_UNCONFIRMED_NOTICE =
+            "该答案为「再次使用」复制的上次结果，尚未重新核对；请核对后填写本次答案或确认答案，确认前不能标记完成";
+
+    /**
+     * 需求19：复用答案标记（服务内复用，单测覆盖）。复制答案时置待确认并记录来源，
+     * 与「候选值变化/失效须重新确认」同一语义——未经确认的复制值不得视为本次结果。
+     */
+    static void markAnswerUnconfirmed(ComplianceExecutionTask task, Long sourceExecutionId) {
+        task.setAnswerUnconfirmed(1);
+        task.setAnswerUnconfirmedSource(sourceExecutionId == null
+                ? "「再次使用」复制的上次答案"
+                : "「再次使用」复制自清单#" + sourceExecutionId + "的答案");
+    }
+
+    /** 是否仍处于「复用待确认」状态（无答案时不算，空答案不需要确认）。 */
+    static boolean answerPendingConfirm(ComplianceExecutionTask task) {
+        return task != null && Integer.valueOf(1).equals(task.getAnswerUnconfirmed())
+                && task.getAnswer() != null && !task.getAnswer().isBlank();
+    }
+
+    /** 完成校验：复用答案未确认时禁止标记完成；同一请求显式确认或已填写答案则放行。 */
+    static String unconfirmedCompletionError(ComplianceExecutionTask task, boolean confirmRequested) {
+        if (confirmRequested || !answerPendingConfirm(task)) return null;
+        return "该任务是「再次使用」复制的答案，尚未重新核对；请先核对（填写本次答案或确认答案）再标记完成";
+    }
+
     public List<Map<String,Object>> listDrafts(Long documentId, AuthUser user) {
         access.requireDraftAuthor(documentId, user);
         LambdaQueryWrapper<ComplianceTemplateVersion> q = new LambdaQueryWrapper<ComplianceTemplateVersion>()
@@ -627,15 +654,18 @@ public class ComplianceV4Service {
             }
         }
         int copied = 0;
+        int copiedAnswers = 0;
         for (ComplianceExecutionTask t : tasksOf(src.getId())) {
             if (!"APPLICABLE".equals(t.getApplicability())) continue;
             ComplianceExecutionTask nt = new ComplianceExecutionTask();
             nt.setExecutionId(e.getId());
             nt.setSourceNodeCode(t.getSourceNodeCode());
             nt.setSnapshot(t.getSnapshot());
-            if (copyAnswers && t.getAnswer() != null) {
+            if (copyAnswers && t.getAnswer() != null && !t.getAnswer().isBlank()) {
                 nt.setAnswer(t.getAnswer());
-                // 候选值变化/失效须重新确认：复制答案时标记待确认（前端提示重新核对）
+                // 候选值变化/失效须重新确认（需求19）：复制答案必须标记待确认，前端/详情据此提示重新核对
+                markAnswerUnconfirmed(nt, src.getId());
+                copiedAnswers++;
             }
             nt.setApplicability("APPLICABLE");
             nt.setPriority("MEDIUM");
@@ -646,10 +676,13 @@ public class ComplianceV4Service {
             taskMapper.insert(nt);
             copied++;
         }
-        event(e.getId(), null, user.getUserId(), "REUSE", "{\"sourceExecutionId\":" + src.getId() + ",\"copiedTasks\":" + copied + "}");
+        event(e.getId(), null, user.getUserId(), "REUSE", "{\"sourceExecutionId\":" + src.getId()
+                + ",\"copiedTasks\":" + copied + ",\"copiedAnswers\":" + copiedAnswers + "}");
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("executionId", e.getId());
         m.put("copiedTasks", copied);
+        m.put("unconfirmedAnswers", copiedAnswers);
+        if (copiedAnswers > 0) m.put("answerNotice", ANSWER_UNCONFIRMED_NOTICE);
         return m;
     }
 
@@ -674,6 +707,7 @@ public class ComplianceV4Service {
         List<String> changes = new ArrayList<>();
 
         // answer（JSON 白名单校验：按 snapshot.input_type）
+        boolean answerSubmitted = false;
         if (body.containsKey("answer")) {
             Object answer = body.get("answer");
             String snap = task.getSnapshot();
@@ -684,6 +718,18 @@ public class ComplianceV4Service {
             changes.add("answer");
             event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "ANSWER",
                     "{\"old\":" + (oldAnswer == null ? "null" : oldAnswer) + ",\"new\":" + (answer == null ? "null" : jsonStr(answer)) + "}");
+            // 需求19：手工填写/修改答案即视为本人核对过，清除「复用待确认」标记（不影响正常填写）
+            answerSubmitted = true;
+        }
+
+        // 显式确认复用答案（需求19）：不修改答案，仅标记为已核对
+        boolean answerConfirmed = Boolean.TRUE.equals(body.get("confirmAnswer"));
+        if ((answerSubmitted || answerConfirmed) && Integer.valueOf(1).equals(task.getAnswerUnconfirmed())) {
+            task.setAnswerUnconfirmed(0);
+            changes.add("answerConfirmed");
+            event(e.getId(), task.getId(), ParamUtils.userIdOf(user), "ANSWER_CONFIRM",
+                    "{\"previousSource\":\"" + escape(nullToEmpty(task.getAnswerUnconfirmedSource())) + "\"}");
+            task.setAnswerUnconfirmedSource(null);
         }
 
         // dueDate：null 明确清空；missing 不改
@@ -721,6 +767,9 @@ public class ComplianceV4Service {
                 // 必填缺失不能完成；answer 非空判断用已提交答案
                 String missingErr = requiredMissingError(task);
                 if (missingErr != null) throw new BusinessException(missingErr);
+                // 需求19：复用答案未重新核对时禁止完成（同一请求内填写/确认答案则放行）
+                String unconfirmedErr = unconfirmedCompletionError(task, answerConfirmed);
+                if (unconfirmedErr != null) throw new BusinessException(unconfirmedErr);
             }
             String oldProgress = task.getProgress();
             if (!oldProgress.equals(progress)) {
@@ -811,6 +860,8 @@ public class ComplianceV4Service {
                 .eq(ComplianceExecutionTask::getId, task.getId())
                 .eq(ComplianceExecutionTask::getRowVersion, previousVersion)
                 .set(ComplianceExecutionTask::getAnswer, task.getAnswer())
+                .set(ComplianceExecutionTask::getAnswerUnconfirmed, task.getAnswerUnconfirmed())
+                .set(ComplianceExecutionTask::getAnswerUnconfirmedSource, task.getAnswerUnconfirmedSource())
                 .set(ComplianceExecutionTask::getDueDate, task.getDueDate())
                 .set(ComplianceExecutionTask::getPriority, task.getPriority())
                 .set(ComplianceExecutionTask::getProgress, task.getProgress())
@@ -1060,6 +1111,11 @@ public class ComplianceV4Service {
         m.put("sourceNodeCode", t.getSourceNodeCode());
         m.put("snapshot", parseJsonSafe(t.getSnapshot()));
         m.put("answer", parseJsonSafe(t.getAnswer()));
+        // 需求19：复用答案待确认标记与提示（醒目提示由前端按该字段渲染）
+        boolean pendingConfirm = answerPendingConfirm(t);
+        m.put("answerUnconfirmed", pendingConfirm);
+        m.put("answerUnconfirmedSource", t.getAnswerUnconfirmedSource());
+        m.put("answerUnconfirmedNotice", pendingConfirm ? ANSWER_UNCONFIRMED_NOTICE : null);
         m.put("applicability", t.getApplicability());
         m.put("dueDate", t.getDueDate());
         m.put("priority", t.getPriority());
