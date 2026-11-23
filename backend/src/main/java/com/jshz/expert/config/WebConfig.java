@@ -12,7 +12,8 @@ import java.io.File;
  * 将照片库目录映射为 /api/files/** 静态资源（带鉴权，登录后可访问照片）。
  * 临时照片目录（审批流预上传）映射为 /api/files-tmp/**（同为登录后可访问），
  * 供审批对比弹窗预览待审批单的「变更后」新照片。
- * 专家资料目录（医生证等资质资料，2026-11-20）映射为 /api/files-doc/**（登录后可访问）。
+ * 专家资料目录（医生证等资质资料，2026-11-20）映射为 /api/files-doc/**（登录后可访问，
+ * 刻意不做按专家归属的访问控制——内网登录即信任，见 docs/decisions/2026-11-23-专家库权限信任模型-架构决策记录.md）。
  */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
