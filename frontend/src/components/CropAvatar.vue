@@ -2,7 +2,8 @@
   <div class="crop-avatar">
     <div class="crop-main">
       <div class="crop-view">
-        <div ref="stageEl" class="crop-stage" role="group" tabindex="0" aria-label="头像裁剪区，方向键移动图片"
+        <div ref="stageEl" class="crop-stage" role="group" tabindex="0" aria-label="头像裁剪区，滚轮缩放，方向键移动图片"
+          @wheel="wheelZoom"
           @pointerdown="startDrag" @pointermove="moveImage" @lostpointercapture="finishDrag" @keydown="nudgeImage">
           <img ref="imgEl" :src="src" :style="imageStyle" alt="证件照" draggable="false" @load="onLoad">
           <div v-if="ready" class="crop-ring" aria-hidden="true"></div>
@@ -10,8 +11,8 @@
       </div>
       <div class="crop-tools">
         <span class="crop-status" role="status">{{ statusText }}</span>
-        <el-slider v-model="imageZoom" :min="100" :max="625" aria-label="图片缩放百分比"
-          style="flex: 1" @change="render" />
+        <el-button size="small" :disabled="!ready" aria-label="缩小图片" @click="scaleImage(1.12)">−</el-button>
+        <el-button size="small" :disabled="!ready" aria-label="放大图片" @click="scaleImage(1 / 1.12)">＋</el-button>
         <el-button size="small" :loading="detecting" @click="detectFace(true)">重新识别</el-button>
         <el-button size="small" @click="reset">重置</el-button>
       </div>
@@ -64,13 +65,19 @@ const imageStyle = computed(() => ready.value ? {
   width: `${100 * frameRatio * naturalW.value / diameter.value}%`,
   translate: `${-cx.value}% ${-cy.value}%`
 } : { visibility: 'hidden' })
-const imageZoom = computed({
-  get: () => Math.round(10000 / zoomPct.value),
-  set: value => {
-    markManual()
-    zoomPct.value = 10000 / value
-  }
-})
+function scaleImage(factor) {
+  const next = zoomPct.value * factor
+  if (!ready.value || !Number.isFinite(next) || next <= 0) return
+  markManual()
+  zoomPct.value = next
+}
+
+function wheelZoom(event) {
+  if (!ready.value || !event.deltaY || event.ctrlKey || event.metaKey) return
+  event.preventDefault()
+  const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 248 : 1)
+  scaleImage(1.12 ** Math.max(-1, Math.min(1, delta / 100)))
+}
 
 // face-api 模型只加载一次；tiny 模型 ~190KB，从 public/models 本地加载（内网无外网依赖）
 let faceApiPromise = null
@@ -102,7 +109,7 @@ function onLoad() {
 function reset() {
   cancelDetection()
   userTouched = false
-  statusText.value = '拖动或缩放图片微调'
+  statusText.value = '拖动图片，滚轮缩放'
   cx.value = 50
   // 人脸通常在照片上半部，圆心默认放 42% 高度处（识别失败时的兜底）；默认框放大到含肩
   cy.value = 42

@@ -247,8 +247,7 @@ public class ProjectShowService {
         } catch (IOException | RuntimeException e) {
             throw new BusinessException("无法读取有效的 PowerPoint 文件");
         }
-        projects.archiveStageDocument(id, project.getPhaseId(), FILE_PREFIX, ext, "串场制作." + ext,
-                file.getBytes(), user, false);
+        projects.archiveShowDocument(id, project.getPhaseId(), ext, "串场制作." + ext, file.getBytes(), user);
         projects.operationRecord(user, "归档串场 PowerPoint", "PROJECT", id);
     }
 
@@ -256,8 +255,8 @@ public class ProjectShowService {
     public void publish(Long id, Deck deck, AuthUser user) {
         Project project = currentShow(id, user);
         String html = render(deck);
-        projects.archiveStageDocument(id, project.getPhaseId(), FILE_PREFIX, "html", archiveName(project.getName(), LocalDate.now()),
-                html.getBytes(StandardCharsets.UTF_8), user, false);
+        projects.archiveShowDocument(id, project.getPhaseId(), "html", archiveName(project.getName(), LocalDate.now()),
+                html.getBytes(StandardCharsets.UTF_8), user);
         projects.operationRecord(user, "归档串场网页幻灯片", "PROJECT", id);
     }
 

@@ -332,14 +332,43 @@
 
       <!-- ⑦ 右侧辅助栏（日程上传阶段隐藏，Owner 2026-11-09） -->
       <div class="pd-side">
-        <div class="ui-card side-card">
-          <div class="pd-sec-title">项目成员</div>
-          <div class="member-row"><span class="avatar" :style="avatarStyle(detail.ownerName)">{{ firstChar(detail.ownerName) }}</span>{{ detail.ownerName || '-' }}<span class="ui-badge ui-badge-primary" style="margin-left: auto">负责人</span></div>
-          <div v-for="(n, i) in assistantList" :key="'s' + i" class="member-row">
-            <span class="avatar" :style="avatarStyle(n)">{{ firstChar(n) }}</span>{{ n }}<span class="ui-badge ui-badge-info" style="margin-left: auto">协助人</span>
+        <section v-if="detail.complianceBoundDocTitle || detail.complianceTodos?.length" class="ui-card side-card pd-compliance">
+          <div class="pd-sec-title">合规要求注意事项</div>
+          <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
+            来源文档：{{ detail.complianceBoundDocTitle }}
           </div>
-          <div v-if="!assistantList.length" class="hint-text" style="padding-left: 34px">暂无协助人</div>
-        </div>
+          <el-radio-group v-if="detail.complianceTodos?.length" v-model="complianceView" size="small"
+            class="pd-compliance-switch" aria-label="合规事项视图">
+            <el-radio-button value="PENDING">待完成</el-radio-button>
+            <el-radio-button value="DONE">已完成</el-radio-button>
+          </el-radio-group>
+          <ul v-if="visibleComplianceTodos.length" :key="complianceView" class="pd-compliance-items">
+            <li v-for="todo in visibleComplianceTodos" :key="todo.id">
+              <div class="pd-compliance-heading">
+                <strong>{{ todo.title }}</strong>
+                <el-tag :type="todo.status === 'DONE' ? 'success' : 'warning'" size="small">
+                  {{ todo.status === 'DONE' ? '已完成' : '待处理' }}
+                </el-tag>
+              </div>
+              <div v-if="todo.content" class="pd-compliance-content">{{ todo.content }}</div>
+              <div class="pd-compliance-footer">
+                <span class="hint-text">{{ todo.docTitle }} {{ todo.sourceAnchor || '' }}</span>
+                <el-tag v-if="todo.sourceDeleted" size="small" type="info">来源已删除</el-tag>
+                <el-button
+                  v-if="detail.canOperate || detail.canEditBasic"
+                  link
+                  :type="todo.status === 'PENDING' ? 'primary' : 'info'"
+                  size="small"
+                  :disabled="complianceUpdating"
+                  @click="handleComplianceTodo(todo, todo.status === 'PENDING' ? 'DONE' : 'PENDING')"
+                >{{ todo.status === 'PENDING' ? '完成' : '重开' }}</el-button>
+              </div>
+            </li>
+          </ul>
+          <div v-else class="hint-text">
+            {{ detail.complianceTodos?.length ? (complianceView === 'DONE' ? '暂无已完成事项' : '暂无待完成事项') : '暂无推送的合规待办' }}
+          </div>
+        </section>
 
         <!-- 2026-11-16 Owner 口径：会议预算制作阶段只展示 生命周期/阶段资料，右侧待办/文件/合规均隐藏 -->
         <div class="ui-card side-card">
@@ -387,43 +416,7 @@
           <div v-else class="hint-text">暂无附件资料</div>
         </div>
 
-        <section v-if="detail.complianceBoundDocTitle || detail.complianceTodos?.length" class="ui-card side-card pd-compliance">
-          <div class="pd-sec-title">合规要求注意事项</div>
-          <div v-if="detail.complianceBoundDocTitle" class="hint-text pd-compliance-source">
-            来源文档：{{ detail.complianceBoundDocTitle }}
-          </div>
-          <el-radio-group v-if="detail.complianceTodos?.length" v-model="complianceView" size="small"
-            class="pd-compliance-switch" aria-label="合规事项视图">
-            <el-radio-button value="PENDING">待完成</el-radio-button>
-            <el-radio-button value="DONE">已完成</el-radio-button>
-          </el-radio-group>
-          <ul v-if="visibleComplianceTodos.length" :key="complianceView" class="pd-compliance-items">
-            <li v-for="todo in visibleComplianceTodos" :key="todo.id">
-              <div class="pd-compliance-heading">
-                <strong>{{ todo.title }}</strong>
-                <el-tag :type="todo.status === 'DONE' ? 'success' : 'warning'" size="small">
-                  {{ todo.status === 'DONE' ? '已完成' : '待处理' }}
-                </el-tag>
-              </div>
-              <div v-if="todo.content" class="pd-compliance-content">{{ todo.content }}</div>
-              <div class="pd-compliance-footer">
-                <span class="hint-text">{{ todo.docTitle }} {{ todo.sourceAnchor || '' }}</span>
-                <el-tag v-if="todo.sourceDeleted" size="small" type="info">来源已删除</el-tag>
-                <el-button
-                  v-if="detail.canOperate || detail.canEditBasic"
-                  link
-                  :type="todo.status === 'PENDING' ? 'primary' : 'info'"
-                  size="small"
-                  :disabled="complianceUpdating"
-                  @click="handleComplianceTodo(todo, todo.status === 'PENDING' ? 'DONE' : 'PENDING')"
-                >{{ todo.status === 'PENDING' ? '完成' : '重开' }}</el-button>
-              </div>
-            </li>
-          </ul>
-          <div v-else class="hint-text">
-            {{ detail.complianceTodos?.length ? (complianceView === 'DONE' ? '暂无已完成事项' : '暂无待完成事项') : '暂无推送的合规待办' }}
-          </div>
-        </section>
+
 
         <div class="ui-card side-card">
           <div class="pd-sec-title">项目动态</div>
@@ -1103,22 +1096,6 @@ function setViewPhase(p) {
   viewPhaseId.value = String(p.id)
 }
 
-// 协助人（2026-11-09 基本信息改版新增，多选）
-const assistantList = computed(() => {
-  const n = detail.value.assistantNames
-  if (Array.isArray(n)) return n.filter(Boolean)
-  return String(n || '').split(/[,，、;；\s]+/).filter(Boolean)
-})
-
-function firstChar(n) {
-  return (n || '?').trim().charAt(0) || '?'
-}
-const AVATAR_COLORS = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#337ECC']
-function avatarStyle(n) {
-  const idx = String(n || '').length % AVATAR_COLORS.length
-  return { background: AVATAR_COLORS[idx] }
-}
-
 function docsOfPhase(phaseId, type) {
   return (detail.value.docs || []).filter(
     (d) => Number(d.phaseId) === Number(phaseId) && (type === 'FILE' ? !d.isRichText : d.isRichText)
@@ -1622,14 +1599,6 @@ async function downloadProjectFile(d) {
 /* ⑥ 基本信息分组 */
 
 .pd-info-card { padding: 14px 16px; }
-
-
-
-.avatar {
-  width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 12px;
-  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.avatar-more { background: var(--ui-info); }
 .executor-names { color: var(--ui-text-muted); font-size: 12px; }
 .remark-text { margin-top: 4px; color: var(--ui-text-muted, var(--ui-text-muted)); font-size: 13px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; }
 
@@ -1654,7 +1623,6 @@ async function downloadProjectFile(d) {
 
 /* ⑦ 右侧辅助栏 */
 .side-card { padding: 14px 16px; }
-.member-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; color: var(--ui-text-main); }
 .todo-item { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
 .todo-name { font-size: 13px; color: var(--ui-text-main); }
 .side-done { color: var(--ui-success); font-size: 13px; }

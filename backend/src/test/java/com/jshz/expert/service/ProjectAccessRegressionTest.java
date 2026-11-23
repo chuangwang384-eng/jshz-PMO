@@ -1,9 +1,12 @@
 package com.jshz.expert.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.*;
 import com.jshz.expert.mapper.*;
 import com.jshz.expert.security.AuthUser;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
@@ -30,6 +33,28 @@ class ProjectAccessRegressionTest {
     AuthUser user(long id, String... permissions) { return new AuthUser(id,"fixture",false,false,Set.of(),Set.of(permissions)); }
     Project project() { Project p = new Project(); p.setId(1L); p.setOwnerId(2L); p.setStatus("ACTIVE"); return p; }
     void setup() { ReflectionTestUtils.setField(service,"baseMapper",projects); when(projects.selectById(1L)).thenReturn(project()); }
+    @Test void showArchiveLocksProjectBeforeReplacingTheActiveDocument() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), "fixture"), ProjectDoc.class);
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        Project project = project();
+        project.setPhaseId(12L);
+        when(projects.selectOne(any())).thenReturn(project);
+        byte[] content = {1};
+        when(storage.saveGenerated("project_show_", "html", content)).thenReturn("project_show_fixture.html");
+
+        service.archiveShowDocument(1L, 12L, "html", "fixture.html", content, user(2L));
+
+        InOrder order = inOrder(projects, storage, docs);
+        order.verify(projects).selectOne(any());
+        order.verify(storage).saveGenerated("project_show_", "html", content);
+        order.verify(docs).update(isNull(), any());
+        ArgumentCaptor<ProjectDoc> inserted = ArgumentCaptor.forClass(ProjectDoc.class);
+        order.verify(docs).insert(inserted.capture());
+        assertEquals(12L, inserted.getValue().getPhaseId());
+        assertEquals("project_show_fixture.html", inserted.getValue().getFilePath());
+        assertEquals(0, inserted.getValue().getIsDeleted());
+        order.verifyNoMoreInteractions();
+    }
     @Test void outsiderRejectedBeforeLogQuery() {
         setup(); when(executors.selectCount(any())).thenReturn(0L);
         BusinessException e = assertThrows(BusinessException.class, () -> service.timeline(1L,user(3L)));

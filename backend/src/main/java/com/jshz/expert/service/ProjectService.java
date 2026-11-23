@@ -1,6 +1,7 @@
 package com.jshz.expert.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -2134,6 +2135,31 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private boolean validArchive(ProjectDoc doc, String prefix) {
         return Integer.valueOf(0).equals(doc.getIsDeleted()) && doc.getFilePath() != null
                 && doc.getFilePath().startsWith(prefix) && storageService.resolveFile(doc.getFilePath()) != null;
+    }
+
+    /** Serialize replacements across the PPT and HTML entry points. Retain superseded files for recovery. */
+    void archiveShowDocument(Long projectId, Long phaseId, String extension, String name, byte[] content, AuthUser user) {
+        Project locked = baseMapper.selectOne(new LambdaQueryWrapper<Project>().eq(Project::getId, projectId).last("FOR UPDATE"));
+        if (locked == null || !phaseId.equals(locked.getPhaseId())) {
+            throw new BusinessException("只可在串场制作阶段归档");
+        }
+        requireOperable(locked, user);
+        String prefix = ProjectShowService.FILE_PREFIX;
+        String path = storageService.saveGenerated(prefix, extension, content);
+        docMapper.update(null, new LambdaUpdateWrapper<ProjectDoc>()
+                .eq(ProjectDoc::getProjectId, projectId).eq(ProjectDoc::getPhaseId, phaseId)
+                .eq(ProjectDoc::getIsDeleted, 0).apply("LEFT(file_path, {0}) = {1}", prefix.length(), prefix)
+                .set(ProjectDoc::getIsDeleted, 1).set(ProjectDoc::getDeletedBy, user.getUsername())
+                .set(ProjectDoc::getDeletedTime, LocalDateTime.now()));
+
+        ProjectDoc doc = new ProjectDoc();
+        doc.setProjectId(projectId);
+        doc.setPhaseId(phaseId);
+        doc.setFileName(name);
+        doc.setFilePath(path);
+        doc.setUploadBy(user.getUsername());
+        doc.setIsDeleted(0);
+        docMapper.insert(doc);
     }
 
     void archiveStageDocument(Long projectId, Long phaseId, String prefix, String extension,
