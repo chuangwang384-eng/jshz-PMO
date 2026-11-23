@@ -25,3 +25,6 @@
 - `node temp/show-single-edge.cjs <LOCAL_PATH>` 通过。模拟带合规推送的项目，验证该卡置顶、项目成员卡移除、照片滚轮缩放可小于固定框、缩放按钮工作。
 - JDK 17 执行 `mvn -q -DgitShort=<基线短提交> -Dtest=ProjectStageDeliverableTest,ProjectShowTemplateServiceTest,ProjectAccessRegressionTest test`，23 项通过。单测环境先初始化 MyBatis Lambda 字段元数据。
 - `scripts/release-full.cmd -Mode Preflight -Version 1.0.128 -Slug show-single-archive` 通过。
+- 功能提交 `9afb0be` 已快进合入本地 `main`。1.0.128 全栈发布成功，线上后端健康和前端主包版本均实测。
+- 生产定点清理已提交，3 条旧成品记录软删除。资料 96 仍是唯一有效串场文件，另有两份其他有效项目资料。四份原文件 SHA-256 均未变化，全库重复组复查为 0。证据见 `logs/show-128-cleanup-apply.log` 和 `logs/show-128-file-hashes-checked.log`。
+- 真实项目登录后的 PPT 与 HTML 交替归档待业务验收。回滚与备份路径见 [1.0.128 发布记录](../../releases/20261123-show-single-archive-1.0.128.md)。
