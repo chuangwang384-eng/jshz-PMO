@@ -509,6 +509,7 @@ public class ProjectShowService {
             .p-card figcaption span{display:block;font-size:1.15em;color:var(--ink-dim);margin-top:.3em}
             .slide [data-step]{transition:opacity .6s cubic-bezier(.22,.85,.3,1),transform .6s cubic-bezier(.22,.85,.3,1),filter .6s ease}
             .slide [data-step].ppt-step-hidden{opacity:0;transform:translateY(30px) scale(.98);filter:blur(6px)}
+            .slide.measure-steps [data-step]{transform:none!important;transition:none!important}
             .a-in{animation:aIn .7s cubic-bezier(.22,.85,.3,1) both}
             .a-wide{animation:aWide .9s cubic-bezier(.22,.85,.3,1) both}
             #hud{position:fixed;left:0;right:0;bottom:0;height:46px;display:flex;justify-content:center;
@@ -880,7 +881,25 @@ public class ProjectShowService {
                 let page=0,timers=[];
                 function later(fn,ms){timers.push(setTimeout(fn,ms));}
                 function clearTimers(){timers.forEach(clearTimeout);timers=[];}
-                function stepsOf(s){return Array.from(s.querySelectorAll('[data-step]'));}
+                const playbackOrder=new WeakMap();
+                function stepsOf(s){return playbackOrder.get(s)||Array.from(s.querySelectorAll('[data-step]'));}
+                function measureSteps(slide){
+                  const steps=Array.from(slide.querySelectorAll('[data-step]'))
+                    .filter(node=>!node.closest('[hidden]') && node.getClientRects().length);
+                  const moved=Array.from(placements.get(slide).values()).some(value=>value.x||value.y);
+                  if(!moved){playbackOrder.set(slide,steps);return;}
+                  slide.classList.add('measure-steps');
+                  const boxes=steps.map(node=>({node,rect:node.getBoundingClientRect()}))
+                    .sort((a,b)=>a.rect.top-b.rect.top);
+                  slide.classList.remove('measure-steps');
+                  const rows=[];
+                  for(const box of boxes){
+                    const row=rows.at(-1);
+                    if(row && box.rect.top-row[0].rect.top<=12)row.push(box);
+                    else rows.push([box]);
+                  }
+                  playbackOrder.set(slide,rows.flatMap(row=>row.sort((a,b)=>a.rect.left-b.rect.left).map(box=>box.node)));
+                }
                 function hiddenEl(n){return n.classList.contains('ppt-step-hidden');}
                 function resetSteps(s){stepsOf(s).forEach(n=>n.classList.add('ppt-step-hidden'));}
                 function revealNext(s){const st=stepsOf(s);for(const n of st){if(hiddenEl(n)){n.classList.remove('ppt-step-hidden');return true;}}return false;}
@@ -1052,7 +1071,7 @@ public class ProjectShowService {
                   if(old){old.classList.remove('active');resetSteps(old);}
                   page=Math.max(0,Math.min(slides.length-1,i));
                   const s=slides[page];
-                  resetSteps(s);s.classList.add('active');
+                  s.classList.add('active');measureSteps(s);resetSteps(s);
                   count.textContent=(page+1)+' / '+slides.length;
                   progFill.style.width=((page+1)/slides.length*100)+'%';
                   autoPlay(s);

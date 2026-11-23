@@ -158,7 +158,7 @@
           </div>
         </div>
         <div class="segment-pages">
-          <article v-for="entry in (pagesByGroup.get(g.index) || [])" :key="entry.index"
+          <article v-for="entry in (pagesByGroup.get(g.index) || [])" :key="pageCardKey(entry.slide)"
             class="dark-card segment-card" :draggable="editable"
             @dragstart="startPageDrag($event, entry)" @dragend="draggedPage = null"
             @dragover="allowPageDrop($event, entry)" @drop="dropPage($event, entry)">
@@ -175,6 +175,8 @@
             <div v-if="editable" class="segment-order">
               <el-button link size="small" @click="nudgePage(entry, -1)">前移</el-button>
               <el-button link size="small" @click="nudgePage(entry, 1)">后移</el-button>
+              <el-button v-if="missingIntroductions(entry).length" link size="small"
+                @click="restoreIntroductions(entry)">补齐专家简介</el-button>
             </div>
           </article>
         </div>
@@ -541,6 +543,14 @@ function withoutTime(value) {
   return (value || '').replace(/[（(]?\s*\b\d{1,2}[:：]\d{2}(?:\s*[-–—－~～至]\s*\d{1,2}[:：]\d{2})?\s*[）)]?/g, ' ').trim()
 }
 
+function resumeSlide(person, groupIndex, intro) {
+  return {
+    label: '个人简历', title: [person.name, person.title].filter(Boolean).join(' ') || '专家简介',
+    body: '', image: '', kind: 'resume', groupIndex,
+    items: splitResumeItems(intro || ''), fontSize: null, persons: [person]
+  }
+}
+
 const builtSlides = computed(() => {
   const slides = [coverSlideLike()]
   let secNo = 0
@@ -555,14 +565,6 @@ const builtSlides = computed(() => {
       fontSize: null
     })
   }
-  const pushResume = (p, groupIndex) => {
-    slides.push({
-      label: '个人简历', title: [p.name, p.title].filter(Boolean).join(' ') || '专家简介',
-      body: '', image: '', kind: 'resume', groupIndex,
-      items: splitResumeItems(p.intro || ''), fontSize: null,
-      persons: [{ role: p.role || '', name: p.name || '', title: p.title || '', unit: p.unit || '', image: p.avatar || p.originalAvatar || '', sourceKey: p.key }]
-    })
-  }
   for (const g of groups.value) {
     const memberRole = m => m.person.roleByGroup?.[g.index] || m.roleLabelV
     const byRole = role => g.members.filter(m => memberRole(m) === role)
@@ -571,7 +573,10 @@ const builtSlides = computed(() => {
       const persons = byRole(role).map(m => ({ ...m.person, role }))
       if (!persons.length) continue
       pushSection(title, persons, g.index)
-      persons.forEach(person => pushResume(person, g.index))
+      persons.forEach(p => slides.push(resumeSlide({
+        role: p.role, name: p.name || '', title: p.title || '', unit: p.unit || '',
+        image: p.avatar || p.originalAvatar || '', sourceKey: p.key
+      }, g.index, p.intro)))
     }
   }
   slides.push(thanksSlideLike())
@@ -601,6 +606,7 @@ function restorePages(draft) {
     ...slide, groupIndex: slide.groupIndex ?? undefined, image: resolveImage(slide.image),
     persons: slide.persons?.map(person => ({ ...person, image: resolveImage(person.image) })) ?? null
   }))
+  syncSectionOrder(editableDeck.value)
 }
 
 function deck(base = currentDeckSlides.value, keepWizardMetadata = false) {
@@ -688,6 +694,71 @@ const pagesByGroup = computed(() => {
   })
   return pages
 })
+
+const pageCardKeys = new WeakMap()
+let nextPageCardKey = 0
+
+function pageCardKey(slide) {
+  if (!pageCardKeys.has(slide)) pageCardKeys.set(slide, nextPageCardKey++)
+  return pageCardKeys.get(slide)
+}
+
+function sameIntroduction(sectionPerson, resumePerson) {
+  if (!sectionPerson || !resumePerson) return false
+  if (sectionPerson.sourceKey && resumePerson.sourceKey) return sectionPerson.sourceKey === resumePerson.sourceKey
+  if (!sectionPerson.name || !resumePerson.name) return false
+  if (sectionPerson.role && resumePerson.role && sectionPerson.role !== resumePerson.role) return false
+  return normalizeName(sectionPerson.name) === normalizeName(resumePerson.name)
+}
+
+function sectionIntroductions(slides, section) {
+  return slides.filter(slide => slide.kind === 'resume' && slide.groupIndex === section.groupIndex
+    && section.persons?.some(person => sameIntroduction(person, slide.persons?.[0])))
+}
+
+function syncSectionOrder(slides) {
+  for (const section of slides) {
+    if (section.kind !== 'section' || section.groupIndex === undefined || !section.persons?.length) continue
+    const ordered = new Set()
+    for (const resume of sectionIntroductions(slides, section)) {
+      const matches = section.persons.filter(person => sameIntroduction(person, resume.persons?.[0]))
+      if (matches.length === 1) ordered.add(matches[0])
+    }
+    const next = ordered.values()
+    section.persons = section.persons.map(person => ordered.has(person) ? next.next().value : person)
+  }
+}
+
+function missingIntroductions({ slide }) {
+  if (slide.kind !== 'section') return []
+  const resumes = sectionIntroductions(currentDeckSlides.value, slide)
+  return (slide.persons || []).filter(person => person.name
+    && !resumes.some(resume => sameIntroduction(person, resume.persons?.[0])))
+}
+
+function restoreIntroductions(entry) {
+  if (!editable.value) return
+  const missing = missingIntroductions(entry)
+  if (!missing.length) return
+  const slides = mutableSlides()
+  const section = slides[entry.index]
+  const resumes = sectionIntroductions(slides, section)
+  let nextIndex = Math.max(entry.index, ...resumes.map(slide => slides.indexOf(slide))) + 1
+  for (const person of [...section.persons].reverse()) {
+    const existing = resumes.find(resume => sameIntroduction(person, resume.persons?.[0]))
+    if (existing) {
+      nextIndex = Math.max(entry.index + 1, slides.indexOf(existing))
+    } else if (missing.some(candidate => sameIntroduction(candidate, person))) {
+      const matches = experts.value.filter(candidate => person.sourceKey
+        ? candidate.key === person.sourceKey
+        : normalizeName(candidate.name) === normalizeName(person.name))
+      const restored = resumeSlide({ ...person }, section.groupIndex, matches.length === 1 ? matches[0].intro : '')
+      slides.splice(nextIndex, 0, restored)
+      resumes.push(restored)
+    }
+  }
+  syncSectionOrder(slides)
+}
 
 function clearPagePreview() {
   pagePreviewRequest += 1
@@ -843,6 +914,14 @@ async function movePerson(j, dir) {
   const slide = slides[editPageIdx.value]
   if (!slide?.persons?.[to]) return
   ;[slide.persons[j], slide.persons[to]] = [slide.persons[to], slide.persons[j]]
+  if (slide.groupIndex !== undefined) {
+    const resumes = sectionIntroductions(slides, slide)
+    const ordered = [...resumes].sort((a, b) =>
+      slide.persons.findIndex(person => sameIntroduction(person, a.persons?.[0]))
+      - slide.persons.findIndex(person => sameIntroduction(person, b.persons?.[0])))
+    const indices = resumes.map(resume => slides.indexOf(resume))
+    indices.forEach((index, order) => { slides[index] = ordered[order] })
+  }
   editableDeck.value = slides
   busy.value = true
   await loadPreview({ page: editPageIdx.value, editing: true })
@@ -939,6 +1018,7 @@ function moveSlide(i, dir) {
   if (to < 0 || to >= currentDeckSlides.value.length) return
   const arr = mutableSlides()
   ;[arr[i], arr[to]] = [arr[to], arr[i]]
+  syncSectionOrder(arr)
   loadPreview()
 }
 
@@ -1140,6 +1220,7 @@ function moveGroupPage(source, target) {
   const pages = entries.map(entry => slides[entry.index])
   pages.splice(to, 0, pages.splice(from, 1)[0])
   entries.forEach((entry, index) => { slides[entry.index] = pages[index] })
+  syncSectionOrder(slides)
 }
 
 function updateSnapshotRole(groupIndex, person) {
