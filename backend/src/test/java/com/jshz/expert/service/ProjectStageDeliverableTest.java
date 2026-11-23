@@ -12,6 +12,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProjectStageDeliverableTest {
     @Test
+    void resumeParagraphDeletionAndFormattingAreRetainedInOfflineRender() {
+        var paragraphs = List.of("第一段", "第二段");
+        var layout = List.of(
+                new ProjectShowService.ElementLayout("items[0]", 12.0, 0.0, 125.0, "kai", true),
+                new ProjectShowService.ElementLayout("items[1]", 0.0, 0.0, 125.0, "kai", false));
+        var slide = new ProjectShowService.Slide("专家简介", "", "", "", "resume", paragraphs, null, null,
+                null, layout);
+        String html = ProjectShowService.render(new ProjectShowService.Deck("", List.of(slide), "gold", null, null));
+        assertTrue(html.contains("data-scale=\"125.0\" data-font=\"kai\" data-hidden=\"true\""));
+        assertTrue(html.contains("data-edit=\"p0.items[1]\">第二段</li>"));
+    }
+
+    @Test
     void slideLayoutSurvivesPortraitResolutionAndEscapesKeys() {
         var adjustment = new ProjectShowService.ElementLayout("avatar-0", 125.0, -30.0, 130.0, "");
         var title = new ProjectShowService.ElementLayout("title", 25.0, 15.0, 110.0, "kai");

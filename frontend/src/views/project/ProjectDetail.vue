@@ -577,11 +577,16 @@
         <el-empty v-else description="正在加载预览..." />
       </div>
     </el-drawer>
+    <el-dialog v-model="showWizardOpen" fullscreen append-to-body destroy-on-close
+      :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false"
+      aria-label="串场 PPT 制作">
+      <ShowWizard v-if="showWizardOpen" :project-id="projectId" @close="showWizardOpen = false" @archived="fetchDetail()" />
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useRoute, useRouter } from 'vue-router'
@@ -612,10 +617,11 @@ const route = useRoute()
 const router = useRouter()
 const projectId = route.params.id
 
-// PPT 制作：新标签页打开三步向导（选模板 → 日程/证件照/简介 → 预览演示）
+const ShowWizard = defineAsyncComponent(() => import('./ShowWizard.vue'))
+const showWizardOpen = ref(false)
+
 function openShowWizard() {
-  const { href } = router.resolve({ name: 'project-show-wizard', params: { id: projectId } })
-  window.open(href, '_blank')
+  showWizardOpen.value = true
 }
 // 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
 const PROJECT_TYPE_LABELS = { PLATFORM: '平台类项目', DIRECT_PAY: '直付类项目', KEY: '重点类项目' }

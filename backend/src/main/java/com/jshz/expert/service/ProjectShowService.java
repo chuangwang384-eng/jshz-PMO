@@ -117,7 +117,11 @@ public class ProjectShowService {
         }
     }
 
-    public record ElementLayout(String key, Double x, Double y, Double scale, String font) {}
+    public record ElementLayout(String key, Double x, Double y, Double scale, String font, Boolean hidden) {
+        public ElementLayout(String key, Double x, Double y, Double scale, String font) {
+            this(key, x, y, scale, font, false);
+        }
+    }
 
     private static String elementLayouts(List<ElementLayout> values) {
         if (values == null) return "";
@@ -132,7 +136,7 @@ public class ProjectShowService {
                     .append(bounded(value.x(), 0, -1920, 1920)).append("\" data-y=\"")
                     .append(bounded(value.y(), 0, -1080, 1080)).append("\" data-scale=\"")
                     .append(bounded(value.scale(), 100, 40, 250)).append("\" data-font=\"")
-                    .append(font).append("\"></i>");
+                    .append(font).append("\" data-hidden=\"").append(Boolean.TRUE.equals(value.hidden())).append("\"></i>");
         }
         return html.isEmpty() ? "" : "<template data-layout>" + html + "</template>";
     }
@@ -522,6 +526,7 @@ public class ProjectShowService {
             @keyframes spin{to{transform:rotate(360deg)}}
             /* 编辑模式（所见即所得）：按 E 切换 contentEditable，虚线框标记可编辑元素 */
             [contenteditable="true"]{outline:1.5px dashed var(--accent);outline-offset:4px;border-radius:4px;cursor:text}
+            [data-layout-key][hidden]{display:none!important}
             body.single-edit [data-layout-key]{cursor:pointer;outline:1px dashed var(--rule);outline-offset:3px}
             body.single-edit [data-edit]{cursor:text}
             body.single-edit .single-selected{outline:2px solid var(--accent);outline-offset:4px}
@@ -909,12 +914,13 @@ public class ProjectShowService {
                     const k=entry.dataset.placement;
                     const node=map.get(k);
                     if(!node)return;
-                    const value={key:k,x:Number(entry.dataset.x),y:Number(entry.dataset.y),scale:Number(entry.dataset.scale),font:entry.dataset.font};
+                    const value={key:k,x:Number(entry.dataset.x),y:Number(entry.dataset.y),scale:Number(entry.dataset.scale),font:entry.dataset.font,hidden:entry.dataset.hidden==='true'};
                     settings.set(k,value);
                     applyPlacement(node,value);
                   });
                 });
                 function applyPlacement(node,value){
+                  node.hidden=value.hidden===true;
                   if(!node.dataset.baseSize) node.dataset.baseSize=getComputedStyle(node).fontSize;
                   node.style.translate=value.x+'px '+value.y+'px';
                   if(value.key.startsWith('avatar-')) node.style.scale=value.scale/100;
@@ -944,25 +950,56 @@ public class ProjectShowService {
                 canvas.addEventListener('focusin',event=>{
                   if(singleEdit && event.target.dataset.layoutKey)singleSelected(event.target);
                 });
+                function placementOf(node){
+                  const key=node.dataset.layoutKey;
+                  return placements.get(slides[page]).get(key)||{key,x:0,y:0,scale:100,font:'',hidden:false};
+                }
+                function setPlacement(node,value){
+                  applyPlacement(node,value);
+                  placements.get(slides[page]).set(value.key,value);
+                }
+                function bulletPosition(node,zoom){
+                  const rect=node.getBoundingClientRect();
+                  const marker=getComputedStyle(node,'::before');
+                  return {
+                    x:rect.left/zoom+(parseFloat(marker.width)||0)/2,
+                    y:rect.top/zoom+(parseFloat(marker.marginTop)||0)+(parseFloat(marker.height)||0)/2
+                  };
+                }
+                function snapCoordinate(candidate,peers){
+                  let best=candidate, distance=18;
+                  for(const peer of peers){
+                    const gap=Math.abs(peer-candidate);
+                    if(gap<distance){best=peer;distance=gap;}
+                  }
+                  return best;
+                }
                 canvas.addEventListener('pointerdown',event=>{
                   if(!singleEdit || event.button!==0 || !event.altKey)return;
                   const node=event.target.closest('[data-layout-key]');
                   if(!node)return;
                   event.preventDefault();
                   singleSelected(node);
-                  const key=node.dataset.layoutKey;
-                  const value=placements.get(slides[page]).get(key)||{key,x:0,y:0,scale:100,font:''};
-                  drag={pointer:event.pointerId,left:event.clientX,top:event.clientY,value,node};
+                  const value=placementOf(node);
+                  const zoom=canvas.getBoundingClientRect().width/1920||1;
+                  const list=node.closest('.rp2-list');
+                  const marker=list?bulletPosition(node,zoom):null;
+                  const peers=list?Array.from(list.children).filter(item=>item!==node && !item.hidden)
+                    .map(item=>bulletPosition(item,zoom)):[];
+                  drag={pointer:event.pointerId,left:event.clientX,top:event.clientY,value,node,zoom,marker,peers};
                   canvas.setPointerCapture(event.pointerId);
                 });
                 canvas.addEventListener('pointermove',event=>{
                   if(drag?.pointer!==event.pointerId)return;
-                  const zoom=canvas.getBoundingClientRect().width/1920||1;
-                  const value={...drag.value,
-                    x:Math.max(-1920,Math.min(1920,Math.round(drag.value.x+(event.clientX-drag.left)/zoom))),
-                    y:Math.max(-1080,Math.min(1080,Math.round(drag.value.y+(event.clientY-drag.top)/zoom)))};
-                  applyPlacement(drag.node,value);
-                  placements.get(slides[page]).set(value.key,value);
+                  let dx=(event.clientX-drag.left)/drag.zoom;
+                  let dy=(event.clientY-drag.top)/drag.zoom;
+                  if(drag.marker){
+                    dx=snapCoordinate(drag.marker.x+dx,drag.peers.map(peer=>peer.x))-drag.marker.x;
+                    dy=snapCoordinate(drag.marker.y+dy,drag.peers.map(peer=>peer.y))-drag.marker.y;
+                  }
+                  setPlacement(drag.node,{...drag.value,
+                    x:Math.max(-1920,Math.min(1920,Math.round(drag.value.x+dx))),
+                    y:Math.max(-1080,Math.min(1080,Math.round(drag.value.y+dy)))});
                 });
                 canvas.addEventListener('lostpointercapture',()=>{
                   if(!drag)return;
@@ -985,6 +1022,17 @@ public class ProjectShowService {
                     });
                   }
                   if(!singleEdit)return;
+                  if(message.type==='pmo-slide-bulk-resume'){
+                    for(const node of slide.querySelectorAll('.rp2-list li[data-edit]:not([hidden])')){
+                      const value={...placementOf(node),scale:Number(message.value.scale)||100,font:message.value.font||''};
+                      setPlacement(node,value);
+                    }
+                    if(selected?.closest('.rp2-list'))singleSelected(selected);
+                  }
+                  if(message.type==='pmo-slide-delete-text' && selected?.dataset.edit){
+                    setPlacement(selected,{...placementOf(selected),hidden:true});
+                    singleSelected(null);
+                  }
                   if(message.type==='pmo-slide-layout' && selected){
                     const v=message.value;
                     const key=selected.dataset.layoutKey;

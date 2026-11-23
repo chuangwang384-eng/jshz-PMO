@@ -209,10 +209,11 @@
             <el-button size="small" circle :disabled="busy || j === moveBar.length - 1" @click="movePerson(j, 1)">▶</el-button>
           </template>
         </div>
+        <el-button v-if="editable" size="small" @click="openCurrentPageEditor">编辑当前页</el-button>
         <iframe ref="previewFrame" class="preview-iframe" title="串场演示预览"></iframe>
       </div>
     </section>
-    <section v-if="step >= 3" class="wiz-body">
+    <section v-if="step === 4" class="wiz-body">
       <details class="slide-outline-wrap" open>
         <summary>页面清单（{{ currentDeckSlides.length }} 页，可删除/上移/下移/添加文字页）</summary>
         <div class="add-page-row">
@@ -225,7 +226,6 @@
           <li v-for="(s, i) in currentDeckSlides" :key="i">
             <span class="slide-kind">{{ kindLabel(s.kind) }}</span>{{ s.title || s.label }}
             <span v-if="s.kind === 'section'"> · {{ (s.persons || []).map(p => p.name).filter(Boolean).join('、') }}</span>
-            <el-button v-if="step === 3" link size="small" @click="openPagePreview(i)">预览</el-button>
             <em v-if="slideHasPhoto(s)"> · 含头像</em>
             <el-button link size="small" class="slide-op" :disabled="i === 0" @click="moveSlide(i, -1)">▲</el-button>
             <el-button link size="small" class="slide-op" :disabled="i === currentDeckSlides.length - 1" @click="moveSlide(i, 1)">▼</el-button>
@@ -236,7 +236,7 @@
       </details>
     </section>
 
-    <el-dialog v-model="pagePreviewOpen" title="页面预览" width="min(900px, 94vw)" @closed="clearPagePreview">
+    <el-dialog v-model="pagePreviewOpen" append-to-body title="页面预览" width="min(900px, 94vw)" @closed="clearPagePreview">
       <p v-if="pagePreviewLoading" role="status">正在生成预览…</p>
       <p v-else-if="pagePreviewError" role="alert">{{ pagePreviewError }}</p>
       <div v-else-if="pagePreviewUrl" class="single-page-editor">
@@ -263,6 +263,20 @@
               <el-input-number v-model="elementSettings.y" :min="-1080" :max="1080" :step="10" size="small" @change="sendElementSettings" />
             </label>
           </template>
+          <template v-if="isSingleResume">
+            <label>简历段落字体
+              <el-select v-model="resumeFormatting.font" size="small">
+                <el-option label="主题默认" value="" /><el-option label="微软雅黑" value="sans" />
+                <el-option label="宋体" value="serif" /><el-option label="楷体" value="kai" />
+              </el-select>
+            </label>
+            <label>简历段落字号 %
+              <el-input-number v-model="resumeFormatting.scale" :min="40" :max="250" :step="5" size="small" />
+            </label>
+            <el-button size="small" @click="postSinglePage('pmo-slide-bulk-resume', { ...resumeFormatting })">应用全部段落</el-button>
+          </template>
+          <el-button v-if="elementSettings && !avatarSelected" type="danger" plain size="small"
+            @click="removeSingleText">删除文本框</el-button>
           <el-button type="primary" size="small" :loading="singlePageSaving" @click="postSinglePage('pmo-slide-save')">保存本页</el-button>
         </div>
       </div>
@@ -307,7 +321,9 @@ const stepNames = ['模板与封面', '专家信息', '日程与角色', '预览
 
 const route = useRoute()
 const router = useRouter()
-const id = route.params.id
+const props = defineProps({ projectId: [String, Number] })
+const emit = defineEmits(['close', 'archived'])
+const id = props.projectId ?? route.params.id
 const step = ref(1)
 const template = ref('gold')
 const fontScale = ref(1)
@@ -367,7 +383,9 @@ const singlePageSaving = ref(false)
 const singlePageLoaded = ref(false)
 const elementSettings = ref(null)
 const avatarSelected = ref(false)
-const canEditSinglePage = computed(() => editable.value && step.value === 3 &&
+const resumeFormatting = ref({ font: '', scale: 100 })
+const isSingleResume = computed(() => currentDeckSlides.value[singlePageIndex.value]?.kind === 'resume')
+const canEditSinglePage = computed(() => editable.value && step.value >= 3 &&
   singlePageIndex.value >= 0 && currentDeckSlides.value[singlePageIndex.value]?.kind !== 'cover')
 let pagePreviewRequest = 0
 let portraitsReady = Promise.resolve()
@@ -643,6 +661,7 @@ async function archive() {
   try {
     await publishShow(id, deck())
     ElMessage.success('HTML 幻灯片已归档到项目文件')
+    emit('archived')
   } finally {
     busy.value = false
   }
@@ -677,6 +696,7 @@ function clearPagePreview() {
   singlePageSaving.value = false
   singlePageLoaded.value = false
   elementSettings.value = null
+  resumeFormatting.value = { font: '', scale: 100 }
   if (pagePreviewUrl.value) URL.revokeObjectURL(pagePreviewUrl.value)
   pagePreviewUrl.value = ''
 }
@@ -703,6 +723,12 @@ async function openPagePreview(index, slide = currentDeckSlides.value[index]) {
   }
 }
 
+async function openCurrentPageEditor() {
+  const index = previewFrame.value?.contentWindow?.__getPage?.()
+  if (!Number.isInteger(index)) return
+  await openPagePreview(index)
+}
+
 function postSinglePage(type, value) {
   singlePageFrame.value?.contentWindow?.postMessage({ type, value }, '*')
 }
@@ -711,6 +737,11 @@ function startSingleEdit() {
   if (!canEditSinglePage.value) return
   singlePageEditing.value = true
   postSinglePage('pmo-slide-edit')
+}
+
+function removeSingleText() {
+  postSinglePage('pmo-slide-delete-text')
+  elementSettings.value = null
 }
 
 function sendElementSettings() {
@@ -737,6 +768,7 @@ async function onSinglePageMessage(event) {
     editableDeck.value = pages
     ElMessage.success('本页已保存')
     if (request === pagePreviewRequest) await openPagePreview(index)
+    if (step.value === 4) await loadPreview()
   } finally {
     if (request === pagePreviewRequest) singlePageSaving.value = false
   }
@@ -905,7 +937,6 @@ function removeSlide(i) {
 function moveSlide(i, dir) {
   const to = i + dir
   if (to < 0 || to >= currentDeckSlides.value.length) return
-  if (step.value === 3 && currentDeckSlides.value[i].groupIndex !== currentDeckSlides.value[to].groupIndex) return
   const arr = mutableSlides()
   ;[arr[i], arr[to]] = [arr[to], arr[i]]
   loadPreview()
@@ -1127,6 +1158,10 @@ function nudgePage(entry, direction) {
 }
 
 function goProject() {
+  if (props.projectId != null) {
+    emit('close')
+    return
+  }
   router.push({ name: 'project-detail', params: { id } })
 }
 </script>
