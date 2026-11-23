@@ -19,4 +19,6 @@
 - JDK 17 执行 `mvn -q -DgitShort=<基线短提交> -Dtest=ProjectStageDeliverableTest,ProjectShowTemplateServiceTest test`，13 项通过，包括新归档文件名和既有模板逻辑。
 - 隔离 Edge 脚本 `node temp/show-overview-browser.cjs <LOCAL_PATH>` 通过。使用后端实际渲染的 68 页 HTML 和模拟项目请求，验证固定框、图片缩放和平移、缩略图按需加载、末页跳转、高亮、编辑键禁用和草稿归档请求。
 - `scripts/release-full.cmd -Mode Preflight -Version 1.0.127 -Slug show-preview-overview` 通过。日志 `logs/show-127-preflight.log`。
-- 生产验收先检查主实例和前端主包；登录项目后从第二步测试拖动缩放，再切到第四步点击末页，保存草稿，归档并下载核对文件名。回滚使用同一发布编排保留的前端快照及上一版后端 JAR。
+- 补测窄屏下总览与主画面的宽度，以及新标签只读演示和原独立播放器模式。Edge 隔离验证通过。
+- 功能提交 `b5dafc4` 已快进合入本地 `main`。1.0.127 正式发布 SUCCESS，主实例、Nginx API 和线上前端主包均已验证。
+- 登录生产真实项目后的编辑、保存和归档待业务验收。从第二步测试拖动缩放，再切到第四步点击末页，保存草稿，归档并下载核对文件名。见 [发布和回滚记录](../../releases/20261123-show-preview-overview-1.0.127.md)。
