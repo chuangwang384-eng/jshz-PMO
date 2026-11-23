@@ -116,11 +116,12 @@ public class DashboardReadService {
         String warningExpr="CASE WHEN p.end_date IS NULL THEN 'NONE' WHEN p.end_date<? THEN 'OVERDUE' "+
             "WHEN p.end_date=? THEN 'DUE_TODAY' WHEN p.end_date<=? + INTERVAL 7 DAY THEN 'DUE_SOON' ELSE 'NONE' END";
         Object[] warnArgs={todaySql,todaySql,todaySql};
+        // 注意占位符顺序：SELECT 聚合里的 4 个日期参数在前，scope WHERE 的 4 个 uid 参数在后。
         Map<String,Object> counts= db.queryForMap("SELECT COUNT(*) total,"+
             "COALESCE(SUM(p.end_date IS NOT NULL AND p.end_date<?),0) overdueCount,"+
             "COALESCE(SUM(p.end_date=?),0) dueTodayCount,"+
             "COALESCE(SUM(p.end_date>? AND p.end_date<=? + INTERVAL 7 DAY),0) dueSoonCount "+scope,
-            concat(scopeArgs,new Object[]{todaySql,todaySql,todaySql,todaySql}));
+            concat(new Object[]{todaySql,todaySql,todaySql,todaySql},scopeArgs));
         List<Map<String,Object>> rows=db.queryForList(
             "SELECT p.id,p.name,p.category,p.team,p.status,p.start_date startDate,p.end_date endDate,"+
             "p.meeting_start_date meetingStartDate,p.meeting_end_date meetingEndDate,"+
