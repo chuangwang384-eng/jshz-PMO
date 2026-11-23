@@ -1,10 +1,10 @@
 <template>
   <main class="dashboard">
-    <header class="dashboard-head"><div><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted"><span v-if="weekdayLabel">{{ weekdayLabel }} · </span>先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><template v-if="!editing"><el-button :disabled="!layoutReady || !capabilitiesReady || !wide" @click="startEdit">自定义布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="!wide || conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout || !wide" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" class="refresh-btn" aria-label="刷新工作台" @click="refreshWorkbench"><el-icon><Refresh /></el-icon></el-button></div></header>
+    <header class="dashboard-head"><div><h1>{{ greeting }}，{{ auth.username }}</h1><p class="muted"><span v-if="weekdayLabel">{{ weekdayLabel }} · </span>先处理重要事项，再开始今天的工作。</p></div><div class="head-actions"><template v-if="!editing"><el-button :disabled="!layoutReady || !capabilitiesReady" @click="startEdit">自定义布局</el-button></template><template v-else><el-button type="primary" :loading="savingLayout" :disabled="conflict" @click="saveLayout">保存布局</el-button><el-button :disabled="savingLayout" @click="resetEdit">恢复默认</el-button><el-button :disabled="savingLayout" @click="cancelEdit">取消</el-button></template><el-button :loading="loading" class="refresh-btn" aria-label="刷新工作台" @click="refreshWorkbench"><el-icon><Refresh /></el-icon></el-button></div></header>
     <div class="nav-card"><GlobalSearchBar ref="searchBar" /><QuickAccessBar ref="quickBar" :candidates="quickCandidates" :editing="editing" /></div>
     <el-alert v-if="pageError" title="工作台加载失败，请重试；其他入口仍可使用。" type="error" :closable="false" />
-    <p v-if="!wide" class="muted">请使用宽屏编辑布局。</p>
-    <p v-if="editing" class="edit-tip">拖动卡片左上角手柄移动位置，拖动卡片右下角调整宽高；聚焦手柄后可用方向键微调，按住 Shift 加方向键改变宽高，按 Esc 取消当前操作。快捷访问的增删与排序也会一并调整，改完点上方「保存布局」生效，「取消」放弃全部改动。<span role="status">{{ layoutStatus }}</span></p>
+    <p v-if="!wide && !editing" class="muted">当前窗口较窄：可点击「自定义布局」增删卡片，拖拽调整位置请使用宽屏。</p>
+    <p v-if="editing" class="edit-tip"><template v-if="!wide">窄屏简化编辑：点击卡片右上角 × 移除，从下方备选卡片点击添加；拖拽调整位置请使用宽屏。</template><template v-else>拖动卡片左上角手柄移动位置，拖动卡片右下角调整宽高；聚焦手柄后可用方向键微调，按住 Shift 加方向键改变宽高，按 Esc 取消当前操作。快捷访问的增删与排序也会一并调整，改完点上方「保存布局」生效，「取消」放弃全部改动。</template><span role="status">{{ layoutStatus }}</span></p>
     <el-button v-if="editing && conflict" :disabled="savingLayout" @click="reloadLayout">重新加载最新布局</el-button>
     <p v-if="!displayLayout.length" class="muted">暂无卡片，可通过编辑布局添加模块或恢复默认。</p>
     <section :key="activeGrid ? 'editor' : 'browse'" ref="gridElement" :class="activeGrid ? 'grid-stack' : ['layout-grid', { narrow: !wide }]" aria-label="工作台卡片">
@@ -12,7 +12,7 @@
            :style="activeGrid || !wide ? undefined : { gridColumn: (item.x + 1) + ' / span ' + item.w, gridRow: (item.y + 1) + ' / span ' + item.h }">
         <div :class="activeGrid ? 'grid-stack-item-content layout-content' : 'layout-content'">
           <div v-if="editing" class="layout-toolbar">
-            <button class="layout-handle" type="button" :disabled="savingLayout" :aria-label="'移动' + CARD_CATALOG[item.i].title" title="拖动移动，方向键调整" @keydown="adjustCard($event, item.i)">⠿</button>
+            <button v-if="wide" class="layout-handle" type="button" :disabled="savingLayout" :aria-label="'移动' + CARD_CATALOG[item.i].title" title="拖动移动，方向键调整" @keydown="adjustCard($event, item.i)">⠿</button>
             <button type="button" :disabled="savingLayout" :aria-label="'移除' + CARD_CATALOG[item.i].title" @click="removeCard(item.i)">×</button>
           </div>
           <div class="layout-body">
@@ -52,7 +52,7 @@
       <div class="palette">
         <div class="palette-head">备选卡片（点击添加到工作台）</div>
         <div class="palette-list">
-          <button v-for="id in paletteIds" :key="id" class="palette-item" :disabled="savingLayout || !wide" @click="addCard(id)"><span class="chip-dot" :data-color="cardDot(id)"></span>{{ CARD_CATALOG[id].title }}<small>{{ CARD_CATALOG[id].kind==='page'?'页面':(CARD_CATALOG[id].kind==='stat'?'统计':'面板') }}</small></button>
+          <button v-for="id in paletteIds" :key="id" class="palette-item" :disabled="savingLayout" @click="addCard(id)"><span class="chip-dot" :data-color="cardDot(id)"></span>{{ CARD_CATALOG[id].title }}<small>{{ CARD_CATALOG[id].kind==='page'?'页面':(CARD_CATALOG[id].kind==='stat'?'统计':'面板') }}</small></button>
           <p v-if="!paletteIds.length" class="muted" style="margin:0">所有可用卡片均已添加</p>
         </div>
       </div>
@@ -203,11 +203,12 @@ watch([activeGrid, layoutKeys], () => {
 }, { flush: 'post' })
 
 async function startEdit() {
-  if (editStarting || !wide.value || !layoutReady.value || !capabilitiesReady.value) return
+  if (editStarting || !layoutReady.value || !capabilitiesReady.value) return
   editStarting = true
   try {
-    gridFactory ??= (await import('../../utils/dashboardGrid')).createDashboardGrid
-    if (!alive || !wide.value) return
+    // 窄屏走简化编辑（仅增删卡片，activeGrid=false 不初始化 gridstack）；宽屏才加载拖拽引擎
+    if (wide.value) gridFactory ??= (await import('../../utils/dashboardGrid')).createDashboardGrid
+    if (!alive) return
     editLayout.value = layoutItems.value.map(item => ({ ...item }))
     conflict.value = false
     layoutStatus.value = ''
@@ -226,12 +227,12 @@ function addCard(id) {
   else ElMessage.warning('画布空间不足，请先移除或缩小卡片')
 }
 function removeCard(id) {
-  if (savingLayout.value || !wide.value) return
+  if (savingLayout.value) return
   grid?.sync(displayLayout.value.filter(item => item.i !== id))
   editLayout.value = editLayout.value.filter(item => item.i !== id)
 }
 function resetEdit() {
-  if (savingLayout.value || !wide.value) return
+  if (savingLayout.value) return
   const items = defaults()
   grid?.sync(items)
   editLayout.value = items
@@ -275,10 +276,16 @@ async function reloadLayout() {
   }
 }
 async function saveLayout() {
-  if (savingLayout.value || !wide.value || conflict.value) return
+  if (savingLayout.value || conflict.value) return
   savingLayout.value = true
   grid?.setEnabled(false)
-  const items = displayLayout.value.map(item => ({ ...item }))
+  // 等价卡去重：同一功能的 page 入口与 panel 面板同时在布局时，保留信息量更大的 panel
+  const before = displayLayout.value.length
+  const items = dedupeEquivalents(displayLayout.value.map(item => ({ ...item })))
+  if (items.length !== before) {
+    editLayout.value = visible(items)
+    ElMessage.info('已自动移除与面板功能重复的页面入口卡片')
+  }
   try {
     const quickSaved = await quickBar.value?.saveDraft()
     // 空快捷访问草稿会返回 false：整单中止，保留编辑态，不误报「布局与快捷访问已保存」
@@ -296,6 +303,10 @@ async function saveLayout() {
     grid?.setEnabled(true)
   }
 }
+function dedupeEquivalents(items) {
+  const placed = new Set(items.map(item => item.i))
+  return items.filter(item => !(equivalentPanels[item.i] && placed.has(equivalentPanels[item.i])))
+}
 function dirtyLayout() {
   return editing.value && JSON.stringify(displayLayout.value) !== JSON.stringify(layoutItems.value)
 }
@@ -312,9 +323,16 @@ const refreshFailed=ref(false),lastRefreshAt=ref(0),nowTick=ref(Date.now())
 const dataStale=computed(()=>lastRefreshAt.value>0 && nowTick.value-lastRefreshAt.value>120000)
 const WEEK=['日','一','二','三','四','五','六']
 const weekdayLabel=computed(()=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(businessDate.value||'');if(!m)return '';const d=new Date(+m[1],+m[2]-1,+m[3]);return `${+m[2]}月${+m[3]}日，星期${WEEK[d.getDay()]}`})
-// 快捷访问候选：page.* 卡片按原固定顺序排列，经 canShow 过滤（含 capabilities 与权限）
+// 快捷访问候选：从 CARD_CATALOG 派生全部 page.* 卡片（新增卡片自动进入候选，无需改此处）；
+// QUICK_ACCESS_ORDER 仅声明既有顺序，未登记的新卡片排在末尾（按 id 字典序，稳定不跳动）
 const QUICK_ACCESS_ORDER=['page.knowledge','page.project','page.experts','page.customer','page.supplier','page.myApplications','page.announcements','page.directory','page.notifications','page.approvalManage','page.complianceAssociation','page.complianceEnterprise','page.profileHome']
-const quickCandidates=computed(()=>QUICK_ACCESS_ORDER.filter(canShow).map(id=>({id,title:CARD_CATALOG[id].title,path:CARD_CATALOG[id].path})))
+const quickCandidates=computed(()=>{
+  const rank=id=>{const i=QUICK_ACCESS_ORDER.indexOf(id);return i<0?QUICK_ACCESS_ORDER.length:i}
+  return Object.keys(CARD_CATALOG)
+    .filter(id=>CARD_CATALOG[id].kind==='page'&&canShow(id))
+    .sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b))
+    .map(id=>({id,title:CARD_CATALOG[id].title,path:CARD_CATALOG[id].path}))
+})
 const allTargets={favorites:{path:'/knowledge-planet/meeting-execution',query:{favorites:'1'}},announcements:{path:'/profile/announcements'},notifications:{path:'/profile/notifications'}}
 const data=key=>section.value[key]?.data || {}
 const count=(key,field)=>section.value[key]?.status==='error'?'暂不可用':data(key)[field] ?? '—'
