@@ -713,6 +713,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             m.put("role", rel.getRole());
             m.put("fee", rel.getFee());
             m.put("contractStatus", rel.getContractStatus());
+            // 身份证有效期与过期风险（2026-11-23：引入专家后前端据此自动提示）
+            m.put("idCardExpiry", expert.getIdCardExpiry());
+            m.put("idCardExpiryRisk", IdCardExpiryExtractor.risk(expert.getIdCardExpiry(), LocalDate.now(DashboardReadService.ZONE)));
             if (full) {
                 m.put("idCard", expert.getIdCard());
                 m.put("bankCard", expert.getBankCard());

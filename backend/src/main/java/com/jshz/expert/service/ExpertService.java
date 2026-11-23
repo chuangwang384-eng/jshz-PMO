@@ -292,6 +292,10 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         if (back != null && !back.isEmpty()) {
             autoFillIdCardExpiry(id, updated.getIdCardBack());
         }
+        // 仅本次上传了身份证正面才自动提取身份证号（2026-11-23）
+        if (front != null && !front.isEmpty()) {
+            autoFillIdCardNumber(id, updated.getIdCardFront());
+        }
         return updated;
     }
 
@@ -465,6 +469,37 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
     }
 
     /**
+     * 身份证正面落盘后自动提取公民身份号码（2026-11-23，本机 PP-OCRv5，校验码通过才采纳）。
+     * 仅在现有身份证号为空时填入，不覆盖手工录入/已审批值；失败不阻断上传。
+     */
+    public void autoFillIdCardNumber(Long expertId, String frontFilename) {
+        if (expertId == null || !StringUtils.hasText(frontFilename)) {
+            return;
+        }
+        try {
+            Expert existing = getById(expertId);
+            if (existing == null || StringUtils.hasText(existing.getIdCard())) {
+                return;
+            }
+            java.nio.file.Path path = photoStorageService.photoPath(frontFilename);
+            if (path == null) {
+                return;
+            }
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(path.toFile());
+            String idNumber = IdCardExpiryExtractor.extractIdNumber(image);
+            if (!StringUtils.hasText(idNumber)) {
+                return;
+            }
+            Expert patch = new Expert();
+            patch.setId(expertId);
+            patch.setIdCard(idNumber);
+            this.updateById(patch);
+        } catch (Exception e) {
+            log.warn("身份证号自动提取失败 expertId={} err={}", expertId, e.toString());
+        }
+    }
+
+    /**
      * 身份证反面落盘后自动提取有效期（2026-11-23，本机 PP-OCRv5，不出内网）。
      * 提取成功覆盖写入（新反面以新证件为准）；失败/无法识别保留原值，不阻断上传主流程。
      * 直写路径在事务内调用；审批归档路径在事务提交后调用（独立自动提交更新）。
@@ -516,6 +551,10 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         // 仅本次上传了身份证反面才自动提取有效期（2026-11-23）
         if (back != null && !back.isEmpty()) {
             autoFillIdCardExpiry(expert.getId(), expert.getIdCardBack());
+        }
+        // 仅本次上传了身份证正面才自动提取身份证号（2026-11-23）
+        if (front != null && !front.isEmpty()) {
+            autoFillIdCardNumber(expert.getId(), expert.getIdCardFront());
         }
     }
 }

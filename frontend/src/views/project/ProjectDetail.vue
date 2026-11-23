@@ -281,6 +281,9 @@
             <el-table-column label="档案关联" min-width="140">
               <template #default="{ row }">
                 <span v-if="row.expertId" class="doc-name">{{ row.expertName }}（{{ row.expertUnit || '已关联' }}）</span>
+                <el-tag v-if="expertRisk(row.expertId)" size="small" :type="expertRisk(row.expertId) === 'EXPIRED' ? 'danger' : 'warning'" style="margin-left: 6px">
+                  {{ expertRisk(row.expertId) === 'EXPIRED' ? '证件已过期' : '证件6个月内到期' }}
+                </el-tag>
                 <el-tag v-else-if="canOperate" size="small" type="warning" class="link-tag" @click="openArchiveDialog(row)">库外专家·去建档</el-tag>
                 <el-tag v-else size="small" type="warning">库外专家</el-tag>
               </template>
@@ -861,6 +864,7 @@ async function saveSpeakerRows(rows, candidateId) {
     speakers.value = await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, payload, candidateId)
     ElMessage.success(payload.length ? '参会专家已确认保存' : '已放弃候选')
     await Promise.all([fetchSchedule({ preserveDraft: Boolean(candidateId) }), fetchDetail({ refreshSchedule: false })])
+    if (payload.length) notifyIdCardRisks()
   } finally {
     savingSpeakers.value = false
   }
@@ -995,6 +999,23 @@ async function refreshArchivedExperts() {
     // 接口层已提示刷新失败。
   }
 }
+// 身份证有效期风险（2026-11-23）：引入专家后自动检查已过期 / 6 个月内到期并提示
+function expertRisk(expertId) {
+  if (!expertId) return null
+  return (detail.value?.experts || []).find(e => e.expertId === expertId)?.idCardExpiryRisk || null
+}
+function notifyIdCardRisks() {
+  const risky = (detail.value?.experts || []).filter(e => e.idCardExpiryRisk)
+  if (!risky.length) return
+  const lines = risky.map(e => {
+    const label = e.idCardExpiryRisk === 'EXPIRED' ? '已过期' : '6个月内到期'
+    return `· ${e.name}：身份证${label}（有效期 ${e.idCardExpiry || '—'}）`
+  })
+  ElMessageBox.alert(lines.join('<br>'), '身份证有效期风险提醒', {
+    type: 'warning', confirmButtonText: '知道了', dangerouslyUseHTMLString: true
+  })
+}
+
 async function doArchiveManual() {
   if (!archiveForm.name.trim()) {
     ElMessage.warning('姓名必填')
@@ -1016,6 +1037,7 @@ async function doArchiveManual() {
     manualArchiveVisible.value = false
     ElMessage.success('建档成功，已自动关联项目专家名单')
     await refreshArchivedExperts()
+    notifyIdCardRisks()
   } catch (e) {
     // 错误提示由 request 层统一给出
   } finally {

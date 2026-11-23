@@ -583,8 +583,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (!pendingArchives.isEmpty()) {
             afterCommit("新增专家照片归档", () -> {
                 archiveTempPhotos(pendingArchives, expert.getId());
-                // 反面归档后自动提取有效期（2026-11-23，提交后独立更新）
+                // 反面归档后自动提取有效期、正面归档后自动提取身份证号（2026-11-23，提交后独立更新）
                 expertService.autoFillIdCardExpiry(expert.getId(), photoApplied.get("身份证反面"));
+                expertService.autoFillIdCardNumber(expert.getId(), photoApplied.get("身份证正面"));
             });
         }
         return fillView(app, isFullSensitive(user));
@@ -668,8 +669,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         // 事务提交后执行文件操作：先归档新照片，再按需删除旧照片，最后清理残留临时文件
         afterCommit("修改申请照片归档", () -> {
             archiveTempPhotos(pendingArchives, app.getExpertId());
-            // 反面归档后自动提取有效期（2026-11-23，提交后独立更新）
+            // 反面归档后自动提取有效期、正面归档后自动提取身份证号（2026-11-23，提交后独立更新）
             expertService.autoFillIdCardExpiry(app.getExpertId(), photoApplied.get("身份证反面"));
+            expertService.autoFillIdCardNumber(app.getExpertId(), photoApplied.get("身份证正面"));
             if (deleteOldPhotos) {
                 for (String oldName : oldPhotos.values()) {
                     if (StringUtils.hasText(oldName)) {
