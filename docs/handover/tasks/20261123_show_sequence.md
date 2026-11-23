@@ -18,6 +18,7 @@
 - JDK 17 执行 `mvn -q -DgitShort=<基线短提交> -Dtest=ProjectStageDeliverableTest test`，11 通过。首次命令缺少构建元数据参数，补齐后通过。
 - `node temp/show-sequence-check.cjs` 通过分组排序、补页幂等、已排版简介保留和动画排序断言。临时脚本保存在本机 `temp/`。
 - `node temp/show-sequence-edge.cjs` 通过 Edge 播放断言。使用隔离 HTML 验证移动后的文本框按视觉顺序显示，反向播放按同一顺序撤回。
+- `npm run build -- --outDir <LOCAL_PATH>` 通过。`node temp/show-sequence-wizard.cjs <LOCAL_PATH>` 在 Edge 验证卡片前移同步更新过场成员、同一专家在另一个阶段可补齐简介。
 - 发布预检 `scripts/release-full.cmd -Mode Preflight -Version 1.0.126 -Slug show-sequence` 通过。首次运行遇到 Windows PowerShell 模块路径污染，使用 Windows PowerShell 模块路径重跑通过。证据见 `logs/show-126-preflight.log`。
-- 正式发布应走标准发布脚本。回滚到前后端 1.0.125 走标准回滚流程，依据发布生成的 Nginx 快照和上一版本后端 JAR。
-- 在生产真实项目验收时，先确认健康接口和前端引用产物版本，再打开「日程与角色」调换简介、补齐旧稿、拖动文本并保存、重新预览和归档。生产发布前禁止把本地验证写成生产验收。
+- 功能提交 `33cb5a0` 已快进合入本地 `main`。普通终端的发布尝试因缺少管理员令牌退出，随后通过 Windows 管理员进程完成 1.0.126 正式发布。发布状态为 SUCCESS，线上前后端均已验证 1.0.126。
+- 生产真实项目写入流程待业务验收。打开「日程与角色」调换简介、补齐旧稿、拖动文本并保存，再重新预览和归档。发布证据、备份与回滚见 [1.0.126 发布记录](../../releases/20261123-show-sequence-1.0.126.md)。
