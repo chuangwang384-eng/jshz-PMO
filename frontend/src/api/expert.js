@@ -2,12 +2,12 @@ import request, { downloadFile } from './request'
 
 // 专家接口（对应后端 /api/experts/*，键为中文）
 
-// 分页列表：keyword / page / size / sensitive=1（管理员全量）
+// 分页列表：keyword / page / size（登录用户一律返回明文，仅登录鉴权）
 export function listExperts(params) {
   return request.get('/experts', { params })
 }
 
-// 详情：sensitive=1 管理员全量
+// 详情：登录用户一律返回明文
 export function getExpert(id, params) {
   return request.get(`/experts/${id}`, { params })
 }
@@ -56,12 +56,12 @@ export function exportFullZip() {
 
 // 勾选导出 Excel（自动留痕 selected_xlsx）
 export function exportSelectedExcel(ids) {
-  return downloadFile('/experts/selected/export', { ids: ids.join(','), sensitive: 1 })
+  return downloadFile('/experts/selected/export', { ids: ids.join(',') })
 }
 
 // 勾选导出 ZIP（Excel + 照片，自动留痕 selected_zip）
 export function exportSelectedZip(ids) {
-  return downloadFile('/experts/selected/zip', { ids: ids.join(','), sensitive: 1 })
+  return downloadFile('/experts/selected/zip', { ids: ids.join(',') })
 }
 
 // 照片访问（需登录，转 blob URL 供 <img> 使用）

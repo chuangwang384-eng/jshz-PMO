@@ -53,7 +53,6 @@ public class ExpertController {
     private final ExpertService expertService;
     private final ExpertDocumentService expertDocumentService;
     private final ExportService exportService;
-    private final DownloadAuditService downloadAuditService;
     private final OperationLogService operationLogService;
     private final ResumeParseService resumeParseService;
 
@@ -65,7 +64,7 @@ public class ExpertController {
 
     /**
      * 分页列表：?keyword=&page=&size= 及可选高级筛选（unit/department/titles/photo/complete/updatedFrom/updatedTo，
-     * 组合生效；登录用户一律返回明文，sensitive 不再作为权限门槛，保留登录鉴权）。
+     * 组合生效；登录用户一律返回明文，仅登录鉴权）。
      */
     @GetMapping
     public ApiResponse<PageResult<Expert>> list(@RequestParam(required = false) String keyword,
@@ -79,7 +78,6 @@ public class ExpertController {
                                                 @RequestParam(required = false) String duplicate,
                                                 @RequestParam(defaultValue = "1") long page,
                                                 @RequestParam(defaultValue = "20") long size,
-                                                @RequestParam(required = false) String sensitive,
                                                 @AuthenticationPrincipal AuthUser authUser) {
         boolean full = authUser != null;
         Page<Expert> p = expertService.pageList(keyword, page, size,
@@ -163,24 +161,13 @@ public class ExpertController {
     }
 
     /**
-     * 详情：GET /api/experts/{id}（需求1：登录用户一律返回明文，sensitive 参数保留但不再作为权限门槛）。
+     * 详情：GET /api/experts/{id}（需求1：登录用户一律返回明文，仅登录鉴权）。
      */
     @GetMapping("/{id}")
     public ApiResponse<Expert> detail(@PathVariable Long id,
-                                      @RequestParam(required = false) String sensitive,
                                       @AuthenticationPrincipal AuthUser authUser) {
         boolean full = authUser != null;
         return ApiResponse.ok(expertService.detail(id, full));
-    }
-
-    /**
-     * 单个专家下载次数：GET /api/experts/{id}/download-count
-     */
-    @GetMapping("/{id}/download-count")
-    public ApiResponse<Map<String, Object>> downloadCount(@PathVariable Long id) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("count", downloadAuditService.countByExpertId(id));
-        return ApiResponse.ok(data);
     }
 
     // ==================== 资料文件（医生证等，2026-11-20） ====================
@@ -291,7 +278,6 @@ public class ExpertController {
      */
     @GetMapping("/selected/export")
     public void selectedExport(@RequestParam("ids") String ids,
-                               @RequestParam(required = false) String sensitive,
                                @AuthenticationPrincipal AuthUser authUser,
                                HttpServletRequest request,
                                HttpServletResponse response) throws IOException {
@@ -307,7 +293,6 @@ public class ExpertController {
      */
     @GetMapping("/selected/zip")
     public void selectedZip(@RequestParam("ids") String ids,
-                            @RequestParam(required = false) String sensitive,
                             @AuthenticationPrincipal AuthUser authUser,
                             HttpServletRequest request,
                             HttpServletResponse response) throws IOException {
@@ -354,18 +339,6 @@ public class ExpertController {
         writeAttachment(response, zip, "experts_all_" + LocalDate.now() + ".zip", MediaType.APPLICATION_OCTET_STREAM);
     }
 
-    /**
-     * 下载说明 Markdown：GET /api/experts/export/md?full=1
-     */
-    @GetMapping("/export/md")
-    public void exportMd(@RequestParam(required = false) String full,
-                         @AuthenticationPrincipal AuthUser authUser,
-                         HttpServletRequest request,
-                         HttpServletResponse response) throws IOException {
-        List<Expert> experts = expertService.list();
-        byte[] md = exportService.buildMarkdown(experts, "1".equals(full), authUser, request);
-        writeAttachment(response, md, "download_guide.md", MediaType.parseMediaType("text/markdown;charset=UTF-8"));
-    }
 
     /**
      * 导入模板 Excel。

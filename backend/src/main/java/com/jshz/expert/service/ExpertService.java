@@ -11,6 +11,7 @@ import com.jshz.expert.mapper.ExpertMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
@@ -42,12 +43,6 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
                                String photo, String complete,
                                LocalDate updatedFrom, LocalDate updatedTo,
                                String duplicate) {
-        /** 兼容旧调用（未带重名筛项）。 */
-        public ExpertFilter(String unit, String department, List<String> titles,
-                            String photo, String complete,
-                            LocalDate updatedFrom, LocalDate updatedTo) {
-            this(unit, department, titles, photo, complete, updatedFrom, updatedTo, null);
-        }
     }
 
     /**
@@ -174,7 +169,9 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
 
     /**
      * 新增（multipart 场景，支持三类照片文件字段：photo / idCardFront / idCardBack）。
+     * 事务内落库，照片文件回滚时清理（2026-11-23 P1 修复）。
      */
+    @Transactional
     public Expert createFromMultipart(MultipartHttpServletRequest request, AuthUser user) {
         Expert expert = buildFromParams(request);
         validateRequired(expert);
@@ -193,7 +190,12 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
     }
 
     private String storeNewAvatar(Expert expert, MultipartFile photo) {
-        String filename = photoStorageService.savePhoto(photo, expert.getId(), "photo");
+        return storePhotoWithRollbackCleanup(photo, expert.getId(), "photo");
+    }
+
+    /** 落盘新照片并注册回滚清理：事务回滚时删除新文件，避免孤儿（三类照片共用）。 */
+    private String storePhotoWithRollbackCleanup(MultipartFile file, Long expertId, String kind) {
+        String filename = photoStorageService.savePhoto(file, expertId, kind);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -205,6 +207,20 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
             });
         }
         return filename;
+    }
+
+    /** 事务提交后再执行（无事务上下文时立即执行）：物理文件删除统一推迟到落库成功之后。 */
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     /**
@@ -225,7 +241,10 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
 
     /**
      * 修改（multipart 场景，换照片时删除旧文件）。
+     * 2026-11-23 P1 修复：事务内落库；新照片回滚时清理，旧照片推迟到提交后删除，
+     * 避免「DB 失败但旧文件已删 / 新文件成孤儿」。
      */
+    @Transactional
     public Expert updateFromMultipart(Long id, MultipartHttpServletRequest request, AuthUser user) {
         Expert existing = getById(id);
         if (existing == null) {
@@ -240,60 +259,61 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         this.updateById(patch);
 
         Expert updated = getById(id);
+        List<String> oldFiles = new ArrayList<>();
         boolean photoChanged = false;
         MultipartFile photo = request.getFile("photo");
         if (photo != null && !photo.isEmpty()) {
             String old = updated.getPhoto();
-            updated.setPhoto(photoStorageService.savePhoto(photo, id, "photo"));
-            if (StringUtils.hasText(old) && !old.equals(updated.getPhoto())) {
-                photoStorageService.deletePhoto(old);
-            }
+            updated.setPhoto(storePhotoWithRollbackCleanup(photo, id, "photo"));
+            if (StringUtils.hasText(old) && !old.equals(updated.getPhoto())) oldFiles.add(old);
             photoChanged = true;
         }
         MultipartFile front = request.getFile("idCardFront");
         if (front != null && !front.isEmpty()) {
             String old = updated.getIdCardFront();
-            updated.setIdCardFront(photoStorageService.savePhoto(front, id, "idcard_front"));
-            if (StringUtils.hasText(old) && !old.equals(updated.getIdCardFront())) {
-                photoStorageService.deletePhoto(old);
-            }
+            updated.setIdCardFront(storePhotoWithRollbackCleanup(front, id, "idcard_front"));
+            if (StringUtils.hasText(old) && !old.equals(updated.getIdCardFront())) oldFiles.add(old);
             photoChanged = true;
         }
         MultipartFile back = request.getFile("idCardBack");
         if (back != null && !back.isEmpty()) {
             String old = updated.getIdCardBack();
-            updated.setIdCardBack(photoStorageService.savePhoto(back, id, "idcard_back"));
-            if (StringUtils.hasText(old) && !old.equals(updated.getIdCardBack())) {
-                photoStorageService.deletePhoto(old);
-            }
+            updated.setIdCardBack(storePhotoWithRollbackCleanup(back, id, "idcard_back"));
+            if (StringUtils.hasText(old) && !old.equals(updated.getIdCardBack())) oldFiles.add(old);
             photoChanged = true;
         }
         if (photoChanged) {
             this.updateById(updated);
+            afterCommit(() -> oldFiles.forEach(photoStorageService::deletePhoto));
         }
         return updated;
     }
 
     /**
      * 删除专家并物理删除三类照片（R6）。
+     * 2026-11-23 P1 修复：先事务内删记录（含级联资料登记行），提交成功后再删物理文件；
+     * DB 失败回滚时照片/资料文件原样保留。
      */
+    @Transactional
     public void deleteExpert(Long id) {
         Expert expert = getById(id);
         if (expert == null) {
             throw new BusinessException("专家不存在");
         }
-        if (StringUtils.hasText(expert.getPhoto())) {
-            photoStorageService.deletePhoto(expert.getPhoto());
-        }
-        if (StringUtils.hasText(expert.getIdCardFront())) {
-            photoStorageService.deletePhoto(expert.getIdCardFront());
-        }
-        if (StringUtils.hasText(expert.getIdCardBack())) {
-            photoStorageService.deletePhoto(expert.getIdCardBack());
-        }
-        // 级联删除资质资料（登记行+物理文件，2026-11-20）
+        // 级联删除资质资料（登记行在事务内删，物理文件由该方法注册提交后删除）
         expertDocumentService.deleteByExpert(id);
         this.removeById(id);
+        afterCommit(() -> {
+            if (StringUtils.hasText(expert.getPhoto())) {
+                photoStorageService.deletePhoto(expert.getPhoto());
+            }
+            if (StringUtils.hasText(expert.getIdCardFront())) {
+                photoStorageService.deletePhoto(expert.getIdCardFront());
+            }
+            if (StringUtils.hasText(expert.getIdCardBack())) {
+                photoStorageService.deletePhoto(expert.getIdCardBack());
+            }
+        });
     }
 
     /**
@@ -446,12 +466,12 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         }
         MultipartFile front = request.getFile("idCardFront");
         if (front != null && !front.isEmpty()) {
-            expert.setIdCardFront(photoStorageService.savePhoto(front, expert.getId(), "idcard_front"));
+            expert.setIdCardFront(storePhotoWithRollbackCleanup(front, expert.getId(), "idcard_front"));
             changed = true;
         }
         MultipartFile back = request.getFile("idCardBack");
         if (back != null && !back.isEmpty()) {
-            expert.setIdCardBack(photoStorageService.savePhoto(back, expert.getId(), "idcard_back"));
+            expert.setIdCardBack(storePhotoWithRollbackCleanup(back, expert.getId(), "idcard_back"));
             changed = true;
         }
         if (changed) {

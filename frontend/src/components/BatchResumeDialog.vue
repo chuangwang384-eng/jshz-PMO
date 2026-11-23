@@ -308,7 +308,7 @@ async function findMatches(row) {
     page++
   } while ((page - 1) * size < total)
   return Promise.all(matches.map(async match => {
-    const fields = await getExpert(match.id, props.canEdit ? { sensitive: 1 } : undefined)
+    const fields = await getExpert(match.id)
     return { id: match.id, label: `库内专家卡 #${match.id}`, fields: { ...fields, 简介: fields.原始简介 ?? fields.简介 } }
   }))
 }

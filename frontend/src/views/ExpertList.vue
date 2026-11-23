@@ -146,7 +146,7 @@
       </div>
       <el-empty
         v-if="!loading && !experts.length"
-        description="暂无专家数据"
+        :description="listError ? '加载失败，请刷新重试' : '暂无专家数据'"
         :image-size="100"
         style="grid-column: 1 / -1"
       />
@@ -185,7 +185,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!loading && !experts.length" description="暂无专家数据" :image-size="100" />
+      <el-empty v-if="!loading && !experts.length" :description="listError ? '加载失败，请刷新重试' : '暂无专家数据'" :image-size="100" />
     </div>
 
     <!-- 悬浮批量操作栏：勾选后出现（导出 Excel / 含照片 ZIP） -->
@@ -752,8 +752,13 @@ const dirty = computed(() => {
   return photoChanged.photo || photoChanged.front || photoChanged.back
 })
 
+// 2026-11-23 P2 修复：列表请求序号防竞态（快速切筛选/翻页时丢弃过期响应）+ 失败提示
+let listSequence = 0
+const listError = ref(false)
 async function fetchList() {
+  const sequence = ++listSequence
   loading.value = true
+  listError.value = false
   try {
     const data = await listExperts({
       keyword: keyword.value || undefined,
@@ -768,10 +773,15 @@ async function fetchList() {
       page: page.value,
       size: size.value
     })
+    if (sequence !== listSequence) return
     experts.value = data?.items || []
     total.value = data?.total || 0
+  } catch (e) {
+    if (sequence !== listSequence) return
+    listError.value = true
+    ElMessage.error('专家列表加载失败，请重试')
   } finally {
-    loading.value = false
+    if (sequence === listSequence) loading.value = false
   }
 }
 
@@ -790,7 +800,13 @@ function handleSearch() {
 }
 
 // 翻页 / 改每页条数：重新加载数据但保留勾选（selectedIds 为全局集合，跨页有效）
+// 2026-11-23 P2 修复：改每页条数时回到第 1 页，避免深层页码越界看到空列表
+let lastPageSize = size.value
 function handlePageChange() {
+  if (size.value !== lastPageSize) {
+    lastPageSize = size.value
+    page.value = 1
+  }
   fetchList()
 }
 
@@ -824,18 +840,45 @@ function removeSelectedExpert(expert) {
 }
 
 let detailSequence = 0
-onBeforeUnmount(() => { detailSequence++ })
+onBeforeUnmount(() => {
+  detailSequence++
+  listSequence++
+  // 2026-11-23 P2 修复：离开页面时释放全部 blob URL（身份证大图可达 7MB+/张）
+  if (idFrontUrl.value) URL.revokeObjectURL(idFrontUrl.value)
+  if (idBackUrl.value) URL.revokeObjectURL(idBackUrl.value)
+  for (const preview of [photoPreview, adminPhotoPreview, createPhotoPreview, adminCreatePhotoPreview]) releasePreviews(preview)
+})
+// 释放一组照片预览 blob URL 并清空
+function releasePreviews(preview) {
+  for (const k of ['photo', 'front', 'back']) {
+    if (preview[k]) URL.revokeObjectURL(preview[k])
+    preview[k] = ''
+  }
+}
 async function openDetail(row) {
+  try {
+    await openDetailInner(row)
+  } catch (e) {
+    ElMessage.error('专家详情加载失败，请重试')
+  }
+}
+async function openDetailInner(row) {
   const sequence = ++detailSequence
-  const data = await getExpert(row.id, canEditExpert.value ? { sensitive: 1 } : undefined)
+  const data = await getExpert(row.id)
   if(sequence !== detailSequence)return
+  if (!data) {
+    ElMessage.error('专家详情加载失败，请重试')
+    return
+  }
   detail.value = data
+  // 2026-11-23 P2 修复：重置上一个专家的简历解析状态，避免候选/提示串扰
+  editResumeFile.value = null
+  editResumeCandidates.value = []
+  resetResumeState()
   loadExpertDocuments(data.id)
   // 统一视图初始化：详情弹窗文本字段统一回填 editForm（管理员免审批直写 / 员工审批流共用）
   if (canEditExpert.value) {
-    adminPhotoPreview.photo = ''
-    adminPhotoPreview.front = ''
-    adminPhotoPreview.back = ''
+    releasePreviews(adminPhotoPreview)
     adminPickedFiles.photo = null
     adminPickedFiles.front = null
     adminPickedFiles.back = null
@@ -853,9 +896,7 @@ async function openDetail(row) {
   photoChanged.photo = false
   photoChanged.front = false
   photoChanged.back = false
-  photoPreview.photo = ''
-  photoPreview.front = ''
-  photoPreview.back = ''
+  releasePreviews(photoPreview)
   pickedFiles.photo = null
   pickedFiles.front = null
   pickedFiles.back = null
@@ -924,6 +965,7 @@ async function onPickDocument(f) {
     ElMessage.warning(`文件大小不能超过 ${toMb(uploadLimits.docMaxBytes)}MB`)
     return
   }
+  if (!detail.value?.id) return
   docUploading.value = true
   try {
     await uploadExpertDocument(detail.value.id, raw)
@@ -935,10 +977,19 @@ async function onPickDocument(f) {
 }
 
 async function removeDocument(doc) {
-  await ElMessageBox.confirm(`确认删除资料「${doc.fileName}」？删除后不可恢复。`, '删除资料', { type: 'warning' })
-  await deleteExpertDocument(detail.value.id, doc.id)
-  ElMessage.success('资料已删除')
-  await loadExpertDocuments(detail.value.id)
+  try {
+    await ElMessageBox.confirm(`确认删除资料「${doc.fileName}」？删除后不可恢复。`, '删除资料', { type: 'warning' })
+  } catch {
+    return // 用户取消
+  }
+  if (!detail.value?.id) return
+  try {
+    await deleteExpertDocument(detail.value.id, doc.id)
+    ElMessage.success('资料已删除')
+    await loadExpertDocuments(detail.value.id)
+  } catch (e) {
+    ElMessage.error('资料删除失败，请重试')
+  }
 }
 
 function formatDocSize(bytes) {
@@ -981,11 +1032,11 @@ async function copyFieldValue(value) {
 }
 
 function handleExportExcel() {
-  exportAllExcel().catch(() => {})
+  exportAllExcel().catch(() => ElMessage.error('导出失败，请重试'))
 }
 
 function handleExportZip() {
-  exportEmployeeZip().catch(() => {})
+  exportEmployeeZip().catch(() => ElMessage.error('导出失败，请重试'))
 }
 
 /** 导出下拉分派：全量（有 expert:export 权限）/ 选中（所有人，需先勾选）。 */
@@ -1001,7 +1052,7 @@ function handleExportSelectedExcel() {
     ElMessage.warning('请先勾选专家卡片')
     return
   }
-  exportSelectedExcel([...selectedIds.value]).catch(() => {})
+  exportSelectedExcel([...selectedIds.value]).catch(() => ElMessage.error('导出失败，请重试'))
 }
 
 function handleExportSelectedZip() {
@@ -1009,7 +1060,7 @@ function handleExportSelectedZip() {
     ElMessage.warning('请先勾选专家卡片')
     return
   }
-  exportSelectedZip([...selectedIds.value]).catch(() => {})
+  exportSelectedZip([...selectedIds.value]).catch(() => ElMessage.error('导出失败，请重试'))
 }
 
 // 选择新照片：本地预览 + 标记变更 + 暂存文件（提交审批时再上传临时接口）；
@@ -1066,7 +1117,8 @@ const resumeFailed = ref(false)
 const resumeCandidates = ref([])
 const resumeFilled = reactive({})
 // 解析目标：create=新建弹窗；edit=专家详情编辑弹窗（Owner 2026-11-11 简历解析更新）
-const resumeTarget = ref('create')
+// 2026-11-23 P2 修复：解析序号防两弹窗共享状态串扰（重置/切换目标即作废在途结果）
+let resumeParseSeq = 0
 const editResumeFile = ref(null)
 const editResumeCandidates = ref([])
 
@@ -1078,9 +1130,7 @@ function openCreateDialog() {
   createPhotoChanged.photo = false
   createPhotoChanged.front = false
   createPhotoChanged.back = false
-  createPhotoPreview.photo = ''
-  createPhotoPreview.front = ''
-  createPhotoPreview.back = ''
+  releasePreviews(createPhotoPreview)
   createPickedFiles.photo = null
   createPickedFiles.front = null
   createPickedFiles.back = null
@@ -1090,6 +1140,7 @@ function openCreateDialog() {
 
 // ==================== 简历解析 ====================
 function resetResumeState() {
+  resumeParseSeq++
   resumeFile.value = null
   resumeParsing.value = false
   resumeMessage.value = ''
@@ -1120,11 +1171,12 @@ async function parseResumeNow(target = 'create') {
     ElMessage.warning(`简历文件超过 ${toMb(uploadLimits.resumeMaxBytes)} MB 限制`)
     return
   }
-  resumeTarget.value = target
+  const parseSeq = ++resumeParseSeq
   resumeParsing.value = true
   resumeFailed.value = false
   try {
     const data = await parseResume(file)
+    if (parseSeq !== resumeParseSeq) return
     const candidates = (data?.photoCandidates || []).map((c) =>
       typeof c === 'string' ? { base64: c, mime: 'image/jpeg', transparent: false } : c
     )
@@ -1147,10 +1199,11 @@ async function parseResumeNow(target = 'create') {
         ? `已解析 ${data.hitCount} 个字段（填充 ${filledCount} 个空字段），请核对后提交`
         : '未命中可填充字段，请核对照片候选后保存')
   } catch (e) {
+    if (parseSeq !== resumeParseSeq) return
     resumeFailed.value = true
     resumeMessage.value = e?.response?.data?.message || '解析失败，请重试或手动填写'
   } finally {
-    resumeParsing.value = false
+    if (parseSeq === resumeParseSeq) resumeParsing.value = false
   }
 }
 
@@ -1449,9 +1502,7 @@ function openAdminCreate() {
   for (const k of TEXT_FIELDS) {
     adminCreateForm[k] = ''
   }
-  adminCreatePhotoPreview.photo = ''
-  adminCreatePhotoPreview.front = ''
-  adminCreatePhotoPreview.back = ''
+  releasePreviews(adminCreatePhotoPreview)
   adminCreatePickedFiles.photo = null
   adminCreatePickedFiles.front = null
   adminCreatePickedFiles.back = null
@@ -1766,13 +1817,6 @@ watch(() => route.query.expertId, async id => {
 }
 .meta-icon {
   flex-shrink: 0;
-}
-.card-apply-btn {
-  position: absolute;
-  right: 10px;
-  bottom: 6px;
-  z-index: 1;
-  font-size: 13px;
 }
 .expert-card:hover {
   box-shadow: 0 2px 10px rgba(0, 21, 41, 0.1);

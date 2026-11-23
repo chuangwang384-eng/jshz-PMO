@@ -23,6 +23,7 @@ import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -54,6 +55,7 @@ import java.util.regex.Pattern;
  * 简历原文不留存，解析用临时文件即用即删。
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ResumeParseService {
 
@@ -140,6 +142,7 @@ public class ResumeParseService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
+            log.warn("简历解析失败 file={} err={}", fileName, e.toString(), e);
             return new ResumeParseResult(Map.of(), List.of(), 0,
                     "解析失败（" + e.getClass().getSimpleName() + "），请手动填写");
         }
@@ -263,28 +266,6 @@ public class ResumeParseService {
             return candidate;
         }
         return null;
-    }
-
-    /**
-     * 单位最终净化（2026-11-18 修复"姓名混入单位"第二形态）：
-     * PPT 同一文本框内姓名与单位直接拼接（"卫利民河南科技大学第一附属医院…"）时，
-     * 内容解析阶段姓名尚未确定（文件名兜底在 resolveName），当时的 sanitizeUnit 无名可剥。
-     * 此处在姓名落定后二次剥离：仅当剩余部分足够长（≥6 字符，防误伤"华山"→"医院"类短单位）才执行。
-     */
-    ResumeParseResult sanitizeUnitAgainstName(ResumeParseResult result) {
-        String name = result.fields().get("姓名");
-        String unit = result.fields().get("单位");
-        if (name == null || name.isBlank() || unit == null || !unit.startsWith(name)
-                || unit.length() <= name.length()) {
-            return result;
-        }
-        String remaining = unit.substring(name.length()).replaceFirst("^[，,、；;：:\\s／/|]+", "");
-        if (remaining.length() < 6) return result;
-        String sanitized = sanitizeUnit(unit, name);
-        if (sanitized == null || sanitized.equals(unit)) return result;
-        Map<String, String> fields = new LinkedHashMap<>(result.fields());
-        fields.put("单位", sanitized);
-        return new ResumeParseResult(fields, result.photoCandidates(), fields.size(), result.message());
     }
 
     // ==================== 格式分发 ====================
@@ -507,6 +488,8 @@ public class ResumeParseService {
     // ==================== 字段解析 ====================
 
     ResumeParseResult buildResult(String fileName, String text, List<BufferedImage> images, boolean allowFilenameFallback) {
+        // photoMatteService 判空保留：隔离测试以 new ResumeParseService(null, null) 构造
+        // （2026-11-23 复审曾误判为死代码，移除致 4 个解析测试失败，已恢复）
         var photos = photoMatteService == null || images == null || images.isEmpty() ? null
                 : photoMatteService.candidates(() -> buildPhotoCandidates(images, true));
         Map<String, String> fields = new LinkedHashMap<>();
@@ -1117,22 +1100,6 @@ public class ResumeParseService {
     }
 
     // ==================== 头像候选 ====================
-
-    private void addCandidate(List<String> candidates, byte[] data) {
-        if (candidates.size() >= 3 || data == null || data.length < 5 * 1024) return;
-        try {
-            BufferedImage img = ImageIO.read(new ByteArrayInputStream(data));
-            if (img == null) return;
-            int w = img.getWidth(), h = img.getHeight();
-            // 高清简历图普遍超过 1500px（如 3508×2283 设计稿），上限放宽到 4000px
-            if (w < 80 || h < 80 || w > 4000 || h > 4000) return;
-            double ratio = (double) w / h;
-            if (ratio < 0.5 || ratio > 1.8) return;
-            candidates.add(toBase64Jpeg(img));
-        } catch (Exception ignored) {
-            // 单张候选失败不影响整体解析
-        }
-    }
 
     /** 抠图结果缩放（保留 Alpha）：最长边超限时等比缩小并重编码 PNG。 */
     private byte[] downscalePng(byte[] png, int maxSide) throws IOException {

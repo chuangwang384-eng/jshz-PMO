@@ -7,8 +7,12 @@ import com.jshz.expert.common.FileNames;
 import com.jshz.expert.common.UploadGuard;
 import com.jshz.expert.entity.ExpertDocument;
 import com.jshz.expert.mapper.ExpertDocumentMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -26,6 +30,7 @@ import java.util.Set;
  * 通用清洗/校验复用 common.FileNames / common.UploadGuard；禁止复制本地副本。
  */
 @Service
+@Slf4j
 public class ExpertDocumentService extends ServiceImpl<ExpertDocumentMapper, ExpertDocument> {
 
     /** 资质资料扩展名白名单：图片 + pdf（医生证扫描件常见形态）。 */
@@ -57,6 +62,7 @@ public class ExpertDocumentService extends ServiceImpl<ExpertDocumentMapper, Exp
      *
      * @return 登记行（含 /api/files-doc/ 访问 url 所需的 storedName）
      */
+    @Transactional
     public ExpertDocument upload(Long expertId, MultipartFile file, Long userId) {
         if (expertId == null) {
             throw new BusinessException("缺少专家 id，无法上传资料");
@@ -64,11 +70,29 @@ public class ExpertDocumentService extends ServiceImpl<ExpertDocumentMapper, Exp
         UploadGuard.requireValid(file, maxBytes, ALLOWED_EXT,
                 "资料仅支持图片（jpg/jpeg/png/gif/webp/bmp）或 pdf 文件");
         String ext = FileNames.extension(file.getOriginalFilename());
-        String storedName = "expertdoc_" + expertId + "_" + Instant.now().toEpochMilli() + "." + ext;
+        // 同专家同毫秒并发上传时避免文件名碰撞（2026-11-23 P1 修复）
+        long stamp = Instant.now().toEpochMilli();
+        String storedName = "expertdoc_" + expertId + "_" + stamp + "." + ext;
+        while (Files.exists(this.storageDir.resolve(storedName))) {
+            stamp++;
+            storedName = "expertdoc_" + expertId + "_" + stamp + "." + ext;
+        }
         try {
             Files.copy(file.getInputStream(), this.storageDir.resolve(storedName));
         } catch (IOException e) {
             throw new BusinessException("资料保存失败: " + e.getMessage());
+        }
+        // 登记失败回滚时清理已落盘文件，避免孤儿
+        final String savedName = storedName;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) {
+                        deleteFileQuietly(savedName);
+                    }
+                }
+            });
         }
         ExpertDocument doc = new ExpertDocument();
         doc.setExpertId(expertId);
@@ -76,33 +100,59 @@ public class ExpertDocumentService extends ServiceImpl<ExpertDocumentMapper, Exp
         doc.setStoredName(storedName);
         doc.setFileSize(file.getSize());
         doc.setCreatedBy(userId);
-        save(doc);
+        try {
+            save(doc);
+        } catch (RuntimeException e) {
+            if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+                deleteFileQuietly(savedName);
+            }
+            throw e;
+        }
         return doc;
     }
 
-    /** 删除一条资料（登记行 + 物理文件；文件不存在忽略）。 */
+    /** 删除一条资料（事务内删登记行，提交后删物理文件；文件删除失败记日志不阻断）。 */
+    @Transactional
     public void deleteDocument(Long expertId, Long docId) {
         ExpertDocument doc = getById(docId);
         if (doc == null || !doc.getExpertId().equals(expertId)) {
             throw new BusinessException("资料不存在");
         }
         removeById(docId);
+        afterCommit(() -> deleteFileQuietly(doc.getStoredName()));
+    }
+
+    /** 删除专家全部资料（专家档案删除时级联调用；登记行事务内删，物理文件提交后删）。 */
+    @Transactional
+    public void deleteByExpert(Long expertId) {
+        List<ExpertDocument> docs = listByExpert(expertId);
+        if (docs.isEmpty()) {
+            return;
+        }
+        removeByIds(docs.stream().map(ExpertDocument::getId).toList());
+        afterCommit(() -> docs.forEach(doc -> deleteFileQuietly(doc.getStoredName())));
+    }
+
+    /** 物理文件删除失败仅记 warn（登记行已删，残留文件留痕便于人工清理），不阻断响应。 */
+    private void deleteFileQuietly(String storedName) {
         try {
-            Files.deleteIfExists(this.storageDir.resolve(doc.getStoredName()));
+            Files.deleteIfExists(this.storageDir.resolve(storedName));
         } catch (IOException e) {
-            // 登记行已删；物理残留可由存储管理孤儿扫描兜底，不阻断响应
+            log.warn("专家资料物理文件删除失败 storedName={} err={}", storedName, e.getMessage());
         }
     }
 
-    /** 删除专家全部资料（专家档案删除时级联调用；单个文件失败不阻断）。 */
-    public void deleteByExpert(Long expertId) {
-        for (ExpertDocument doc : listByExpert(expertId)) {
-            removeById(doc.getId());
-            try {
-                Files.deleteIfExists(this.storageDir.resolve(doc.getStoredName()));
-            } catch (IOException ignored) {
-                // 同 deleteDocument：残留交孤儿扫描兜底
-            }
+    /** 事务提交后执行；无事务上下文（如隔离测试直调）时立即执行。 */
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
         }
     }
 }

@@ -79,8 +79,8 @@
         :total="total"
         :page-sizes="[10, 20, 50, 100]"
         layout="total, sizes, prev, pager, next, jumper"
-        @size-change="fetchList"
-        @current-change="fetchList"
+        @size-change="handlePageChange"
+        @current-change="handlePageChange"
       />
     </div>
 
@@ -255,20 +255,36 @@ const formRules = {
   银行卡号: [{ pattern: /^\d{13,19}$/, message: '银行卡号格式不正确', trigger: 'blur' }]
 }
 
+// 2026-11-23 P2 修复：列表请求序号防竞态 + 失败提示（sensitive 参数后端已忽略，移除）
+let listSequence = 0
 async function fetchList() {
+  const sequence = ++listSequence
   loading.value = true
   try {
     const data = await listExperts({
       keyword: keyword.value || undefined,
       page: page.value,
-      size: size.value,
-      sensitive: 1
+      size: size.value
     })
+    if (sequence !== listSequence) return
     experts.value = data?.items || []
     total.value = data?.total || 0
+  } catch (e) {
+    if (sequence !== listSequence) return
+    ElMessage.error('专家列表加载失败，请重试')
   } finally {
-    loading.value = false
+    if (sequence === listSequence) loading.value = false
   }
+}
+
+// 改每页条数时回到第 1 页，避免深层页码越界看到空列表
+let lastPageSize = size.value
+function handlePageChange() {
+  if (size.value !== lastPageSize) {
+    lastPageSize = size.value
+    page.value = 1
+  }
+  fetchList()
 }
 
 function handleSearch() {
@@ -369,7 +385,7 @@ async function handleDelete(row) {
 }
 
 function handleTemplate() {
-  downloadTemplate().catch(() => {})
+  downloadTemplate().catch(() => ElMessage.error('下载失败，请重试'))
 }
 
 async function handleImportFile(file) {
@@ -387,17 +403,17 @@ async function handleImportFile(file) {
 }
 
 function handleExportFullZip() {
-  exportFullZip().catch(() => {})
+  exportFullZip().catch(() => ElMessage.error('下载失败，请重试'))
 }
 
 function handleSelectedExcel() {
   if (!selectedIds.value.length) return
-  exportSelectedExcel(selectedIds.value).catch(() => {})
+  exportSelectedExcel(selectedIds.value).catch(() => ElMessage.error('下载失败，请重试'))
 }
 
 function handleSelectedZip() {
   if (!selectedIds.value.length) return
-  exportSelectedZip(selectedIds.value).catch(() => {})
+  exportSelectedZip(selectedIds.value).catch(() => ElMessage.error('下载失败，请重试'))
 }
 
 onMounted(fetchList)
