@@ -96,13 +96,14 @@
   ```
   发布后核对：`curl -s http://127.0.0.1:8080/health` 返回 `version=1.0.134`；Nginx root 指向 `frontend/releases/1.0.134-compliance-req19-21`。
 - 现状：后端服务仍运行 1.0.133，前端 root 仍为 `1.0.133-idcard-risk`；数据库已含新列（向后兼容）。
+- **2026-11-23 17:30 管理员首跑 Preflight / Publish 均 exit 1**：预检 2/6 报 `PENDING 20261123_expert_id_card_expiry.sql`（1.0.132 专家身份证有效期列，当时直连执行未登记）。该列在生产库已存在（`information_schema` 计数=1），脚本本身幂等（先查列、存在则跳过）。处置：执行该迁移（输出 `id_card_expiry already exists`）并按 `db-migrate.ps1` 同一规则补登记 `schema_migration`（SHA256 `8187326…`，APPLIED 17:31:29）。复核 71 个脚本：待执行 0、漂移 0；`init.sql`↔生产库表清单双向一致（忽略 `*_bak_*`/`mig_*`/`schema_migration`）；`frontend/releases/1.0.134-compliance-req19-21` 不存在（无 ReleaseId 冲突）；`/health` UP、首页 200。预检 3/6 与 5/6 的阻塞已排除，可重跑发布。
 
 ## 8. 已知限制与未验证项
 | 事项 | 原因 | 影响 | 下一步 |
 | --- | --- | --- | --- |
 | 需求19 无页面呈现 | V4「我的执行」UI 已按需求规则6于 1.0.37.34 移除，端点写操作同步关闭 | 标记仅在接口层与完成校验生效，当前无界面可看 | 若恢复执行清单页面，按 `answerUnconfirmed*` 渲染醒目徽标与提示 |
 | `contextLoads` 失败 | 未设置 `JWT_SECRET`（要求 ≥32 字节） | 与本次改动无关；CI/本机需注入 | 以发布环境变量运行或跳过该类 |
-| `check-schema-parity.ps1` 未跑 | 本会话 PowerShell 工具报 `analysis failed` | 结构漂移未被脚本确认 | 发布前/后由具备 PowerShell 的环境补跑 |
+| `check-schema-parity.ps1` 未由脚本执行 | 本会话 PowerShell 工具报 `analysis failed`（Bash 调 PowerShell 被安全策略拦截） | 结构漂移未被脚本自身确认 | 已按脚本同一口径手工复核：迁移建表全部并入 `init.sql`；`init.sql`↔生产库表清单双向一致。发布预检 3/6 仍会由脚本再确认一次 |
 | 生产 DDL 由 mysql 客户端直连执行 | 同上，`db-migrate.ps1` 无法运行；已按脚本同一格式手工登记 `schema_migration` | 与脚本路径的差异已留痕 | 下次 `db-migrate.ps1 -Mode Status` 应显示该项为已执行 |
 
 ## 9. 文档同步
