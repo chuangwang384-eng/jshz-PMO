@@ -20,10 +20,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { fetchPhotoBlob, fetchTempPhotoBlob } from '../api/expert'
+import { fetchDocumentBlob, fetchPhotoBlob, fetchTempPhotoBlob } from '../api/expert'
 
 // 照片展示组件：后端照片需登录鉴权，通过 blob 方式加载展示
 // temp=true 走临时照片目录 /api/files-tmp（待审批单的新照片预览）
+// doc=true 走专家资料目录 /api/files-doc（医生证等资质资料缩略图，2026-11-23）
 const props = defineProps({
   filename: { type: String, default: '' },
   src: { type: String, default: '' },
@@ -33,6 +34,7 @@ const props = defineProps({
   width: { type: [Number, String], default: 64 },
   height: { type: [Number, String], default: 64 },
   temp: { type: Boolean, default: false },
+  doc: { type: Boolean, default: false },
   emptyText: { type: String, default: '未上传' }
 })
 
@@ -56,7 +58,8 @@ async function load() {
   releaseUrl()
   if (!props.filename) return
   try {
-    const resp = props.temp ? await fetchTempPhotoBlob(props.filename) : await fetchPhotoBlob(props.filename)
+    const resp = props.doc ? await fetchDocumentBlob(props.filename)
+      : props.temp ? await fetchTempPhotoBlob(props.filename) : await fetchPhotoBlob(props.filename)
     if (seq !== loadSeq) return
     storedUrl.value = URL.createObjectURL(resp.data)
   } catch (e) {
@@ -68,6 +71,7 @@ onMounted(load)
 onBeforeUnmount(releaseUrl)
 watch(() => props.filename, load)
 watch(() => props.temp, load)
+watch(() => props.doc, load)
 </script>
 
 <style scoped>

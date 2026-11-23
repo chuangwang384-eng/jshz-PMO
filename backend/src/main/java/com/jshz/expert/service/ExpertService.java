@@ -10,6 +10,7 @@ import com.jshz.expert.entity.Expert;
 import com.jshz.expert.mapper.ExpertMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -29,6 +30,7 @@ import java.util.Map;
  * 18 字段 CRUD、脱敏（前3后4）、照片三类物理维护、下载次数统计。
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
 
@@ -286,6 +288,10 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
             this.updateById(updated);
             afterCommit(() -> oldFiles.forEach(photoStorageService::deletePhoto));
         }
+        // 仅本次上传了身份证反面才自动提取有效期（2026-11-23）
+        if (back != null && !back.isEmpty()) {
+            autoFillIdCardExpiry(id, updated.getIdCardBack());
+        }
         return updated;
     }
 
@@ -454,7 +460,37 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         expert.setIdCard(request.getParameter("身份证号"));
         expert.setBankCard(request.getParameter("银行卡号"));
         expert.setBankBranch(request.getParameter("银行卡开户行"));
+        expert.setIdCardExpiry(request.getParameter("身份证有效期"));
         return expert;
+    }
+
+    /**
+     * 身份证反面落盘后自动提取有效期（2026-11-23，本机 PP-OCRv5，不出内网）。
+     * 提取成功覆盖写入（新反面以新证件为准）；失败/无法识别保留原值，不阻断上传主流程。
+     * 直写路径在事务内调用；审批归档路径在事务提交后调用（独立自动提交更新）。
+     */
+    public void autoFillIdCardExpiry(Long expertId, String backFilename) {
+        if (expertId == null || !StringUtils.hasText(backFilename)) {
+            return;
+        }
+        try {
+            java.nio.file.Path path = photoStorageService.photoPath(backFilename);
+            if (path == null) {
+                return;
+            }
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(path.toFile());
+            String expiry = IdCardExpiryExtractor.extract(image);
+            if (!StringUtils.hasText(expiry)) {
+                return;
+            }
+            Expert patch = new Expert();
+            patch.setId(expertId);
+            patch.setIdCardExpiry(expiry);
+            this.updateById(patch);
+        } catch (Exception e) {
+            // OCR 不可用/图片损坏等：保留原值，字段可手工填写
+            log.warn("身份证有效期自动提取失败 expertId={} err={}", expertId, e.toString());
+        }
     }
 
     private void savePhotos(Expert expert, MultipartHttpServletRequest request) {
@@ -476,6 +512,10 @@ public class ExpertService extends ServiceImpl<ExpertMapper, Expert> {
         }
         if (changed) {
             this.updateById(expert);
+        }
+        // 仅本次上传了身份证反面才自动提取有效期（2026-11-23）
+        if (back != null && !back.isEmpty()) {
+            autoFillIdCardExpiry(expert.getId(), expert.getIdCardBack());
         }
     }
 }

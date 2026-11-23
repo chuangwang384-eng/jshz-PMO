@@ -9,6 +9,8 @@
       </label>
       <el-button type="primary" :loading="parsing" :disabled="submitting || !rows.some(canParse)"
         @click="parseWaiting">开始解析</el-button>
+      <el-button v-if="!presetName && rows.length" :disabled="busy || !selectableRows.length"
+        @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选' }}</el-button>
       <span>PDF / Word / PPT / 图片，单份最多 {{ toMb(maxBytes) }} MB</span>
       <slot v-if="!busy" name="extra" />
     </div>
@@ -121,6 +123,13 @@ const conflict = ref(null)
 const currentMatch = computed(() => conflict.value?.matches[conflict.value.index])
 const busy = computed(() => parsing.value || submitting.value)
 const selectedRows = computed(() => rows.value.filter(row => (props.presetName || row.selected) && row.status === 'ready' && valid(row)))
+// 全选/取消全选（2026-11-23）：仅作用于可提交卡（已解析且姓名单位齐全）
+const selectableRows = computed(() => rows.value.filter(row => row.status === 'ready' && valid(row)))
+const allSelected = computed(() => selectableRows.value.length > 0 && selectableRows.value.every(row => row.selected))
+function toggleSelectAll() {
+  const target = !allSelected.value
+  for (const row of selectableRows.value) row.selected = target
+}
 let nextId = 0
 
 function valid(row) {

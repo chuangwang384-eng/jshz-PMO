@@ -84,6 +84,10 @@ public class Expert {
     @JsonProperty("身份证反面")
     private String idCardBack;
 
+    /** 身份证有效期（2026-11-23：上传反面后本机 PP-OCRv5 自动提取，可手工修改；如 2015.05.01-2025.05.01 或 2015.05.01-长期） */
+    @JsonProperty("身份证有效期")
+    private String idCardExpiry;
+
     /** 创建时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @JsonProperty("创建时间")

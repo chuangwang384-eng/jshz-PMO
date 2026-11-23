@@ -104,7 +104,8 @@ export function deleteExpertDocument(id, docId) {
   return request.delete(`/experts/${id}/documents/${docId}`)
 }
 
-// 专家资料文件访问（/api/files-doc，需登录；供 <a> 下载或图片预览）
-export function expertDocumentUrl(storedName) {
-  return '/api/files-doc/' + encodeURIComponent(storedName)
+// 专家资料文件 blob 加载（/api/files-doc，登录鉴权经 withCredentials cookie；
+// 2026-11-23：替代裸 <a> 新窗口打开——失败时由调用方友好提示，不再暴露 Whitelabel 错误页）
+export function fetchDocumentBlob(storedName) {
+  return request.get('/files-doc/' + encodeURIComponent(storedName), { responseType: 'blob' })
 }

@@ -41,7 +41,7 @@ public class ExportService {
     /** Excel 表头（接口中文键，18 字段英文列名的中文对应） */
     public static final List<String> XLSX_HEADERS = List.of(
             "id", "姓名", "单位", "科室", "职称", "研究方向", "擅长领域", "联系方式", "简介",
-            "身份证号", "银行卡号", "银行卡开户行", "照片", "身份证正面", "身份证反面",
+            "身份证号", "银行卡号", "银行卡开户行", "照片", "身份证正面", "身份证反面", "身份证有效期",
             "创建时间", "修改时间", "修改人id");
 
     /** 导入模板列（12 列，不含照片与时间字段） */
@@ -86,9 +86,10 @@ public class ExportService {
                 row.createCell(12).setCellValue(nvl(e.getPhoto()));
                 row.createCell(13).setCellValue(nvl(e.getIdCardFront()));
                 row.createCell(14).setCellValue(nvl(e.getIdCardBack()));
-                row.createCell(15).setCellValue(e.getCreateTime() == null ? "" : e.getCreateTime().toString());
-                row.createCell(16).setCellValue(e.getUpdateTime() == null ? "" : e.getUpdateTime().toString());
-                row.createCell(17).setCellValue(nvl(e.getUpdateBy()));
+                row.createCell(15).setCellValue(nvl(e.getIdCardExpiry()));
+                row.createCell(16).setCellValue(e.getCreateTime() == null ? "" : e.getCreateTime().toString());
+                row.createCell(17).setCellValue(e.getUpdateTime() == null ? "" : e.getUpdateTime().toString());
+                row.createCell(18).setCellValue(nvl(e.getUpdateBy()));
             }
             ExcelExportStyleUtil.applyStyle(sheet, expertExportColumns(), 0);
             wb.write(bos);
@@ -415,6 +416,7 @@ public class ExportService {
                 new ColumnConfig("照片", 25, false, false),
                 new ColumnConfig("身份证正面", 25, false, false),
                 new ColumnConfig("身份证反面", 25, false, false),
+                new ColumnConfig("身份证有效期", 25, false, false),
                 new ColumnConfig("创建时间", 25, false, false),
                 new ColumnConfig("修改时间", 25, false, false),
                 new ColumnConfig("修改人id", 12, true, false));

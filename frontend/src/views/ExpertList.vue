@@ -142,6 +142,13 @@
             </svg>
             <span>{{ expert['下载次数'] ?? 0 }}</span>
           </span>
+          <span class="card-meta-item" :title="'身份证有效期：' + (expert['身份证有效期'] || '未填写')">
+            <svg class="meta-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
+              <rect x="2" y="3.5" width="12" height="9" rx="1.5" />
+              <path d="M2 6.5h12" />
+            </svg>
+            <span>{{ expert['身份证有效期'] || '—' }}</span>
+          </span>
         </div>
       </div>
       <el-empty
@@ -176,6 +183,9 @@
         <el-table-column prop="科室" label="科室" min-width="130" show-overflow-tooltip />
         <el-table-column prop="职称" label="职称" min-width="110" show-overflow-tooltip />
         <el-table-column prop="联系方式" label="联系方式" min-width="130" />
+        <el-table-column prop="身份证有效期" label="身份证有效期" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ row['身份证有效期'] || '—' }}</template>
+        </el-table-column>
         <el-table-column label="更新时间" width="100">
           <template #default="{ row }">{{ row['修改时间'] ? formatMonthDay(row['修改时间']) : '—' }}</template>
         </el-table-column>
@@ -371,6 +381,15 @@
             </template>
           </el-input>
         </el-form-item>
+        <el-form-item label="身份证有效期">
+          <el-input v-model="editForm.身份证有效期" placeholder="上传身份证反面后自动识别，可手工修改">
+            <template #suffix>
+              <el-tooltip content="复制" placement="top">
+                <el-icon class="copy-icon" @click="copyFieldValue(editForm['身份证有效期'])"><CopyDocument /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
+        </el-form-item>
         <!-- 资料上传（2026-11-20）：医生证等资质资料，与照片/字段保存解耦，上传即生效 -->
         <div class="doc-section">
           <div class="doc-section-title">
@@ -387,7 +406,9 @@
           <p v-if="!expertDocuments.length" class="doc-empty">暂无资料，支持图片或 pdf，单文件 ≤{{ toMb(uploadLimits.docMaxBytes) }}MB</p>
           <div v-else class="doc-list">
             <div v-for="doc in expertDocuments" :key="doc.id" class="doc-row">
-              <a :href="expertDocumentUrl(doc.storedName)" target="_blank" class="doc-name">{{ doc.fileName }}</a>
+              <PhotoImage v-if="isImageDoc(doc)" :filename="doc.storedName" doc :width="44" :height="44" fit="cover" :alt="doc.fileName" />
+              <span v-else class="doc-pdf-badge" aria-hidden="true">PDF</span>
+              <button type="button" class="doc-name doc-open" title="点击在新窗口打开原文件" @click="openDocument(doc)">{{ doc.fileName }}</button>
               <span class="doc-meta">{{ formatDocSize(doc.fileSize) }} · {{ doc.createTime }}</span>
               <el-button v-permission="'expert:edit'" link type="danger" size="small" @click="removeDocument(doc)">删除</el-button>
             </div>
@@ -515,6 +536,9 @@
         <el-form-item label="银行卡开户行">
           <el-input v-model="createForm.银行卡开户行" placeholder="请输入开户行" />
         </el-form-item>
+        <el-form-item label="身份证有效期">
+          <el-input v-model="createForm.身份证有效期" placeholder="上传身份证反面后自动识别，可手工修改" />
+        </el-form-item>
         <el-alert
           type="info"
           :closable="false"
@@ -605,6 +629,9 @@
         <el-form-item label="银行卡开户行">
           <el-input v-model="adminCreateForm.银行卡开户行" placeholder="请输入开户行" />
         </el-form-item>
+        <el-form-item label="身份证有效期">
+          <el-input v-model="adminCreateForm.身份证有效期" placeholder="上传身份证反面后自动识别，可手工修改" />
+        </el-form-item>
         <el-alert
           type="info"
           :closable="false"
@@ -624,7 +651,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters, parseResume, listExpertDocuments, uploadExpertDocument, deleteExpertDocument, expertDocumentUrl } from '../api/expert'
+import { listExperts, getExpert, createExpert, updateExpert, deleteExpert, exportAllExcel, exportEmployeeZip, exportSelectedExcel, exportSelectedZip, fetchPhotoBlob, expertFilters, parseResume, listExpertDocuments, uploadExpertDocument, deleteExpertDocument, fetchDocumentBlob } from '../api/expert'
 import { submitApprovalRequest, uploadApprovalPhoto, createExpertApprovalRequest } from '../api/approval'
 import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
 
@@ -722,7 +749,7 @@ const idFrontLoading = ref(false)
 const idBackLoading = ref(false)
 
 // 卡片内直接编辑（需求3：员工视角详情弹窗可编辑，关闭时检测变更生成审批流）
-const TEXT_FIELDS = ['姓名', '单位', '科室', '职称', '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行']
+const TEXT_FIELDS = ['姓名', '单位', '科室', '职称', '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行', '身份证有效期']
 const editForm = reactive({
   姓名: '',
   单位: '',
@@ -732,7 +759,8 @@ const editForm = reactive({
   简介: '',
   身份证号: '',
   银行卡号: '',
-  银行卡开户行: ''
+  银行卡开户行: '',
+  身份证有效期: ''
 })
 // 打开弹窗时的初始值快照（用于 dirty 检测，员工视角脱敏值不改则不提交）
 const editSnapshot = ref(null)
@@ -992,6 +1020,24 @@ async function removeDocument(doc) {
   }
 }
 
+// 资料是否图片（pdf 显示徽标，图片走 PhotoImage 缩略图，2026-11-23）
+function isImageDoc(doc) {
+  const ext = String(doc.storedName || '').split('.').pop().toLowerCase()
+  return DOC_ALLOWED_EXT.includes(ext) && ext !== 'pdf'
+}
+
+// 打开资料原文件：鉴权 blob 请求 → 新窗口展示；失败友好提示，不再暴露后端错误页
+async function openDocument(doc) {
+  try {
+    const resp = await fetchDocumentBlob(doc.storedName)
+    const url = URL.createObjectURL(resp.data)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (e) {
+    ElMessage.error('资料打开失败，请重试；若持续失败请联系管理员')
+  }
+}
+
 function formatDocSize(bytes) {
   const n = Number(bytes) || 0
   if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'MB'
@@ -1102,7 +1148,8 @@ const createForm = reactive({
   简介: '',
   身份证号: '',
   银行卡号: '',
-  银行卡开户行: ''
+  银行卡开户行: '',
+  身份证有效期: ''
 })
 // 新增弹窗照片：本地预览 + 待上传文件
 const createPhotoChanged = reactive({ photo: false, front: false, back: false })
@@ -1420,7 +1467,7 @@ const adminCreateVisible = ref(false)
 const adminCreateSubmitting = ref(false)
 const adminCreateForm = reactive({
   姓名: '', 单位: '', 科室: '', 职称: '',
-  联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: ''
+  联系方式: '', 简介: '', 身份证号: '', 银行卡号: '', 银行卡开户行: '', 身份证有效期: ''
 })
 const adminCreatePhotoPreview = reactive({ photo: '', front: '', back: '' })
 const adminCreatePickedFiles = reactive({ photo: null, front: null, back: null })
@@ -1942,5 +1989,8 @@ watch(() => route.query.expertId, async id => {
 .doc-list { display: flex; flex-direction: column; gap: 4px; }
 .doc-row { display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-radius: 4px; background: var(--ui-bg-hover, #f5f7fa); }
 .doc-row .doc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-primary); }
+.doc-row .doc-open { border: 0; background: none; padding: 0; cursor: pointer; font-size: inherit; font-family: inherit; }
+.doc-row .doc-open:hover { text-decoration: underline; }
+.doc-pdf-badge { flex-shrink: 0; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: #fdecea; color: #c0392b; font-size: 12px; font-weight: 700; }
 .doc-row .doc-meta { flex-shrink: 0; font-size: 12px; color: var(--ui-text-sub); }
 </style>

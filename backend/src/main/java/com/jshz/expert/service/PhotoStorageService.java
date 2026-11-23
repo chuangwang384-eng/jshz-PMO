@@ -125,6 +125,18 @@ public class PhotoStorageService {
     }
 
     /**
+     * 正式照片库内文件路径（清洗+归一化+目录边界校验，防穿越）；不存在或越界返回 null。
+     * 2026-11-23：供身份证反面 OCR 提取有效期读取原图。
+     */
+    public Path photoPath(String fileName) {
+        if (!StringUtils.hasText(fileName)) {
+            return null;
+        }
+        Path p = this.storageDir.resolve(FileNames.sanitize(fileName)).normalize();
+        return p.startsWith(this.storageDir) && Files.exists(p) ? p : null;
+    }
+
+    /**
      * 临时照片是否存在。
      */
     public boolean existsTempPhoto(String fileName) {

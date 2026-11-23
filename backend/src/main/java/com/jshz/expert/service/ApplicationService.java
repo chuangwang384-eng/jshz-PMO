@@ -66,7 +66,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /** 字段白名单（排除照片类、id、时间类、下载次数；前端新增/编辑表单已移除研究方向、擅长领域，后端白名单保留两字段以兼容历史数据，符合设计文档 3.3） */
     public static final List<String> WHITELIST_FIELDS = List.of(
             "姓名", "单位", "科室", "职称", "研究方向", "擅长领域",
-            "联系方式", "简介", "身份证号", "银行卡号", "银行卡开户行");
+            "联系方式", "简介", "身份证号", "银行卡号", "银行卡开户行", "身份证有效期");
 
     /** 照片字段白名单（照片变更随审批流一并生效） */
     public static final List<String> PHOTO_FIELDS = List.of("照片", "身份证正面", "身份证反面");
@@ -581,7 +581,11 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         // 4. 事务提交后再做物理归档：提交失败则不会产生孤儿文件，提交成功才落盘（失败仅记日志，不影响已通过的审批结果）
         if (!pendingArchives.isEmpty()) {
-            afterCommit("新增专家照片归档", () -> archiveTempPhotos(pendingArchives, expert.getId()));
+            afterCommit("新增专家照片归档", () -> {
+                archiveTempPhotos(pendingArchives, expert.getId());
+                // 反面归档后自动提取有效期（2026-11-23，提交后独立更新）
+                expertService.autoFillIdCardExpiry(expert.getId(), photoApplied.get("身份证反面"));
+            });
         }
         return fillView(app, isFullSensitive(user));
     }
@@ -664,6 +668,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         // 事务提交后执行文件操作：先归档新照片，再按需删除旧照片，最后清理残留临时文件
         afterCommit("修改申请照片归档", () -> {
             archiveTempPhotos(pendingArchives, app.getExpertId());
+            // 反面归档后自动提取有效期（2026-11-23，提交后独立更新）
+            expertService.autoFillIdCardExpiry(app.getExpertId(), photoApplied.get("身份证反面"));
             if (deleteOldPhotos) {
                 for (String oldName : oldPhotos.values()) {
                     if (StringUtils.hasText(oldName)) {
@@ -1683,6 +1689,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         snapshot.put("照片", expert.getPhoto());
         snapshot.put("身份证正面", expert.getIdCardFront());
         snapshot.put("身份证反面", expert.getIdCardBack());
+        snapshot.put("身份证有效期", expert.getIdCardExpiry());
         return snapshot;
     }
 

@@ -593,6 +593,7 @@ CREATE TABLE IF NOT EXISTS `expert_info` (
   `bank_branch` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '银行卡开户行（R10 新增）',
   `id_card_front` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '身份证正面图片文件名（R10 新增，仅管理页维护、下载包含）',
   `id_card_back` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '身份证反面图片文件名（R10 新增，仅管理页维护、下载包含）',
+  `id_card_expiry` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '身份证有效期（反面OCR自动提取，可手工修改，如 2015.05.01-2025.05.01 或 2015.05.01-长期）',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   `update_by` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '修改人id（登录用户名）',
