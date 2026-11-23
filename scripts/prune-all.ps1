@@ -82,6 +82,7 @@ try {
     $a = @{ KeepReleases = $Keep }
     if ($DryRun) { $a['DryRun'] = $true }
     & (Join-Path $PSScriptRoot 'prune-frontend-releases.ps1') @a 2>&1 | Tee-Object -FilePath $logFile -Append
+    if ($LASTEXITCODE -ne 0) { throw "前端清理退出码 $LASTEXITCODE" }
 } catch {
     Write-Host ("[FAIL] 前端快照 : " + $_.Exception.Message) -ForegroundColor Red
     Add-Content -LiteralPath $logFile -Value ("[FAIL] 前端快照 : " + $_.Exception.Message) -Encoding UTF8

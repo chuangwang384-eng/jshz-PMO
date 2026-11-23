@@ -71,6 +71,8 @@ scripts/__pycache__/
 
 # --- build artifacts / tool artifacts (not committed) ---
 frontend/releases/
+frontend/shared-assets/
+frontend/.deployment.lock
 !frontend/releases/.gitkeep
 backend/releases/
 !backend/releases/.gitkeep

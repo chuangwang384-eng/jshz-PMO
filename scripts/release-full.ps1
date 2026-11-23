@@ -107,6 +107,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'build-paths.ps1')
 . (Join-Path $PSScriptRoot 'logging.ps1')
 . (Join-Path $PSScriptRoot 'deployment-http.ps1')
+. (Join-Path $PSScriptRoot 'frontend-shared-assets.ps1')
 # 不调用 Enable-Utf8Console：它把 Console.OutputEncoding 切成 UTF-8 后，
 # 在代码页 936 的控制台里 Write-Host 中文会显示乱码（发布脚本需要人能直接读输出）。
 # 日志一律由 Add-Utf8Line / Write-Utf8Text 独立写 UTF-8 无 BOM；子进程输出经
@@ -396,7 +397,13 @@ function Invoke-PostVerify([string]$target, [string]$rid, [string]$targetRoot) {
     if (-not (Test-Path -LiteralPath $bundlePath)) { Fail "主 bundle 不存在: $bundlePath" }
     $bundle = Read-Utf8Text $bundlePath
     if ($bundle -notmatch [regex]::Escape("v$target")) { Fail "主 bundle 未包含 v$target（前端构建可能读到了旧 version.txt）" }
-    Write-Ok "主 bundle $($m.Groups[1].Value) 含 v$target"
+    $servedBundle = Get-DeploymentHttpResponse -Url ('http://127.0.0.1/assets/' + [uri]::EscapeDataString($m.Groups[1].Value))
+    if ($servedBundle.StatusCode -ne 200) { Fail "线上主 bundle 返回 $($servedBundle.StatusCode)" }
+    $bundleSha = [Security.Cryptography.SHA256]::Create()
+    try { $servedHash = ([BitConverter]::ToString($bundleSha.ComputeHash($servedBundle.ContentBytes))).Replace('-', '') }
+    finally { $bundleSha.Dispose() }
+    if ($servedHash -ne (Get-FileSha $bundlePath)) { Fail '线上主 bundle 与快照文件不一致' }
+    Write-Ok "线上主 bundle $($m.Groups[1].Value) 含 v$target 且哈希一致"
 }
 
 # ==================== 主流程 ====================
@@ -480,6 +487,12 @@ try {
         Invoke-PostVerify -Target $target -Rid $rid -TargetRoot $p.TargetRoot
         $state.status = 'SUCCESS'; $state.step = 'verified'; $state.finished = (Get-Date).ToString('o')
         Save-State $state
+        try {
+            Invoke-Checked -Desc '前端快照与过期共享资源回收' -Script 'prune-frontend-releases.ps1' `
+                -Arguments ('-KeepReleases 5 -KeepLegacyDist -NginxConf "' + $NginxConf + '"') -TailLines 12
+        } catch {
+            Write-Warn "发布已验证，前端清理待重试: $($_.Exception.Message)"
+        }
 
         Write-Host "`n======== 发布完成：version=$target  ReleaseId=$rid ========" -ForegroundColor Green
         Write-Host "  日志      : $logFile" -ForegroundColor Green
@@ -494,9 +507,18 @@ try {
         if (-not (Test-Path -LiteralPath $stateFile)) { Fail "缺少状态文件 $stateFile，请用 -ReleaseId 指定发布 ID" }
         $state = (Read-Utf8Text $stateFile) | ConvertFrom-Json
         $rid = if ($ReleaseId) { $ReleaseId } else { [string]$state.releaseId }
-        if (-not $rid) { Fail '无法确定 ReleaseId' }
+        if ($rid -notmatch '^[a-zA-Z0-9._-]+$' -or $rid -in @('.', '..')) { Fail '无法确定有效 ReleaseId' }
         $before = Join-Path $metadataDir ($rid + '.nginx-before.txt')
         if (-not (Test-Path -LiteralPath $before)) { Fail "缺少发布前 Nginx 配置备份: $before" }
+        $frontend = Join-Path $root 'frontend'
+        $managedRollback = Join-Path (Join-Path $frontend 'releases') "$rid.rollback"
+        if (Test-Path -LiteralPath (Join-Path $managedRollback $FrontendAssetManifest)) {
+            $before = Join-Path $metadataDir "$rid.rollback.conf.txt"
+            $recorded = [regex]::Match((Read-Utf8Text $before), '(?m)^\s*root\s+([^;]+);')
+            if (!$recorded.Success -or [IO.Path]::GetFullPath($recorded.Groups[1].Value.Trim().Trim('"')) -ne $managedRollback) {
+                Fail "共享资源回滚配置与快照不一致: $before"
+            }
+        }
 
         Write-Step "回滚计划：ReleaseId=$rid"
         Write-Info "发布版本      : $($state.version)"
@@ -509,15 +531,21 @@ try {
         }
         if (-not (Test-Admin)) { Fail 'Rollback 需管理员权限（改 Nginx 配置并 graceful reload）' }
 
+        $frontendLock = Enter-FrontendDeploymentLock $frontend
+        try {
         $beforeText = Read-Utf8Text $before
         $rm = [regex]::Match($beforeText, '(?m)^\s*root\s+([^;]+);')
         if (-not $rm.Success) { Fail "$before 内未找到 root 指令" }
         $oldRoot = ($rm.Groups[1].Value.Trim().Trim('"')).Replace('/', '\')
         if (-not (Test-Path -LiteralPath (Join-Path $oldRoot 'index.html'))) { Fail "旧快照目录不可用: $oldRoot" }
+        $currentRoot = [regex]::Match((Read-Utf8Text $NginxConf), '(?m)^\s*root\s+([^;]+);')
+        if (!$currentRoot.Success) { Fail '当前 Nginx 配置缺少 root' }
+        Update-FrontendRollbackAssets $frontend ($currentRoot.Groups[1].Value.Trim().Trim('"')) $oldRoot
 
         $confBackup = Join-Path $logDir "nginx-conf-before-rollback-$stamp.txt"
         Copy-Item -LiteralPath $NginxConf -Destination $confBackup -Force
         Write-Ok "当前 Nginx 配置已备份: $confBackup"
+        try {
         Write-Utf8Text -Path $NginxConf -Text $beforeText
         Invoke-Checked -Desc 'invoke-nginx-graceful.ps1（graceful reload）' -Script 'invoke-nginx-graceful.ps1' -TailLines 12
 
@@ -528,6 +556,19 @@ try {
         try { $hash = ([BitConverter]::ToString($sha.ComputeHash($site.ContentBytes))).Replace('-', '') } finally { $sha.Dispose() }
         if ($hash -ne $expectedHash) { Fail '回滚后首页内容与旧快照不一致' }
         Write-Ok "前端已回滚到 $oldRoot，首页 200 且 index hash 一致"
+        } catch {
+            $rollbackError = $_
+            try {
+                Copy-Item -LiteralPath $confBackup -Destination $NginxConf -Force
+                Invoke-Checked -Desc '恢复回滚前 Nginx 配置' -Script 'invoke-nginx-graceful.ps1' -TailLines 12
+            } catch {
+                Write-Warn "恢复回滚前配置失败: $($_.Exception.Message)"
+            }
+            throw $rollbackError
+        }
+        } finally {
+            $frontendLock.Dispose()
+        }
 
         if ($IncludeBackend) {
             $oldVer = [string]$state.oldBackendVersion
