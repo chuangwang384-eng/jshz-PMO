@@ -61,3 +61,9 @@
 1. `git log -1` 确认本任务提交；`mvn test` 复核。
 2. 获授权后发布 1.0.132（后端蓝绿 + 前端 graceful），发布后浏览器回归专家库核心流程。
 3. 未经确认禁止：改动 S1/S2/S3 相关权限/文件访问逻辑（已拍板刻意设计）；下线 ExpertManage。
+
+---
+
+## 附：1.0.132 已发布（2026-11-23）
+本记录第 7 节「发布上线」已完成：合并 282851c 与身份证有效期/资料预览/批量全选新功能，后端蓝绿 + 前端 graceful `1.0.132-expert-idcard-expiry`（gitShort 861f060）。数据库 additive 迁移已执行并并入 init.sql。OCR 真实图片端到端验证通过（2007.11.28-2027.11.28）。详见 [发布记录](../../releases/20261123-expert-idcard-expiry-1.0.132.md)。
+**事实更正**：S1 初审查结论有误——DbPermissionFilter 按 permission 表对专家写端点强制 expert:add/edit/delete（实测 403），并非「真空」；决策记录已补更正。
