@@ -12,3 +12,10 @@
 - 前端 Vite 构建和 ProjectStageDeliverableTest 11 项通过。
 - 隔离 Edge 使用服务端实际生成的 HTML，验证项目详情原位打开、第三步移除清单、批量字号、同列标记吸附、删除段落和保存内容。
 - 本轮完成开发分支修改。未执行生产部署或真实项目写入。
+
+## 合并与发布状态
+
+- 功能提交 24e237b 已快进合入本地 main。
+- 1.0.125-show-resume-editing 的生产只读预检通过，见 logs/show-125-preflight.log。当前会话无 Windows 管理员令牌，执行环境策略拦截管理员启动，正式发布未启动。
+- 健康接口确认后端仍为 1.0.124，Nginx 前端仍指向 frontend/releases/1.0.124-show-inline-editor。
+- 使用服务器管理员 PowerShell 运行标准发布命令：scripts/release-full.cmd -Mode Publish -Version 1.0.125 -Slug show-resume-editing -Yes。
