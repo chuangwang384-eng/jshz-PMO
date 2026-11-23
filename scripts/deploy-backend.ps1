@@ -317,6 +317,17 @@ function Step1-Preflight {
         Write-Info '未读取到 NSSM AppEnvironmentExtra，跳过一致性比对（首次部署场景）'
     }
 
+    # STORAGE_ROOT 一致性护栏（2026-11-23 新增，1.0.86 事故教训）：
+    # 影子进程继承发布会话环境；会话若残留 STORAGE_ROOT（如隔离测试的 temp 目录），
+    # 切流窗口内的上传会写进错误目录（曾致专家资料落入 temp\专家资料库、正式映射读不到）。
+    # 影子存储根统一钉死为 NSSM 服务值（服务未设则用仓库根兜底，与 application.yml 默认一致）。
+    $nssmStorage = if ($svcEnv) { [regex]::Match(($svcEnv -join "`n"), '(?m)^STORAGE_ROOT=(.+)$').Groups[1].Value.Trim() } else { '' }
+    $expectedStorage = if ($nssmStorage) { $nssmStorage } else { $root }
+    if ($env:STORAGE_ROOT -and ($env:STORAGE_ROOT -ne $expectedStorage)) {
+        Write-Info "会话 STORAGE_ROOT=$($env:STORAGE_ROOT) 与服务值（$expectedStorage）不同，影子已钉死为服务值，防止上传写错目录"
+    }
+    $env:STORAGE_ROOT = $expectedStorage
+
     # 版本号已在阶段 1 开头解析（唯一真源 version.txt），此处仅登记
     Write-Info "发布版本: $script:NewVersion"
 
