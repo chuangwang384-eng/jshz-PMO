@@ -5,12 +5,19 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class ProjectStageDeliverableTest {
+    @Test
+    void showArchiveNameIncludesProjectAndArchiveDate() {
+        assertEquals("学术会议_石家庄-串场制作-2026-11-23.html",
+                ProjectShowService.archiveName(" 学术会议/石家庄 ", LocalDate.of(2026, 11, 23)));
+    }
+
     @Test
     void resumeParagraphDeletionAndFormattingAreRetainedInOfflineRender() {
         var paragraphs = List.of("第一段", "第二段");

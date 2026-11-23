@@ -11,6 +11,7 @@ import org.springframework.web.util.HtmlUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -255,9 +256,14 @@ public class ProjectShowService {
     public void publish(Long id, Deck deck, AuthUser user) {
         Project project = currentShow(id, user);
         String html = render(deck);
-        projects.archiveStageDocument(id, project.getPhaseId(), FILE_PREFIX, "html", "串场制作.html",
+        projects.archiveStageDocument(id, project.getPhaseId(), FILE_PREFIX, "html", archiveName(project.getName(), LocalDate.now()),
                 html.getBytes(StandardCharsets.UTF_8), user, false);
         projects.operationRecord(user, "归档串场网页幻灯片", "PROJECT", id);
+    }
+
+    static String archiveName(String projectName, LocalDate date) {
+        String name = projectName == null ? "" : projectName.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").strip();
+        return (name.isEmpty() ? "项目" : name) + "-串场制作-" + date + ".html";
     }
 
     /** 只读预览：把编辑器当前草稿渲染为离线 HTML 返回，不落盘、不归档；预览与归档共用 render，保证产物一致。 */
@@ -517,6 +523,26 @@ public class ProjectShowService {
             #hud button{font:inherit;padding:3px 14px;cursor:pointer;color:inherit;background:transparent;
               border:1px solid var(--rule);border-radius:999px;opacity:.8}
             #hud button:hover{opacity:1}
+            body.readonly-preview #editTip{display:none}
+            body.overview-preview{--overview-width:clamp(96px,22vw,212px)}
+            body.overview-preview #deck{left:calc((100% + var(--overview-width))/2);top:calc((100% - 46px)/2)}
+            body.overview-preview #hud{left:var(--overview-width)}
+            #slide-overview{position:fixed;inset:0 auto 0 0;width:var(--overview-width);z-index:6;
+              overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:8px;
+              background:#14171e;color:#fff3dc;border-right:1px solid #4f4b43}
+            #slide-overview ol{list-style:none;padding:0;margin:0}
+            .overview-entry{position:relative;margin-bottom:8px;padding-bottom:24px}
+            .overview-image{position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--deco),var(--bg)}
+            .overview-image .slide{display:block;inset:auto;top:0;left:0;width:1920px;height:1080px;
+              transform:scale(var(--overview-scale,0));transform-origin:top left;font-size:calc(17px*var(--fs,1))}
+            .overview-image .slide,.overview-image .slide *,.overview-image .slide *::before,.overview-image .slide *::after{
+              animation:none!important;transition:none!important}
+            .overview-image .ppt-step-hidden{opacity:1!important;transform:none!important;filter:none!important}
+            .overview-entry button{position:absolute;inset:0;width:100%;padding:0 5px 2px;
+              display:flex;align-items:flex-end;justify-content:center;cursor:pointer;
+              background:transparent;color:inherit;border:2px solid transparent;border-radius:4px;font:inherit;font-size:13px}
+            .overview-entry button:is(:hover,:focus-visible){outline:2px solid #fff3dc;outline-offset:-2px}
+            .overview-entry button[aria-current="page"]{border-color:#f2c66d;font-weight:700}
             #prog{width:220px;height:4px;background:var(--rule);border-radius:2px;overflow:hidden;opacity:.5}
             #prog i{display:block;height:100%;width:0;background:var(--accent)}
             @keyframes shine{to{background-position:220% center}}
@@ -875,10 +901,60 @@ public class ProjectShowService {
                 <script>
                 const deck=document.getElementById('deck');
                 const slides=Array.from(deck.children);
+                const overviewMode=location.hash==='#overview';
+                const readOnly=overviewMode||location.hash==='#readonly';
+                if(readOnly)document.body.classList.add('readonly-preview');
+                const overview=overviewMode?document.createElement('nav'):null;
+                const overviewButtons=[];
                 const count=document.getElementById('count');
                 const progFill=document.getElementById('progFill');
                 const tpl=document.getElementById('theme');
                 let page=0,timers=[];
+                function setupOverview(){
+                  document.body.classList.add('overview-preview');
+                  overview.id='slide-overview';
+                  overview.setAttribute('aria-label','幻灯片总览');
+                  const list=document.createElement('ol');
+                  const observer=new IntersectionObserver(entries=>{
+                    for(const entry of entries){
+                      if(!entry.isIntersecting)continue;
+                      const target=entry.target;
+                      const thumbnail=slides[Number(target.dataset.index)].cloneNode(true);
+                      target.append(thumbnail);
+                      observer.unobserve(target);
+                    }
+                  },{root:overview,rootMargin:'160px'});
+                  slides.forEach((slide,index)=>{
+                    const item=document.createElement('li');
+                    item.className='overview-entry';
+                    const image=document.createElement('div');
+                    image.className='overview-image';
+                    image.dataset.index=index;
+                    image.setAttribute('aria-hidden','true');
+                    const button=document.createElement('button');
+                    const title=slide.querySelector('h1,h2,h3')?.textContent?.trim();
+                    button.type='button';
+                    button.textContent=String(index+1);
+                    button.setAttribute('aria-label','第 '+(index+1)+' 页'+(title?' '+title:''));
+                    button.addEventListener('click',()=>show(index));
+                    overviewButtons.push(button);
+                    item.append(image,button);
+                    list.append(item);
+                    observer.observe(image);
+                  });
+                  overview.append(list);
+                  deck.before(overview);
+                }
+                function syncOverview(previous){
+                  if(!overview)return;
+                  overviewButtons[previous]?.removeAttribute('aria-current');
+                  const button=overviewButtons[page];
+                  button.setAttribute('aria-current','page');
+                  const item=button.parentElement;
+                  if(item.offsetTop<overview.scrollTop)overview.scrollTop=item.offsetTop;
+                  else if(item.offsetTop+item.offsetHeight>overview.scrollTop+overview.clientHeight)
+                    overview.scrollTop=item.offsetTop+item.offsetHeight-overview.clientHeight;
+                }
                 function later(fn,ms){timers.push(setTimeout(fn,ms));}
                 function clearTimers(){timers.forEach(clearTimeout);timers=[];}
                 const playbackOrder=new WeakMap();
@@ -1027,7 +1103,7 @@ public class ProjectShowService {
                   singleSelected(node);
                 });
                 window.addEventListener('message',event=>{
-                  if(event.source!==parent || !event.data || slides.length!==1)return;
+                  if(readOnly || event.source!==parent || !event.data || slides.length!==1)return;
                   const message=event.data;
                   const slide=slides[0];
                   if(message.type==='pmo-slide-edit'){
@@ -1067,6 +1143,7 @@ public class ProjectShowService {
                 });
                 function show(i){
                   clearTimers();
+                  const previous=page;
                   const old=slides[page];
                   if(old){old.classList.remove('active');resetSteps(old);}
                   page=Math.max(0,Math.min(slides.length-1,i));
@@ -1074,6 +1151,7 @@ public class ProjectShowService {
                   s.classList.add('active');measureSteps(s);resetSteps(s);
                   count.textContent=(page+1)+' / '+slides.length;
                   progFill.style.width=((page+1)/slides.length*100)+'%';
+                  syncOverview(previous);
                   autoPlay(s);
                   if(editing)ensureFsBar();
                   window.dispatchEvent(new Event("show-editor-change"));
@@ -1084,6 +1162,7 @@ public class ProjectShowService {
                 // 简历页额外提供简介字号批量调整（A−/A＋/恢复），修改记录在 slide.dataset.fsChanged 供向导写回
                 let editing=false;
                 function toggleEdit(){
+                  if(readOnly)return;
                   editing=!editing;
                   document.body.classList.toggle('hppt-editing',editing);
                   document.querySelectorAll('[data-edit]').forEach(n=>{
@@ -1128,10 +1207,15 @@ public class ProjectShowService {
                   else if(e.key==='Home')show(0);
                   else if(e.key==='End')show(slides.length-1);
                 });
-                function fit(){const s=Math.min(innerWidth/1920,innerHeight/1080);
+                function fit(){
+                  const width=innerWidth-(overview?.offsetWidth||0);
+                  const height=innerHeight-(overview?46:0);
+                  const s=Math.min(width/1920,height/1080);
+                  if(overview)overview.style.setProperty('--overview-scale',overview.querySelector('.overview-image').clientWidth/1920);
                   deck.style.transform='translate(-50%,-50%) scale('+s+')';}
-                addEventListener('resize',fit);fit();
                 if(tpl){const frag=tpl.content;for(const s of slides){s.prepend(frag.cloneNode(true));}}
+                if(overview)setupOverview();
+                addEventListener('resize',fit);fit();
                 show(0);
                 (function(){
                   if(!__PARTICLES__)return;

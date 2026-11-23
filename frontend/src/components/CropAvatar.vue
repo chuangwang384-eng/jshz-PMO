@@ -2,14 +2,16 @@
   <div class="crop-avatar">
     <div class="crop-main">
       <div class="crop-view">
-        <div ref="stageEl" class="crop-stage">
-          <img ref="imgEl" :src="src" alt="证件照" draggable="false" @load="onLoad">
-          <div v-if="ready" class="crop-ring" :style="ringStyle" @pointerdown.prevent="startDrag"></div>
+        <div ref="stageEl" class="crop-stage" role="group" tabindex="0" aria-label="头像裁剪区，方向键移动图片"
+          @pointerdown="startDrag" @pointermove="moveImage" @lostpointercapture="finishDrag" @keydown="nudgeImage">
+          <img ref="imgEl" :src="src" :style="imageStyle" alt="证件照" draggable="false" @load="onLoad">
+          <div v-if="ready" class="crop-ring" aria-hidden="true"></div>
         </div>
       </div>
       <div class="crop-tools">
         <span class="crop-status" role="status">{{ statusText }}</span>
-        <el-slider v-model="zoomPct" :min="16" :max="100" style="flex: 1" />
+        <el-slider v-model="imageZoom" :min="100" :max="625" aria-label="图片缩放百分比"
+          style="flex: 1" @change="render" />
         <el-button size="small" :loading="detecting" @click="detectFace(true)">重新识别</el-button>
         <el-button size="small" @click="reset">重置</el-button>
       </div>
@@ -28,10 +30,10 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 // 圆形证件照裁剪：载入照片后自动人脸识别预定位（tiny 模型本地加载，内网可用），
-// 用户可拖动圆框/缩放/重置微调；canvas 输出 400×400 圆形透明 PNG，零后端依赖。
+// 固定圆框，拖动或缩放原图微调。显示和 canvas 裁剪共用原图坐标。
 // 消费方：ShowWizard.vue 专家头像。选区变化自动重导出。
 const props = defineProps({
   src: { type: String, default: '' },
@@ -47,22 +49,28 @@ const ready = ref(false)
 const detecting = ref(false)
 const statusText = ref('等待照片')
 const zoomPct = ref(62)
-// 选区用相对图片显示尺寸的百分比坐标，避免监听容器尺寸换算
 const cx = ref(50)
 const cy = ref(50)
-let naturalW = 1
-let naturalH = 1
+const naturalW = ref(1)
+const naturalH = ref(1)
+const frameRatio = 0.78
 let timer = null
-let ringWidthPct = 46
 let detectToken = 0
 let userTouched = false
+let drag = null
 
-const ringStyle = computed(() => ({
-  left: `${cx.value}%`,
-  top: `${cy.value}%`,
-  width: `${ringWidthPct}%`,
-  transform: 'translate(-50%, -50%)'
-}))
+const diameter = computed(() => Math.min(naturalW.value, naturalH.value) * zoomPct.value / 100)
+const imageStyle = computed(() => ready.value ? {
+  width: `${100 * frameRatio * naturalW.value / diameter.value}%`,
+  translate: `${-cx.value}% ${-cy.value}%`
+} : { visibility: 'hidden' })
+const imageZoom = computed({
+  get: () => Math.round(10000 / zoomPct.value),
+  set: value => {
+    markManual()
+    zoomPct.value = 10000 / value
+  }
+})
 
 // face-api 模型只加载一次；tiny 模型 ~190KB，从 public/models 本地加载（内网无外网依赖）
 let faceApiPromise = null
@@ -83,49 +91,66 @@ function clamp(v) {
   return Math.max(2, Math.min(98, Number(v.toFixed(2))))
 }
 
-function syncRingWidth() {
-  ringWidthPct = (Math.min(naturalW, naturalH) / naturalW) * zoomPct.value
-}
-
 function onLoad() {
-  naturalW = imgEl.value.naturalWidth || 1
-  naturalH = imgEl.value.naturalHeight || 1
+  naturalW.value = imgEl.value.naturalWidth || 1
+  naturalH.value = imgEl.value.naturalHeight || 1
   ready.value = true
   reset()
   detectFace(false)
 }
 
 function reset() {
+  cancelDetection()
   userTouched = false
+  statusText.value = '拖动或缩放图片微调'
   cx.value = 50
   // 人脸通常在照片上半部，圆心默认放 42% 高度处（识别失败时的兜底）；默认框放大到含肩
   cy.value = 42
   zoomPct.value = 62
-  syncRingWidth()
   scheduleRender()
 }
 
-function startDrag(event) {
+function cancelDetection() {
+  detectToken += 1
+  detecting.value = false
+}
+
+function markManual() {
+  cancelDetection()
   userTouched = true
   statusText.value = '手动调整中'
-  const stage = stageEl.value
-  if (!stage) return
-  const move = e => {
-    const rect = stage.getBoundingClientRect()
-    if (!rect.width || !rect.height) return
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    cx.value = clamp(x)
-    cy.value = clamp(y)
-  }
-  const up = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    statusText.value = '已按手动位置生成头像'
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
-  move(event)
+}
+
+function startDrag(event) {
+  if (!ready.value || drag || event.button !== 0) return
+  markManual()
+  drag = { id: event.pointerId, x: event.clientX, y: event.clientY, cx: cx.value, cy: cy.value }
+  event.currentTarget.setPointerCapture(event.pointerId)
+}
+
+function moveImage(event) {
+  if (drag?.id !== event.pointerId) return
+  const width = stageEl.value.getBoundingClientRect().width
+  const ratio = diameter.value / (width * frameRatio)
+  cx.value = clamp(drag.cx - (event.clientX - drag.x) * ratio * 100 / naturalW.value)
+  cy.value = clamp(drag.cy - (event.clientY - drag.y) * ratio * 100 / naturalH.value)
+}
+
+function finishDrag(event) {
+  if (drag?.id !== event.pointerId) return
+  drag = null
+  render()
+  statusText.value = '已按手动位置生成头像'
+}
+
+function nudgeImage(event) {
+  const offsets = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+  const offset = offsets[event.key]
+  if (!ready.value || !offset) return
+  event.preventDefault()
+  markManual()
+  cx.value = clamp(cx.value - offset[0])
+  cy.value = clamp(cy.value - offset[1])
 }
 
 async function detectFace(force) {
@@ -141,23 +166,22 @@ async function detectFace(force) {
     if (det && det.box && det.box.width > 0) {
       applyFaceBox(det.box)
     } else {
-      statusText.value = '未识别到人脸，请手动调整圆框'
+      statusText.value = '未识别到人脸，请拖动或缩放图片'
     }
   } catch {
-    if (token === detectToken) statusText.value = '自动识别不可用，请手动调整圆框'
+    if (token === detectToken) statusText.value = '自动识别不可用，请拖动或缩放图片'
   } finally {
     if (token === detectToken) detecting.value = false
   }
 }
 
 function applyFaceBox(box) {
-  const min = Math.min(naturalW, naturalH)
+  const min = Math.min(naturalW.value, naturalH.value)
   // 圆框直径取脸框长边约 2.2 倍（覆盖发型与肩部），圆心用脸框几何中心略下移露出肩颈
   const rPx = Math.min(Math.max(box.width, box.height) * 1.1, min / 2)
-  cx.value = clamp(((box.x + box.width / 2) / naturalW) * 100)
-  cy.value = clamp(((box.y + box.height * 0.66) / naturalH) * 100)
+  cx.value = clamp(((box.x + box.width / 2) / naturalW.value) * 100)
+  cy.value = clamp(((box.y + box.height * 0.66) / naturalH.value) * 100)
   zoomPct.value = Math.max(16, Math.min(100, Math.round((rPx / (min / 2)) * 100)))
-  syncRingWidth()
   statusText.value = '已自动识别人脸，可微调后保存'
   scheduleRender()
 }
@@ -168,12 +192,14 @@ function scheduleRender() {
 }
 
 function render() {
+  clearTimeout(timer)
+  timer = null
   const img = imgEl.value
   if (!img || !ready.value) return
   const size = 400
-  const r = (Math.min(naturalW, naturalH) / 2) * (zoomPct.value / 100)
-  const sx = (naturalW * cx.value) / 100
-  const sy = (naturalH * cy.value) / 100
+  const r = diameter.value / 2
+  const sx = (naturalW.value * cx.value) / 100
+  const sy = (naturalH.value * cy.value) / 100
   const canvas = document.createElement('canvas')
   canvas.width = size
   canvas.height = size
@@ -192,18 +218,18 @@ function render() {
 }
 
 watch(detecting, value => emit('detecting', value))
-onUnmounted(() => {
-  detectToken += 1
-  clearTimeout(timer)
+onBeforeUnmount(() => {
+  cancelDetection()
+  if (timer !== null) render()
   emit('detecting', false)
 })
 
-watch(zoomPct, () => {
-  syncRingWidth()
-  scheduleRender()
-})
-watch([cx, cy], () => scheduleRender(), { deep: true })
+watch([zoomPct, cx, cy], scheduleRender)
 watch(() => props.src, () => {
+  cancelDetection()
+  clearTimeout(timer)
+  timer = null
+  drag = null
   ready.value = false
   emit('update:modelValue', '')
 })
@@ -215,11 +241,14 @@ defineExpose({ render })
 .crop-avatar { display: flex; gap: 14px; align-items: stretch; }
 .crop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .crop-view { display: flex; justify-content: center; }
-.crop-stage { position: relative; display: inline-flex; max-width: 100%; overflow: hidden; background: #0b0e14; border-radius: 10px; }
-.crop-stage img { max-width: 100%; max-height: 300px; object-fit: contain; display: block; user-select: none; }
-.crop-ring { position: absolute; aspect-ratio: 1 / 1; border: 2px solid #f2c66d; border-radius: 50%;
-  box-shadow: 0 0 0 9999px rgba(6, 8, 12, .55), inset 0 0 14px rgba(242, 198, 109, .3); cursor: grab; }
-.crop-ring:active { cursor: grabbing; }
+.crop-stage { position: relative; width: min(248px, 100%); aspect-ratio: 1; overflow: hidden; background: #0b0e14;
+  border-radius: 10px; cursor: grab; touch-action: none; }
+.crop-stage:active { cursor: grabbing; }
+.crop-stage:focus-visible { outline: 2px solid #f2c66d; outline-offset: 3px; }
+.crop-stage img { position: absolute; top: 50%; left: 50%; max-width: none; display: block; user-select: none; pointer-events: none; }
+.crop-ring { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 78%; aspect-ratio: 1;
+  box-sizing: border-box; border: 2px solid #f2c66d; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(6, 8, 12, .55), inset 0 0 14px rgba(242, 198, 109, .3); }
 .crop-tools { display: flex; align-items: center; gap: 10px; }
 .crop-status { font-size: 12px; color: rgba(255, 243, 220, .65); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crop-side { flex: none; width: 132px; display: flex; flex-direction: column; gap: 6px; align-items: center; }

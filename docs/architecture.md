@@ -348,7 +348,30 @@ PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只�
 - PUT /api/project/{id}/stage-form 复用既有阶段表单。财务按类型填充原 Excel 模板，提交成功后替换上一次归档。串场使用同一接口保存项目草稿。
 - GET /api/project/{id}/show/agenda 从项目当前原始日程提取环节，按现有项目阅读权限提供；编辑器可补录和排序。POST /api/project/{id}/show/ppt 校验 PPT/PPTX 格式，POST /api/project/{id}/show/html 将结构化页面渲染为离线 HTML。归档均要求当前阶段与现有项目操作权限。POST /api/project/{id}/show/preview 将未归档草稿渲染为离线 HTML 字符串返回（不落盘、不写操作记录），与 show/html 共用同一渲染模板，仅需项目阅读权限。
 - 编辑器路由为 /project/:id/show。主 K 和配图支持 PNG、JPEG、WebP，离线 HTML 内嵌图片并强制附件下载。财务、串场制品按项目阅读权限访问，沿用原数据库和文件目录。项目详情「PPT 制作」在当前项目中打开四步向导（模板与封面 → 专家信息 → 日程与角色 → 预览演示），也可访问独立向导路由 /project/:id/show-wizard。向导与编辑器共用 stage-form 草稿。
-- 同一日程段及过场成员集合内，专家简介页的前后顺序同步到过场头像和文字。旧草稿缺少简介时，可从对应过场卡片手动补齐。预览和重新归档的 HTML 共用播放器，有位置调整的页面按文本框的最终排版从上到下、同一行从左到右播放已有出场动画。
+- 同一日程段及过场成员集合内，专家简介页的前后顺序同步到过场头像和文字。旧草稿缺少简介时，可从对应过场卡片手动补齐。第三步保留页面编辑，第四步为只读演示，支持左侧真实页面缩略图导航、保存草稿和归档。归档 HTML 的展示和下载文件名为「项目名-串场制作-YYYY-MM-DD.html」，日期取服务器归档日。预览和重新归档的 HTML 共用播放器，有位置调整的页面按文本框的最终排版从上到下、同一行从左到右播放已有出场动画。
+- 专家头像通过本地人脸检测和肩部留量生成初始裁剪，手动可在固定尺寸的圆框内平移和缩放原图。输出沿用 400×400 圆形透明图片。
+
+#### 扩展串场主题与动效
+
+1. 在 `backend/src/main/java/com/jshz/expert/service/ProjectShowService.java` 参照 `GOLD` 或 `TECH` 新增 `Theme(id, name, css, particles)`，并加入 `THEMES`。主题 ID 使用稳定的小写英文、数字和连字符。主题 CSS 复用 `--bg`、`--deco`、`--ink`、`--accent`、`--rule`、`--flow` 和字体变量。可展开现有主题的完整变量表作为起点。
+2. 用 `body.t-主题ID` 限制主题样式的范围，给 `@keyframes` 使用主题前缀。跨页进场和元素揭示分别沿用 `.slide.active` 和 `[data-step]`，保留既有页面类、`data-step` 和 `data-edit`。要调整按键、揭示节奏或粒子脚本时，从同文件的 `deckTail` 扩展并按主题启用。图像和字体应随离线 HTML 内嵌，程序和样式不依赖网络；用 `prefers-reduced-motion` 给新增动效提供静态样式。
+3. 在 `frontend/src/views/project/ShowWizard.vue` 的 `templates` 增加相同的 `id`、`name`、`desc` 和 `preview`。如果需要将该主题保存为共享封面模板，同步扩展 `backend/src/main/java/com/jshz/expert/service/ProjectShowTemplateService.java` 的主题校验列表，并检查独立编辑器的主题选项。
+4. 共享封面模板目录 `<expert.project.storage-dir>/_show_templates/` 存放应用生成的 JSON 封面设计。当前渲染器从 Java 主题注册表加载程序。用新主题检查四步向导的封面、缩略图、逐页播放、预览键盘导航和断网打开归档 HTML。
+
+例如给 `id=forum-fade` 的主题增加仅作用于页标题的动效：
+
+```css
+body.t-forum-fade #deck > .slide.active .sec-title {
+  animation: forum-fade-in 500ms ease-out both;
+}
+@keyframes forum-fade-in {
+  from { opacity: 0; translate: 0 12px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.t-forum-fade #deck > .slide.active .sec-title { animation: none; }
+}
+```
 - 离线串场 HTML 自 2026-11-21 起内置四套模板（Deck.template：gold 红金盛典 / tech 深蓝科技 / paper 商务简白 / bamboo 青竹学术，缺失或未知回退 gold）与 Deck.fontScale 字号（0.8~1.4，默认 1.0），含流光标题、对话逐条步进（data-step）、16:9 自适应缩放与键盘翻页；主题仅差异在 CSS 变量层，结构与动画引擎为公共层（ProjectShowService.BASE_CSS）。见 [串场模板交接](handover/tasks/20261121_show_deck_themes.md)。
 
 
