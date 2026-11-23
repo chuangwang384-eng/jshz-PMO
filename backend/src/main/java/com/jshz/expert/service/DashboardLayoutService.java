@@ -59,7 +59,8 @@ public class DashboardLayoutService {
         db.update("INSERT INTO user_dashboard_layout(user_id,layout) VALUES (?,JSON_ARRAY()) "
                 + "ON DUPLICATE KEY UPDATE user_id=user_id", user.getUserId());
         Stored current = read(user, true);
-        if (!revision(current).equals(body.path("revision").asText())) {
+        // 2026-11-23：保存比对与 snapshot 同口径（按当前用户可见卡片计算），权限回收后 revision 变化，避免假冲突不收敛。
+        if (!snapshot(user, current).revision().equals(body.path("revision").asText())) {
             throw new BusinessException(409, "布局已更新，请重新加载");
         }
         cards.sort(Comparator.comparingInt(Card::y).thenComparingInt(Card::x).thenComparing(Card::i));
@@ -81,10 +82,15 @@ public class DashboardLayoutService {
         JsonNode versioned = parse(stored.versioned());
         JsonNode source = versioned != null && versioned.path("legacyHash").asText().equals(legacyHash(stored.legacy()))
                 ? versioned.path("items") : legacy != null && legacy.isArray() && !legacy.isEmpty() ? legacy : null;
-        if (source == null || !source.isArray()) return new Snapshot(revision(stored), null);
+        if (source == null || !source.isArray()) return new Snapshot(visibleRevision(stored, null), null);
         var visible = json.createArrayNode();
         for (JsonNode item : source) if (allowed(user, item.path("i").asText())) visible.add(item);
-        return new Snapshot(revision(stored), visible);
+        return new Snapshot(visibleRevision(stored, visible), visible);
+    }
+
+    /** revision 叠加按用户可见卡片的内容哈希：存储不变而权限变化时 revision 亦变化，客户端重载后即可收敛。 */
+    private String visibleRevision(Stored stored, JsonNode visible) {
+        return hash(revision(stored) + ":" + (visible == null ? "" : visible.toString()));
     }
 
     private String revision(Stored stored) {
@@ -121,7 +127,7 @@ public class DashboardLayoutService {
     }
 
     private List<Card> validate(AuthUser user, JsonNode items) {
-        // 目录含 23 张卡片（2026-11-09 补齐知识星球子页与我的主页入口），上限与目录规模对齐。
+        // 目录含 24 张卡片（2026-11-09 补齐知识星球子页与我的主页入口），上限与目录规模对齐。
         if (!items.isArray() || items.size() > 24) throw invalid();
         List<Card> cards = new ArrayList<>();
         Set<String> seen = new HashSet<>();

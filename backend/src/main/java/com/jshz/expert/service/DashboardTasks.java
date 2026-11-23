@@ -17,7 +17,8 @@ public class DashboardTasks {
 
     public Map<String,Map<String,Object>> collect(Map<String,Supplier<Map<String,Object>>> jobs, long timeoutMs) {
         long started = System.nanoTime();
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.min(timeoutMs, timeoutMs == 1500 ? 1200 : 1500));
+        // 2026-11-23：不再截断调用方超时（原 Math.min 逻辑把 2000ms 静默截成 1500ms，语义混乱）。
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         Map<String,Future<Map<String,Object>>> pending = new LinkedHashMap<>();
         jobs.forEach((key, job) -> {
             try { pending.put(key, pool.submit(job::get)); }

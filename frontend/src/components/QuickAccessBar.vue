@@ -19,7 +19,7 @@
     <template v-else>
       <div class="qa-edit-area" @dragover.prevent>
         <span v-for="(item, index) in draft" :key="item.id" class="qa-item qa-draft" draggable="true"
-              @dragstart="dragIndex=index" @dragover.prevent @drop.prevent="reorder(index)">
+              @dragstart="dragIndex=index" @dragend="dragIndex=-1" @dragover.prevent @drop.prevent="reorder(index)">
           <component :is="iconOf(item.id)" class="qa-icon"/> {{ item.title }}
           <span role="button" tabindex="0" class="qa-remove" aria-label="移除" @click="draft.splice(index,1)">×</span>
         </span>

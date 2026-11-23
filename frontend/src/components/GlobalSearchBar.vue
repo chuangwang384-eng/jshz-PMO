@@ -41,7 +41,7 @@ async function search() {
   catch (e) { if (sequence.current(seq) && e.code !== 'ERR_CANCELED') error.value = '搜索失败，请重试' }
   finally { if (sequence.current(seq)) loading.value = false }
 }
-function go(target) { const value = safeTarget(router, target); if (value) { open.value = false; router.push(value) } else error.value = '目标不可用' }
+function go(target) { const value = safeTarget(router, target); if (value) { open.value = false; router.push(value) } else { open.value = true; error.value = '目标不可用' } }
 function keyDown(event) {
   if (composing || event.isComposing || event.keyCode === 229) return
   if (event.key === 'Enter') { event.preventDefault(); active.value >= 0 && flat.value[active.value] ? go(flat.value[active.value].target) : search() }

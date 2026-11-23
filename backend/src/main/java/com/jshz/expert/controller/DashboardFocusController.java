@@ -50,18 +50,4 @@ public class DashboardFocusController {
             default -> throw new BusinessException(400,"定位类型无效");
         }
     }
-    @GetMapping("/my-approvals")
-    public ApiResponse<Object> actionable(@AuthenticationPrincipal AuthUser user,@RequestParam(defaultValue="1") int page) {
-        reads.requireUser(user);
-        if(!user.hasPermission("approval:audit") || !reads.allowedPath(user,"/api/approval/requests")) throw new BusinessException(403,"无权限");
-        if(page<1||page>100000) throw new BusinessException(400,"分页无效");
-        return ApiResponse.ok(reads.approvals(user,20,(page-1)*20).get("data"));
-    }
-    @GetMapping("/my-projects")
-    public ApiResponse<Object> mine(@AuthenticationPrincipal AuthUser user,@RequestParam(defaultValue="1") int page) {
-        reads.requireUser(user);
-        if(!reads.allowed(user,"project")) throw new BusinessException(403,"无权限");
-        if(page<1||page>100000) throw new BusinessException(400,"分页无效");
-        return ApiResponse.ok(reads.projects(user,20,(page-1)*20).get("myProjects").get("data"));
-    }
 }

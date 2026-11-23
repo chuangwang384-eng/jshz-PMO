@@ -58,9 +58,12 @@ export function createDashboardGrid(element, limits, onChange) {
     adjust(id, dx, dy, dw, dh) {
       const node = grid.engine.nodes.find(item => item.id === id)
       if (!node) return
+      // 夹紧 12 列边界：越界保存后会被 normalizeDashboardLayout 静默重排，与编辑所见不一致
+      const maxW = 12
+      const w = Math.min(maxW, Math.max(node.minW, node.w + dw))
       grid.update(node.el, {
-        x: Math.max(0, node.x + dx), y: Math.max(0, node.y + dy),
-        w: Math.max(node.minW, node.w + dw), h: Math.max(node.minH, node.h + dh)
+        x: Math.min(Math.max(0, node.x + dx), maxW - w), y: Math.max(0, node.y + dy),
+        w, h: Math.max(node.minH, node.h + dh)
       })
       onChange(snapshot())
     },

@@ -21,10 +21,11 @@ public class QuickAccessService {
         this.db = db;
     }
 
-    /** 读取当前用户配置（未保存过返回空，前端使用默认入口）。 */
+    /** 读取当前用户配置（未保存过返回空，前端使用默认入口）；按布局卡片白名单过滤已失去权限的入口，与保存口径对称。 */
     public List<String> load(AuthUser user) {
         reads.requireUser(user);
-        return db.queryForList("SELECT item_key FROM user_quick_access WHERE user_id=? ORDER BY sort_order", String.class, user.getUserId());
+        return db.queryForList("SELECT item_key FROM user_quick_access WHERE user_id=? ORDER BY sort_order", String.class, user.getUserId())
+                .stream().filter(key -> layouts.allowed(user, key)).toList();
     }
 
     /** 全量覆盖保存；逐项走布局卡片白名单校验，非法项拒绝整单。 */

@@ -1,5 +1,5 @@
 export const moduleNames = { knowledge: '知识文档', expert: '专家', project: '项目', customer: '客户', supplier: '供应商', announcement: '公告' }
-export const warningNames = { OVERDUE: '已逾期', DUE_TODAY: '今天到期', DUE_SOON: '七天内到期', UNKNOWN_COMPLETION: '完成状态待核实', NONE: '' }
+export const warningNames = { OVERDUE: '已逾期', DUE_TODAY: '今天到期', DUE_SOON: '七天内到期', NONE: '' }
 export function safeLocalPath(value, fallback = '/dashboard') {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u0020]/.test(value)) return fallback
   try { const url = new URL(value, 'http://local'); return url.origin === 'http://local' && url.pathname !== '/login' ? value : fallback } catch { return fallback }

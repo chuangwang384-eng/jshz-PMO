@@ -9,14 +9,6 @@ import java.util.*;
 public final class DashboardRules {
     private DashboardRules() {}
 
-    public static String completion(String origin, Map<String,Object> config, long phaseId) {
-        if (!"LEGACY_BASELINE".equals(origin)) return "UNKNOWN";
-        List<Map<String,Object>> phases = ProjectConfigurationService.rows(config.get("phases"));
-        List<Map<String,Object>> completed = phases.stream().filter(p -> "已完成".equals(p.get("name"))).toList();
-        if (completed.size() != 1 || phases.stream().noneMatch(p -> Objects.equals(String.valueOf(p.get("phaseId")), Long.toString(phaseId)))) return "UNKNOWN";
-        return Objects.equals(String.valueOf(completed.get(0).get("phaseId")), Long.toString(phaseId)) ? "COMPLETED" : "INCOMPLETE";
-    }
-
     public static String warning(String completion, LocalDate end, LocalDate today) {
         if ("UNKNOWN".equals(completion)) return "UNKNOWN_COMPLETION";
         if (!"INCOMPLETE".equals(completion) || end == null) return "NONE";

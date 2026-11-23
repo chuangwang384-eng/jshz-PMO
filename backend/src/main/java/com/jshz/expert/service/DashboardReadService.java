@@ -2,10 +2,10 @@ package com.jshz.expert.service;
 
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.security.AuthUser;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.AntPathMatcher;
-import java.sql.Date;
 import java.time.*;
 import java.util.*;
 
@@ -13,8 +13,6 @@ import java.util.*;
 @Service
 public class DashboardReadService {
     private final JdbcTemplate db;
-    // 保留构造签名以兼容隔离集成测试；2026-11-09 起工作台读取不再依赖项目配置快照。
-    @SuppressWarnings("unused") private final ProjectConfigurationService configuration;
     private final PermissionService permissions;
     private final GlobalSearchModules searchers;
     private final AntPathMatcher paths = new AntPathMatcher();
@@ -23,10 +21,12 @@ public class DashboardReadService {
     private static final Map<String,String> API = Map.of("knowledge","/api/knowledge/docs","expert","/api/experts","project","/api/project","customer","/api/customer","supplier","/api/supplier/list","announcement","/api/announcement");
     public static final Map<String,String> LIST = Map.of("knowledge","/knowledge-planet/meeting-execution","expert","/experts","project","/project","customer","/knowledge-planet/customer-info","supplier","/supplier","announcement","/profile/announcements");
 
-    public DashboardReadService(JdbcTemplate jdbc, ProjectConfigurationService configuration, PermissionService permissions, GlobalSearchModules searchers) {
-        this.db = new JdbcTemplate(Objects.requireNonNull(jdbc.getDataSource()));
-        this.db.setQueryTimeout(1);
-        this.configuration = configuration; this.permissions = permissions; this.searchers = searchers;
+    /** queryTimeoutSeconds<=0 时不设超时（隔离测试用）；生产经 expert.dashboard.query-timeout-seconds 注入。 */
+    public DashboardReadService(JdbcTemplate jdbc, PermissionService permissions, GlobalSearchModules searchers,
+                                @Value("${expert.dashboard.query-timeout-seconds:3}") int queryTimeoutSeconds) {
+        this.db = Objects.requireNonNull(jdbc);
+        if (queryTimeoutSeconds > 0) this.db.setQueryTimeout(queryTimeoutSeconds);
+        this.permissions = permissions; this.searchers = searchers;
     }
     public void requireUser(AuthUser user) {
         if (user == null || user.getUserId() == null) throw new BusinessException(401,"未登录");
@@ -69,13 +69,12 @@ public class DashboardReadService {
         for(List<Map<String,Object>> list:List.of(latest,returned)) list.forEach(m->{m.put("target",target("/profile/my-approvals","applicationId",m.get("id")));m.put("timeType","申请时间");});
         return section(Map.of("pendingOthersCount",count(mine+" AND status=0",args),"returnedCount",count(mine+" AND status=4",args),"latestItems",latest,"returnedItems",returned),latest.isEmpty());
     }
-    public Map<String,Object> approvals(AuthUser user) { return approvals(user,3,0); }
-    public Map<String,Object> approvals(AuthUser user,int limit,int offset) {
+    public Map<String,Object> approvals(AuthUser user) {
         // Same OR-sign/transfer predicate as ApplicationService.checkAssignee, plus audit permission.
         if (!user.hasPermission("approval:audit")) throw new BusinessException(403,"无审批权限");
         String from="FROM application WHERE status=0 AND (approver_snapshot IS NULL OR approver_snapshot='' OR JSON_CONTAINS(approver_snapshot, JSON_OBJECT('username', ?)) OR current_assignee=? OR extra_approver=?) AND (current_assignee IS NULL OR TRIM(current_assignee)='' OR current_assignee=? OR extra_approver=?)";
         List<Object> args=List.of(user.getUsername(),user.getUsername(),user.getUsername(),user.getUsername(),user.getUsername());
-        List<Map<String,Object>> items=rows("SELECT id,application_type title,applicant,create_time time "+from+" ORDER BY create_time,id LIMIT "+limit+" OFFSET "+offset,args.toArray());
+        List<Map<String,Object>> items=rows("SELECT id,application_type title,applicant,create_time time "+from+" ORDER BY create_time,id LIMIT 3",args.toArray());
         items.forEach(m->{m.put("target",target("/profile/approval/manage","applicationId",m.get("id")));m.put("timeType","申请时间");});
         long total=count(from,args);return section(Map.of("total",total,"items",items),total==0);
     }
@@ -98,35 +97,49 @@ public class DashboardReadService {
         items.forEach(m->m.put("target",DashboardRules.target("/profile/announcements/"+m.get("id"),Map.of("from","dashboard"))));
         long total=count(from,List.of(now,now));return section(Map.of("total",total,"items",items),total==0);
     }
-    /** 工作台「我的项目」：阶段取 project_phase 字典；成员范围=负责人/创建人/协助人（兼容历史执行人）；到期风险只按 endDate。 */
-    public Map<String,Map<String,Object>> projects(AuthUser user) { return projects(user,6,0); }
-    public Map<String,Map<String,Object>> projects(AuthUser user,int limit,int offset) {
+    /** 工作台「我的项目」：阶段取 project_phase 字典；成员范围=负责人/创建人/协助人（兼容历史执行人）；到期风险只按 endDate。
+     * 2026-11-23：风险计数与分页均下推 SQL，不再全量拉取到内存（原实现随项目数线性变慢）。 */
+    public Map<String,Map<String,Object>> projects(AuthUser user) {
         LocalDate today=LocalDate.now(ZONE);
         Long uid=user.getUserId();
+        java.sql.Date todaySql=java.sql.Date.valueOf(today);
         // 2026-11-09 项目流程重塑后：配置快照与阶段历史已停用，不再据此推断完成状态。
         // 成员口径与 ProjectService.isProjectMember 对齐，避免创建人/协助人在工作台看不到自己的项目。
-        List<Map<String,Object>> all=rows(
-            "SELECT p.id,p.name,p.category,p.team,p.status,p.start_date startDate,p.end_date endDate,"+
-            "p.meeting_start_date meetingStartDate,p.meeting_end_date meetingEndDate,"+
-            "p.owner_id ownerId,p.creator_id creatorId,u.username ownerName,ph.name phaseName,sc.name cityName,"+
-            "EXISTS(SELECT 1 FROM project_executor x WHERE x.project_id=p.id AND x.user_id=?) isExecutor,"+
-            "EXISTS(SELECT 1 FROM project_assistant a WHERE a.project_id=p.id AND a.user_id=?) isAssistant "+
-            "FROM project p LEFT JOIN sys_user u ON u.id=p.owner_id "+
+        String scope="FROM project p LEFT JOIN sys_user u ON u.id=p.owner_id "+
             "LEFT JOIN project_phase ph ON ph.id=p.phase_id "+
             "LEFT JOIN supplier_city sc ON sc.id=p.city_id "+
             "WHERE p.status NOT IN ('DELETED','CANCELED') AND (p.owner_id=? OR p.creator_id=? "+
             "OR EXISTS(SELECT 1 FROM project_assistant a2 WHERE a2.project_id=p.id AND a2.user_id=?) "+
-            "OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=p.id AND e.user_id=?))",
-            uid,uid,uid,uid,uid,uid);
+            "OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=p.id AND e.user_id=?))";
+        Object[] scopeArgs={uid,uid,uid,uid};
+        // 与 DashboardRules.warning("INCOMPLETE",end,today) 同口径的 SQL 表达式；unknownCompletionCount 保留为 0（兼容既有前端字段）。
+        String warningExpr="CASE WHEN p.end_date IS NULL THEN 'NONE' WHEN p.end_date<? THEN 'OVERDUE' "+
+            "WHEN p.end_date=? THEN 'DUE_TODAY' WHEN p.end_date<=? + INTERVAL 7 DAY THEN 'DUE_SOON' ELSE 'NONE' END";
+        Object[] warnArgs={todaySql,todaySql,todaySql};
+        Map<String,Object> counts= db.queryForMap("SELECT COUNT(*) total,"+
+            "COALESCE(SUM(p.end_date IS NOT NULL AND p.end_date<?),0) overdueCount,"+
+            "COALESCE(SUM(p.end_date=?),0) dueTodayCount,"+
+            "COALESCE(SUM(p.end_date>? AND p.end_date<=? + INTERVAL 7 DAY),0) dueSoonCount "+scope,
+            concat(scopeArgs,new Object[]{todaySql,todaySql,todaySql,todaySql}));
+        List<Map<String,Object>> rows=db.queryForList(
+            "SELECT p.id,p.name,p.category,p.team,p.status,p.start_date startDate,p.end_date endDate,"+
+            "p.meeting_start_date meetingStartDate,p.meeting_end_date meetingEndDate,"+
+            "p.owner_id ownerId,p.creator_id creatorId,u.username ownerName,ph.name phaseName,sc.name cityName,"+
+            "EXISTS(SELECT 1 FROM project_executor x WHERE x.project_id=p.id AND x.user_id=?) isExecutor,"+
+            "EXISTS(SELECT 1 FROM project_assistant a WHERE a.project_id=p.id AND a.user_id=?) isAssistant,"+
+            warningExpr+" warning "+scope+" "+
+            // 风险等级 OVERDUE(0)→DUE_TODAY(1)→DUE_SOON(2)→其他(3)，endDate 空值最后，与原内存排序一致。
+            "ORDER BY CASE WHEN p.end_date IS NOT NULL AND p.end_date<? THEN 0 WHEN p.end_date=? THEN 1 "+
+            "WHEN p.end_date>? AND p.end_date<=? + INTERVAL 7 DAY THEN 2 ELSE 3 END,p.end_date IS NULL,p.end_date,p.id LIMIT 6",
+            concat(concat(new Object[]{uid,uid},warnArgs),concat(scopeArgs,new Object[]{todaySql,todaySql,todaySql,todaySql})));
         Map<String,Long> risks=new LinkedHashMap<>();
-        // unknownCompletionCount 保留为 0（兼容既有前端字段），新流程不再产生「完成状态待核实」。
-        for(String key:List.of("overdueCount","dueTodayCount","dueSoonCount","unknownCompletionCount")) risks.put(key,0L);
+        risks.put("overdueCount",number(counts.get("overdueCount")));
+        risks.put("dueTodayCount",number(counts.get("dueTodayCount")));
+        risks.put("dueSoonCount",number(counts.get("dueSoonCount")));
+        risks.put("unknownCompletionCount",0L);
+        boolean empty=number(counts.get("total"))==0;
         List<Map<String,Object>> items=new ArrayList<>();
-        for(Map<String,Object> raw:all) {
-            LocalDate end=raw.get("endDate")==null?null:((Date)raw.get("endDate")).toLocalDate();
-            String warning=DashboardRules.warning("INCOMPLETE",end,today);
-            String counter=switch(warning){case "OVERDUE"->"overdueCount";case "DUE_TODAY"->"dueTodayCount";case "DUE_SOON"->"dueSoonCount";default->null;};
-            if(counter!=null) risks.put(counter,risks.get(counter)+1);
+        for(Map<String,Object> raw:rows) {
             Map<String,Object> item=new LinkedHashMap<>();
             for(String k:List.of("id","name","category","team","status","startDate","endDate","meetingStartDate","meetingEndDate")) item.put(k,raw.get(k));
             item.put("teamLabel",teamLabel(raw.get("team")));
@@ -139,14 +152,18 @@ public class DashboardReadService {
             if(isTrue(raw.get("isAssistant"))) relations.add("协助人");
             if(isTrue(raw.get("isExecutor"))) relations.add("执行人");
             item.put("myRelations",relations);
-            item.put("warning",warning);
+            item.put("warning",String.valueOf(raw.get("warning")));
             item.put("completionState","INCOMPLETE");
             item.put("target",DashboardRules.target("/project/"+raw.get("id"),Map.of("from","dashboard")));
             items.add(item);
         }
-        List<String> rank=List.of("OVERDUE","DUE_TODAY","DUE_SOON","NONE","UNKNOWN_COMPLETION");
-        items.sort(Comparator.<Map<String,Object>>comparingInt(m->rank.indexOf(m.get("warning"))).thenComparing(m->m.get("endDate")==null?null:m.get("endDate").toString(),Comparator.nullsLast(Comparator.naturalOrder())).thenComparingLong(m->number(m.get("id"))));
-        return Map.of("projectRisk",section(new LinkedHashMap<>(risks),items.isEmpty()),"myProjects",section(Map.of("total",items.size(),"items",items.stream().skip(offset).limit(limit).toList()),items.isEmpty()));
+        Map<String,Object> riskData=new LinkedHashMap<>(risks);
+        return Map.of("projectRisk",section(riskData,empty),"myProjects",section(Map.of("total",number(counts.get("total")),"items",items),empty));
+    }
+    private static Object[] concat(Object[] a,Object[] b) {
+        Object[] out=Arrays.copyOf(a,a.length+b.length);
+        System.arraycopy(b,0,out,a.length,b.length);
+        return out;
     }
     private static boolean isTrue(Object v) { return Boolean.TRUE.equals(v) || v instanceof Number n && n.intValue()==1; }
     private static String teamLabel(Object team) {

@@ -32,7 +32,7 @@ class DashboardReadIntegrationTest {
             db.update("DELETE FROM "+table);
         config=new ProjectConfigurationService(db,new ObjectMapper());permissions=mock(PermissionService.class);
         when(permissions.getPermissionRules()).thenReturn(List.of());
-        reads=new DashboardReadService(db,config,permissions,new GlobalSearchModules());
+        reads=new DashboardReadService(db,permissions,new GlobalSearchModules(),0);
     }
     @AfterEach void rollback() throws Exception {if(source!=null){source.getConnection().rollback();source.destroy();}}
     @SuppressWarnings("unchecked") Map<String,Object> data(Map<String,Object> section){return (Map<String,Object>)section.get("data");}

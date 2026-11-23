@@ -41,6 +41,9 @@ security:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://192.168.0.95:5173,http://localhost:5173,http://192.168.0.144:5173}
 expert:
+  # 工作台只读查询超时（2026-11-23 由代码写死 1 秒改为可配；默认 3 秒）
+  dashboard:
+    query-timeout-seconds: '${DASHBOARD_QUERY_TIMEOUT_SECONDS:3}'
   # 照片存储根目录（设计文档：D:\jshz-PMO\照片库）
   photo:
     storage-dir: '${STORAGE_ROOT:D:\jshz-PMO}\照片库'
