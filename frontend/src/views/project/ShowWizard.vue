@@ -453,6 +453,37 @@ watch(experts, list => {
   portraitsReady = Promise.all(safeList.map(loadPerson))
 }, { immediate: true })
 
+// 资料池文本字段（姓名/职称/单位）联动到已保存草稿的页面人物：
+// deck() 导出时只刷新头像，无此联动时第二步补填的职称不会进入草稿页面的 persons。
+let poolTextSnapshot = new Map()
+const poolTextOf = p => [p.name || '', p.title || '', p.unit || '']
+watch(experts, list => {
+  const slides = editableDeck.value
+  const next = new Map((list || []).map(p => [p.key, poolTextOf(p)]))
+  if (slides) {
+    for (const p of list || []) {
+      const prev = poolTextSnapshot.get(p.key)
+      const now = poolTextOf(p)
+      if (prev && prev.join('\u0000') === now.join('\u0000')) continue
+      const oldName = prev ? prev[0] : p.name
+      const oldJoin = [oldName, prev ? prev[1] : p.title].filter(Boolean).join(' ')
+      for (const slide of slides) {
+        for (const person of slide.persons || []) {
+          if (person.sourceKey !== p.key) continue
+          person.name = p.name || ''
+          person.title = p.title || ''
+          person.unit = p.unit || ''
+        }
+        if (slide.kind === 'resume' && slide.persons?.[0]?.sourceKey === p.key
+            && (!slide.title || slide.title === oldName || slide.title === oldJoin)) {
+          slide.title = [p.name, p.title].filter(Boolean).join(' ') || '专家简介'
+        }
+      }
+    }
+  }
+  poolTextSnapshot = next
+}, { deep: true })
+
 async function loadPerson(p) {
   if (!p.expertId || p.loaded || p.loading) return
   p.loading = true
