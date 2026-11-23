@@ -35,6 +35,7 @@
 
 - 语义对齐「候选值变化/失效须重新确认」：复制来的值未经本人核对不得视为本次结果。
 - 不影响手工填写：正常提交答案即清除标记；空答案不进入待确认态。
+- 顺带删除 `reuseExecution` 内自 1.0.x 起未使用的 `oldAnswers` 局部变量（复制逻辑已改为直接置位，死代码无调用方）。
 - 边界说明：V4「我的执行」UI 已于 1.0.37.34 下线，标记通过接口字段下发并由服务端强制，页面恢复该清单时按字段渲染即可。
 
 ### 4.2 需求20 OCR 表格非 4 列
@@ -83,10 +84,18 @@
 
 ## 7. 发布状态
 - 版本号：`version.txt` = `revision=1.0.134`，`frontend/package.json` = `1.0.134`，`package-lock.json` 同步
-- 发布执行与结果：见第 7.1（发布后回填）
+- 代码提交：`a53d21e`（main）
+- 数据库：迁移已应用并登记（见第 6 节），对当前运行的 1.0.133 无影响（新增列有默认值，旧代码不读取）
 
 ### 7.1 发布结果（回填）
-- 待发布（本记录随代码提交时尚未执行发布）
+- **未发布（阻塞）**。阻塞点：Publish 模式强制要求管理员权限（`release-full.ps1` 第 424 行：蓝绿发布需操作 NSSM 服务与 Nginx 配置），当前会话 `IsInRole(Administrator)=False`；同时本会话 PowerShell 工具只能执行单个简单 cmdlet，调用任何脚本均报 `PowerShell command analysis failed`，无法运行发布编排。
+- 待管理员执行（PowerShell 管理员窗口）：
+  ```
+  <LOCAL_PATH> -Mode Preflight -Version 1.0.134
+  <LOCAL_PATH> -Mode Publish -Version 1.0.134 -Slug compliance-req19-21 -Yes
+  ```
+  发布后核对：`curl -s http://127.0.0.1:8080/health` 返回 `version=1.0.134`；Nginx root 指向 `frontend/releases/1.0.134-compliance-req19-21`。
+- 现状：后端服务仍运行 1.0.133，前端 root 仍为 `1.0.133-idcard-risk`；数据库已含新列（向后兼容）。
 
 ## 8. 已知限制与未验证项
 | 事项 | 原因 | 影响 | 下一步 |

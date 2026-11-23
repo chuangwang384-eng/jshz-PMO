@@ -647,12 +647,6 @@ public class ComplianceV4Service {
             return m;
         }
         // 复制快照任务：默认只继承适用项选择；答案可选；日期/进度/备注/提醒重置
-        Map<String, String> oldAnswers = new HashMap<>();
-        if (copyAnswers) {
-            for (ComplianceExecutionTask t : tasksOf(src.getId())) {
-                if (t.getAnswer() != null) oldAnswers.put(String.valueOf(t.getId()), t.getAnswer());
-            }
-        }
         int copied = 0;
         int copiedAnswers = 0;
         for (ComplianceExecutionTask t : tasksOf(src.getId())) {
