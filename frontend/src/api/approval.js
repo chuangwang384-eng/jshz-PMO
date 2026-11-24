@@ -48,8 +48,9 @@ export function uploadApprovalPhoto(file) {
   return request.post('/approval/photo-upload', formData)
 }
 
-// 我的申请（新接口）：GET /approval/my-applications?page=&size=&status=
-// 仅返回本人申请（后端按 applicant_id/applicant 双条件过滤），含审批人/审批时间/进度记录
+// 我的申请：GET /approval/my-applications?page=&size=&status=&type=&keyword=&startDate=&endDate=
+// 仅返回本人申请（后端按 applicant_id/applicant 双条件过滤，强制本人，无法通过参数越权）；
+// 返回项含审批人/审批时间/进度记录、当前处理人 currentAssigneeName 与待审批停留时长 pendingHours（R2）
 export function getMyApplications(params) {
   return request.get('/approval/my-applications', { params })
 }
@@ -82,6 +83,12 @@ export function returnRequest(id, comment) {
 // 重新提交：POST /approval/requests/{id}/resubmit（仅申请人本人，status=4 可重提）
 export function resubmitRequest(id, data) {
   return request.post(`/approval/requests/${id}/resubmit`, data)
+}
+
+// 删除申请单：DELETE /approval/requests/{id}（仅申请人本人，仅「已驳回/已撤回」可删）
+// 后端同事务删除审批进度记录并写 operation_log（DELETE_APPLICATION）留痕
+export function deleteApplication(id) {
+  return request.delete(`/approval/requests/${id}`)
 }
 
 // ==================== 审批转办 / 加签（B2，或签语义） ====================

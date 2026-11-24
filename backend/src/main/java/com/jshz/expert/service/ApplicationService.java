@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -76,6 +77,21 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     /** 临时照片值格式：TMP:文件名 */
     private static final Pattern TMP_PATTERN = Pattern.compile("^TMP:[A-Za-z0-9._-]+$");
+
+    /**
+     * 单字段文本上限（前后端同源：前端 utils/approvalFields.js MAX_TEXT_LENGTH）。
+     * 提交链路此前不校验，导致超长值可通过提交但无法重提（重提侧限制 5000）。
+     */
+    public static final int MAX_TEXT_LENGTH = 5000;
+
+    /**
+     * 申请原因上限（前后端同源：前端 utils/approvalFields.js MAX_REASON_LENGTH）。
+     * 提交链路此前不校验，历史超长原因会导致退回后无法重提。
+     */
+    public static final int MAX_REASON_LENGTH = 1000;
+
+    /** 单页最大条数（与 MybatisPlusConfig.maxLimit、前端 page-sizes 上限一致）。 */
+    public static final long MAX_PAGE_SIZE = 100L;
 
     /** 状态：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 / 4 退回修改 */
     private static final int STATUS_PENDING = 0;
@@ -206,7 +222,10 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             throw new BusinessException("专家不存在");
         }
         checkChanges(changes);
-        validateSensitiveFields(changes);
+        // 2026-11-24（Q4）：修改申请此前只校验敏感字段格式，姓名/单位可被写成空值或非法值，
+        // 与新增申请口径不对称；统一走 validateModifyChanges。
+        validateModifyChanges(changes);
+        validateReason(reason);
         Application app = new Application();
         app.setApplicantId(user.getUserId());
         app.setApplicant(user.getUsername());
@@ -240,6 +259,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         checkSubmitEligible(user, "新增", FLOW_KEY);
         checkChanges(changes);
         validateCreateChanges(changes);
+        validateReason(reason);
 
         Application app = new Application();
         app.setApplicantId(user.getUserId());
@@ -298,7 +318,63 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 if (!photoStorageService.existsTempPhoto(value.substring(TMP_PREFIX.length()))) {
                     throw new BusinessException("照片字段「" + key + "」对应的临时文件不存在，请重新上传");
                 }
+            } else {
+                // 2026-11-24（Q10）：值必须是字符串，此前任意 JSON 类型会被 String.valueOf 写进专家字段
+                Object raw = changes.get(key);
+                if (raw != null && !(raw instanceof String)) {
+                    throw new BusinessException("字段「" + key + "」的值必须为文本");
+                }
+                if (raw instanceof String text && text.length() > MAX_TEXT_LENGTH) {
+                    throw new BusinessException("字段「" + key + "」内容过长（上限 " + MAX_TEXT_LENGTH + " 字）");
+                }
             }
+        }
+    }
+
+    /**
+     * 修改申请字段校验（2026-11-24，Q4）：与新增申请口径对齐，避免审批通过后写坏专家档案。
+     * - 姓名：非空且满足 2-20 个汉字（可含间隔号）；
+     * - 单位：非空；
+     * - 身份证号/银行卡号/联系方式：非空时校验格式（清空不在此拦截，由业务确认后另行放开）。
+     */
+    private void validateModifyChanges(Map<String, Object> changes) {
+        validateModifyChanges(changes, changes == null ? Set.of() : changes.keySet());
+    }
+
+    /**
+     * 修改申请字段校验（限定键）：只校验 {@code touched} 中的字段。
+     * 重新提交时传本次 patch 的键集，使历史单中已存在但不合规的存量值不会永久阻塞重提。
+     */
+    private void validateModifyChanges(Map<String, Object> changes, Set<String> touched) {
+        if (changes == null) {
+            return;
+        }
+        if (touched.contains("姓名")) {
+            Object raw = changes.get("姓名");
+            String name = String.valueOf(raw == null ? "" : raw).trim();
+            if (!StringUtils.hasText(name)) {
+                throw new BusinessException("姓名不能为空");
+            }
+            if (!NAME_PATTERN.matcher(name).matches()) {
+                throw new BusinessException("姓名格式不正确（2-20 个汉字，可含间隔号）");
+            }
+        }
+        if (touched.contains("单位")) {
+            Object unit = changes.get("单位");
+            if (unit == null || !StringUtils.hasText(String.valueOf(unit).trim())) {
+                throw new BusinessException("单位不能为空");
+            }
+        }
+        validateSensitiveFields(changes);
+    }
+
+    /**
+     * 申请原因长度校验（2026-11-24，Q8）：提交与重提同源（{@link #MAX_REASON_LENGTH}），
+     * 避免"提交不限长、重提限 1000"导致历史单退回后无法重提。
+     */
+    private void validateReason(String reason) {
+        if (reason != null && reason.length() > MAX_REASON_LENGTH) {
+            throw new BusinessException("申请原因过长（上限 " + MAX_REASON_LENGTH + " 字）");
         }
     }
 
@@ -324,25 +400,47 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== 我的申请（员工） ====================
 
     /**
+     * 「我的申请」列表筛选条件（R1，2026-11-24）：状态 / 申请类型 / 关键词 / 提交日期区间。
+     * 全部字段可空；日期为 yyyy-MM-dd（含当日）。
+     */
+    public record MyApplicationFilter(Integer status, String type, String keyword, String startDate, String endDate) {
+    }
+
+    /**
      * 我的申请分页列表（my-applications；旧 my-requests 兼容路径已于 2026-11-24 下线）：
      * 按 applicant_id / applicant 双条件过滤本人（兼容存量 applicant_id 为空的迁移行），
-     * 可按状态过滤（status 为空查全部），附带 biz_data 解析展示字段与进度记录。
+     * 可按状态/类型/关键词/提交日期区间过滤（全部为空查全部），附带 biz_data 解析展示字段与进度记录。
+     *
+     * <p>2026-11-24（Q2）：page/size 在服务层再钳制一次（1..100），防止绕过 Controller 直接调用时
+     * 触发 MyBatis-Plus「size&lt;0 即不分页」的全表查询；进度记录改为按页内 id 集合一次 IN 查询回填，
+     * 消除逐行 recordsOf 的 N+1（此前 size=100 单请求约 101 条 SQL）。</p>
      */
-    public Page<Application> myApplications(long page, long size, Integer status, AuthUser user) {
+    public Page<Application> myApplications(long page, long size, MyApplicationFilter filter, AuthUser user) {
         if (user == null) {
             throw new BusinessException("未登录");
         }
         LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<Application>()
                 .and(w -> w.eq(Application::getApplicantId, user.getUserId())
                         .or().eq(Application::getApplicant, user.getUsername()));
-        if (status != null) {
-            wrapper.eq(Application::getStatus, status);
+        MyApplicationFilter f = filter == null ? new MyApplicationFilter(null, null, null, null, null) : filter;
+        if (f.status() != null) {
+            wrapper.eq(Application::getStatus, f.status());
         }
+        if (StringUtils.hasText(f.type())) {
+            wrapper.eq(Application::getApplicationType, f.type().trim());
+        }
+        if (StringUtils.hasText(f.keyword())) {
+            String kw = f.keyword().trim();
+            // 关键词覆盖：专家姓名（biz_data.expertName）/ 申请原因（biz_data.reason）/ 申请人用户名
+            wrapper.and(w -> w.like(Application::getApplicant, kw)
+                    .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.expertName')) LIKE CONCAT('%', {0}, '%')", kw)
+                    .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.reason')) LIKE CONCAT('%', {0}, '%')", kw));
+        }
+        applyDateRange(wrapper, f.startDate(), f.endDate());
         wrapper.orderByDesc(Application::getCreateTime);
-        Page<Application> result = this.page(new Page<>(page, size), wrapper);
-        for (Application r : result.getRecords()) {
-            fillView(r, isFullSensitive(user));
-        }
+        Page<Application> result = this.page(new Page<>(ParamUtils.clamp(page, 1, Long.MAX_VALUE),
+                ParamUtils.clamp(size, 1, MAX_PAGE_SIZE)), wrapper);
+        fillViews(result.getRecords());
         return result;
     }
 
@@ -369,18 +467,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 catch (Exception ex) { throw new BusinessException(403,"记录不可用"); }
             }
         }
-        return fillView(app,isFullSensitive(user));
+        return fillView(app);
     }
 
     // ==================== 全部申请（审批管理） ====================
 
     /**
-     * 全部申请单分页：可按状态过滤，keyword 模糊匹配申请人 / 专家姓名（biz_data.expertName JSON 提取）。
-     */
-
-    /**
      * 全部申请单分页（多状态）：statuses 为空查全部；keyword 模糊匹配申请人 / 专家姓名。
      * 已处理列表（status=1,2,3）统一在此分页，避免前端分页语义不稳定。
+     * page/size 由服务层钳制（1..{@link #MAX_PAGE_SIZE}），进度记录按页批量回填（Q2）。
      */
     public Page<Application> listRequests(List<Integer> statuses, String keyword, long page, long size, AuthUser viewer) {
         LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<>();
@@ -402,10 +497,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                     .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.expertName')) LIKE CONCAT('%', {0}, '%')", kw));
         }
         wrapper.orderByDesc(Application::getCreateTime);
-        Page<Application> result = this.page(new Page<>(page, size), wrapper);
-        for (Application r : result.getRecords()) {
-            fillView(r, isFullSensitive(viewer));
-        }
+        Page<Application> result = this.page(new Page<>(ParamUtils.clamp(page, 1, Long.MAX_VALUE),
+                ParamUtils.clamp(size, 1, MAX_PAGE_SIZE)), wrapper);
+        fillViews(result.getRecords());
         return result;
     }
 
@@ -435,6 +529,9 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (!"DRAFT".equals(contract.getStatus()) && !"REJECTED".equals(contract.getStatus())) {
             throw new BusinessException("仅草稿或被驳回的合同可发起审批");
         }
+        // 2026-11-24（Q3）：同一合同只允许一张在审单（status 0 待审批 / 4 退回修改），
+        // 否则重提旧单与再次发起新单会并存，导致合同被连续置为 APPROVED、审批流水失真。
+        ensureNoOtherOpenContractApplication(contractId, null);
         if (changes == null || changes.isEmpty()) {
             throw new BusinessException("请先填写身份证号/银行卡号再发起审批");
         }
@@ -498,8 +595,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     /**
      * 审批通过（专家合同审批）：同步合同生效（status=APPROVED）。
+     * 2026-11-24（Q1）：biz_data 里取不到 contractId 说明申请单内容已损坏，
+     * 此时必须阻断，否则会出现「审批通过但合同状态没变」的静默失败。
      */
     private Application approveContract(Application app, String comment, AuthUser user) {
+        if (ParamUtils.parseLong(readBiz(app).get("contractId"), null) == null) {
+            throw new BusinessException("申请内容缺失或已损坏（缺少合同标识），无法审批，请联系管理员核查申请单 #" + app.getId());
+        }
         syncContractByApproval(app, "APPROVED", user);
         app.setStatus(STATUS_APPROVED);
         app.setApproveBy(user == null ? null : user.getUsername());
@@ -509,7 +611,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "管理员审批通过", "APPROVE", user == null ? null : user.getUsername(),
                 StringUtils.hasText(comment) ? comment : "同意合同审批");
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     private boolean isCreateRequest(Application app) {
@@ -582,16 +684,23 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 expertService.autoFillIdCardNumber(expert.getId(), photoApplied.get("身份证正面"));
             });
         }
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     /**
      * 审批通过（修改申请）：校验待审批状态，将白名单字段写入 expert_info（update_by=申请人），
      * 状态置为已通过，写 APPROVE 记录。
+     *
+     * <p>2026-11-24（Q1）：读取 changes 后若为空（biz_data 缺失/损坏/被写坏），必须终止审批。
+     * 此前会以空变更「空转」置为已通过并留痕「同意修改」，导致审批通过但专家字段一个字都没更新，
+     * 申请人、审批人、日志三方都无法发现。</p>
      */
     @Transactional(rollbackFor = Exception.class)
     public Application approveModify(Application app, String comment, AuthUser user) {
         Map<String, Object> changes = readChanges(app);
+        if (changes.isEmpty()) {
+            throw new BusinessException("申请内容缺失或已损坏（biz_data 无法解析），无法审批，请联系管理员核查申请单 #" + app.getId());
+        }
         // 敏感字段格式兜底校验（身份证/银行卡/联系方式）
         validateSensitiveFields(changes);
 
@@ -675,7 +784,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             }
             cleanTempPhotos(app);
         });
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     /**
@@ -703,7 +812,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         notifyApprovalResult(app, user);
         // 临时照片清理（文件 IO）延后到事务提交后
         afterCommit("驳回清理临时照片", () -> cleanTempPhotos(app));
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     // ==================== 退回修改 / 重新提交（R4） ====================
@@ -736,7 +845,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         // CONTRACT 类型：同步合同恢复草稿（可修改后重新发起）
         syncContractByApproval(app, "DRAFT", user);
         notifyReturned(app, user);
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     /**
@@ -772,16 +881,17 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             throw new BusinessException("审批流未启用，暂不支持重新提交");
         }
         List<String> replacedTempPhotos = new ArrayList<>();
-        if (patch != null) {
-            Map<String,Object> biz = readBiz(app);
-            Map<String,Object> changes = new LinkedHashMap<>(asStringKeyMap(biz.get("changes")));
-            boolean contract = ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT;
+        Map<String,Object> biz = readBiz(app);
+        Map<String,Object> changes = new LinkedHashMap<>(asStringKeyMap(biz.get("changes")));
+        boolean contract = ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT;
+        boolean bizChanged = false;
+        if (patch != null && !patch.isEmpty()) {
             for (Map.Entry<String,Object> entry : patch.entrySet()) {
                 String field = entry.getKey(); Object value = entry.getValue();
                 boolean photoField = PHOTO_FIELDS.contains(field);
                 if ((!WHITELIST_FIELDS.contains(field) && !photoField) || (photoField && contract)) throw new BusinessException(contract ? "合同申请仅支持修改身份与银行卡字段" : "字段不在可修改范围内");
                 if (contract && !List.of("身份证号","银行卡号").contains(field)) throw new BusinessException("合同申请仅支持修改身份与银行卡字段");
-                if (value != null && (!(value instanceof String) || value.toString().length() > 5000)) throw new BusinessException("字段内容格式不正确或过长");
+                if (value != null && (!(value instanceof String) || value.toString().length() > MAX_TEXT_LENGTH)) throw new BusinessException("字段内容格式不正确或过长");
                 // 照片被替换：记下旧临时文件名，事务提交后清理（格式与临时文件存在性由 checkChanges 校验）
                 if (photoField && value != null && changes.get(field) instanceof String prev
                         && prev.startsWith(TMP_PREFIX) && !prev.equals(value)) {
@@ -789,12 +899,46 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 }
                 changes.put(field,value);
             }
-            checkChanges(changes);
-            if (isCreateRequest(app)) validateCreateChanges(changes); else validateSensitiveFields(changes);
-            biz.put("changes",changes);
-            if(changes.get("姓名") != null) biz.put("expertName",changes.get("姓名"));
-            if(reason != null) { if(reason.length()>1000) throw new BusinessException("申请原因过长"); biz.put("reason",reason); }
-            app.setBizData(writeBiz(biz)); fillBiz(app);
+            bizChanged = true;
+        }
+        // 2026-11-24（Q9）：未被本次重传、且临时文件已丢失的照片键自动降级剔除——
+        // 此前会以「临时文件不存在」硬拒，status=4 不可撤回，单据永久滞留退回修改。
+        List<String> droppedPhotoFields = new ArrayList<>();
+        for (String key : PHOTO_FIELDS) {
+            if (!(changes.get(key) instanceof String raw) || !raw.startsWith(TMP_PREFIX)) {
+                continue;
+            }
+            String tempName = raw.substring(TMP_PREFIX.length());
+            if (!photoStorageService.existsTempPhoto(tempName)) {
+                changes.remove(key);
+                droppedPhotoFields.add(key);
+                bizChanged = true;
+                log.warn("[审批流] 重新提交：照片临时文件已失效，已从变更中剔除（需重新上传）：申请单={}，字段={}，文件={}",
+                        id, key, tempName);
+            }
+        }
+        checkChanges(changes);
+        // 校验口径（Q4）：姓名/单位等文本字段只校验本次实际改动的键，避免历史单因存量值不合规被永久卡住
+        Set<String> touched = patch == null ? Set.of() : patch.keySet();
+        if (isCreateRequest(app)) validateCreateChanges(changes); else validateModifyChanges(changes, touched);
+        biz.put("changes", changes);
+        if (changes.get("姓名") != null) biz.put("expertName", changes.get("姓名"));
+        if (reason != null) {
+            validateReason(reason);
+            biz.put("reason", reason);
+            bizChanged = true;
+        }
+        if (bizChanged) {
+            app.setBizData(writeBiz(biz));
+            fillBiz(app);
+        }
+        // CONTRACT 类型：重提必须把合同重新置回在审（Q3），否则同一合同可再发起第二张在审单
+        Long contractId = contract ? ParamUtils.parseLong(biz.get("contractId"), null) : null;
+        if (contract && contractId == null) {
+            throw new BusinessException("申请内容缺失合同标识，无法重新提交，请联系管理员");
+        }
+        if (contract) {
+            ensureNoOtherOpenContractApplication(contractId, app.getId());
         }
         app.setStatus(STATUS_PENDING);
         app.setApproveBy(null);
@@ -812,6 +956,10 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 .set(Application::getReturnComment,null).set(Application::getCurrentAssignee,null).set(Application::getExtraApprover,null)
                 .set(Application::getApproverSnapshot,app.getApproverSnapshot()).update();
         if(!changed) throw new BusinessException(409,"申请状态已变化，请刷新后重试");
+        if (contract) {
+            // 合同重新进入审批中：status=PENDING 且 approval_ref 指回本单（Q3/Q17）
+            syncContractByApproval(app, "PENDING", user);
+        }
 
         addRecord(app.getId(), "申请人重新提交", "RESUBMIT", user.getUsername(),
                 StringUtils.hasText(app.getReason()) ? app.getReason() : "重新提交申请");
@@ -827,7 +975,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 }
             });
         }
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     // ==================== 审批人管理（R2 指定具体审批人） ====================
@@ -934,7 +1082,83 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         addRecord(app.getId(), "申请人撤回", "WITHDRAW", user.getUsername(), "撤回本人提交的申请");
         notifyApprovalWithdrawn(app);
         afterCommit("撤回清理临时照片", () -> cleanTempPhotos(app));
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
+    }
+
+    // ==================== 删除申请（申请人，2026-11-24 新增） ====================
+
+    /**
+     * 删除申请单：申请人清理本人「已驳回 / 已撤回」的历史单据。
+     *
+     * <p>业务边界（不扩大影响面）：</p>
+     * <ul>
+     *     <li>仅申请人本人（applicant_id / applicant 双条件，与列表口径一致）；</li>
+     *     <li>仅终态且无后续处理可能的 status∈{2 已驳回, 3 已撤回}；待审批(0)须先撤回、退回修改(4)须先重提或撤回，</li>
+     *     <li>已通过(1)不可删除（专家档案已按该单变更生效，删除会丢失变更留痕）；</li>
+     *     <li>同事务删除该单的审批进度记录，并以条件更新（status 仍为原终态）防止与并发操作竞争；</li>
+     *     <li>删除前写 operation_log（DELETE_APPLICATION）保留审计痕迹，事务提交后清理临时照片文件。</li>
+     * </ul>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteApplication(Long id, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        if (id == null) {
+            throw new BusinessException("申请单ID不能为空");
+        }
+        Application app = getById(id);
+        if (app == null) {
+            throw new BusinessException("申请单不存在或已删除");
+        }
+        if (!isApplicant(app, user)) {
+            throw new BusinessException("仅申请人本人可删除申请单");
+        }
+        Integer status = app.getStatus();
+        if (status == null || (status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
+            throw new BusinessException("仅「已驳回」或「已撤回」的申请可删除；待审批请先撤回，退回修改请先重提或撤回");
+        }
+        fillBiz(app);
+        String statusText = statusText(status);
+        // 条件删除：以原状态为条件，避免与并发重提/审批交错（并发下影响行数为 0 即拒绝）
+        boolean removed = this.lambdaUpdate()
+                .eq(Application::getId, id)
+                .eq(Application::getStatus, status)
+                .remove();
+        if (!removed) {
+            throw new BusinessException(409, "申请状态已变化，请刷新后重试");
+        }
+        approvalRecordMapper.delete(new LambdaQueryWrapper<ApprovalRecord>()
+                .eq(ApprovalRecord::getApplicationId, id));
+        operationLogService.record(user.getUserId(), user.getUsername(),
+                OperationLogService.ACTION_DELETE_APPLICATION,
+                "删除本人申请单：专家「" + (app.getExpertName() == null ? "-" : app.getExpertName())
+                        + "」" + typeTextOf(app) + "（状态 " + statusText + "）",
+                "APPLICATION", id, null);
+        afterCommit("删除申请清理临时照片", () -> cleanTempPhotos(app));
+    }
+
+    /**
+     * 收集仍被「待审批 / 退回修改」申请单引用的临时照片文件名（TMP: 值），
+     * 供临时照片保留期清理任务保护在途单据（定时任务调用）。
+     */
+    public Set<String> referencedTempPhotos() {
+        Set<String> result = new java.util.LinkedHashSet<>();
+        List<Application> open = this.lambdaQuery()
+                .select(Application::getId, Application::getBizData)
+                .in(Application::getStatus, List.of(STATUS_PENDING, STATUS_RETURNED))
+                .list();
+        if (open == null) {
+            return result;
+        }
+        for (Application app : open) {
+            for (Object value : readChanges(app).values()) {
+                if (value instanceof String text && text.startsWith(TMP_PREFIX)) {
+                    result.add(text.substring(TMP_PREFIX.length()));
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -1019,9 +1243,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 审批联动：同步合同状态（审批通过 APPROVED / 驳回 REJECTED / 撤回 DRAFT），并写 operation_log 留痕。
+     * 审批联动：同步合同状态（在审 PENDING / 通过 APPROVED / 驳回 REJECTED / 撤回或退回 DRAFT），并写 operation_log 留痕。
      * 合同 status 是审批的业务结果，写入失败必须向上抛出以触发整体回滚；
      * 仅「无合同关联」等前置条件不满足时直接返回，项目专家快照降级为告警日志。
+     *
+     * <p>approval_ref 维护（2026-11-24，Q3/Q17）：进入在审时指向当前申请单；离开在审（驳回/撤回/退回）
+     * 时置空，避免合同行长期保留指向已终结单据的引用，后续若以该字段判定「是否在审」会误判。</p>
      */
     private void syncContractByApproval(Application app, String targetStatus, AuthUser user) {
         Map<String, Object> biz = readBiz(app);
@@ -1039,6 +1266,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             return;
         }
         contract.setStatus(targetStatus);
+        contract.setApprovalRef("PENDING".equals(targetStatus) ? app.getId() : null);
         projectContractMapper.updateById(contract);
         if (contract.getProjectId() != null && contract.getExpertId() != null) {
             syncProjectExpertSnapshot(contract.getProjectId(), contract.getExpertId(), targetStatus);
@@ -1048,6 +1276,29 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 OperationLogService.ACTION_UPDATE_CONTRACT,
                 "审批联动：专家「" + contract.getExpertName() + "」合同状态更新为 " + targetStatus,
                 "PROJECT", contract.getProjectId(), null);
+    }
+
+    /**
+     * 合同在审单唯一性校验（Q3）：同一合同不允许同时存在多张 status∈{0 待审批, 4 退回修改} 的申请单。
+     *
+     * @param contractId  合同 id
+     * @param excludeAppId 需要排除的申请单 id（重新提交时为当前单自身），无则传 null
+     */
+    private void ensureNoOtherOpenContractApplication(Long contractId, Long excludeAppId) {
+        if (contractId == null) {
+            return;
+        }
+        LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<Application>()
+                .eq(Application::getApplicationType, ApplicationType.CONTRACT.name())
+                .in(Application::getStatus, List.of(STATUS_PENDING, STATUS_RETURNED))
+                .apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.contractId')) = {0}", String.valueOf(contractId));
+        if (excludeAppId != null) {
+            wrapper.ne(Application::getId, excludeAppId);
+        }
+        Long open = this.count(wrapper);
+        if (open != null && open > 0) {
+            throw new BusinessException("该合同已存在待审批或退回修改的申请单，请先在「我的申请」处理，避免重复在审");
+        }
     }
 
     // ==================== 转办 / 加签（B2） ====================
@@ -1083,7 +1334,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         addRecord(app.getId(), "审批转办", "TRANSFER", user.getUsername(),
                 "转给【" + target.getUsername() + "】");
         notifyTransferred(app, target.getUsername(), user);
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     /**
@@ -1118,7 +1369,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         addRecord(app.getId(), "审批加签", "ADD_APPROVER", user.getUsername(),
                 StringUtils.hasText(comment) ? comment.trim() : "加签【" + target.getUsername() + "】共同审批");
         notifyAssigned(app, target.getUsername());
-        return fillView(app, isFullSensitive(user));
+        return fillView(app);
     }
 
     /**
@@ -1387,7 +1638,10 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 }
             }
         } catch (Exception e) {
-            // 快照生成失败不影响提交主流程（返回空数组=任意审批人可审）
+            // 快照生成失败不影响提交主流程（返回空数组=任意审批人可审），但语义被放宽必须留痕（Q11）。
+            log.warn("[审批流] 审批人快照生成失败，本次申请按「任意有审批权限的用户可审」处理：flowKey={}",
+                    config == null ? null : config.getFlowKey(), e);
+            items.clear();
         }
         try {
             return objectMapper.writeValueAsString(items);
@@ -1503,28 +1757,126 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 填充展示字段：biz_data 解析（expertId/expertName/reason/changes/oldData/photoChanges）、
-     * requestType/requestTypeText、statusText、records。
-     * fullSensitive=false 时 oldData 的身份证号/银行卡号按前3后4脱敏（与 /api/experts/{id} 非管理员视图一致，不扩大可见范围）。
+     * 单条填充展示字段（详情/审批响应使用）：biz_data 解析（expertId/expertName/reason/changes/oldData/photoChanges）、
+     * requestType/requestTypeText、statusText、records、当前处理人与停留时长（R2）。
+     *
+     * <p>脱敏口径（2026-11-24，Q5）：oldData 与 changes 一律返回明文。此前仅 oldData 对非管理员
+     * 前3后4、changes 明文，同一弹窗出现「变更前打码 / 变更后明文」的错位展示，而 ExpertService.toView
+     * 早已改为全员明文，脱敏事实失效却误导维护者。申请单可见范围仅「本人 + 审批人」，审批又必须核对原文。</p>
      */
-    private Application fillView(Application app, boolean fullSensitive) {
+    private Application fillView(Application app) {
+        return fillView(app, recordsOf(app.getId()));
+    }
+
+    /**
+     * 填充展示字段（进度记录已由调用方批量加载，避免逐行查询造成 N+1）。
+     */
+    private Application fillView(Application app, List<ApprovalRecord> records) {
         fillBiz(app);
         Map<String, Object> biz = readBiz(app);
         Map<String, Object> rawChanges = asStringKeyMap(biz.get("changes"));
         app.setChanges(friendlyChanges(rawChanges));
         app.setPhotoChanges(photoChanges(rawChanges));
-        app.setOldData(maskedOldData(asStringKeyMap(biz.get("oldData")), fullSensitive));
+        app.setOldData(asStringKeyMap(biz.get("oldData")));
         ApplicationType type = ApplicationType.parse(app.getApplicationType());
         app.setRequestType(type.requestType());
         app.setRequestTypeText(type.text());
         app.setStatusText(statusText(app.getStatus()));
-        app.setRecords(recordsOf(app.getId()));
+        app.setRecords(records);
+        fillTimeliness(app, records);
         return app;
     }
 
-    /** 查看者是否可见敏感原文（管理员全量，其余脱敏；与 /api/experts/{id}?sensitive=1 规则一致）。 */
-    private boolean isFullSensitive(AuthUser user) {
-        return user != null && user.isAdmin();
+    /**
+     * 批量填充展示字段（列表使用）：按页内 id 集合一次 IN 查询进度记录后分组回填，
+     * 把「每行一次 recordsOf」的 N+1 收敛为固定 1 次查询（Q2）。
+     */
+    private void fillViews(List<Application> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        List<Long> ids = rows.stream().map(Application::getId).filter(java.util.Objects::nonNull).toList();
+        Map<Long, List<ApprovalRecord>> byApplication = new LinkedHashMap<>();
+        if (!ids.isEmpty()) {
+            List<ApprovalRecord> records = approvalRecordMapper.selectList(
+                    new LambdaQueryWrapper<ApprovalRecord>()
+                            .in(ApprovalRecord::getApplicationId, ids)
+                            .orderByAsc(ApprovalRecord::getCreateTime));
+            for (ApprovalRecord record : records) {
+                byApplication.computeIfAbsent(record.getApplicationId(), k -> new ArrayList<>()).add(record);
+            }
+        }
+        for (Application row : rows) {
+            fillView(row, byApplication.getOrDefault(row.getId(), List.of()));
+        }
+    }
+
+    /**
+     * 派生「当前处理人 + 待审批停留时长」（R2，只读，不改状态机）。
+     *
+     * <p>处理人优先级：转办人 current_assignee → 加签人 extra_approver → 审批人快照
+     * （单人直接显示，多人显示「首位 等 N 人」，空快照为「任意审批人」）；退回修改单固定「待申请人修改」。
+     * 停留时长取最近一条 SUBMIT/RESUBMIT 记录时间（重提不更新 create_time，用创建时间会高估），
+     * 均无记录时回退 create_time，仅 status=0 计算。</p>
+     */
+    private void fillTimeliness(Application app, List<ApprovalRecord> records) {
+        Integer status = app.getStatus();
+        if (status == null) {
+            return;
+        }
+        if (status == STATUS_RETURNED) {
+            app.setCurrentAssigneeName("待申请人修改");
+            return;
+        }
+        if (status != STATUS_PENDING) {
+            return;
+        }
+        app.setCurrentAssigneeName(resolveAssigneeName(app));
+        LocalDateTime since = app.getCreateTime();
+        if (records != null) {
+            for (ApprovalRecord record : records) {
+                boolean submitted = "SUBMIT".equals(record.getAction()) || "RESUBMIT".equals(record.getAction());
+                if (submitted && record.getCreateTime() != null) {
+                    since = record.getCreateTime();
+                }
+            }
+        }
+        if (since != null) {
+            long hours = java.time.temporal.ChronoUnit.HOURS.between(since, LocalDateTime.now());
+            app.setPendingHours(Math.max(0, hours));
+        }
+    }
+
+    /** 当前处理人文案：转办人 → 加签人 → 审批人快照（单人/多人/空快照）。 */
+    private String resolveAssigneeName(Application app) {
+        if (StringUtils.hasText(app.getCurrentAssignee())) {
+            return app.getCurrentAssignee();
+        }
+        if (StringUtils.hasText(app.getExtraApprover())) {
+            return app.getExtraApprover();
+        }
+        if (!StringUtils.hasText(app.getApproverSnapshot())) {
+            return "任意审批人";
+        }
+        try {
+            List<Map<String, Object>> members = objectMapper.readValue(app.getApproverSnapshot(),
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            List<String> names = new ArrayList<>();
+            for (Map<String, Object> member : members) {
+                Object username = member.get("username");
+                if (username != null && StringUtils.hasText(String.valueOf(username))) {
+                    names.add(String.valueOf(username));
+                }
+            }
+            if (names.isEmpty()) {
+                return "任意审批人";
+            }
+            return names.size() == 1 ? names.get(0) : names.get(0) + " 等 " + names.size() + " 人";
+        } catch (Exception e) {
+            log.warn("[审批流] 审批人快照解析失败（当前处理人降级为任意审批人）：申请单={}", app.getId(), e);
+            return "任意审批人";
+        }
     }
 
     /**
@@ -1609,21 +1961,32 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 旧值快照脱敏视图：非管理员查看时身份证号/银行卡号/联系方式前3后4（复用 ExpertService.maskSensitive），
-     * 其余字段与照片文件名不脱敏。
+     * 「我的申请」提交日期区间条件（R1）：startDate/endDate 为 yyyy-MM-dd，均含当日；
+     * 格式非法时按 400 拒绝（避免静默忽略筛选条件导致用户误判数据）。空值不参与过滤。
      */
-    private Map<String, Object> maskedOldData(Map<String, Object> oldData, boolean fullSensitive) {
-        if (oldData.isEmpty() || fullSensitive) {
-            return oldData;
+    private void applyDateRange(LambdaQueryWrapper<Application> wrapper, String startDate, String endDate) {
+        java.time.LocalDate start = parseDate(startDate, "开始日期");
+        java.time.LocalDate end = parseDate(endDate, "结束日期");
+        if (start != null && end != null && start.isAfter(end)) {
+            throw new BusinessException(400, "开始日期不能晚于结束日期");
         }
-        Map<String, Object> result = new LinkedHashMap<>(oldData);
-        for (String key : List.of("身份证号", "银行卡号", "联系方式")) {
-            Object value = result.get(key);
-            if (value != null && StringUtils.hasText(String.valueOf(value))) {
-                result.put(key, ExpertService.maskSensitive(String.valueOf(value)));
-            }
+        if (start != null) {
+            wrapper.ge(Application::getCreateTime, start.atStartOfDay());
         }
-        return result;
+        if (end != null) {
+            wrapper.lt(Application::getCreateTime, end.plusDays(1).atStartOfDay());
+        }
+    }
+
+    private java.time.LocalDate parseDate(String value, String label) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return java.time.LocalDate.parse(value.trim());
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new BusinessException(400, label + "格式不正确（应为 yyyy-MM-dd）");
+        }
     }
 
     private String statusText(Integer status) {
@@ -1641,11 +2004,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
     /**
      * 把白名单字段的中文键 -> 新值映射写入 Expert 实体（仅设置存在的键）。
+     * 键集合与 {@link #WHITELIST_FIELDS} 一一对应，白名单内不存在"接受但不落库"的字段
+     * （2026-11-24 补「身份证有效期」映射：此前白名单放行但 applyChanges 无对应分支，值被静默丢弃）。
      */
     private void applyChanges(Expert patch, Map<String, Object> changes) {
         for (Map.Entry<String, Object> entry : changes.entrySet()) {
             String key = entry.getKey();
-            if (!WHITELIST_FIELDS.contains(key) || PHOTO_FIELDS.contains(key)) {
+            if (!WHITELIST_FIELDS.contains(key)) {
                 continue;
             }
             String value = entry.getValue() == null ? null : String.valueOf(entry.getValue()).trim();
@@ -1661,6 +2026,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 case "身份证号" -> patch.setIdCard(value);
                 case "银行卡号" -> patch.setBankCard(value);
                 case "银行卡开户行" -> patch.setBankBranch(value);
+                case "身份证有效期" -> patch.setIdCardExpiry(value);
                 default -> {
                     // 白名单外的键已在提交时拦截，此处兜底忽略
                 }
@@ -1746,6 +2112,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
     }
 
+    /**
+     * 解析 biz_data（失败返回空 Map，由调用方决定是否阻断）。
+     *
+     * <p>2026-11-24（Q1）：解析失败必须留痕。此前空 catch 静默返回空 Map，被审批链路当成
+     * 「无变更」继续执行，形成「审批通过但字段未更新」的不可见故障。</p>
+     */
     private Map<String, Object> readBiz(Application app) {
         if (!StringUtils.hasText(app.getBizData())) {
             return new HashMap<>();
@@ -1754,6 +2126,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             return objectMapper.readValue(app.getBizData(), new TypeReference<Map<String, Object>>() {
             });
         } catch (Exception e) {
+            log.error("[审批流] biz_data 解析失败（申请单 {}）：{}，请核查该行 JSON 是否损坏",
+                    app.getId(), e.getMessage());
             return new HashMap<>();
         }
     }

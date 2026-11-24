@@ -2,6 +2,8 @@ package com.jshz.expert.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jshz.expert.common.ApiResponse;
+import com.jshz.expert.common.ApplicationType;
+import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.PageResult;
 import com.jshz.expert.entity.ApprovalConfig;
 import com.jshz.expert.entity.Application;
@@ -11,6 +13,7 @@ import com.jshz.expert.common.ParamUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,10 +35,11 @@ import java.util.Map;
  * - GET/PUT /api/approval/config：审批流配置（PUT 仅 ADMIN）；
  * - POST /api/approval/requests：员工提交专家修改申请（EXPERT_MODIFY）；
  * - POST /api/approval/create-request：员工提交新增专家申请（EXPERT_CREATE）；
- * - GET /api/approval/my-applications：我的申请（登录即可，仅本人数据）；
+ * - GET /api/approval/my-applications：我的申请（登录即可，仅本人数据；支持状态/类型/关键词/日期筛选）；
  *   （旧兼容路径 /my-requests 已于 2026-11-24 下线：前端零调用，仅 my-applications 一个入口）
  * - GET /api/approval/requests：审批管理全部申请（权限码 approval:audit）；
- * - POST /api/approval/requests/{id}/approve|reject|withdraw|transfer|add-approver；
+ * - POST /api/approval/requests/{id}/approve|reject|withdraw|transfer|add-approver|return|resubmit；
+ * - DELETE /api/approval/requests/{id}：申请人删除本人已驳回/已撤回的申请单（2026-11-24 新增）；
  * - GET /api/approval/assignable-users：可转办/加签用户列表。
  */
 @RestController
@@ -152,17 +156,48 @@ public class ApplicationController {
     }
 
     /**
-     * 我的申请（新接口）：GET /api/approval/my-applications?page=&size=&status=（登录即可）。
-     * 仅返回本人申请（applicant_id/applicant 双条件过滤），含审批人/审批时间/审批意见/进度记录。
+     * 我的申请（新接口）：GET /api/approval/my-applications?page=&size=&status=&type=&keyword=&startDate=&endDate=
+     * （登录即可）。
+     * 仅返回本人申请（applicant_id/applicant 双条件过滤），含审批人/审批时间/审批意见/进度记录/
+     * 当前处理人与待审批停留时长（R2）。
+     *
+     * <p>2026-11-24（Q2）：page/size 在此钳制为 page≥1、1≤size≤100。MyBatis-Plus 分页插件在
+     * {@code size<0} 且未设 maxLimit 时不构造分页 SQL（等于返回全表），必须由入口收敛。
+     * status 只接受 0–4，type 只接受 ApplicationType 枚举名，日期为 yyyy-MM-dd（R1）。</p>
      */
     @GetMapping("/my-applications")
     public ApiResponse<PageResult<Application>> myApplications(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
             @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             @AuthenticationPrincipal AuthUser authUser) {
-        Page<Application> p = applicationService.myApplications(page, size, status, authUser);
+        if (status != null && (status < 0 || status > 4)) {
+            throw new BusinessException(400, "状态筛选值不合法（应为 0-4）");
+        }
+        ApplicationService.MyApplicationFilter filter = new ApplicationService.MyApplicationFilter(
+                status, normalizeType(type), keyword, startDate, endDate);
+        Page<Application> p = applicationService.myApplications(
+                ParamUtils.clamp(page, 1, Long.MAX_VALUE), ParamUtils.clamp(size, 1, ApplicationService.MAX_PAGE_SIZE),
+                filter, authUser);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
+    }
+
+    /** 申请类型参数归一化：只接受枚举名（大小写不敏感），非法值按 400 拒绝而不是静默忽略。 */
+    private String normalizeType(String type) {
+        if (!StringUtils.hasText(type)) {
+            return null;
+        }
+        String value = type.trim().toUpperCase(java.util.Locale.ROOT);
+        for (ApplicationType candidate : ApplicationType.values()) {
+            if (candidate.name().equals(value)) {
+                return candidate.name();
+            }
+        }
+        throw new BusinessException(400, "申请类型筛选值不合法");
     }
 
     /**
@@ -190,7 +225,9 @@ public class ApplicationController {
         } else if (status != null) {
             statusList = List.of(status);
         }
-        Page<Application> p = applicationService.listRequests(statusList, keyword, page, size, authUser);
+        Page<Application> p = applicationService.listRequests(statusList, keyword,
+                ParamUtils.clamp(page, 1, Long.MAX_VALUE), ParamUtils.clamp(size, 1, ApplicationService.MAX_PAGE_SIZE),
+                authUser);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
     }
 
@@ -223,6 +260,18 @@ public class ApplicationController {
     public ApiResponse<Application> withdraw(@PathVariable Long id,
                                              @AuthenticationPrincipal AuthUser authUser) {
         return ApiResponse.ok(applicationService.withdraw(id, authUser));
+    }
+
+    /**
+     * 删除申请单：DELETE /api/approval/requests/{id}（仅申请人本人，status∈{2 已驳回, 3 已撤回}）。
+     * 同事务删除进度记录并写 operation_log（DELETE_APPLICATION）留痕；权限沿用「登录即可 + Service 本人校验」，
+     * 与 withdraw / resubmit 一致，不新增权限码。
+     */
+    @DeleteMapping("/requests/{id}")
+    public ApiResponse<Void> deleteRequest(@PathVariable Long id,
+                                           @AuthenticationPrincipal AuthUser authUser) {
+        applicationService.deleteApplication(id, authUser);
+        return ApiResponse.ok(null);
     }
 
     /**
@@ -265,7 +314,8 @@ public class ApplicationController {
     /**
      * 重新提交：POST /api/approval/requests/{id}/resubmit（仅申请人本人，status=4 可重提）。
      * body {changes: {中文键: 新值}, reason?}；changes 可含照片字段（TMP: 临时文件名，退回修改后可重传，2026-11-24 放开）。
-     * status 4→0，写 RESUBMIT 记录，重置转办/加签并刷新审批人快照。
+     * 值必须为字符串或 null（2026-11-24，Q10：此前任意 JSON 类型都会被 String.valueOf 写进专家字段）。
+     * status 4→0，写 RESUBMIT 记录，重置转办/加签并刷新审批人快照；CONTRACT 单据同时把合同置回在审。
      */
     @PostMapping("/requests/{id}/resubmit")
     public ApiResponse<Application> resubmit(@PathVariable Long id,
@@ -275,14 +325,16 @@ public class ApplicationController {
         String reason = null;
         if(body != null) {
             Object changes = body.get("changes");
-            if(!(changes instanceof Map<?,?> raw)) throw new com.jshz.expert.common.BusinessException(400,"changes须为字段对象（文本为字符串，照片为 TMP: 临时文件名）");
+            if(!(changes instanceof Map<?,?> raw)) throw new BusinessException(400,"changes须为字段对象（文本为字符串，照片为 TMP: 临时文件名）");
             patch = new LinkedHashMap<>();
             for(var entry:raw.entrySet()) {
-                if(!(entry.getKey() instanceof String key)) throw new com.jshz.expert.common.BusinessException(400,"字段名称无效");
-                patch.put(key,entry.getValue());
+                if(!(entry.getKey() instanceof String key)) throw new BusinessException(400,"字段名称无效");
+                Object value = entry.getValue();
+                if (value != null && !(value instanceof String)) throw new BusinessException(400,"字段「" + key + "」的值必须为文本");
+                patch.put(key,value);
             }
             Object value=body.get("reason");
-            if(value!=null && !(value instanceof String)) throw new com.jshz.expert.common.BusinessException(400,"申请原因格式无效");
+            if(value!=null && !(value instanceof String)) throw new BusinessException(400,"申请原因格式无效");
             reason=(String)value;
         }
         return ApiResponse.ok(applicationService.resubmit(id,patch,reason,authUser));

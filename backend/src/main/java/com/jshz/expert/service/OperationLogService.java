@@ -106,6 +106,8 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_REGISTER_BUDGET = "REGISTER_BUDGET";
     /** 合同发起审批（复用 approval 通道） */
     public static final String ACTION_SUBMIT_CONTRACT_APPROVAL = "SUBMIT_CONTRACT_APPROVAL";
+    /** 申请单删除（申请人删除本人已驳回/已撤回的申请，2026-11-24） */
+    public static final String ACTION_DELETE_APPLICATION = "DELETE_APPLICATION";
     /** 系统公告：增删改/上下架/置顶 */
     public static final String ACTION_CREATE_ANNOUNCEMENT = "CREATE_ANNOUNCEMENT";
     public static final String ACTION_UPDATE_ANNOUNCEMENT = "UPDATE_ANNOUNCEMENT";

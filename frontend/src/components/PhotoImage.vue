@@ -82,7 +82,8 @@ watch(() => props.doc, load)
   display: block;
 }
 .photo-empty {
-  color: #a8abb2;
+  /* 2026-11-24：由裸色值 #a8abb2 改为设计令牌（原值与 --ui-text-muted 同族，避免换肤时逐处改） */
+  color: var(--ui-text-muted);
   font-size: 12px;
 }
 </style>

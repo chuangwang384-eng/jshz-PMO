@@ -116,6 +116,7 @@ const actionTypeMap = {
   CREATE_TEMPLATE: '创建模板',
   REGISTER_BUDGET: '登记预算',
   SUBMIT_CONTRACT_APPROVAL: '提交合同审批',
+  DELETE_APPLICATION: '删除申请单',
   // 公告
   CREATE_ANNOUNCEMENT: '发布公告',
   UPDATE_ANNOUNCEMENT: '修改公告',
@@ -143,7 +144,7 @@ function actionTagType(actionType) {
   if (actionType === 'DELETE_USER' || actionType === 'DELETE_EXPERT' || actionType === 'DELETE_DOC'
     || actionType === 'ROLE_PERMISSION' || actionType === 'DELETE_PROJECT' || actionType === 'CANCEL_PROJECT'
     || actionType === 'REMOVE_EXPERT' || actionType === 'REMOVE_SUPPLIER' || actionType === 'DELETE_ANNOUNCEMENT'
-    || actionType === 'SUPPLIER_DELETE' || actionType === 'UNBIND_SUPPLIER') {
+    || actionType === 'SUPPLIER_DELETE' || actionType === 'UNBIND_SUPPLIER' || actionType === 'DELETE_APPLICATION') {
     return 'danger'
   }
   if (actionType === 'DOWNLOAD' || actionType === 'LOGOUT' || actionType === 'WECOM_SYNC' || actionType === 'WECOM_BIND'

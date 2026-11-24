@@ -57,6 +57,17 @@ public final class ParamUtils {
         return s.isEmpty() ? null : s;
     }
 
+    /**
+     * 分页参数钳制（2026-11-24）：把外部传入的 page/size 收敛到 [min, max]。
+     *
+     * <p>背景：MyBatis-Plus {@code PaginationInnerInterceptor} 在 {@code size < 0} 且未配置
+     * {@code maxLimit} 时不会构造分页 SQL，等于"返回全表"；{@code page < 1} 也会被强制为 1。
+     * 这是框架语义而非业务语义，调用方必须先钳制再传给 {@code new Page<>(page, size)}。</p>
+     */
+    public static long clamp(long value, long min, long max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     public static Long userIdOf(AuthUser authUser) {
         return authUser == null ? null : authUser.getUserId();
     }

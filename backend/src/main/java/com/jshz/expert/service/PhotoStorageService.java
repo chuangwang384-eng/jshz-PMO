@@ -3,6 +3,7 @@ package com.jshz.expert.service;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.FileNames;
 import com.jshz.expert.common.UploadGuard;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -21,6 +22,7 @@ import java.util.Set;
  * 存储目录：{STORAGE_ROOT}\照片库（application.yml expert.photo.storage-dir）。
  * 通用逻辑（清洗/校验/目录归一化）统一复用 common.FileNames / common.UploadGuard（2026-11-13）。
  */
+@Slf4j
 @Service
 public class PhotoStorageService {
 
@@ -159,6 +161,49 @@ public class PhotoStorageService {
         } catch (IOException e) {
             // 删除失败不阻断主流程
         }
+    }
+
+    /**
+     * 临时照片保留期清理（2026-11-24）：删除临时目录中「未被任何在途申请单引用」且
+     * 最后修改时间早于 retentionDays 的文件，返回实际删除数量。
+     *
+     * <p>背景：临时目录此前只增不减（驳回/撤回/重提仅清理本单照片键），人工清理或目录迁移
+     * 会造成 status=4 单据的照片键指向已不存在的文件而无法重提。由定时任务按保留期兜底，
+     * 同时用 keep 集合保护仍处于待审批/退回修改状态的单据（其临时照片在审批通过时需要归档）。</p>
+     *
+     * @param keep          需保留的临时文件名集合（在途申请单 biz_data.changes 中的 TMP: 值）
+     * @param retentionDays 保留天数（&lt;1 时按 1 处理，避免误删当天上传的文件）
+     */
+    public int cleanTempPhotos(Set<String> keep, int retentionDays) {
+        int days = Math.max(1, retentionDays);
+        if (!Files.isDirectory(this.tempDir)) {
+            return 0;
+        }
+        Set<String> protectedNames = keep == null ? Set.of() : keep;
+        java.time.Instant threshold = java.time.Instant.now().minus(days, java.time.temporal.ChronoUnit.DAYS);
+        int removed = 0;
+        try (java.util.stream.Stream<Path> files = Files.list(this.tempDir)) {
+            for (Path file : files.toList()) {
+                if (!Files.isRegularFile(file) || !file.normalize().startsWith(this.tempDir)) {
+                    continue;
+                }
+                String name = file.getFileName().toString();
+                if (protectedNames.contains(name)) {
+                    continue;
+                }
+                try {
+                    if (Files.getLastModifiedTime(file).toInstant().isBefore(threshold)) {
+                        Files.deleteIfExists(file);
+                        removed++;
+                    }
+                } catch (IOException e) {
+                    log.warn("[照片存储] 临时照片清理失败：{}", name, e);
+                }
+            }
+        } catch (IOException e) {
+            log.warn("[照片存储] 临时照片目录扫描失败：{}", this.tempDir, e);
+        }
+        return removed;
     }
 
     /**

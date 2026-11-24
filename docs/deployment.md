@@ -320,6 +320,8 @@ Publish 流程：版本文件同步（先备份到 `logs/version-backup-*`）→
 - `DASHBOARD_QUERY_TIMEOUT_SECONDS`：工作台只读查询超时（2026-11-23 由代码写死 1 秒改为可配），配置项 `expert.dashboard.query-timeout-seconds`，默认 3 秒；消费点 `DashboardReadService`。
 - `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `E:/AI助手开发/pp-ocrv5`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
 - `SR_UPSCALE_PYTHON`：低像素照片超分解释器（默认探测 `<LOCAL_PATH> Files/JSHZ/sr-upscale/venv/Scripts/python.exe`，不存在即整体跳过超分，2026-11-18）；worker 侧另有 `SR_UPSCALE_SCRIPT` / `SR_UPSCALE_MODELS` 覆盖口，缺省同根目录。
+- `APPROVAL_TEMP_PHOTO_RETENTION_DAYS`：审批临时照片保留天数（2026-11-24 新增），配置项 `expert.photo.temp-retention-days`，默认 7；消费点 `ApprovalTempPhotoCleanTask`（每日 03:10，只清理未被待审批/退回修改申请单引用的文件）。
+- `APPROVAL_TEMP_PHOTO_CLEAN_CRON`：上述清理任务的 cron，配置项 `expert.photo.temp-clean-cron`，默认 `0 10 3 * * ?`。
 - 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
 - **上传限额单一真源**（方案 D）：后端从 `application.yml expert.upload` 读取 photo/resume/doc-max-bytes，前端登录后经 `GET /api/meta/limits` 同步。调整时同步 `frontend/src/utils/limits.js` 中的离线兜底值。2026-11-20 photo-max-bytes 5MB→10MB（证件照/身份证/头像，Owner 要求），Nginx 60m 与 multipart 50MB 上限不变。
 - **专家简历限额**：`expert.upload.resume-max-bytes` 为 31457280 字节。2026-11-18 核对 `application.yml` 的 multipart 文件与请求上限分别为 50 MB 和 60 MB，运行中 Nginx 的 API 请求上限为 60m。发布先切后端限额，再切前端，无需调整代理或 multipart 配置。
@@ -693,6 +695,8 @@ expert:
 | 2026-11-24 09:39:19 | 1.0.135 | 成功 | expert-system.jar |
 | 2026-11-24 10:26:21 | 1.0.136 | 成功 | expert-system.jar |
 | 2026-11-24 15:07:06 | 1.0.137 | 成功 | expert-system.jar |
+| 2026-11-24 15:31:30 | 1.0.137.2 | 成功 | expert-system.jar |
+| 2026-11-24 16:29:44 | 1.0.138 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 

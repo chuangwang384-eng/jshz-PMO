@@ -143,4 +143,20 @@ public class Application {
     @TableField(exist = false)
     @JsonProperty("records")
     private List<ApprovalRecord> records;
+
+    /**
+     * 当前处理人展示文案（R2，非数据库列）：待审批单取 current_assignee → extra_approver → 审批人快照；
+     * 退回修改单固定为「待申请人修改」；其余状态为空。由 ApplicationService.fillView 派生。
+     */
+    @TableField(exist = false)
+    @JsonProperty("currentAssigneeName")
+    private String currentAssigneeName;
+
+    /**
+     * 待审批停留时长（R2，非数据库列，单位小时，向下取整）：自最近一次提交/重新提交记录起算，
+     * 仅 status=0 有值，其余为 null。前端按「已等待 N 小时」展示。
+     */
+    @TableField(exist = false)
+    @JsonProperty("pendingHours")
+    private Long pendingHours;
 }

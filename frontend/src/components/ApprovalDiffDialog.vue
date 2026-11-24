@@ -144,6 +144,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { approveRequest, rejectRequest, returnRequest } from '../api/approval'
 import { approvalStatusTagType } from '../utils/format'
+import { PHOTO_FIELDS, FIELD_ORDER } from '../utils/approvalFields'
 import PhotoImage from './PhotoImage.vue'
 
 // 审批变更前后对比弹窗（审批管理 + 我的申请共用）：
@@ -159,13 +160,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'success', 'navigate'])
 
-const PHOTO_KEYS = ['照片', '身份证正面', '身份证反面']
-// 字段展示顺序与后端白名单一致（白名单外键兜底排在末尾）
-const FIELD_ORDER = [
-  '姓名', '单位', '科室', '职称', '研究方向', '擅长领域',
-  '联系方式', '简介', '身份证号', '银行卡号', '银行卡开户行',
-  '照片', '身份证正面', '身份证反面'
-]
+// 字段键集合与展示顺序取自 utils/approvalFields.js（与后端白名单单一来源，2026-11-24 收口）
+const PHOTO_KEYS = PHOTO_FIELDS
 
 const comment = ref('')
 const submitting = ref(false)
@@ -278,7 +274,7 @@ async function confirm(action = props.mode) {
 .reason-box {
   font-size: 13px;
   color: var(--ui-text-sub);
-  background: #f5f7fa;
+  background: var(--ui-fill);
   border-radius: 4px;
   padding: 8px 12px;
   margin-bottom: 12px;
@@ -289,20 +285,20 @@ async function confirm(action = props.mode) {
   color: var(--ui-text-main);
 }
 .diff-table {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--ui-border-weak);
   border-radius: 4px;
   overflow: hidden;
 }
 .diff-tr {
   display: grid;
   grid-template-columns: 130px 1fr 28px 1fr;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--ui-border-weak);
 }
 .diff-tr:last-child {
   border-bottom: none;
 }
 .diff-th {
-  background: #f5f7fa;
+  background: var(--ui-fill);
   font-weight: 600;
   color: var(--ui-text-sub);
   font-size: 13px;

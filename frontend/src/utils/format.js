@@ -1,7 +1,10 @@
 // 审批/申请通用展示纯函数（MyApproval 与 ApprovalManage 共用，防两处漂移）
 
+import { PHOTO_FIELDS } from './approvalFields'
+
 // 照片字段：后端 changes 中已统一为「已更换新照片」文案，旧值为文件名不参与摘要对比
-const PHOTO_KEYS = ['照片', '身份证正面', '身份证反面']
+// （键集合统一取自 utils/approvalFields.js，2026-11-24 收口：此前 3 个文件各写一份）
+const PHOTO_KEYS = PHOTO_FIELDS
 
 // 变更摘要：字段: 新值 分号连接；传入 oldData（旧值快照）且有旧值时升级为「字段: 旧值 -> 新值」
 export function changeSummary(changes, oldData) {
