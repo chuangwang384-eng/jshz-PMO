@@ -106,7 +106,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMembers, getOrganization, saveDepartment, saveMembership } from '../../api/profileOverview'
+import { getDepartments, getMembers, getOrganization, saveDepartment, saveMembership } from '../../api/profileOverview'
 import { listUsers } from '../../api/user'
 
 // leaderMode：部门负责人只读视图，仅能看到本人负责部门及其下级的成员。
