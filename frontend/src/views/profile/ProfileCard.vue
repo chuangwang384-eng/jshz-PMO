@@ -23,12 +23,17 @@
       <el-descriptions-item label="注册时间">
         {{ formatTime(auth.createTime) }}
       </el-descriptions-item>
-      <el-descriptions-item label="所属部门">{{ organization.departmentPath || organizationStatus }}</el-descriptions-item>
-      <el-descriptions-item label="岗位">{{ organization.position || organizationStatus }}</el-descriptions-item>
+      <el-descriptions-item label="所属部门">
+        <el-tag v-if="organization.generalManager" size="small" type="danger" effect="light" class="role-tag">总经理</el-tag>
+        {{ organization.departmentPath || organizationStatus }}
+      </el-descriptions-item>
+      <el-descriptions-item label="部门负责人">{{ departmentLeader }}</el-descriptions-item>
+      <el-descriptions-item label="岗位">{{ organization.generalManager ? '-' : organization.position || organizationStatus }}</el-descriptions-item>
     </el-descriptions>
 
     <div class="profile-actions">
-      <el-button v-if="auth.hasRole('SUPER_ADMIN')" @click="showOrganization = true">组织架构管理</el-button>
+      <el-button v-if="canManageOrganization" @click="openOrganization(false)">组织架构管理</el-button>
+      <el-button v-else-if="organization.ledDepartments?.length" @click="openOrganization(true)">部门成员</el-button>
       <el-button v-if="!auth.mustChangePassword" type="primary" @click="showChangePwd = true">修改密码</el-button>
     </div>
 
@@ -47,7 +52,7 @@
         :total="activity.total" layout="prev, pager, next" @current-change="loadActivity" />
     </section>
 
-    <ProfileOrganizationManager v-if="showOrganization && auth.hasRole('SUPER_ADMIN')"
+    <ProfileOrganizationManager v-if="showOrganization" :leader-mode="organizationLeaderMode"
       @close="showOrganization = false" @changed="loadOrganization" />
 
     <!-- 修改密码弹窗（复用 ChangePasswordDialog；普通模式：可关闭、无强制改密警示） -->
@@ -71,6 +76,19 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const showOrganization = ref(false)
+const organizationLeaderMode = ref(false)
+// 组织树由超级管理员和总经理维护；部门负责人只能查看本人负责部门及其下级的成员。
+const canManageOrganization = computed(() => auth.hasRole('SUPER_ADMIN') || auth.hasRole('GENERAL_MANAGER'))
+const departmentLeader = computed(() => {
+  if (organizationStatus.value !== '未分配') return organizationStatus.value
+  if (organization.value.generalManager) return '本人'
+  return organization.value.leaderName || (organization.value.ledDepartments?.length ? '本人（或上级未设置）' : '未设置')
+})
+
+function openOrganization(leaderMode) {
+  organizationLeaderMode.value = leaderMode
+  showOrganization.value = true
+}
 const organization = ref({})
 const organizationStatus = ref('加载中…')
 const activity = ref({ items: [], total: 0 })

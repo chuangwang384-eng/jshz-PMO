@@ -37,6 +37,17 @@ public class PermissionService {
     /** 超级管理员角色编码：代码内强制全权 */
     public static final String SUPER_ADMIN_CODE = "SUPER_ADMIN";
 
+    /** 总经理角色编码：由组织树根节点负责人任命产生，全系统唯一 */
+    public static final String GENERAL_MANAGER_CODE = "GENERAL_MANAGER";
+
+    /**
+     * 总经理不拥有的权限码（仍仅超管可用）：角色与权限分配、用户操作日志、企微同步、存储运维。
+     * 其余权限码（含后续新增的）总经理自动拥有；新增仅限超管的权限码时必须同步登记到这里。
+     * 用户同时持有总经理角色时，权限一律以本集合为准，不再叠加其他角色的绑定。
+     */
+    public static final Set<String> GENERAL_MANAGER_EXCLUDED =
+            Set.of("role:manage", "audit:view", "wecom:sync", "storage:manage");
+
     /** 权限规则（method+path -> code），来自 permission 表 type=2 的接口行 */
     public record PermissionRule(String method, String path, String code) {
     }
@@ -157,6 +168,13 @@ public class PermissionService {
         if (roles.contains(SUPER_ADMIN_CODE)) {
             List<Permission> all = permissionMapper.selectList(null);
             return all.stream().map(Permission::getCode).collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+        // 总经理：全部权限码减去超管专属码，不依赖 role_permission 绑定
+        if (roles.contains(GENERAL_MANAGER_CODE)) {
+            List<Permission> all = permissionMapper.selectList(null);
+            return all.stream().map(Permission::getCode)
+                    .filter(code -> !GENERAL_MANAGER_EXCLUDED.contains(code))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         }
         List<UserRole> userRoles = userRoleMapper.selectList(
                 new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, userId));

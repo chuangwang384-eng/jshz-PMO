@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 
 /**
  * 角色管理接口（RBAC 阶段1）。
- * 内置角色（builtin=1）禁删、禁改 code；SUPER_ADMIN 权限锁定不可修改绑定。
+ * 内置角色（builtin=1）禁删、禁改 code；SUPER_ADMIN 与 GENERAL_MANAGER 权限由代码计算，锁定不可修改绑定。
  * 本接口自身权限由 role:manage 权限码在 permission 数据中配置（勿硬编码）。
  */
 @RestController
@@ -86,9 +86,8 @@ public class RoleController {
         if (builtin && StringUtils.hasText(request.getCode()) && !request.getCode().trim().equals(role.getCode())) {
             throw new BusinessException("内置角色禁止修改编码");
         }
-        if (role.getCode().equals(PermissionService.SUPER_ADMIN_CODE)
-                && request.getStatus() != null && request.getStatus() != 1) {
-            throw new BusinessException("SUPER_ADMIN 角色不可停用");
+        if (isLocked(role) && request.getStatus() != null && request.getStatus() != 1) {
+            throw new BusinessException(role.getCode() + " 角色不可停用");
         }
         if (StringUtils.hasText(request.getCode())) {
             role.setCode(request.getCode().trim());
@@ -139,8 +138,8 @@ public class RoleController {
         if (role == null) {
             throw new BusinessException("角色不存在");
         }
-        if (role.getCode().equals(PermissionService.SUPER_ADMIN_CODE)) {
-            throw new BusinessException("SUPER_ADMIN 权限锁定，不可修改绑定");
+        if (isLocked(role)) {
+            throw new BusinessException(role.getCode() + " 权限由代码计算，不可修改绑定");
         }
         Set<String> codes = request == null || request.getPermissionCodes() == null
                 ? new LinkedHashSet<>()
@@ -161,5 +160,11 @@ public class RoleController {
                 "调整角色「" + role.getName() + "」权限绑定 " + codes,
                 "ROLE", role.getCode(), httpRequest);
         return ApiResponse.ok(null);
+    }
+
+    /** 权限由代码计算、不可停用、不可改绑定的内置角色：超级管理员与总经理。 */
+    private static boolean isLocked(Role role) {
+        return PermissionService.SUPER_ADMIN_CODE.equals(role.getCode())
+                || PermissionService.GENERAL_MANAGER_CODE.equals(role.getCode());
     }
 }

@@ -71,7 +71,7 @@ AIGC:
 
 ### 我的主页：手动组织与本人账号活动
 
-手动组织采用 profile_department 部门树和 profile_membership 主部门及岗位，可由超级管理员在我的主页维护。普通用户只读本人组织信息。账号活动按稳定账号 ID 查询近 30 天成功登录、退出、改密和被重置事件。旧改密链接转到我的主页并打开改密入口。详见 [主页交接记录](handover/tasks/20261124_profile_overview.md)。
+手动组织采用 profile_department 部门树和 profile_membership 主部门及岗位，可由超级管理员在我的主页维护。2026-11-24 起组织树以「总经理」为唯一根节点（共 20 节点），每个节点可设一名负责人（profile_department.leader_user_id，可空缺，一人可负责多个部门）；根节点负责人即总经理，任命时绑定 GENERAL_MANAGER 角色并清除其部门归属，换人直接顶替。组织树由超级管理员与总经理维护；部门负责人可查看本部门及下级的成员。普通用户只读本人组织信息。详见 [组织负责人交接记录](handover/tasks/20261124_organization_leaders.md)。账号活动按稳定账号 ID 查询近 30 天成功登录、退出、改密和被重置事件。旧改密链接转到我的主页并打开改密入口。详见 [主页交接记录](handover/tasks/20261124_profile_overview.md)。
 
 ### 客户档案与关系
 
@@ -124,7 +124,7 @@ AIGC:
 
 项目详情双栏布局滚动时，右侧卡片组吸附在主内容滚动区顶部，紧贴顶栏下缘。单栏布局中卡片随页面正常滚动。
 
-> RBAC 说明：内置角色 4 个（SUPER_ADMIN 代码内全权锁定 / ADMIN 业务全权 / APPROVER 审批 / EMPLOYEE 无绑定）；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码），但文件流端点会按存储文件名反查文档并校验状态：文档不存在/已永久删除返回业务码 404，已下架且非 `knowledge:maintain` 返回业务码 403，避免下架后旧链接继续可下载（P1-5）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:maintain`（知识星球维护人/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:maintain`（已绑定 KNOWLEDGE_MAINTAINER），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
+> RBAC 说明：内置角色含 SUPER_ADMIN 代码内全权锁定、GENERAL_MANAGER 总经理（代码内计算：全部权限码减去 role:manage/audit:view/wecom:sync/storage:manage；只能经组织树根节点任命，角色管理页不可分配、不可改绑定、不可停用，新增仅限超管的权限码须登记到 PermissionService.GENERAL_MANAGER_EXCLUDED）、ADMIN 业务全权、APPROVER 审批、EMPLOYEE 无绑定等；permission.code 允许重复（一码多路径），UNIQUE(method,path) 约束接口唯一；鉴权链路为 JWT claims.roles + DbPermissionFilter 按 method+path 匹配权限码（命中校验、未命中放行）。知识星球上传/更新/版本/文件下载接口登录即可（不设权限码），但文件流端点会按存储文件名反查文档并校验状态：文档不存在/已永久删除返回业务码 404，已下架且非 `knowledge:maintain` 返回业务码 403，避免下架后旧链接继续可下载（P1-5）；列表 GET /api/knowledge/docs 登录即可且 category 可选（不传=全分类），并按权限过滤 status：具备 `knowledge:maintain`（知识星球维护人/超管）返回上架+下架，普通员工仅上架；下架接口 DELETE /api/knowledge/docs/{id} 与永久删除接口 DELETE /api/knowledge/docs/{id}/permanent 均需接口权限码 `knowledge:maintain`（已绑定 KNOWLEDGE_MAINTAINER），业务层 AuthUser.hasPermission 二次校验；永久删除同时删除主记录、全部版本历史与磁盘物理文件，不可恢复。
 
 > 知识文档异步解析（2026-11-06，P2-7）：上传/更新请求只流式落盘并写入 `parse_status=PENDING`，随后提交 `knowledgeParseExecutor` 异步任务；正文抽取（PDFBox/POI）与企业合规 Excel 草稿解析均在线程池内完成，状态/正文更新带 `id+version` 条件，旧任务不会覆盖新版本。解析失败只记录 `FAILED` 与原因，不回滚已上传文件；PDF/DOC/DOCX 抽取为空按失败处理（可能损坏、加密或为扫描件），其余不支持正文的格式标记成功但不参与正文检索；线程池拒绝时同步标记失败，上传本身仍成功。线程池参数见 `expert.knowledge.parse.*`，队列满时采用 AbortPolicy。历史数据 `parse_status=NULL`（接口原样返回，不做批量回填）。
 

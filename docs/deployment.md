@@ -35,6 +35,8 @@ AIGC:
 
 > 我的主页 1.0.136 既有库发布前需执行 [手动组织迁移](../database/migration/20261124_profile_manual_organization.sql)，回滚应用时保留组织数据。见 [任务交接](handover/tasks/20261124_profile_overview.md)。
 
+> 1.0.137 组织负责人：既有库发布前需执行 [组织负责人迁移](../database/migration/20261124_profile_organization_leaders.sql)（可重复执行，加列 leader_user_id、按公司简介补齐 20 节点、新增 GENERAL_MANAGER 角色）。无新增环境变量。**禁止对 backend/pom.xml 执行 mvn package：生产后端直接运行 backend/target/expert-system.jar**，测试包须在 temp 副本中构建。见 [任务交接](handover/tasks/20261124_organization_leaders.md)。
+
 > 客户任职履历发布前，既有库先按迁移流程执行 [20261124_customer_employment.sql](../database/migration/20261124_customer_employment.sql)。新库由 init.sql 建表。采用配套前后端版本。应用回滚时保留履历表及已录入数据。见 [客户信息验收与回滚](handover/tasks/20261124_customer_info_features.md)。
 
 > 本系统依赖公司内网部署，以下为部署步骤与约束说明。
@@ -687,6 +689,9 @@ expert:
 | 2026-11-23 12:02:03 | 1.0.130 | 成功 | expert-system.jar |
 | 2026-11-23 14:26:31 | 1.0.132 | 成功 | expert-system.jar |
 | 2026-11-23 15:33:41 | 1.0.133 | 成功 | expert-system.jar |
+| 2026-11-24 08:52:40 | 1.0.134 | 成功 | expert-system.jar |
+| 2026-11-24 09:39:19 | 1.0.135 | 成功 | expert-system.jar |
+| 2026-11-24 10:26:21 | 1.0.136 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 

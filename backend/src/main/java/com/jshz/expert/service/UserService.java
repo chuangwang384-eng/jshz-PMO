@@ -51,6 +51,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
     private final NotificationService notificationService;
     private final WecomUserDepartmentMapper wecomUserDepartmentMapper;
     private final WecomDepartmentMapper wecomDepartmentMapper;
+    private final ProfileOverviewService profileOverviewService;
 
     /**
      * 用户列表（不含密码）。
@@ -180,6 +181,10 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             user.setStatus(request.getStatus());
         }
         this.updateById(user);
+        // 账号停用即失去组织树中的负责人身份（含总经理），权限随登录态一并失效
+        if (Integer.valueOf(0).equals(user.getStatus())) {
+            profileOverviewService.revokeLeadership(id, "账号停用，自动撤销负责人身份");
+        }
         // P1-2：账号信息（含停用/启用/管理员标记/姓名）变更后使已签发 Token 立即失效
         userAuthStateService.bumpAndEvict(id);
         permissionService.clearCaches();
@@ -212,6 +217,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         if (getById(id) == null) {
             throw new BusinessException("用户不存在");
         }
+        profileOverviewService.revokeLeadership(id, "账号删除，自动撤销负责人身份");
         this.removeById(id);
         // P1-2：删除后清状态缓存；行不存在，后续请求按未登录处理
         userAuthStateService.evict(id);
@@ -237,8 +243,15 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
             if (hasDisabled) {
                 throw new BusinessException("不能分配已停用的角色");
             }
+            Long generalManagerRoleId = profileOverviewService.generalManagerRoleId();
+            if (generalManagerRoleId != null && distinct.contains(generalManagerRoleId)) {
+                throw new BusinessException("总经理角色仅可通过组织架构任命");
+            }
         }
-        userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, userId));
+        // 覆盖式分配不得摘掉现任总经理的角色绑定（该角色不在可分配范围内）
+        Long generalManagerRoleId = profileOverviewService.generalManagerRoleId();
+        userRoleMapper.delete(new LambdaQueryWrapper<UserRole>().eq(UserRole::getUserId, userId)
+                .ne(generalManagerRoleId != null, UserRole::getRoleId, generalManagerRoleId));
         for (Long roleId : distinct) {
             UserRole ur = new UserRole();
             ur.setUserId(userId);

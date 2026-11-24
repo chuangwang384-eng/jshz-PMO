@@ -1190,10 +1190,13 @@ CREATE TABLE IF NOT EXISTS `profile_department` (
   parent_id bigint DEFAULT NULL,
   name varchar(100) NOT NULL,
   active tinyint NOT NULL DEFAULT 1,
+  leader_user_id bigint DEFAULT NULL COMMENT '部门负责人（sys_user.id）；根节点负责人即总经理',
   PRIMARY KEY (id),
   UNIQUE KEY uk_profile_department_seed (seed_key),
   KEY idx_profile_department_parent (parent_id),
-  CONSTRAINT fk_profile_department_parent FOREIGN KEY (parent_id) REFERENCES profile_department(id)
+  KEY idx_profile_department_leader (leader_user_id),
+  CONSTRAINT fk_profile_department_parent FOREIGN KEY (parent_id) REFERENCES profile_department(id),
+  CONSTRAINT fk_profile_department_leader FOREIGN KEY (leader_user_id) REFERENCES sys_user(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `profile_membership` (
@@ -1206,9 +1209,33 @@ CREATE TABLE IF NOT EXISTS `profile_membership` (
   CONSTRAINT fk_profile_membership_department FOREIGN KEY (department_id) REFERENCES profile_department(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-INSERT IGNORE INTO profile_department (seed_key,name) VALUES
-('GENERAL_OFFICE','总经办'),('PROJECT','项目部'),('DESIGN','设计部'),
-('FINANCE_COMPLIANCE','财务合规部'),('HR_ADMIN','人事行政部');
+-- 组织树与父级回填须与 migration/20261124_profile_organization_leaders.sql 保持一致
+INSERT IGNORE INTO profile_department (seed_key, name) VALUES
+('GENERAL_OFFICE', '总经办'), ('PROJECT', '项目部'), ('DESIGN', '设计部'),
+('FINANCE_COMPLIANCE', '财务合规部'), ('HR_ADMIN', '综合部'),
+('GENERAL_MANAGER', '总经理'),
+('PROJECT_1', '项目一部'), ('PROJECT_2', '项目二部'), ('PROJECT_3', '项目三部'), ('KEY_PROJECT', '重点项目部'),
+('ADMIN_AFFAIRS', '行政'), ('HUMAN_RESOURCES', '人力资源'), ('LEGAL', '法务'),
+('PLANNING', '策划'), ('GRAPHIC_DESIGN', '平面设计'), ('DESIGN_3D', '3D设计'), ('NEW_MEDIA', '新媒体运营'),
+('COMPLIANCE', '合规'), ('ACCOUNTING', '会计'), ('CASHIER', '出纳');
+
+UPDATE profile_department c JOIN profile_department p ON p.seed_key = 'GENERAL_MANAGER'
+  SET c.parent_id = p.id WHERE c.seed_key = 'GENERAL_OFFICE';
+
+UPDATE profile_department c JOIN profile_department p ON p.seed_key = 'GENERAL_OFFICE'
+  SET c.parent_id = p.id WHERE c.seed_key IN ('PROJECT', 'DESIGN', 'FINANCE_COMPLIANCE', 'HR_ADMIN');
+
+UPDATE profile_department c JOIN profile_department p ON p.seed_key = 'PROJECT'
+  SET c.parent_id = p.id WHERE c.seed_key IN ('PROJECT_1', 'PROJECT_2', 'PROJECT_3', 'KEY_PROJECT');
+
+UPDATE profile_department c JOIN profile_department p ON p.seed_key = 'HR_ADMIN'
+  SET c.parent_id = p.id WHERE c.seed_key IN ('ADMIN_AFFAIRS', 'HUMAN_RESOURCES', 'LEGAL');
+
+UPDATE profile_department c JOIN profile_department p ON p.seed_key = 'DESIGN'
+  SET c.parent_id = p.id WHERE c.seed_key IN ('PLANNING', 'GRAPHIC_DESIGN', 'DESIGN_3D', 'NEW_MEDIA');
+
+UPDATE profile_department c JOIN profile_department p ON p.seed_key = 'FINANCE_COMPLIANCE'
+  SET c.parent_id = p.id WHERE c.seed_key IN ('COMPLIANCE', 'ACCOUNTING', 'CASHIER');
 
 CREATE TABLE IF NOT EXISTS `user_dashboard_layout` (
   `user_id` bigint NOT NULL,
@@ -1327,6 +1354,7 @@ INSERT IGNORE INTO `role` (`id`, `code`, `name`, `description`, `status`, `built
 INSERT IGNORE INTO `role` (`id`, `code`, `name`, `description`, `status`, `builtin`, `create_time`, `update_time`) VALUES (3,'APPROVER','审批人','审批流处理（approval:audit）',1,1,'2026-10-22 14:58:22','2026-10-22 14:58:22');
 INSERT IGNORE INTO `role` (`id`, `code`, `name`, `description`, `status`, `builtin`, `create_time`, `update_time`) VALUES (4,'EMPLOYEE','普通员工','默认登录角色，无业务权限（可提交审批申请）',1,1,'2026-10-22 14:58:22','2026-10-22 14:58:22');
 INSERT IGNORE INTO `role` (`id`, `code`, `name`, `description`, `status`, `builtin`, `create_time`, `update_time`) VALUES (52,'KNOWLEDGE_MAINTAINER','知识星球维护人','知识星球文档上传/更新/下架/上架/永久删除/版本历史/下载次数维护',1,1,'2026-10-27 14:51:58','2026-10-27 14:51:58');
+INSERT IGNORE INTO `role` (`code`, `name`, `description`, `status`, `builtin`, `create_time`, `update_time`) VALUES ('GENERAL_MANAGER','总经理','组织树根节点负责人，全系统唯一；拥有除角色管理、操作日志、企微同步、存储管理外的全部权限；仅可通过组织架构任命',1,1,NOW(),NOW());
 INSERT IGNORE INTO `role` (`id`, `code`, `name`, `description`, `status`, `builtin`, `create_time`, `update_time`) VALUES (53,'PROJECT_OWNER','项目负责人','项目负责人：负责项目创建/推进/关联/结算等（绑 project:manage）',1,1,'2026-10-28 15:52:04','2026-10-28 15:52:04');
 /*!40000 ALTER TABLE `role` ENABLE KEYS */;
 UNLOCK TABLES;

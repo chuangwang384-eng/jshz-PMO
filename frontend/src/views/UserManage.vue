@@ -206,12 +206,12 @@ async function submitForm() {
   }
 }
 
-// 角色下拉：仅启用角色可选（GET /api/roles）
+// 角色下拉：仅启用角色可选（GET /api/roles）。总经理角色只能通过组织架构任命，不在此分配。
 async function fetchRoles() {
   try {
     const roles = await listRoles()
     roleOptions.value = (Array.isArray(roles) ? roles : []).filter(
-      (r) => r.status === 1 || r.status == null
+      (r) => r.code !== 'GENERAL_MANAGER' && (r.status === 1 || r.status == null)
     )
   } catch (e) {
     roleOptions.value = []

@@ -24,9 +24,9 @@
       </el-table-column>
       <el-table-column label="操作" width="310" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" :disabled="row.code === 'SUPER_ADMIN'" @click="openPerm(row)">绑定权限</el-button>
+          <el-button link type="primary" :disabled="lockedRoles.includes(row.code)" @click="openPerm(row)">绑定权限</el-button>
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="primary" :disabled="row.code === 'SUPER_ADMIN'" @click="toggleStatus(row)">
+          <el-button link type="primary" :disabled="lockedRoles.includes(row.code)" @click="toggleStatus(row)">
             {{ row.status === 1 ? '停用' : '启用' }}
           </el-button>
           <el-button link type="danger" :disabled="row.builtin === 1" @click="handleDelete(row)">删除</el-button>
@@ -53,7 +53,7 @@
             :inactive-value="0"
             active-text="启用"
             inactive-text="停用"
-            :disabled="form.code === 'SUPER_ADMIN'"
+            :disabled="lockedRoles.includes(form.code)"
           />
         </el-form-item>
       </el-form>
@@ -101,6 +101,9 @@ import {
   assignRolePermissions,
   listPermissions
 } from '../api/role'
+
+// 权限由后端代码计算的内置角色：不可改绑定、不可停用（总经理另只能经组织架构任命）。
+const lockedRoles = ['SUPER_ADMIN', 'GENERAL_MANAGER']
 
 const roles = ref([])
 const loading = ref(false)
