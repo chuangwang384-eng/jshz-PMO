@@ -32,7 +32,6 @@ class ApplicationTransactionBoundaryTest {
             new Entry("approveModify", 3),
             new Entry("reject", 3),
             new Entry("returnRequest", 3),
-            new Entry("resubmit", 2),
             new Entry("resubmit", 4),
             new Entry("withdraw", 2),
             new Entry("transfer", 3),

@@ -59,7 +59,7 @@ class DashboardResubmitIntegrationTest {
         assertEquals(0L,db.queryForObject("SELECT COUNT(*) FROM approval_record WHERE application_id=810001",Long.class));
     }
     @Test void oldBodylessClientKeepsOriginalChanges() throws Exception {
-        applications.resubmit(810001L,owner);
+        applications.resubmit(810001L,null,null,owner);
         var payload=json.readTree(db.queryForObject("SELECT biz_data FROM application WHERE id=810001",String.class));
         assertEquals("旧单位",payload.get("changes").get("单位").asText());
     }

@@ -15,7 +15,7 @@ import java.util.Map;
 /**
  * 通用申请实体（对应数据库表 application，「我的申请」改版）。
  * 各业务线申请的公共字段存本表，业务差异存 biz_data JSON：
- * 专家申请 biz_data = {expertId, expertName, changes, reason, templateId, oldData?}
+ * 专家申请 biz_data = {expertId, expertName, changes, reason, oldData?}
  * （照片 TMP: 前缀语义保留；oldData 为修改申请提交时的专家旧值快照，新增申请无）。
  * status：0 待审批 / 1 已通过 / 2 已驳回 / 3 已撤回 / 4 退回修改（R4 退回修改后可重新提交）。
  * flowKey：多流程标识（EXPERT / CONTRACT，对应 approval_config.flow_key；存量单为空）。
@@ -49,7 +49,7 @@ public class Application {
     @JsonProperty("status")
     private Integer status;
 
-    /** 业务详情 JSON（专家申请：expertId/expertName/changes/reason/templateId） */
+    /** 业务详情 JSON（专家申请：expertId/expertName/changes/reason） */
     @JsonProperty("bizData")
     private String bizData;
 

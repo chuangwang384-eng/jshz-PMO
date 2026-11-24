@@ -73,10 +73,10 @@
 
     <el-dialog v-model="resubmitVisible" title="重新编辑提交" width="600px" :close-on-click-modal="false">
       <el-alert v-if="resubmitRow?.returnComment" :title="resubmitRow.returnComment" type="warning" :closable="false" />
-      <p class="page-sub">修改申请文本后重新提交；照片保留原申请内容。身份和银行卡字段留空表示保留原提交值。</p>
+      <p class="page-sub">修改申请内容后重新提交；照片可重新上传（不上传则保留原申请照片）。身份和银行卡字段留空表示保留原提交值。</p>
       <el-form label-width="120px"><el-form-item v-for="field in resubmitFields" :key="field" :label="field">
         <el-input v-model="resubmitChanges[field]" :type="['身份证号','银行卡号'].includes(field)?'password':'textarea'" :show-password="['身份证号','银行卡号'].includes(field)" :maxlength="5000" />
-      </el-form-item><el-form-item label="申请原因"><el-input v-model="resubmitReason" type="textarea" :maxlength="1000" /></el-form-item></el-form>
+      </el-form-item><el-form-item v-for="key in resubmitPhotoKeys" :key="key" :label="key"><span class="resubmit-photo-state">{{ resubmitPhotoState(key) }}</span><el-upload :show-file-list="false" accept="image/*" :before-upload="beforeResubmitPhoto" :http-request="(opt) => uploadResubmitPhoto(key, opt)"><el-button link type="primary" :loading="!!resubmitPhotoUploading[key]">重新上传</el-button></el-upload></el-form-item><el-form-item label="申请原因"><el-input v-model="resubmitReason" type="textarea" :maxlength="1000" /></el-form-item></el-form>
       <template #footer><el-button @click="resubmitVisible=false">取消</el-button><el-button type="primary" :loading="resubmitLoading" @click="confirmResubmit">确认提交</el-button></template>
     </el-dialog>
     <!-- 审批进度：时间线 -->
@@ -105,15 +105,20 @@
 
 <script setup>
 import { watchDashboardFocus } from '../utils/dashboardFocus'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getMyApplications, withdrawRequest, resubmitRequest } from '../api/approval'
+import { getMyApplications, withdrawRequest, resubmitRequest, uploadApprovalPhoto } from '../api/approval'
+import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
+import { useNotificationStore } from '../store/notification'
 import { changeSummary, approvalStatusTagType, approvalStatusText } from '../utils/format'
 import ApprovalDiffDialog from '../components/ApprovalDiffDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
+const notificationStore = useNotificationStore()
+// 退回修改后可重传的照片字段（与后端 PHOTO_FIELDS 一致；合同申请不含照片）
+const PHOTO_KEYS = ['照片', '身份证正面', '身份证反面']
 
 const requests = ref([])
 // 状态筛选：读取 URL query.status（0=待审批 1=已通过 2=已驳回），支持从通知中心跳转携带状态
@@ -131,8 +136,16 @@ const progressRow = ref(null)
 const diffVisible = ref(false)
 const diffRow = ref(null)
 
-// 列表轮询定时器（30s，onBeforeUnmount 清理）
-let pollTimer = null
+// 列表刷新驱动（2026-11-24 修正）：跟随全局消息通知 store 的 30s 轮询（store.lastPollAt），
+// 不再在本页自建定时器——此前页面定时器与全局通知轮询并行，且新通知到达时页面不会立即刷新。
+watch(
+  () => notificationStore.lastPollAt,
+  () => {
+    if (!loading.value) {
+      fetchList()
+    }
+  }
+)
 
 async function fetchList() {
   loading.value = true
@@ -203,11 +216,16 @@ async function handleWithdraw(row) {
 
 const resubmitVisible=ref(false), resubmitLoading=ref(false), resubmitRow=ref(null), resubmitChanges=ref({}), resubmitFields=ref([]), resubmitReason=ref('')
 const editableFields=['姓名','单位','科室','职称','联系方式','简介','身份证号','银行卡号','银行卡开户行']
+// 重新上传的照片：key -> 'TMP:文件名'（后端 resubmit 自 2026-11-24 起接受照片字段，仅接受 TMP: 临时文件名）
+const resubmitPhotoKeys=ref([]), resubmitPhotos=ref({}), resubmitPhotoUploading=ref({})
 function handleResubmit(row) {
   resubmitRow.value=row
   resubmitFields.value=row.applicationType==='CONTRACT'?['身份证号','银行卡号']:[...new Set([...editableFields,...['研究方向','擅长领域'].filter(key=>key in (row.changes || {}))])]
   resubmitChanges.value=Object.fromEntries(resubmitFields.value.map(key=>[key,['身份证号','银行卡号'].includes(key)?'':String(row.changes?.[key] ?? '')]))
   resubmitReason.value=row.reason || ''
+  resubmitPhotoKeys.value=row.applicationType==='CONTRACT'?[]:PHOTO_KEYS
+  resubmitPhotos.value={}
+  resubmitPhotoUploading.value={}
   resubmitVisible.value=true
 }
 async function confirmResubmit() {
@@ -217,6 +235,8 @@ async function confirmResubmit() {
     if(['身份证号','银行卡号'].includes(field) && !value)continue
     if(value !== String(resubmitRow.value.changes?.[field] ?? ''))changes[field]=value
   }
+  // 照片：仅提交本次重新上传的字段（未重传的保留原申请照片）
+  Object.assign(changes,resubmitPhotos.value)
   resubmitLoading.value=true
   try {
     await resubmitRequest(resubmitRow.value.id,{changes,reason:resubmitReason.value})
@@ -224,6 +244,30 @@ async function confirmResubmit() {
     ElMessage.success('已重新提交，等待审批')
     await fetchList()
   } finally {resubmitLoading.value=false}
+}
+
+// 重新上传照片：大小限制沿用后端真源 expert.upload（GET /api/meta/limits），与专家表单一致
+function beforeResubmitPhoto(raw){
+  if(raw.size > uploadLimits.photoMaxBytes){
+    ElMessage.warning(`图片大小不能超过 ${toMb(uploadLimits.photoMaxBytes)}MB`)
+    return false
+  }
+  return true
+}
+async function uploadResubmitPhoto(key,{file}){
+  resubmitPhotoUploading.value={...resubmitPhotoUploading.value,[key]:true}
+  try{
+    const res=await uploadApprovalPhoto(file)
+    resubmitPhotos.value={...resubmitPhotos.value,[key]:'TMP:'+res.fileName}
+  }catch(e){
+    // 错误提示已由拦截器统一处理
+  }finally{
+    resubmitPhotoUploading.value={...resubmitPhotoUploading.value,[key]:false}
+  }
+}
+function resubmitPhotoState(key){
+  if(resubmitPhotos.value[key])return '已重新上传，提交后生效'
+  return resubmitRow.value?.changes?.[key] ? '原申请已更换照片（不重传则保留）' : '未更换（沿用专家现有照片）'
 }
 
 function handleStatusChange() {
@@ -253,20 +297,7 @@ watch(
 
 onMounted(() => {
   fetchList()
-  // 状态变更实时更新兜底：页面打开期间每 30 秒轮询刷新（通知驱动为主，轮询补位）；
-  // 轮询不重置分页与筛选，且上一轮未完成时跳过本轮，避免请求堆积
-  pollTimer = setInterval(() => {
-    if (!loading.value) {
-      fetchList()
-    }
-  }, 30000)
-})
-
-onBeforeUnmount(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  ensureUploadLimits()
 })
 watchDashboardFocus(route, 'applicationId', 'application', row => row.status === 4 ? handleResubmit(row) : openProgress(row), message => ElMessage.warning(message))
 </script>
@@ -300,5 +331,10 @@ watchDashboardFocus(route, 'applicationId', 'application', row => row.status ===
   font-size: 13px;
   color: var(--ui-text-sub);
   margin-top: 4px;
+}
+.resubmit-photo-state {
+  font-size: 13px;
+  color: var(--ui-text-muted);
+  margin-right: 12px;
 }
 </style>

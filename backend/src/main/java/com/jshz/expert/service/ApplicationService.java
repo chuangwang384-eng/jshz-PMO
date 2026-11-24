@@ -142,11 +142,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         return config;
     }
 
-    /** 兼容保留：默认读取专家流程配置（EXPERT）。 */
-    public ApprovalConfig getConfig() {
-        return getConfig(FLOW_KEY);
-    }
-
     /**
      * 更新指定流程的审批流配置（按 flowKey 更新对应行；无行则先自建）。
      */
@@ -228,6 +223,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
 
         addRecord(app.getId(), "提交修改申请", "SUBMIT", user.getUsername(),
                 StringUtils.hasText(reason) ? reason : "提交专家信息修改申请");
+        // 与新增申请/重新提交一致：通知审批人新增待办（2026-11-24 补齐，此前修改申请提交后审批人无待办通知）
+        notifyApprovalTodo(app);
         return app;
     }
 
@@ -327,7 +324,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     // ==================== 我的申请（员工） ====================
 
     /**
-     * 我的申请分页列表（新接口 my-applications；旧 my-requests 同实现兼容保留）：
+     * 我的申请分页列表（my-applications；旧 my-requests 兼容路径已于 2026-11-24 下线）：
      * 按 applicant_id / applicant 双条件过滤本人（兼容存量 applicant_id 为空的迁移行），
      * 可按状态过滤（status 为空查全部），附带 biz_data 解析展示字段与进度记录。
      */
@@ -380,9 +377,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /**
      * 全部申请单分页：可按状态过滤，keyword 模糊匹配申请人 / 专家姓名（biz_data.expertName JSON 提取）。
      */
-    public Page<Application> listRequests(Integer status, String keyword, long page, long size, AuthUser viewer) {
-        return listRequests(status == null ? null : List.of(status), keyword, page, size, viewer);
-    }
 
     /**
      * 全部申请单分页（多状态）：statuses 为空查全部；keyword 模糊匹配申请人 / 专家姓名。
@@ -750,13 +744,10 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * - status 4 → 0，写 RESUBMIT 记录；
      * - 重置审批人字段（approveBy/approveComment/approveTime/returnComment/currentAssignee/extraApprover）；
      * - 按当前流程配置刷新审批人快照（配置可能已变更）；
+     * - patch 可含照片字段（值须为 TMP: 临时文件，2026-11-24 放开：退回修改后 status=4 不可撤回，
+     *   此前申请人没有更换照片的途径）；被替换的旧临时照片在事务提交后清理；合同申请仍仅限身份证号/银行卡号；
      * - 通知快照内审批人新增待办。
      */
-    @Transactional(rollbackFor = Exception.class)
-    public Application resubmit(Long id, AuthUser user) {
-        return resubmit(id, null, null, user);
-    }
-
     @Transactional(rollbackFor = Exception.class)
     public Application resubmit(Long id, Map<String,Object> patch, String reason, AuthUser user) {
         if (user == null) {
@@ -772,7 +763,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (app.getStatus() == null || app.getStatus() != STATUS_RETURNED) {
             throw new BusinessException("仅被退回修改的申请可重新提交");
         }
-        if (!app.getApplicant().equals(user.getUsername())) {
+        if (!isApplicant(app, user)) {
             throw new BusinessException("仅申请人本人可重新提交");
         }
         fillBiz(app);
@@ -780,14 +771,22 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (config.getEnabled() == null || config.getEnabled() != 1) {
             throw new BusinessException("审批流未启用，暂不支持重新提交");
         }
+        List<String> replacedTempPhotos = new ArrayList<>();
         if (patch != null) {
             Map<String,Object> biz = readBiz(app);
             Map<String,Object> changes = new LinkedHashMap<>(asStringKeyMap(biz.get("changes")));
+            boolean contract = ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT;
             for (Map.Entry<String,Object> entry : patch.entrySet()) {
                 String field = entry.getKey(); Object value = entry.getValue();
-                if (!WHITELIST_FIELDS.contains(field) || PHOTO_FIELDS.contains(field)) throw new BusinessException("仅支持修改申请文本字段");
-                if (ApplicationType.parse(app.getApplicationType()) == ApplicationType.CONTRACT && !List.of("身份证号","银行卡号").contains(field)) throw new BusinessException("合同申请仅支持修改身份与银行卡字段");
+                boolean photoField = PHOTO_FIELDS.contains(field);
+                if ((!WHITELIST_FIELDS.contains(field) && !photoField) || (photoField && contract)) throw new BusinessException(contract ? "合同申请仅支持修改身份与银行卡字段" : "字段不在可修改范围内");
+                if (contract && !List.of("身份证号","银行卡号").contains(field)) throw new BusinessException("合同申请仅支持修改身份与银行卡字段");
                 if (value != null && (!(value instanceof String) || value.toString().length() > 5000)) throw new BusinessException("字段内容格式不正确或过长");
+                // 照片被替换：记下旧临时文件名，事务提交后清理（格式与临时文件存在性由 checkChanges 校验）
+                if (photoField && value != null && changes.get(field) instanceof String prev
+                        && prev.startsWith(TMP_PREFIX) && !prev.equals(value)) {
+                    replacedTempPhotos.add(prev.substring(TMP_PREFIX.length()));
+                }
                 changes.put(field,value);
             }
             checkChanges(changes);
@@ -817,6 +816,17 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         addRecord(app.getId(), "申请人重新提交", "RESUBMIT", user.getUsername(),
                 StringUtils.hasText(app.getReason()) ? app.getReason() : "重新提交申请");
         notifyApprovalTodo(app);
+        if (!replacedTempPhotos.isEmpty()) {
+            afterCommit("重新提交清理被替换的临时照片", () -> {
+                for (String tempName : replacedTempPhotos) {
+                    try {
+                        photoStorageService.deleteTempPhoto(tempName);
+                    } catch (Exception e) {
+                        log.warn("[审批流] 被替换的临时照片清理失败：{}", tempName, e);
+                    }
+                }
+            });
+        }
         return fillView(app, isFullSensitive(user));
     }
 
@@ -909,7 +919,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         if (app.getStatus() == null || app.getStatus() != STATUS_PENDING) {
             throw new BusinessException("该申请单已处理，不能撤回");
         }
-        if (!app.getApplicant().equals(user.getUsername())) {
+        if (!isApplicant(app, user)) {
             throw new BusinessException("仅申请人本人可撤回申请");
         }
         fillBiz(app);
@@ -1133,6 +1143,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
+     * 申请人本人判定：applicant_id 或 applicant 用户名任一匹配（与 my-applications 列表口径一致；
+     * 存量迁移行 applicant 可能为空，用户改名后 applicant_id 仍可识别，避免 NPE）。
+     */
+    private boolean isApplicant(Application app, AuthUser user) {
+        return java.util.Objects.equals(app.getApplicantId(), user.getUserId())
+                || java.util.Objects.equals(app.getApplicant(), user.getUsername());
+    }
+
+    /**
      * 审批权校验（B2）：current_assignee 非空时仅被转办人本人可审批；为空维持现状（任何有审批权限的用户可审）。
      */
     private void checkAssignee(Application app, AuthUser user) {
@@ -1200,7 +1219,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 notificationService.notify(ur.getUserId(), type, title, content, MANAGE_PATH);
             }
         } catch (Exception e) {
-            // 通知失败不影响主流程
+            // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
+            log.warn("[审批流] 通知发送失败：申请单={}", app.getId(), e);
         }
     }
 
@@ -1244,7 +1264,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
                     (approved ? "审批通过：" : "审批驳回：") + typeText, content, jump);
         } catch (Exception e) {
-            // 通知失败不影响主流程
+            // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
+            log.warn("[审批流] 通知发送失败：申请单={}", app.getId(), e);
         }
     }
 
@@ -1270,7 +1291,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                         "/profile/my-approvals");
             }
         } catch (Exception e) {
-            // 通知失败不影响主流程
+            // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
+            log.warn("[审批流] 通知发送失败：申请单={}", app.getId(), e);
         }
     }
 
@@ -1289,7 +1311,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                     "「" + app.getExpertName() + "」的" + typeText + "已加签您共同审批（任一人审批即生效），请及时处理",
                     MANAGE_PATH);
         } catch (Exception e) {
-            // 通知失败不影响主流程
+            // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
+            log.warn("[审批流] 通知发送失败：申请单={}", app.getId(), e);
         }
     }
 
@@ -1308,7 +1331,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     // ==================== 私有方法 ====================
-
 
     private ApprovalConfig findConfigByFlowKey(String flowKey) {
         return approvalConfigMapper.selectOne(
@@ -1392,6 +1414,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             }
         } catch (Exception e) {
             // 解析失败视为无快照（回退角色通知）
+            log.warn("[审批流] 审批人快照解析失败：申请单={}", app == null ? null : app.getId(), e);
         }
         return result;
     }
@@ -1412,7 +1435,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
                     "退回修改：" + typeText, content, "/profile/my-approvals?status=4");
         } catch (Exception e) {
-            // 通知失败不影响主流程
+            // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
+            log.warn("[审批流] 通知发送失败：申请单={}", app.getId(), e);
         }
     }
 
@@ -1479,7 +1503,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 填充展示字段：biz_data 解析（expertId/expertName/reason/templateId/changes/oldData/photoChanges）、
+     * 填充展示字段：biz_data 解析（expertId/expertName/reason/changes/oldData/photoChanges）、
      * requestType/requestTypeText、statusText、records。
      * fullSensitive=false 时 oldData 的身份证号/银行卡号按前3后4脱敏（与 /api/experts/{id} 非管理员视图一致，不扩大可见范围）。
      */
@@ -1514,7 +1538,6 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         Object reason = biz.get("reason");
         app.setReason(reason == null ? null : String.valueOf(reason));
     }
-
 
     /**
      * 敏感字段格式兜底校验（与 ExpertService.validateRequired 对齐）：
@@ -1586,7 +1609,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 旧值快照脱敏视图：非管理员查看时身份证号/银行卡号前3后4（复用 ExpertService.maskSensitive），
+     * 旧值快照脱敏视图：非管理员查看时身份证号/银行卡号/联系方式前3后4（复用 ExpertService.maskSensitive），
      * 其余字段与照片文件名不脱敏。
      */
     private Map<String, Object> maskedOldData(Map<String, Object> oldData, boolean fullSensitive) {
@@ -1594,7 +1617,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             return oldData;
         }
         Map<String, Object> result = new LinkedHashMap<>(oldData);
-        for (String key : List.of("身份证号", "银行卡号")) {
+        for (String key : List.of("身份证号", "银行卡号", "联系方式")) {
             Object value = result.get(key);
             if (value != null && StringUtils.hasText(String.valueOf(value))) {
                 result.put(key, ExpertService.maskSensitive(String.valueOf(value)));

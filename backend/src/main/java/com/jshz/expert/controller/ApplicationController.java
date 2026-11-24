@@ -32,8 +32,8 @@ import java.util.Map;
  * - GET/PUT /api/approval/config：审批流配置（PUT 仅 ADMIN）；
  * - POST /api/approval/requests：员工提交专家修改申请（EXPERT_MODIFY）；
  * - POST /api/approval/create-request：员工提交新增专家申请（EXPERT_CREATE）；
- * - GET /api/approval/my-applications：我的申请（新接口，登录即可，仅本人数据）；
- * - GET /api/approval/my-requests：旧路径兼容（同实现）；
+ * - GET /api/approval/my-applications：我的申请（登录即可，仅本人数据）；
+ *   （旧兼容路径 /my-requests 已于 2026-11-24 下线：前端零调用，仅 my-applications 一个入口）
  * - GET /api/approval/requests：审批管理全部申请（权限码 approval:audit）；
  * - POST /api/approval/requests/{id}/approve|reject|withdraw|transfer|add-approver；
  * - GET /api/approval/assignable-users：可转办/加签用户列表。
@@ -166,19 +166,6 @@ public class ApplicationController {
     }
 
     /**
-     * 我的申请（旧路径兼容）：GET /api/approval/my-requests，实现与 my-applications 一致。
-     */
-    @GetMapping("/my-requests")
-    public ApiResponse<PageResult<Application>> myRequests(
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size,
-            @RequestParam(required = false) Integer status,
-            @AuthenticationPrincipal AuthUser authUser) {
-        Page<Application> p = applicationService.myApplications(page, size, status, authUser);
-        return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));
-    }
-
-    /**
      * 全部申请单：GET /api/approval/requests?status=&statuses=1,2&keyword=&page=&size=（权限码 approval:audit）。
      * status：单状态过滤；statuses：多状态过滤（逗号分隔，如 1,2,3 表示已处理），优先于 status。
      */
@@ -277,6 +264,7 @@ public class ApplicationController {
 
     /**
      * 重新提交：POST /api/approval/requests/{id}/resubmit（仅申请人本人，status=4 可重提）。
+     * body {changes: {中文键: 新值}, reason?}；changes 可含照片字段（TMP: 临时文件名，退回修改后可重传，2026-11-24 放开）。
      * status 4→0，写 RESUBMIT 记录，重置转办/加签并刷新审批人快照。
      */
     @PostMapping("/requests/{id}/resubmit")
@@ -287,7 +275,7 @@ public class ApplicationController {
         String reason = null;
         if(body != null) {
             Object changes = body.get("changes");
-            if(!(changes instanceof Map<?,?> raw)) throw new com.jshz.expert.common.BusinessException(400,"changes须为文本字段对象");
+            if(!(changes instanceof Map<?,?> raw)) throw new com.jshz.expert.common.BusinessException(400,"changes须为字段对象（文本为字符串，照片为 TMP: 临时文件名）");
             patch = new LinkedHashMap<>();
             for(var entry:raw.entrySet()) {
                 if(!(entry.getKey() instanceof String key)) throw new com.jshz.expert.common.BusinessException(400,"字段名称无效");

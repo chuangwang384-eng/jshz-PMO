@@ -22,8 +22,8 @@
         <span>
           审批结果：<el-tag :type="approvalStatusTagType(row.status)">{{ row.statusText }}</el-tag>
         </span>
-        <span>审批人：{{ (row.status === 4 ? (row.returnBy || row.approveBy) : row.approveBy) || '-' }}</span>
-        <span>审批时间：{{ (row.status === 4 ? (row.returnTime || row.approveTime) : row.approveTime) || '-' }}</span>
+        <span>审批人：{{ row.approveBy || '-' }}</span>
+        <span>审批时间：{{ row.approveTime || '-' }}</span>
       </div>
     </div>
 
@@ -191,9 +191,11 @@ const dialogTitle = computed(() => {
   return '申请详情对比'
 })
 
-// 历史单提示：修改申请且无旧值快照（存量已通过单未回填）
+// 历史单提示：修改申请且无旧值快照（存量已通过单未回填）。
+// 合同申请（applicationType=CONTRACT）没有专家旧值快照，且其 requestType 同为 0，必须排除，否则会被误判为历史数据（2026-11-24 修复）。
 const showLegacyTip = computed(() => {
-  return props.row && props.row.requestType === 0 && !Object.keys(props.row.oldData || {}).length
+  return props.row && props.row.requestType === 0 && props.row.applicationType !== 'CONTRACT'
+    && !Object.keys(props.row.oldData || {}).length
 })
 
 const diffRows = computed(() => {

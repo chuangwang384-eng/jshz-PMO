@@ -26,7 +26,9 @@ export const useNotificationStore = defineStore('notification', {
     pollTimer: null,
     pollInterval: 30000,
     // 已见过的消息 id 基线：初始加载 / 手动打开面板 / 弹提示后都会推进基线，避免重复提示
-    baselineIds: []
+    baselineIds: [],
+    // 最近一次轮询完成时间戳：供页面（如「我的申请」）跟随全局轮询刷新，避免各页面自建定时器（2026-11-24）
+    lastPollAt: 0
   }),
   actions: {
     async loadUnread() {
@@ -75,6 +77,7 @@ export const useNotificationStore = defineStore('notification', {
         })
         this.baselineIds = this.items.map((i) => i.id)
       }
+      this.lastPollAt = Date.now()
     },
     startPolling() {
       if (this.pollTimer) return
