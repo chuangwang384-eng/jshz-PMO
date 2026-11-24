@@ -28,6 +28,16 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CustomerService {
 
+    public static final int NAME_MAX_LENGTH = 100;
+    public static final int CREATE_RELATION_LIMIT = 10;
+
+    private static final String VISIBLE_RELATION = """
+            SELECT 1 FROM customer_relation r
+            JOIN customer peer ON ((r.from_customer_id = customer.id AND peer.id = r.to_customer_id)
+                OR (r.to_customer_id = customer.id AND peer.id = r.from_customer_id))
+            WHERE customer.deleted = 0 AND peer.deleted = 0
+            """;
+
     private final CustomerMapper customerMapper;
     private final CustomerAttachmentMapper attachmentMapper;
     private final CustomerAttachmentStorageService storageService;
@@ -37,9 +47,10 @@ public class CustomerService {
      * 分页检索客户档案。
      *
      * @param keyword  模糊匹配姓名/单位/职位/职级/现任职务/喜好/备注
-     * @param deleted  null=全部；0=正常；1=已删除（前端仅维护人可传 1，用于恢复）
+     * @param deleted  null=正常；0=正常；1=已删除（前端仅维护人可传 1，用于恢复）
      */
-    public Page<Customer> pageList(String keyword, Integer deleted, long page, long pageSize) {
+    public Page<Customer> pageList(String keyword, Integer deleted, String workUnit, Long relationTypeId,
+                                       Boolean hasRelations, long page, long pageSize) {
         LambdaQueryWrapper<Customer> qw = new LambdaQueryWrapper<>();
         // 软删除默认隐藏：未显式指定时只查正常记录；维护人可通过 deleted=1 查看已删除列表以便恢复
         qw.eq(Customer::getDeleted, deleted == null ? 0 : deleted);
@@ -53,8 +64,27 @@ public class CustomerService {
                     .or().like(Customer::getPreferences, kw)
                     .or().like(Customer::getRemark, kw));
         }
-        qw.orderByDesc(Customer::getCreateTime);
+        qw.like(StringUtils.hasText(workUnit), Customer::getWorkUnit, trimToNull(workUnit));
+        if (relationTypeId != null) {
+            qw.apply("EXISTS (" + VISIBLE_RELATION + " AND r.relation_type_id = {0})", relationTypeId);
+        }
+        if (hasRelations != null) {
+            qw.apply((hasRelations ? "EXISTS (" : "NOT EXISTS (") + VISIBLE_RELATION + ")");
+        }
+        qw.orderByDesc(Customer::getCreateTime, Customer::getId);
         return customerMapper.selectPage(new Page<>(page, pageSize), qw);
+    }
+
+    public List<Customer> findDuplicates(String name, String workUnit) {
+        if (!StringUtils.hasText(name) || !StringUtils.hasText(workUnit)) {
+            return List.of();
+        }
+        return customerMapper.selectList(new LambdaQueryWrapper<Customer>()
+                .select(Customer::getId, Customer::getName, Customer::getWorkUnit, Customer::getCurrentDuty)
+                .eq(Customer::getDeleted, 0)
+                .eq(Customer::getName, name.trim())
+                .eq(Customer::getWorkUnit, workUnit.trim())
+                .orderByDesc(Customer::getId));
     }
 
     /**
@@ -74,6 +104,9 @@ public class CustomerService {
     @Transactional
     public Customer create(CustomerForm form, AuthUser authUser) {
         validateName(form.getName());
+        if (form.getRelations() != null && form.getRelations().size() > CREATE_RELATION_LIMIT) {
+            throw new BusinessException("新增客户时最多关联 " + CREATE_RELATION_LIMIT + " 条关系");
+        }
         Customer customer = new Customer();
         applyForm(customer, form);
         customer.setDeleted(0);
@@ -119,15 +152,23 @@ public class CustomerService {
      * 编辑客户档案（仅正常客户可编辑）。
      */
     public Customer update(Long id, CustomerForm form, AuthUser authUser) {
-        Customer customer = getVisible(id);
-        if (StringUtils.hasText(form.getName())) {
+        getVisible(id);
+        boolean updateName = StringUtils.hasText(form.getName());
+        if (updateName) {
             validateName(form.getName());
-            customer.setName(form.getName().trim());
         }
-        applyForm(customer, form);
-        customer.setUpdateBy(operator(authUser));
-        customerMapper.updateById(customer);
-        return customer;
+        customerMapper.update(null, new LambdaUpdateWrapper<Customer>()
+                .eq(Customer::getId, id)
+                .eq(Customer::getDeleted, 0)
+                .set(updateName, Customer::getName, trimToNull(form.getName()))
+                .set(form.getWorkUnit() != null, Customer::getWorkUnit, trimToNull(form.getWorkUnit()))
+                .set(form.getWorkPosition() != null, Customer::getWorkPosition, trimToNull(form.getWorkPosition()))
+                .set(form.getWorkLevel() != null, Customer::getWorkLevel, trimToNull(form.getWorkLevel()))
+                .set(form.getCurrentDuty() != null, Customer::getCurrentDuty, trimToNull(form.getCurrentDuty()))
+                .set(form.getPreferences() != null, Customer::getPreferences, trimToNull(form.getPreferences()))
+                .set(form.getRemark() != null, Customer::getRemark, trimToNull(form.getRemark()))
+                .set(Customer::getUpdateBy, operator(authUser)));
+        return getVisible(id);
     }
 
     /**
@@ -226,8 +267,8 @@ public class CustomerService {
         if (!StringUtils.hasText(name)) {
             throw new BusinessException("客户姓名不能为空");
         }
-        if (name.trim().length() > 100) {
-            throw new BusinessException("客户姓名过长（≤100字）");
+        if (name.trim().length() > NAME_MAX_LENGTH) {
+            throw new BusinessException("客户姓名过长（≤" + NAME_MAX_LENGTH + "字）");
         }
     }
 

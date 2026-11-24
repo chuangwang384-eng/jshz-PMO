@@ -9,6 +9,8 @@
             <el-tag v-if="truncated" type="warning" effect="plain">客户数较多，仅展示前 {{ nodes.length }} 位客户的关系</el-tag>
           </div>
           <div class="header-right">
+            <el-button v-if="!linkMode" @click="locateVisible = true">按姓名或单位定位</el-button>
+            <el-button v-if="centerMode && !linkMode" @click="showGlobalGraph">查看全局</el-button>
             <template v-if="canManage">
               <el-button v-if="!linkMode" type="warning" plain size="small" @click="enterLinkMode">连线模式</el-button>
               <template v-else>
@@ -53,6 +55,8 @@
       </template>
     </el-dialog>
 
+    <CustomerSelectDialog v-model="locateVisible" identity-only @select="locateCustomer" />
+
     <CustomerSelectDialog
       v-model="targetSelectVisible"
       :customer-id="pendingFrom?.id ?? null"
@@ -71,6 +75,7 @@ import { useAuthStore } from '../store/auth'
 import { getCenterGraph, getNetworkGraph, listRelationTypes, createRelation, deleteRelation } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 import { relationDirectionLabel } from '../utils/dict'
+import { customerListQuery } from '../utils/customerListQuery'
 
 const router = useRouter()
 const route = useRoute()
@@ -87,6 +92,8 @@ const canManage = computed(() => authStore.hasPermission('customer:manage'))
 
 const chartRef = ref(null)
 const loading = ref(false)
+const locateVisible = ref(false)
+let graphRequestVersion = 0
 const nodes = ref([])
 const truncated = ref(false)
 let chart = null
@@ -108,13 +115,6 @@ function typeLabel(t) {
 
 function directionOf(typeId) {
   return relationTypes.value.find((x) => x.id === typeId)?.direction || 'DIRECTED'
-}
-
-function edgeSymbolOf(typeId) {
-  const d = directionOf(typeId)
-  if (d === 'BIDIRECTED') return ['arrow', 'arrow']
-  if (d === 'UNDIRECTED') return ['none', 'none']
-  return ['none', 'arrow']
 }
 
 function edgeSymbolOfLink(l) {
@@ -208,7 +208,7 @@ function handleNodeClick(node) {
     linkDialogVisible.value = true
     return
   }
-  router.push(`/knowledge-planet/customer-detail/${nodeId}`)
+  router.push({ name: 'customer-detail', params: { id: nodeId }, query: customerListQuery(route.query) })
 }
 
 function handleEdgeClick(link) {
@@ -298,20 +298,33 @@ async function confirmCreateRelation() {
   }
 }
 
+function locateCustomer(customer) {
+  router.push({
+    name: 'customer-relation-graph',
+    query: { ...customerListQuery(route.query), customerId: String(customer.id), customerName: customer.name }
+  })
+}
+
+function showGlobalGraph() {
+  router.push({ name: 'customer-relation-graph', query: customerListQuery(route.query) })
+}
+
 async function loadGraph() {
+  const version = ++graphRequestVersion
   loading.value = true
   try {
     const res = centerMode.value
       ? await getCenterGraph(centerId.value)
       : await getNetworkGraph()
+    if (version !== graphRequestVersion) return
     const data = res || { nodes: [], links: [] }
     nodes.value = data.nodes || []
     truncated.value = !!data.truncated
     renderGraph(data)
   } catch (e) {
-    proxy.$message.error(e?.message || '加载关系网络失败')
+    if (version === graphRequestVersion) proxy.$message.error(e?.message || '加载关系网络失败')
   } finally {
-    loading.value = false
+    if (version === graphRequestVersion) loading.value = false
   }
 }
 
@@ -327,13 +340,7 @@ function handleResize() {
 }
 
 function goBack() {
-  // 优先回退到上一页（保留列表的 URL 查询状态：搜索词/页码/已删除视图）
-  const hasBack = window.history.state && window.history.state.back
-  if (hasBack) {
-    router.back()
-    return
-  }
-  router.push('/knowledge-planet/customer-info')
+  router.push({ name: 'customer-info', query: customerListQuery(route.query) })
 }
 
 onMounted(async () => {

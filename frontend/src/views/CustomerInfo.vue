@@ -26,6 +26,24 @@
         </div>
       </div>
 
+      <div class="toolbar ui-toolbar customer-filters" role="search" aria-label="筛选客户">
+        <el-input
+          v-model="query.workUnit"
+          aria-label="按工作单位筛选"
+          placeholder="按工作单位筛选"
+          clearable
+          @keyup.enter="handleUnitEnter"
+          @clear="handleSearch"
+        />
+        <el-select v-model="query.relationTypeId" aria-label="关系类型" placeholder="全部关系类型" clearable @change="handleSearch">
+          <el-option v-for="type in relationTypes" :key="type.id" :label="type.name" :value="String(type.id)" />
+        </el-select>
+        <el-select v-model="query.hasRelations" aria-label="有效关系" placeholder="全部关联状态" clearable @change="handleSearch">
+          <el-option label="有有效关系" value="true" />
+          <el-option label="无有效关系" value="false" />
+        </el-select>
+      </div>
+
       <!-- 列宽按 20% / 38% / 17% / 15% / 10% 比例分配：全部用 min-width 让 el-table 按比例吃满容器 -->
       <el-table
         ref="tableRef"
@@ -84,7 +102,6 @@
                 <el-dropdown-menu>
                   <el-dropdown-item v-if="canManage && !showDeleted" command="edit">编辑</el-dropdown-item>
                   <el-dropdown-item v-if="canManage && !showDeleted" command="delete" divided>删除</el-dropdown-item>
-                  <el-dropdown-item v-if="showDeleted" command="archive">打开完整档案</el-dropdown-item>
                   <el-dropdown-item v-if="showDeleted && canManage" command="restore" divided>恢复</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -128,7 +145,7 @@
         </template>
         <template v-else>
           <el-form :model="drawerForm" label-width="80px" class="drawer-form">
-            <el-form-item label="姓名"><el-input v-model="drawerForm.name" maxlength="50" /></el-form-item>
+            <el-form-item label="姓名"><el-input v-model="drawerForm.name" :maxlength="customerLimits?.nameMaxLength" /></el-form-item>
             <el-form-item label="工作单位"><el-input v-model="drawerForm.workUnit" maxlength="100" /></el-form-item>
             <el-form-item label="工作职位"><el-input v-model="drawerForm.workPosition" maxlength="50" /></el-form-item>
             <el-form-item label="现任职务"><el-input v-model="drawerForm.currentDuty" maxlength="50" /></el-form-item>
@@ -142,9 +159,11 @@
           </el-form>
         </template>
       </div>
-      <div class="drawer-section">
+      <div v-if="drawerCustomer.deleted !== 1" class="drawer-section">
         <div class="drawer-section-title">关联人物 <el-button link type="primary" size="small" @click="openDrawerRelationGraph">查看关系网络</el-button></div>
-        <div v-if="drawerRelations.length" class="drawer-relations">
+        <div v-if="drawerRelationsLoading" role="status">正在加载关联人物…</div>
+        <div v-else-if="drawerRelationsFailed" role="status">关联人物加载失败</div>
+        <div v-else-if="drawerRelations.length" class="drawer-relations">
           <div v-for="rel in drawerRelations" :key="rel.id" class="drawer-relation-row">
             <span>{{ rel.otherName }}</span>
             <el-tag size="small" type="info">{{ rel.relationTypeName }}</el-tag>
@@ -156,15 +175,15 @@
         创建人 {{ drawerCustomer.createBy || '—' }} · 创建于 {{ formatDay(drawerCustomer.createTime) }}<template v-if="drawerCustomer.updateTime"> · 更新于 {{ formatDay(drawerCustomer.updateTime) }}</template>
       </div>
       <div class="drawer-footer">
-        <el-button @click="goDetail(drawerCustomer)">打开完整档案</el-button>
-        <el-button v-if="showDeleted && canManage" type="success" @click="handleRestore(drawerCustomer); drawerVisible = false">恢复</el-button>
+        <el-button v-if="drawerCustomer.deleted !== 1" @click="goDetail(drawerCustomer)">打开完整档案</el-button>
+        <el-button v-if="showDeleted && canManage" type="success" @click="handleRestore(drawerCustomer)">恢复</el-button>
       </div>
     </el-drawer>
 
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑客户档案' : '新增客户档案'" width="600px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+    <el-dialog v-model="formVisible" title="新增客户档案" width="600px" destroy-on-close :before-close="closeCreateDialog">
+      <el-form ref="formRef" :model="form" :rules="rules" :disabled="saving" label-width="100px">
         <el-form-item label="客户姓名" prop="name">
-          <el-input v-model="form.name" maxlength="50" placeholder="必填" />
+          <el-input v-model="form.name" :maxlength="customerLimits?.nameMaxLength" placeholder="必填" />
         </el-form-item>
         <el-form-item label="工作单位" prop="workUnit">
           <el-input v-model="form.workUnit" maxlength="100" />
@@ -184,8 +203,8 @@
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" :rows="3" maxlength="500" show-word-limit />
         </el-form-item>
-        <template v-if="!form.id">
-          <el-divider content-position="left">关联已有客户（选填，最多 {{ MAX_RELATIONS }} 行）</el-divider>
+        <template v-if="customerLimits">
+          <el-divider content-position="left">关联已有客户（选填，最多 {{ customerLimits.createRelationLimit }} 行）</el-divider>
           <div v-if="relationRows.length === 0" class="relation-empty">
             <el-button type="primary" plain size="small" @click="addRelationRow">+ 关联客户</el-button>
           </div>
@@ -218,14 +237,42 @@
               <el-input v-model="row.description" maxlength="200" placeholder="选填" />
             </el-form-item>
           </div>
-          <div v-if="relationRows.length > 0 && relationRows.length < MAX_RELATIONS" class="relation-add">
+          <div v-if="relationRows.length > 0 && relationRows.length < customerLimits.createRelationLimit" class="relation-add">
             <el-button type="primary" plain size="small" @click="addRelationRow">+ 再关联一位</el-button>
           </div>
         </template>
+        <div v-else class="ui-desc" role="status">关联额度暂不可用，可先保存基本资料。</div>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
+        <el-button :disabled="saving" @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="duplicatesVisible"
+      title="发现疑似重复客户"
+      width="min(560px, 92vw)"
+      append-to-body
+      destroy-on-close
+      :before-close="closeCreateDialog"
+    >
+      <p>以下有效档案的姓名和工作单位相同。可以打开已有档案，或确认后继续新增。</p>
+      <el-table :data="duplicateCandidates" max-height="300">
+        <el-table-column prop="name" label="姓名" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="workUnit" label="工作单位" min-width="110" show-overflow-tooltip />
+        <el-table-column label="现任职务" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.currentDuty || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="85">
+          <template #default="{ row }">
+            <el-button link type="primary" :disabled="saving" @click="openDuplicate(row)">打开档案</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button :disabled="saving" @click="duplicatesVisible = false">返回编辑</el-button>
+        <el-button type="primary" :loading="saving" @click="confirmDuplicateCreate">仍然新增</el-button>
       </template>
     </el-dialog>
 
@@ -250,11 +297,14 @@ import {
   deleteCustomer,
   restoreCustomer,
   listRelationTypes,
-  getCenterGraph
+  getCenterGraph,
+  getCustomerLimits,
+  findCustomerDuplicates
 } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
 import { useAuthStore } from '../store/auth'
 import { relationDirectionLabel } from '../utils/dict'
+import { customerListQuery } from '../utils/customerListQuery'
 
 const router = useRouter()
 const route = useRoute()
@@ -278,8 +328,13 @@ function queryParam(name) {
 function initListQuery() {
   const page = Number(queryParam('page'))
   const size = Number(queryParam('pageSize'))
+  const typeId = queryParam('relationTypeId')
+  const hasRelations = queryParam('hasRelations')
   return {
     keyword: queryParam('keyword'),
+    workUnit: queryParam('workUnit'),
+    relationTypeId: /^[1-9][0-9]*$/.test(typeId) && Number.isSafeInteger(Number(typeId)) ? typeId : '',
+    hasRelations: (hasRelations === 'true' || hasRelations === 'false') ? hasRelations : '',
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: PAGE_SIZES.includes(size) ? size : 10
   }
@@ -290,21 +345,25 @@ const authStore = useAuthStore()
 const canManage = computed(() => authStore.hasPermission('customer:manage'))
 
 const loading = ref(false)
+let listRequestVersion = 0
 const rows = ref([])
 const total = ref(0)
 // 已删除视图仅 canManage 可见；无权限账号即使 URL 带 deleted=1 也忽略，避免触发 403
 const showDeleted = ref(canManage.value && queryParam('deleted') === '1')
-const query = reactive({ ...initListQuery(), deleted: 0 })
+const query = reactive(initListQuery())
 
 /** 列表查询状态写回 URL：只 replace 不 push，返回列表时可还原搜索词/页码/视图 */
 function syncRouteQuery() {
   const next = {
     keyword: query.keyword || undefined,
+    workUnit: query.workUnit.trim() || undefined,
+    relationTypeId: query.relationTypeId || undefined,
+    hasRelations: query.hasRelations || undefined,
     page: query.page > 1 ? String(query.page) : undefined,
     pageSize: query.pageSize !== 10 ? String(query.pageSize) : undefined,
     deleted: canManage.value && showDeleted.value ? '1' : undefined
   }
-  const same = ['keyword', 'page', 'pageSize', 'deleted'].every((k) => {
+  const same = Object.keys(next).every((k) => {
     const cur = route.query[k]
     const curStr = Array.isArray(cur) ? cur[0] || '' : cur || ''
     return String(curStr) === String(next[k] || '')
@@ -316,6 +375,9 @@ function syncRouteQuery() {
 const drawerVisible = ref(false)
 const drawerCustomer = ref({})
 const drawerRelations = ref([])
+const drawerRelationsLoading = ref(false)
+const drawerRelationsFailed = ref(false)
+let drawerRequestVersion = 0
 const drawerEditing = ref(false)
 const drawerSaving = ref(false)
 const drawerForm = reactive({ name: '', workUnit: '', workPosition: '', currentDuty: '', workLevel: '', preferences: '', remark: '' })
@@ -326,24 +388,37 @@ function formatDay(value) {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : String(value).slice(0, 10)
 }
 
-function openDrawer(row) {
+async function openDrawer(row) {
+  const requestVersion = ++drawerRequestVersion
   drawerCustomer.value = { ...row }
   drawerRelations.value = []
+  drawerRelationsLoading.value = row.deleted !== 1
+  drawerRelationsFailed.value = false
   drawerEditing.value = false
   drawerVisible.value = true
-  // 行点击即视为选中：表格给该行蓝色高亮
   tableRef.value?.setCurrentRow(row)
-  getCenterGraph(row.id).then((graph) => {
-    const nodeNames = {}
-    for (const n of graph?.nodes || []) nodeNames[n.id] = n.name
-    drawerRelations.value = (graph?.links || []).map((link) => ({
-      id: link.id,
-      otherName: nodeNames[link.source] === drawerCustomer.value.name || link.source === drawerCustomer.value.id
-        ? (nodeNames[link.target] || '—')
-        : (nodeNames[link.source] || '—'),
-      relationTypeName: link.relationTypeName || '—'
-    }))
-  }).catch(() => {})
+  if (row.deleted === 1) return
+
+  try {
+    const graph = await getCenterGraph(row.id)
+    if (requestVersion !== drawerRequestVersion || !drawerVisible.value) return
+    const nodeNames = new Map((graph?.nodes || []).map((node) => [String(node.id), node.name]))
+    const customerId = String(row.id)
+    drawerRelations.value = (graph?.links || []).map((link) => {
+      const otherId = String(link.source) === customerId ? link.target : link.source
+      return {
+        id: link.id,
+        otherName: nodeNames.get(String(otherId)) || '—',
+        relationTypeName: link.relationTypeName || '—'
+      }
+    })
+  } catch {
+    if (requestVersion === drawerRequestVersion && drawerVisible.value) {
+      drawerRelationsFailed.value = true
+    }
+  } finally {
+    if (requestVersion === drawerRequestVersion) drawerRelationsLoading.value = false
+  }
 }
 
 function startDrawerEdit() {
@@ -364,6 +439,7 @@ async function saveDrawer() {
     ElMessage.warning('客户姓名不能为空')
     return
   }
+  const requestVersion = drawerRequestVersion
   drawerSaving.value = true
   try {
     const payload = {
@@ -375,10 +451,12 @@ async function saveDrawer() {
       preferences: drawerForm.preferences?.trim() || '',
       remark: drawerForm.remark?.trim() || ''
     }
-    await updateCustomer(drawerCustomer.value.id, payload)
+    const saved = await updateCustomer(drawerCustomer.value.id, payload)
     ElMessage.success('保存成功')
-    drawerCustomer.value = { ...drawerCustomer.value, ...payload }
-    drawerEditing.value = false
+    if (requestVersion === drawerRequestVersion && drawerVisible.value) {
+      drawerCustomer.value = { ...drawerCustomer.value, ...saved }
+      drawerEditing.value = false
+    }
     loadList()
   } catch (e) {
     proxy.$message.error(e?.message || '保存失败')
@@ -391,10 +469,6 @@ function handleRowCommand(cmd, row) {
   if (cmd === 'edit') {
     openDrawer(row)
     startDrawerEdit()
-    return
-  }
-  if (cmd === 'archive') {
-    goDetail(row)
     return
   }
   if (cmd === 'restore') {
@@ -413,16 +487,29 @@ function handleRowCommand(cmd, row) {
 }
 
 const formVisible = ref(false)
+const duplicatesVisible = ref(false)
+const duplicateCandidates = ref([])
+const pendingDuplicate = ref(null)
+
+function closeCreateDialog(done) {
+  if (!saving.value) done()
+}
+
+function openDuplicate(row) {
+  duplicatesVisible.value = false
+  formVisible.value = false
+  goDetail(row)
+}
 const saving = ref(false)
 const formRef = ref()
-const emptyForm = { id: null, name: '', workUnit: '', workPosition: '', workLevel: '', currentDuty: '', preferences: '', remark: '' }
+const emptyForm = { name: '', workUnit: '', workPosition: '', workLevel: '', currentDuty: '', preferences: '', remark: '' }
 const form = reactive({ ...emptyForm })
 const rules = {
   name: [{ required: true, message: '请输入客户姓名', trigger: 'blur' }]
 }
 
 // 关联已有客户（仅新建）
-const MAX_RELATIONS = 10
+const customerLimits = ref(null)
 const relationRows = ref([])
 const relationTypes = ref([])
 const targetSelectVisible = ref(false)
@@ -443,8 +530,10 @@ function isDirectedType(typeId) {
 }
 
 function addRelationRow() {
-  if (relationRows.value.length >= MAX_RELATIONS) {
-    ElMessage.warning(`最多关联 ${MAX_RELATIONS} 位客户`)
+  const limit = customerLimits.value?.createRelationLimit
+  if (limit == null) return
+  if (relationRows.value.length >= limit) {
+    ElMessage.warning(`最多关联 ${limit} 位客户`)
     return
   }
   relationRows.value.push({ targetCustomerId: null, targetName: '', relationTypeId: null, direction: 'NEW_TO_TARGET', description: '' })
@@ -467,21 +556,26 @@ function onTargetSelect(customer) {
 }
 
 async function loadList() {
+  const version = ++listRequestVersion
   syncRouteQuery()
   loading.value = true
   try {
     const res = await listCustomers({
       keyword: query.keyword || undefined,
+      workUnit: query.workUnit.trim() || undefined,
+      relationTypeId: query.relationTypeId || undefined,
+      hasRelations: query.hasRelations || undefined,
       deleted: canManage.value && showDeleted.value ? 1 : 0,
       page: query.page,
       pageSize: query.pageSize
     })
+    if (version !== listRequestVersion) return
     rows.value = res?.items || []
     total.value = res?.total || 0
   } catch (e) {
-    proxy.$message.error(e?.message || '加载客户列表失败')
+    if (version === listRequestVersion) proxy.$message.error(e?.message || '加载客户列表失败')
   } finally {
-    loading.value = false
+    if (version === listRequestVersion) loading.value = false
   }
 }
 
@@ -490,8 +584,15 @@ function handleSearch() {
   loadList()
 }
 
+function handleUnitEnter(event) {
+  if (!event.isComposing) handleSearch()
+}
+
 function resetQuery() {
   query.keyword = ''
+  query.workUnit = ''
+  query.relationTypeId = ''
+  query.hasRelations = ''
   query.page = 1
   loadList()
 }
@@ -502,22 +603,29 @@ function handleSwitchDeleted() {
     showDeleted.value = false
     return
   }
+  drawerVisible.value = false
   query.page = 1
   loadList()
 }
 
 function openCreate() {
+  pendingDuplicate.value = null
+  if (!customerLimits.value) {
+    getCustomerLimits().then((limits) => { customerLimits.value = limits }).catch(() => {})
+  }
   Object.assign(form, emptyForm)
   relationRows.value = []
   formVisible.value = true
 }
 
 async function handleSave() {
+  if (saving.value) return
   try {
     await formRef.value.validate()
   } catch {
     return
   }
+  if (saving.value) return
   const pendingRelations = relationRows.value.filter((r) => r.targetCustomerId)
   for (const r of pendingRelations) {
     if (!r.relationTypeId) {
@@ -536,22 +644,44 @@ async function handleSave() {
       preferences: form.preferences?.trim() || '',
       remark: form.remark?.trim() || ''
     }
-    if (form.id) {
-      await updateCustomer(form.id, payload)
-    } else {
-      if (pendingRelations.length) {
-        payload.relations = pendingRelations.map((r) => ({
-          targetCustomerId: r.targetCustomerId,
-          relationTypeId: r.relationTypeId,
-          direction: isDirectedType(r.relationTypeId) ? r.direction : undefined,
-          description: r.description?.trim() || ''
-        }))
-      }
-      await createCustomer(payload)
+    if (pendingRelations.length) {
+      payload.relations = pendingRelations.map((r) => ({
+        targetCustomerId: r.targetCustomerId,
+        relationTypeId: r.relationTypeId,
+        direction: isDirectedType(r.relationTypeId) ? r.direction : undefined,
+        description: r.description?.trim() || ''
+      }))
     }
-    ElMessage.success(form.id ? '保存成功' : '新增成功')
-    formVisible.value = false
-    loadList()
+    if (payload.workUnit) {
+      const candidates = await findCustomerDuplicates({ name: payload.name, workUnit: payload.workUnit })
+      if (candidates?.length) {
+        duplicateCandidates.value = candidates
+        pendingDuplicate.value = payload
+        duplicatesVisible.value = true
+        return
+      }
+    }
+    await submitNewCustomer(payload)
+  } catch (e) {
+    proxy.$message.error(e?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function submitNewCustomer(payload) {
+  await createCustomer(payload)
+  duplicatesVisible.value = false
+  formVisible.value = false
+  ElMessage.success('新增成功')
+  loadList()
+}
+
+async function confirmDuplicateCreate() {
+  if (!pendingDuplicate.value || saving.value) return
+  saving.value = true
+  try {
+    await submitNewCustomer(pendingDuplicate.value)
   } catch (e) {
     proxy.$message.error(e?.message || '保存失败')
   } finally {
@@ -573,6 +703,9 @@ async function handleRestore(row) {
   try {
     await restoreCustomer(row.id)
     ElMessage.success('已恢复')
+    if (drawerCustomer.value.id === row.id && drawerCustomer.value.deleted === 1) {
+      drawerVisible.value = false
+    }
     loadList()
   } catch (e) {
     proxy.$message.error(e?.message || '恢复失败')
@@ -580,11 +713,11 @@ async function handleRestore(row) {
 }
 
 function goDetail(row) {
-  router.push(`/knowledge-planet/customer-detail/${row.id}`)
+  router.push({ name: 'customer-detail', params: { id: row.id }, query: customerListQuery(route.query) })
 }
 
 function goRelationGraph() {
-  router.push('/knowledge-planet/customer-relation-graph')
+  router.push({ name: 'customer-relation-graph', query: customerListQuery(route.query) })
 }
 
 /** 进入指定客户的关系网络中心视图（列表关系列 / 抽屉共用入口） */
@@ -592,7 +725,7 @@ function goCustomerRelationGraph(customer) {
   if (!customer?.id) return
   router.push({
     path: '/knowledge-planet/customer-relation-graph',
-    query: { customerId: String(customer.id), customerName: customer.name || '' }
+    query: { ...customerListQuery(route.query), customerId: String(customer.id), customerName: customer.name || '' }
   })
 }
 
@@ -610,8 +743,11 @@ function goRelationTypeManage() {
   router.push('/knowledge-planet/customer-relation-type-manage')
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadList()
+  if (canManage.value) {
+    getCustomerLimits().then((limits) => { customerLimits.value = limits }).catch(() => {})
+  }
   listRelationTypes()
     .then((res) => {
       relationTypes.value = res || []
@@ -621,6 +757,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.customer-filters {
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.customer-filters > * {
+  flex: 0 1 200px;
+}
+
 /* 详情抽屉（Owner 2026-11-09 规范） */
 .customer-avatar {
   display: inline-flex;

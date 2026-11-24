@@ -69,6 +69,14 @@ AIGC:
 
 下表仅详列**早期核心表**（25 张）的字段说明；合规 / 项目 / 供应商扩展 / 客户等后续模块请直接查看 `backend/src/main/java/com/jshz/expert/entity/` 与 `database/migration/` 对应脚本。
 
+### 客户档案与关系
+
+客户列表在分页前按单位和有效关系筛选。关系图定位使用全部有效档案的姓名或单位搜索，并打开所选客户的一度关系圈。新增档案前可按姓名和单位查询疑似重复。客户任职履历存于 customer_employment，每条记录归属一个客户，单位、职务及年月独立于档案基本资料。履历读取要求登录，维护要求 customer:manage。详见 [客户信息四项需求交接](handover/tasks/20261124_customer_info_features.md)。
+
+
+客户资料更新将显式提交的空字符串或纯空白保存为数据库空值，省略的可选字段保留原值。列表关系摘要与中心关系圈仅展示两端档案均有效的关系。已删除档案在维护人的回收站提供只读摘要和恢复。表单上限由客户接口提供，新增档案附带的关系在档案创建事务内校验和写入。接口和验证步骤见 [客户信息修复交接](handover/tasks/20261124_customer_info_fixes.md)。
+
+
 | 表 | 说明 | 关键字段 |
 | --- | --- | --- |
 | `expert_info` | 专家主表（18 字段） | id、name、unit、department、title、research_direction、expertise_area、contact、profile、id_card、bank_card、photo、bank_branch、id_card_front、id_card_back、create_time、update_time、update_by |

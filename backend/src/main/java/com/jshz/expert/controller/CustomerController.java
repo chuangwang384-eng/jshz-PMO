@@ -5,6 +5,9 @@ import com.jshz.expert.common.ApiResponse;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.PageResult;
 import com.jshz.expert.dto.CustomerForm;
+import com.jshz.expert.dto.CustomerEmploymentForm;
+import com.jshz.expert.entity.CustomerEmployment;
+import com.jshz.expert.service.CustomerEmploymentService;
 import com.jshz.expert.dto.CustomerRelationForm;
 import com.jshz.expert.dto.CustomerRelationTypeForm;
 import com.jshz.expert.entity.Customer;
@@ -55,6 +58,7 @@ import java.util.Map;
 public class CustomerController {
 
     private final CustomerService customerService;
+    private final CustomerEmploymentService employmentService;
     private final CustomerRelationService relationService;
     private final CustomerAttachmentStorageService attachmentStorageService;
     private final OperationLogService operationLogService;
@@ -78,11 +82,14 @@ public class CustomerController {
 
     /**
      * 分页检索：GET /api/customer?keyword=&deleted=&page=&pageSize=。登录即可。
-     * deleted 可选：0=正常（默认）；1=已删除（仅维护人可查，用于恢复）；不传=全部。
+     * deleted 可选：0=正常（默认）；1=已删除（仅维护人可查，用于恢复）；不传按正常档案查询。
      */
     @GetMapping
     public ApiResponse<PageResult<Map<String, Object>>> list(@RequestParam(required = false) String keyword,
                                                   @RequestParam(required = false) Integer deleted,
+                                                  @RequestParam(required = false) String workUnit,
+                                                  @RequestParam(required = false) Long relationTypeId,
+                                                  @RequestParam(required = false) Boolean hasRelations,
                                                   @RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "20") long pageSize,
                                                   @AuthenticationPrincipal AuthUser authUser) {
@@ -90,7 +97,7 @@ public class CustomerController {
         if (deleted != null && deleted == 1) {
             requireManage(authUser);
         }
-        Page<Customer> p = customerService.pageList(keyword, deleted, page, pageSize);
+        Page<Customer> p = customerService.pageList(keyword, deleted, workUnit, relationTypeId, hasRelations, page, pageSize);
         // 列表项 = 客户字段 + relationCount（关联关系列摘要）
         Map<Long, Long> relationCounts = relationService.countByCustomerIds(
                 p.getRecords().stream().map(Customer::getId).toList());
@@ -102,6 +109,69 @@ public class CustomerController {
             items.add(item);
         }
         return ApiResponse.ok(PageResult.of(p.getTotal(), items));
+    }
+
+    @GetMapping("/duplicates")
+    public ApiResponse<List<Customer>> duplicates(@RequestParam String name,
+                                                   @RequestParam String workUnit,
+                                                   @AuthenticationPrincipal AuthUser authUser) {
+        requireManage(authUser);
+        return ApiResponse.ok(customerService.findDuplicates(name, workUnit));
+    }
+
+    @GetMapping("/{id}/employment")
+    public ApiResponse<List<CustomerEmployment>> employment(@PathVariable Long id,
+                                                             @AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        return ApiResponse.ok(employmentService.list(id));
+    }
+
+    @PostMapping("/{id}/employment")
+    public ApiResponse<CustomerEmployment> createEmployment(@PathVariable Long id,
+                                                              @RequestBody CustomerEmploymentForm form,
+                                                              @AuthenticationPrincipal AuthUser authUser,
+                                                              HttpServletRequest request) {
+        requireManage(authUser);
+        CustomerEmployment entry = employmentService.save(id, null, form);
+        logEmployment("CREATE_CUSTOMER_EMPLOYMENT", "新增客户任职记录", id, entry.getId(), authUser, request);
+        return ApiResponse.ok(entry);
+    }
+
+    @PutMapping("/{id}/employment/{employmentId}")
+    public ApiResponse<CustomerEmployment> updateEmployment(@PathVariable Long id,
+                                                              @PathVariable Long employmentId,
+                                                              @RequestBody CustomerEmploymentForm form,
+                                                              @AuthenticationPrincipal AuthUser authUser,
+                                                              HttpServletRequest request) {
+        requireManage(authUser);
+        CustomerEmployment entry = employmentService.save(id, employmentId, form);
+        logEmployment("UPDATE_CUSTOMER_EMPLOYMENT", "编辑客户任职记录", id, employmentId, authUser, request);
+        return ApiResponse.ok(entry);
+    }
+
+    @DeleteMapping("/{id}/employment/{employmentId}")
+    public ApiResponse<Void> deleteEmployment(@PathVariable Long id, @PathVariable Long employmentId,
+                                               @AuthenticationPrincipal AuthUser authUser,
+                                               HttpServletRequest request) {
+        requireManage(authUser);
+        employmentService.delete(id, employmentId);
+        logEmployment("DELETE_CUSTOMER_EMPLOYMENT", "删除客户任职记录", id, employmentId, authUser, request);
+        return ApiResponse.ok();
+    }
+
+    private void logEmployment(String action, String description, Long customerId, Long employmentId,
+                               AuthUser authUser, HttpServletRequest request) {
+        operationLogService.record(userId(authUser), username(authUser), action,
+                description + "（记录 ID " + employmentId + "）", "CUSTOMER", customerId, request);
+    }
+
+    /** 客户表单使用的业务限额。 */
+    @GetMapping("/limits")
+    public ApiResponse<Map<String, Integer>> limits(@AuthenticationPrincipal AuthUser authUser) {
+        requireUser(authUser);
+        return ApiResponse.ok(Map.of(
+                "nameMaxLength", CustomerService.NAME_MAX_LENGTH,
+                "createRelationLimit", CustomerService.CREATE_RELATION_LIMIT));
     }
 
     /**
@@ -284,7 +354,7 @@ public class CustomerController {
 
     /**
      * 搜索可选目标客户：GET /api/customer/relations/search-targets?customerId=&keyword=&page=&pageSize=。
-     * 排除自身与已建立关系的客户（含双向/无向互见），供连线模式与新建档案关联搜索使用。
+     * 排除自身，保留已有关系的客户以便添加其他类型或方向，供连线模式与新建档案关联搜索使用。
      * customerId 可为空（新建档案关联场景）：返回全部未软删客户。登录即可。
      */
     @GetMapping("/relations/search-targets")
@@ -292,9 +362,10 @@ public class CustomerController {
                                                            @RequestParam(required = false) String keyword,
                                                            @RequestParam(defaultValue = "1") long page,
                                                            @RequestParam(defaultValue = "20") long pageSize,
-                                                           @AuthenticationPrincipal AuthUser authUser) {
+                                                           @RequestParam(defaultValue = "false") boolean identityOnly,
+                                                         @AuthenticationPrincipal AuthUser authUser) {
         requireUser(authUser);
-        Page<Customer> p = relationService.searchTargets(customerId, keyword, page, pageSize);
+        Page<Customer> p = relationService.searchTargets(customerId, keyword, identityOnly, page, pageSize);
         return ApiResponse.ok(PageResult.of(p));
     }
 

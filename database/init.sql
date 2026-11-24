@@ -495,6 +495,18 @@ CREATE TABLE IF NOT EXISTS `customer_attachment` (
   KEY `idx_customer_id` (`customer_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='客户档案附件表';
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE IF NOT EXISTS `customer_employment` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `customer_id` bigint NOT NULL,
+  `work_unit` varchar(255) NOT NULL,
+  `position` varchar(255) NOT NULL,
+  `start_month` char(7) DEFAULT NULL COMMENT 'YYYY-MM，空表示未知',
+  `end_month` char(7) DEFAULT NULL COMMENT 'YYYY-MM，空表示至今',
+  PRIMARY KEY (`id`),
+  KEY `idx_customer_employment_order` (`customer_id`,`start_month`,`id`),
+  CONSTRAINT `fk_customer_employment_customer` FOREIGN KEY (`customer_id`) REFERENCES `customer` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='客户任职履历';
+
 CREATE TABLE IF NOT EXISTS `customer_relation` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `from_customer_id` bigint NOT NULL COMMENT '关系起点客户ID customer.id',

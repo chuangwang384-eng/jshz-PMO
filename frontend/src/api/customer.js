@@ -13,6 +13,11 @@ export function listCustomers(params) {
   return request.get('/customer', { params })
 }
 
+// 客户表单限额
+export function getCustomerLimits() {
+  return request.get('/customer/limits')
+}
+
 // 客户详情
 export function getCustomer(id) {
   return request.get(`/customer/${id}`)
@@ -78,7 +83,7 @@ export function getNetworkGraph() {
   return request.get('/customer/relations/network')
 }
 
-// 搜索可选目标客户（customerId 必传时排除自身与已关联客户；为空返回全部未软删客户）
+// 搜索可选目标客户（customerId 必传时排除自身；为空返回全部未软删客户）
 export function searchTargets(params) {
   return request.get('/customer/relations/search-targets', { params })
 }
@@ -91,4 +96,22 @@ export function createRelation(data) {
 // 删除关系（customer:manage）
 export function deleteRelation(id) {
   return request.delete(`/customer/relations/${id}`)
+}
+
+// 疑似重复档案（customer:manage）
+export function findCustomerDuplicates(params) {
+  return request.get('/customer/duplicates', { params })
+}
+
+export function listCustomerEmployment(customerId) {
+  return request.get('/customer/' + customerId + '/employment')
+}
+
+export function saveCustomerEmployment(customerId, entryId, data) {
+  const base = '/customer/' + customerId + '/employment'
+  return entryId == null ? request.post(base, data) : request.put(base + '/' + entryId, data)
+}
+
+export function deleteCustomerEmployment(customerId, entryId) {
+  return request.delete('/customer/' + customerId + '/employment/' + entryId)
 }

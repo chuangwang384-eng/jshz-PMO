@@ -25,6 +25,8 @@
       </el-descriptions>
     </el-card>
 
+    <CustomerEmploymentHistory v-if="customer.id === customerId" :key="customerId" :customer-id="customerId" :can-manage="canManage" />
+
     <el-card shadow="never" class="attach-card">
       <template #header>
         <div class="card-header">
@@ -83,9 +85,9 @@
       <el-empty v-if="!graphLoading && nodes.length === 0" description="暂无关系，可在连线模式下建立" />
     </el-card>
 
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑客户档案' : '新增客户档案'" width="600px" destroy-on-close>
+    <el-dialog v-model="formVisible" title="编辑客户档案" width="600px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="客户姓名" prop="name"><el-input v-model="form.name" maxlength="50" /></el-form-item>
+        <el-form-item label="客户姓名" prop="name"><el-input v-model="form.name" :maxlength="customerLimits?.nameMaxLength" /></el-form-item>
         <el-form-item label="工作单位" prop="workUnit"><el-input v-model="form.workUnit" maxlength="100" /></el-form-item>
         <el-form-item label="工作职位" prop="workPosition"><el-input v-model="form.workPosition" maxlength="50" /></el-form-item>
         <el-form-item label="工作职级" prop="workLevel"><el-input v-model="form.workLevel" maxlength="50" /></el-form-item>
@@ -136,6 +138,7 @@ import * as echarts from 'echarts'
 import { useAuthStore } from '../store/auth'
 import {
   getCustomer,
+  getCustomerLimits,
   updateCustomer,
   listCustomerAttachments,
   uploadCustomerAttachment,
@@ -147,6 +150,8 @@ import {
   deleteRelation
 } from '../api/customer'
 import CustomerSelectDialog from '../components/CustomerSelectDialog.vue'
+import CustomerEmploymentHistory from '../components/CustomerEmploymentHistory.vue'
+import { customerListQuery } from '../utils/customerListQuery'
 import { relationDirectionLabel } from '../utils/dict'
 
 const route = useRoute()
@@ -157,6 +162,7 @@ const canManage = computed(() => authStore.hasPermission('customer:manage'))
 
 const customerId = computed(() => Number(route.params.id))
 const customer = ref({})
+const customerLimits = ref(null)
 const attachments = ref([])
 const uploading = ref(false)
 
@@ -184,13 +190,6 @@ function directionOf(typeId) {
   return relationTypes.value.find((x) => x.id === typeId)?.direction || 'DIRECTED'
 }
 
-function edgeSymbolOf(typeId) {
-  const d = directionOf(typeId)
-  if (d === 'BIDIRECTED') return ['arrow', 'arrow']
-  if (d === 'UNDIRECTED') return ['none', 'none']
-  return ['none', 'arrow']
-}
-
 function edgeSymbolOfLink(l) {
   const d = l.relationDirection || directionOf(l.relationTypeId)
   if (d === 'BIDIRECTED') return ['arrow', 'arrow']
@@ -201,7 +200,7 @@ function edgeSymbolOfLink(l) {
 const formVisible = ref(false)
 const saving = ref(false)
 const formRef = ref()
-const emptyForm = { id: null, name: '', workUnit: '', workPosition: '', workLevel: '', currentDuty: '', preferences: '', remark: '' }
+const emptyForm = { name: '', workUnit: '', workPosition: '', workLevel: '', currentDuty: '', preferences: '', remark: '' }
 const form = reactive({ ...emptyForm })
 const rules = {
   name: [{ required: true, message: '请输入客户姓名', trigger: 'blur' }]
@@ -211,7 +210,6 @@ async function loadDetail() {
   try {
     const res = await getCustomer(customerId.value)
     customer.value = res || {}
-    Object.assign(form, emptyForm, customer.value)
   } catch (e) {
     proxy.$message.error(e?.message || '加载客户详情失败')
   }
@@ -325,7 +323,7 @@ function handleNodeClick(node) {
     return
   }
   if (nodeId !== customerId.value) {
-    router.push(`/knowledge-planet/customer-detail/${nodeId}`)
+    router.push({ name: 'customer-detail', params: { id: nodeId }, query: customerListQuery(route.query) })
   }
 }
 
@@ -496,7 +494,7 @@ async function handleSave() {
 }
 
 function goBack() {
-  router.push('/knowledge-planet/customer-info')
+  router.push({ name: 'customer-info', query: customerListQuery(route.query) })
 }
 
 function goRelationTypeManage() {
@@ -522,6 +520,9 @@ watch(customerId, () => {
 })
 
 onMounted(async () => {
+  if (canManage.value) {
+    getCustomerLimits().then((limits) => { customerLimits.value = limits }).catch(() => {})
+  }
   await Promise.all([loadDetail(), loadAttachments()])
   relationTypes.value = await listRelationTypes().catch(() => [])
   initChart()

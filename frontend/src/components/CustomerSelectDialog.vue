@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="选择目标客户"
+    :title="identityOnly ? '定位客户' : '选择目标客户'"
     width="540px"
     append-to-body
     destroy-on-close
@@ -10,11 +10,16 @@
     <div class="select-dialog">
       <el-input
         v-model="keyword"
-        placeholder="搜索客户姓名/单位/职位/职级/职务/喜好"
+        :placeholder="identityOnly ? '搜索客户姓名或单位' : '搜索客户姓名/单位/职位/职级/职务/喜好'"
+        :aria-label="identityOnly ? '客户姓名或单位' : '搜索目标客户'"
         clearable
-        @keyup.enter="handleSearch"
+        @keyup.enter="handleEnter"
         @clear="handleSearch"
-      />
+      >
+        <template #append>
+          <el-button @click="handleSearch">搜索</el-button>
+        </template>
+      </el-input>
       <div v-loading="loading" class="target-list">
         <div
           v-for="row in rows"
@@ -29,7 +34,7 @@
             <el-tag v-if="row.workLevel" type="warning" size="small">{{ row.workLevel }}</el-tag>
           </div>
           <el-tag v-if="isExcluded(row.id)" type="info" size="small">已选择</el-tag>
-          <el-button v-else link type="primary" size="small">选择</el-button>
+          <el-button v-else link type="primary" size="small" @click.stop="pickTarget(row)">{{ identityOnly ? '定位' : '选择' }}</el-button>
         </div>
         <el-empty v-if="!loading && rows.length === 0" description="暂无可选客户" :image-size="60" />
       </div>
@@ -53,6 +58,7 @@ import { searchTargets } from '../api/customer'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  identityOnly: { type: Boolean, default: false },
   /** 当前客户ID；为空表示新建档案关联场景，返回全部未软删客户 */
   customerId: { type: Number, default: null },
   /** 额外排除的客户ID（前端过滤已选行） */
@@ -67,11 +73,14 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 10
 const loading = ref(false)
+let requestVersion = 0
 
 watch(
   () => props.modelValue,
   (v) => {
     if (v) {
+      rows.value = []
+      total.value = 0
       keyword.value = ''
       page.value = 1
       loadList()
@@ -80,21 +89,28 @@ watch(
 )
 
 async function loadList() {
+  const version = ++requestVersion
   loading.value = true
   try {
     const res = await searchTargets({
       customerId: props.customerId || undefined,
+      identityOnly: props.identityOnly || undefined,
       keyword: keyword.value || undefined,
       page: page.value,
       pageSize
     })
+    if (version !== requestVersion || !props.modelValue) return
     rows.value = res?.items || []
     total.value = res?.total || 0
   } catch (e) {
-    proxy.$message.error(e?.message || '加载目标客户失败')
+    if (version === requestVersion && props.modelValue) proxy.$message.error(e?.message || '加载目标客户失败')
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
+}
+
+function handleEnter(event) {
+  if (!event.isComposing) handleSearch()
 }
 
 function handleSearch() {

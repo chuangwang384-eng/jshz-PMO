@@ -190,26 +190,48 @@ public class CustomerRelationService {
 
     // ==================== 关系图数据 ====================
 
-    /**
-     * 以某客户为中心的关系圈脑图：
-     * center 中心节点；nodes 中心 + 直接邻居（去重）；links 中心相关的全部有向关系。
-     */
-    /** 按客户 ID 批量统计关系数（客户作为任一端均计一次），供列表"关联关系"列使用。 */
+    /** 统计两端均有效的关系，分页列表与中心关系圈使用相同的可见范围。 */
     public Map<Long, Long> countByCustomerIds(java.util.Collection<Long> customerIds) {
-        if (customerIds == null || customerIds.isEmpty()) return java.util.Map.of();
-        List<CustomerRelation> rels = relationMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<CustomerRelation>()
-                .and(w -> w.in(CustomerRelation::getFromCustomerId, customerIds)
-                        .or().in(CustomerRelation::getToCustomerId, customerIds)));
-        Map<Long, Long> counts = new java.util.LinkedHashMap<>();
-        for (CustomerRelation r : rels) {
-            counts.merge(r.getFromCustomerId(), 1L, Long::sum);
-            if (!r.getFromCustomerId().equals(r.getToCustomerId())) {
-                counts.merge(r.getToCustomerId(), 1L, Long::sum);
+        if (customerIds == null || customerIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> pageIds = new HashSet<>(customerIds);
+        List<CustomerRelation> relations = relationMapper.selectList(new LambdaQueryWrapper<CustomerRelation>()
+                .and(w -> w.in(CustomerRelation::getFromCustomerId, pageIds)
+                        .or().in(CustomerRelation::getToCustomerId, pageIds)));
+        if (relations.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> endpointIds = new HashSet<>();
+        for (CustomerRelation relation : relations) {
+            endpointIds.add(relation.getFromCustomerId());
+            endpointIds.add(relation.getToCustomerId());
+        }
+        Set<Long> activeIds = new HashSet<>();
+        for (Customer customer : customerMapper.selectList(new LambdaQueryWrapper<Customer>()
+                .select(Customer::getId)
+                .in(Customer::getId, endpointIds)
+                .and(w -> w.ne(Customer::getDeleted, 1).or().isNull(Customer::getDeleted)))) {
+            activeIds.add(customer.getId());
+        }
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (CustomerRelation relation : relations) {
+            Long from = relation.getFromCustomerId();
+            Long to = relation.getToCustomerId();
+            if (!activeIds.contains(from) || !activeIds.contains(to)) {
+                continue;
+            }
+            if (pageIds.contains(from)) {
+                counts.merge(from, 1L, Long::sum);
+            }
+            if (!from.equals(to) && pageIds.contains(to)) {
+                counts.merge(to, 1L, Long::sum);
             }
         }
         return counts;
     }
 
+    /** 以指定客户为中心，返回客户及其一度关系。 */
     public Map<String, Object> centerGraph(Long customerId) {
         Customer center = visibleCustomer(customerId);
         List<CustomerRelation> all = relationMapper.selectList(new LambdaQueryWrapper<CustomerRelation>()
@@ -256,13 +278,17 @@ public class CustomerRelationService {
 
     /**
      * 全局关系网络脑图：全部未软删客户 + 两端均未软删的有向关系。
-     * 超过 500 客户时截断并给出提示，避免前端渲染卡顿。
+     * 超过节点上限时截断并给出提示，避免前端渲染卡顿。
      */
     public Map<String, Object> networkGraph() {
         List<Customer> customers = customerMapper.selectList(new LambdaQueryWrapper<Customer>()
                 .eq(Customer::getDeleted, 0)
                 .orderByAsc(Customer::getId)
-                .last("LIMIT " + NETWORK_NODE_LIMIT));
+                .last("LIMIT " + (NETWORK_NODE_LIMIT + 1)));
+        boolean truncated = customers.size() > NETWORK_NODE_LIMIT;
+        if (truncated) {
+            customers = customers.subList(0, NETWORK_NODE_LIMIT);
+        }
         Set<Long> ids = new HashSet<>();
         for (Customer c : customers) {
             ids.add(c.getId());
@@ -296,43 +322,42 @@ public class CustomerRelationService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("nodes", nodes);
         data.put("links", links);
-        data.put("truncated", customers.size() >= NETWORK_NODE_LIMIT);
+        data.put("truncated", truncated);
         return data;
     }
 
     // ==================== 目标客户搜索 ====================
 
     /**
-     * 搜索可选目标客户：排除自身与已建立关系的客户（含双向/无向互见），支持关键字分页。
+     * 搜索可选目标客户：排除自身，支持关键字分页。已有关系按类型和方向在创建时判重。
      * customerId 为空时（新建档案关联场景，尚无自身 id）返回全部未软删客户。
      */
     public Page<Customer> searchTargets(Long customerId, String keyword, long page, long pageSize) {
+        return searchTargets(customerId, keyword, false, page, pageSize);
+    }
+
+    public Page<Customer> searchTargets(Long customerId, String keyword, boolean identityOnly,
+                                         long page, long pageSize) {
         LambdaQueryWrapper<Customer> qw = new LambdaQueryWrapper<>();
         qw.eq(Customer::getDeleted, 0);
         if (customerId != null) {
             visibleCustomer(customerId);
-            Set<Long> excludeIds = new HashSet<>();
-            excludeIds.add(customerId);
-            List<CustomerRelation> relations = relationMapper.selectList(new LambdaQueryWrapper<CustomerRelation>()
-                    .and(w -> w.eq(CustomerRelation::getFromCustomerId, customerId)
-                            .or().eq(CustomerRelation::getToCustomerId, customerId)));
-            for (CustomerRelation r : relations) {
-                excludeIds.add(r.getFromCustomerId());
-                excludeIds.add(r.getToCustomerId());
-            }
-            qw.notIn(Customer::getId, excludeIds);
+            qw.ne(Customer::getId, customerId);
         }
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
-            qw.and(w -> w.like(Customer::getName, kw)
-                    .or().like(Customer::getWorkUnit, kw)
-                    .or().like(Customer::getWorkPosition, kw)
-                    .or().like(Customer::getWorkLevel, kw)
-                    .or().like(Customer::getCurrentDuty, kw)
-                    .or().like(Customer::getPreferences, kw)
-                    .or().like(Customer::getRemark, kw));
+            qw.and(w -> {
+                w.like(Customer::getName, kw).or().like(Customer::getWorkUnit, kw);
+                if (!identityOnly) {
+                    w.or().like(Customer::getWorkPosition, kw)
+                            .or().like(Customer::getWorkLevel, kw)
+                            .or().like(Customer::getCurrentDuty, kw)
+                            .or().like(Customer::getPreferences, kw)
+                            .or().like(Customer::getRemark, kw);
+                }
+            });
         }
-        qw.orderByDesc(Customer::getCreateTime);
+        qw.orderByDesc(Customer::getCreateTime, Customer::getId);
         return customerMapper.selectPage(new Page<>(page, pageSize), qw);
     }
 
