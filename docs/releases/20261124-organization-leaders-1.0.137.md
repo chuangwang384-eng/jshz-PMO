@@ -44,6 +44,12 @@
 - [ ] 换任命后前任权限恢复。
 - [ ] 部门负责人主页出现「部门成员」且只看到本部门及下级。
 
+## 热修 1.0.137.1（2026-11-24 15:18）
+
+- 业务验收中发现「部门加载失败」：浏览器日志显示 departments 请求从未发出——重写组件时遗漏 `getDepartments` 导入，调用抛错被 catch 吞掉（成员/账号下拉正常，后端接口实测 200 正常）。
+- 修复 + graceful 切换：commit d7cfe41，Nginx root → releases/1.0.137.1-org-leaders-hotfix，首页 200×3，主 bundle 含 v1.0.137.1。后端保持 1.0.137。
+- 教训：**catch 吞错的加载失败先核对浏览器是否真的发出了请求**；本地构建前的引用完整性检查无法发现"模块有导出但组件漏 import"。
+
 ## 回滚
 
 - 前端：`release-full.ps1 -Mode Rollback -Yes`（依据 frontend/release-metadata/1.0.137-organization-leaders.nginx-before.txt）。
