@@ -202,7 +202,7 @@ public class UserService extends ServiceImpl<SysUserMapper, SysUser> {
         notificationService.notify(user.getId(), NotificationService.TYPE_PASSWORD_RESET,
                 "密码已重置",
                 "您的登录密码已被管理员重置为初始密码 " + DEFAULT_PASSWORD + "，请登录后立即修改",
-                "/profile/change-password");
+                "/profile/overview?changePassword=1");
     }
 
     /**

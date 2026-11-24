@@ -84,6 +84,11 @@ const routes = [
         meta: { title: '我的主页' }
       },
       {
+        path: 'change-password',
+        redirect: { name: 'profile-overview', query: { changePassword: '1' } },
+        meta: { menu: false }
+      },
+      {
         path: 'my-approvals',
         name: 'my-approvals',
         component: () => import('../views/MyApproval.vue'),

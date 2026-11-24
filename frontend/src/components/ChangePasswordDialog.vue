@@ -3,9 +3,11 @@
     :model-value="modelValue"
     :title="title"
     width="440px"
-    :close-on-click-modal="forceMode"
-    :close-on-press-escape="forceMode"
-    :show-close="!forceMode"
+    :close-on-click-modal="false"
+    :close-on-press-escape="!forceMode && !submitting"
+    :show-close="!forceMode && !submitting"
+    @update:model-value="emit('update:modelValue', $event)"
+    @closed="resetForm"
     align-center
   >
     <el-alert
@@ -18,13 +20,13 @@
     />
     <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
       <el-form-item label="旧密码" prop="oldPassword">
-        <el-input v-model="form.oldPassword" type="password" show-password placeholder="初始密码 111111" />
+        <el-input v-model="form.oldPassword" type="password" show-password autocomplete="current-password" />
       </el-form-item>
       <el-form-item label="新密码" prop="newPassword">
-        <el-input v-model="form.newPassword" type="password" show-password placeholder="至少 6 位" />
+        <el-input v-model="form.newPassword" type="password" show-password autocomplete="new-password" />
       </el-form-item>
       <el-form-item label="确认新密码" prop="confirmPassword">
-        <el-input v-model="form.confirmPassword" type="password" show-password placeholder="再次输入新密码" />
+        <el-input v-model="form.confirmPassword" type="password" show-password autocomplete="new-password" placeholder="再次输入新密码" />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -38,7 +40,7 @@ import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 
-const props = defineProps({
+defineProps({
   modelValue: { type: Boolean, default: false },
   title: { type: String, default: '修改初始密码' },
   forceMode: { type: Boolean, default: true },
@@ -64,22 +66,29 @@ const validateConfirm = (rule, value, callback) => {
 const rules = {
   oldPassword: [{ required: true, message: '请输入旧密码', trigger: 'blur' }],
   newPassword: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '新密码长度不能少于 6 位', trigger: 'blur' }
+    { required: true, message: '请输入新密码', trigger: 'blur' }
   ],
   confirmPassword: [{ validator: validateConfirm, trigger: 'blur' }]
 }
 
+function resetForm() {
+  Object.assign(form, { oldPassword: '', newPassword: '', confirmPassword: '' })
+  formRef.value?.clearValidate()
+}
+
 async function submit() {
-  try {
-    await formRef.value.validate()
-  } catch (e) {
-    return
-  }
+  if (submitting.value) return
   submitting.value = true
   try {
+    await formRef.value.validate()
+  } catch {
+    submitting.value = false
+    return
+  }
+  try {
     await auth.changePassword(form.oldPassword, form.newPassword)
-    ElMessage.success('密码修改成功，请使用新密码登录')
+    resetForm()
+    ElMessage.success('密码修改成功')
     emit('update:modelValue', false)
   } catch (e) {
     // 错误提示已由 request 拦截器统一处理

@@ -7,6 +7,7 @@ import com.jshz.expert.dto.UserRequest;
 import com.jshz.expert.entity.SysUser;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.OperationLogService;
+import com.jshz.expert.service.ProfileOverviewService;
 import com.jshz.expert.service.UserService;
 import com.jshz.expert.common.ParamUtils;
 import jakarta.servlet.http.HttpServletRequest;
@@ -88,7 +89,7 @@ public class UserController {
         operationLogService.record(ParamUtils.userIdOf(authUser), ParamUtils.usernameOf(authUser),
                 OperationLogService.ACTION_RESET_PASSWORD,
                 "重置用户「" + (target == null ? String.valueOf(id) : target.getUsername()) + "」密码",
-                "USER", target == null ? String.valueOf(id) : target.getUsername(), httpRequest);
+                ProfileOverviewService.USER_ACCOUNT, id, httpRequest);
         return ApiResponse.ok(null);
     }
 

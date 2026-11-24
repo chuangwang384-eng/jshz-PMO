@@ -42,7 +42,7 @@
   </el-container>
 
   <!-- 首次登录强制改密弹窗（不可关闭） -->
-  <ChangePasswordDialog v-model="showChangePwd" />
+  <ChangePasswordDialog :model-value="auth.isLoggedIn && auth.mustChangePassword" />
 
   <!-- AI 助手（2026-11-16）：全局悬浮入口，登录后可用 -->
   <AiAssistantDrawer v-if="!isLoginPage" />
@@ -138,8 +138,6 @@ const menuTree = computed(() => {
   return buildMenuTree(businessRoutes, auth.hasPermission, auth.hasRole)
 })
 
-const showChangePwd = ref(false)
-
 onMounted(() => {
   if (!auth.isLoggedIn) {
     return
@@ -150,9 +148,6 @@ onMounted(() => {
   auth
     .fetchMe()
     .then(() => {
-      if (auth.mustChangePassword) {
-        showChangePwd.value = true
-      }
       checkUnreadAnnouncements()
     })
     .catch(() => {})

@@ -33,6 +33,8 @@ AIGC:
 
 # jshz-PMO 部署与发布运维手册
 
+> 我的主页 1.0.136 既有库发布前需执行 [手动组织迁移](../database/migration/20261124_profile_manual_organization.sql)，回滚应用时保留组织数据。见 [任务交接](handover/tasks/20261124_profile_overview.md)。
+
 > 客户任职履历发布前，既有库先按迁移流程执行 [20261124_customer_employment.sql](../database/migration/20261124_customer_employment.sql)。新库由 init.sql 建表。采用配套前后端版本。应用回滚时保留履历表及已录入数据。见 [客户信息验收与回滚](handover/tasks/20261124_customer_info_features.md)。
 
 > 本系统依赖公司内网部署，以下为部署步骤与约束说明。

@@ -69,6 +69,10 @@ AIGC:
 
 下表仅详列**早期核心表**（25 张）的字段说明；合规 / 项目 / 供应商扩展 / 客户等后续模块请直接查看 `backend/src/main/java/com/jshz/expert/entity/` 与 `database/migration/` 对应脚本。
 
+### 我的主页：手动组织与本人账号活动
+
+手动组织采用 profile_department 部门树和 profile_membership 主部门及岗位，可由超级管理员在我的主页维护。普通用户只读本人组织信息。账号活动按稳定账号 ID 查询近 30 天成功登录、退出、改密和被重置事件。旧改密链接转到我的主页并打开改密入口。详见 [主页交接记录](handover/tasks/20261124_profile_overview.md)。
+
 ### 客户档案与关系
 
 客户列表在分页前按单位和有效关系筛选。关系图定位使用全部有效档案的姓名或单位搜索，并打开所选客户的一度关系圈。新增档案前可按姓名和单位查询疑似重复。客户任职履历存于 customer_employment，每条记录归属一个客户，单位、职务及年月独立于档案基本资料。履历读取要求登录，维护要求 customer:manage。详见 [客户信息四项需求交接](handover/tasks/20261124_customer_info_features.md)。

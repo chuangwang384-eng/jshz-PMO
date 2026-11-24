@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+    private static final int PASSWORD_MIN_LENGTH = 6;
 
     private final SysUserMapper sysUserMapper;
     private final RoleMapper roleMapper;
@@ -218,8 +219,8 @@ public class AuthService {
         if (request == null || !StringUtils.hasText(request.getOldPassword()) || !StringUtils.hasText(request.getNewPassword())) {
             throw new BusinessException("旧密码和新密码不能为空");
         }
-        if (request.getNewPassword().length() < 6) {
-            throw new BusinessException("新密码长度不能少于 6 位");
+        if (request.getNewPassword().length() < PASSWORD_MIN_LENGTH) {
+            throw new BusinessException("新密码长度不能少于 " + PASSWORD_MIN_LENGTH + " 位");
         }
         SysUser user = sysUserMapper.selectById(authUser.getUserId());
         if (user == null) {

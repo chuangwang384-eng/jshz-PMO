@@ -54,7 +54,7 @@ public class AuthController {
         // token 已写入 cookie，响应体不再回传，避免前端落入 localStorage
         loginResponse.setToken(null);
         // 敏感操作日志：登录成功
-        operationLogService.record(null, loginResponse.getUsername(), OperationLogService.ACTION_LOGIN,
+        operationLogService.record(loginResponse.getId(), loginResponse.getUsername(), OperationLogService.ACTION_LOGIN,
                 "登录成功", "USER", loginResponse.getUsername(), httpRequest);
         return ApiResponse.ok(loginResponse);
     }
