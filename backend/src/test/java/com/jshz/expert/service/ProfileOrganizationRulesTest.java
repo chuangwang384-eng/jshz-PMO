@@ -179,6 +179,14 @@ class ProfileOrganizationRulesTest {
     }
 
     @Test
+    void generalManagerLeadingAnotherDepartmentKeepsNoMembership() {
+        // 现任总经理（壬）代理其他部门负责人时不得自动获得部门归属
+        String note = service.saveDepartment(PROJECT_1, new DepartmentForm(PROJECT, "项目一部", true, REN));
+        assertThat(note).isEqualTo("任命「项目一部」负责人「壬」");
+        assertThat(calls).noneMatch(call -> sql(call).startsWith("INSERT INTO profile_membership"));
+    }
+
+    @Test
     void plainMemberIsRefused() {
         assertThatThrownBy(() -> service.members(false, YI, null, 1, null))
                 .isInstanceOf(BusinessException.class)

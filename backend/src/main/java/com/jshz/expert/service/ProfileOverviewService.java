@@ -144,7 +144,7 @@ public class ProfileOverviewService {
 
         Long leaderUserId = form.leaderUserId();
         // 负责人同时是本部门成员：无主部门时自动把该部门设为其主部门（已有归属的人不动）
-        boolean autoJoin = leaderUserId != null && !isRoot
+        boolean autoJoin = leaderUserId != null && !isRoot && !leadsRaw(root(tree), leaderUserId)
                 && jdbc.queryForObject("SELECT COUNT(*) FROM profile_membership WHERE user_id=?",
                         Long.class, leaderUserId) == 0;
         String note = null;

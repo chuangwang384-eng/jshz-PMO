@@ -50,6 +50,12 @@
 - 修复 + graceful 切换：commit d7cfe41，Nginx root → releases/1.0.137.1-org-leaders-hotfix，首页 200×3，主 bundle 含 v1.0.137.1。后端保持 1.0.137。
 - 教训：**catch 吞错的加载失败先核对浏览器是否真的发出了请求**；本地构建前的引用完整性检查无法发现"模块有导出但组件漏 import"。
 
+## 1.0.137.2（2026-11-24，业务反馈修复）
+
+- 负责人无主部门时自动归属本部门；总经理「所属部门」显示「总经理」；组织树默认收起。commit df8d742。
+- 单元测试 20 项通过；前端构建通过（is-not-exported 0）。
+- 发布过程与核验：（发布完成后回填）
+
 ## 回滚
 
 - 前端：`release-full.ps1 -Mode Rollback -Yes`（依据 frontend/release-metadata/1.0.137-organization-leaders.nginx-before.txt）。
