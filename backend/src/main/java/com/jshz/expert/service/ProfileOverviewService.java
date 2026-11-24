@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.sql.PreparedStatement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -142,6 +143,10 @@ public class ProfileOverviewService {
         }
 
         Long leaderUserId = form.leaderUserId();
+        // 负责人同时是本部门成员：无主部门时自动把该部门设为其主部门（已有归属的人不动）
+        boolean autoJoin = leaderUserId != null && !isRoot
+                && jdbc.queryForObject("SELECT COUNT(*) FROM profile_membership WHERE user_id=?",
+                        Long.class, leaderUserId) == 0;
         String note = null;
         if (isRoot) {
             if (!Objects.equals(current.leaderUserId(), leaderUserId)) {
@@ -160,12 +165,28 @@ public class ProfileOverviewService {
         } else if (current != null && current.leaderUserId() != null) {
             note = "免去「" + name + "」负责人";
         }
+        Long departmentId = id;
         if (id == null) {
-            jdbc.update("INSERT INTO profile_department (name,parent_id,active,leader_user_id) VALUES (?,?,?,?)",
-                    name, form.parentId(), form.active(), leaderUserId);
+            org.springframework.jdbc.support.GeneratedKeyHolder keys =
+                    new org.springframework.jdbc.support.GeneratedKeyHolder();
+            jdbc.update(con -> {
+                PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO profile_department (name,parent_id,active,leader_user_id) VALUES (?,?,?,?)",
+                        java.sql.Statement.RETURN_GENERATED_KEYS);
+                ps.setString(1, name);
+                if (form.parentId() == null) ps.setNull(2, java.sql.Types.BIGINT); else ps.setLong(2, form.parentId());
+                ps.setBoolean(3, form.active());
+                if (leaderUserId == null) ps.setNull(4, java.sql.Types.BIGINT); else ps.setLong(4, leaderUserId);
+                return ps;
+            }, keys);
+            departmentId = keys.getKey().longValue();
         } else {
             jdbc.update("UPDATE profile_department SET name=?,parent_id=?,active=?,leader_user_id=? WHERE id=?",
                     name, form.parentId(), form.active(), leaderUserId, id);
+        }
+        if (autoJoin) {
+            jdbc.update("INSERT INTO profile_membership (user_id,department_id,position) VALUES (?,?,?)",
+                    leaderUserId, departmentId, null);
         }
         return note;
     }
@@ -218,7 +239,8 @@ public class ProfileOverviewService {
             leaderOf.computeIfAbsent(node.leaderUserId(), key -> new ArrayList<>()).add(path(tree, node.id()));
         }
         List<Member> items = records.stream().map(member -> new Member(member.id(), member.username(), member.active(),
-                member.departmentId(), member.departmentId() == null ? null : path(tree, member.departmentId()),
+                member.departmentId(), root != null && leads(root, member.id()) ? root.name()
+                        : member.departmentId() == null ? null : path(tree, member.departmentId()),
                 member.position(), root != null && leads(root, member.id()),
                 leaderOf.getOrDefault(member.id(), List.of()))).collect(Collectors.toList());
         return new ProfilePage<>(count, items, PAGE_SIZE);

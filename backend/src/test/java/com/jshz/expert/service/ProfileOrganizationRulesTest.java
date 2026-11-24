@@ -133,6 +133,9 @@ class ProfileOrganizationRulesTest {
         assertThat(note).isEqualTo("任命「项目一部」负责人「乙」");
         assertUpdate("UPDATE profile_department SET name=?,parent_id=?,active=?,leader_user_id=? WHERE id=?",
                 "项目一部", PROJECT, true, YI, PROJECT_1);
+        // 无主部门的负责人自动归属本部门（替身库对 COUNT(*) 返回 0，必触发）
+        assertUpdate("INSERT INTO profile_membership (user_id,department_id,position) VALUES (?,?,?)",
+                YI, PROJECT_1, null);
         assertThat(calls).noneMatch(call -> sql(call).contains("user_role"));
     }
 

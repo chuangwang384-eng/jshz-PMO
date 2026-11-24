@@ -8,7 +8,7 @@
         <el-alert v-if="departmentsError" title="部门加载失败" type="error" :closable="false">
           <el-button link type="primary" @click="loadDepartments">重试</el-button>
         </el-alert>
-        <el-table v-else v-loading="departmentsLoading" :data="departmentTree" row-key="id" default-expand-all
+        <el-table v-else v-loading="departmentsLoading" :data="departmentTree" row-key="id"
           :tree-props="{ children: 'children' }">
           <el-table-column prop="name" label="部门" min-width="200" />
           <el-table-column label="负责人" min-width="200">
