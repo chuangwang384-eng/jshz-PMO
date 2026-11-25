@@ -16,11 +16,14 @@ import com.jshz.expert.entity.ProjectSpeaker;
 import com.jshz.expert.security.AuthUser;
 import com.jshz.expert.service.ProjectService;
 import com.jshz.expert.service.ProjectShowTemplateService;
+import com.jshz.expert.service.ProjectShowExpertMaterialsService;
 import com.jshz.expert.service.ProjectStorageService;
 import com.jshz.expert.service.ScheduleParseService;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.springframework.http.MediaType;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -53,6 +56,7 @@ public class ProjectController {
 
     private final ProjectService projectService;
     private final ProjectShowTemplateService projectShowTemplates;
+    private final ProjectShowExpertMaterialsService expertMaterials;
 
     /** 分页列表（筛选：keyword/status/startBegin/startEnd/endBegin/endEnd/ownerId/category/team/cityId/assistantId；类型/执行人筛选已随概念删除）。 */
     @GetMapping
@@ -351,6 +355,17 @@ public class ProjectController {
     @GetMapping("/{id}/show/agenda")
     public ApiResponse<List<String>> showAgenda(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
         return ApiResponse.ok(projectShowService.agenda(id, user));
+    }
+
+    @GetMapping("/{id}/show/expert-materials")
+    public void downloadShowExpertMaterials(@PathVariable Long id, @AuthenticationPrincipal AuthUser user,
+                                            HttpServletResponse response) throws java.io.IOException {
+        var archive = expertMaterials.prepare(id, user);
+        response.setContentType("application/zip");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                .filename("串场专家资料-" + id + ".zip", java.nio.charset.StandardCharsets.UTF_8).build().toString());
+        archive.write(response.getOutputStream());
     }
 
     @PostMapping("/{id}/show/ppt")

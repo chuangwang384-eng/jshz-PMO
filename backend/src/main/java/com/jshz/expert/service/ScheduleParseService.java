@@ -257,7 +257,7 @@ public class ScheduleParseService {
                 .toList();
     }
 
-    private List<ProjectSpeaker> confirmedSpeakers(Long projectId) {
+    List<ProjectSpeaker> confirmedSpeakers(Long projectId) {
         return speakerMapper.selectList(new LambdaQueryWrapper<ProjectSpeaker>()
                 .eq(ProjectSpeaker::getProjectId, projectId)
                 .eq(ProjectSpeaker::getConfirmed, 1)

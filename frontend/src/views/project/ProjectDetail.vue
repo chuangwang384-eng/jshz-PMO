@@ -106,6 +106,9 @@
                 <el-button type="primary" :loading="showUploading">上传串场 PPT</el-button>
               </el-upload>
               <el-button @click="openShowWizard">PPT 制作</el-button>
+              <el-button :disabled="!speakers.some(row => row.expertId)" @click="openExpertMaterials">
+                下载专家资料
+              </el-button>
             </div>
             <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row">
               <el-button link type="primary" @click="downloadProjectFile(d)">{{ d.fileName }}</el-button>
@@ -280,10 +283,12 @@
             </el-table-column>
             <el-table-column label="档案关联" min-width="140">
               <template #default="{ row }">
-                <span v-if="row.expertId" class="doc-name">{{ row.expertName }}（{{ row.expertUnit || '已关联' }}）</span>
-                <el-tag v-if="expertRisk(row.expertId)" size="small" :type="expertRisk(row.expertId) === 'EXPIRED' ? 'danger' : 'warning'" style="margin-left: 6px">
-                  {{ expertRisk(row.expertId) === 'EXPIRED' ? '证件已过期' : '证件6个月内到期' }}
-                </el-tag>
+                <template v-if="row.expertId">
+                  <span class="doc-name">{{ row.expertName }}（{{ row.expertUnit || '已关联' }}）</span>
+                  <el-tag v-if="expertRisk(row.expertId)" size="small" :type="expertRisk(row.expertId) === 'EXPIRED' ? 'danger' : 'warning'" style="margin-left: 6px">
+                    {{ expertRisk(row.expertId) === 'EXPIRED' ? '证件已过期' : '证件6个月内到期' }}
+                  </el-tag>
+                </template>
                 <el-tag v-else-if="canOperate" size="small" type="warning" class="link-tag" @click="openArchiveDialog(row)">库外专家·去建档</el-tag>
                 <el-tag v-else size="small" type="warning">库外专家</el-tag>
               </template>
@@ -579,6 +584,21 @@
       <ShowWizard v-if="showWizardOpen" :project-id="projectId" @close="showWizardOpen = false" @archived="fetchDetail()" />
     </el-dialog>
   </div>
+  <dialog ref="expertMaterialsDialog" class="expert-materials-dialog" aria-labelledby="expert-materials-title">
+    <h1 id="expert-materials-title">串场专家资料</h1>
+    <p>ZIP 包含专家库头像和《专家资料.md》，按专家汇总姓名、简介和对应的头像文件，缺失项会在文档中标明。</p>
+    <label for="expert-materials-url">下载地址（登录后按项目权限访问）</label>
+    <input id="expert-materials-url" :value="expertMaterialsUrl" readonly @focus="$event.target.select()" />
+    <label for="expert-materials-prompt">给 AI 的说明</label>
+    <textarea id="expert-materials-prompt" rows="3" readonly @focus="$event.target.select()">请根据《专家资料.md》整理串场专家介绍，按文档标注的文件名匹配头像。缺失的头像或简介请标注待补，不要自行编造。</textarea>
+    <p v-if="expertMaterialsStatus" role="status">{{ expertMaterialsStatus }}</p>
+    <form method="dialog" class="expert-materials-actions">
+      <el-button native-type="button" type="primary" :loading="expertMaterialsDownloading" @click="downloadExpertMaterials">
+        重新下载
+      </el-button>
+      <button type="submit" class="el-button" autofocus>关闭</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup>
@@ -1294,6 +1314,38 @@ function openEdit() {
 }
 
 // ---- 资料 ----
+const expertMaterialsDialog = ref(null)
+const expertMaterialsStatus = ref('')
+const expertMaterialsDownloading = ref(false)
+const expertMaterialsPath = `/project/${encodeURIComponent(projectId)}/show/expert-materials`
+const expertMaterialsUrl = new URL(request.getUri({ url: expertMaterialsPath }), window.location.origin).href
+
+function openExpertMaterials() {
+  expertMaterialsDialog.value.showModal()
+  downloadExpertMaterials()
+}
+
+async function downloadExpertMaterials() {
+  if (expertMaterialsDownloading.value) return
+  expertMaterialsDownloading.value = true
+  expertMaterialsStatus.value = '正在生成资料包…'
+  try {
+    const response = await request.get(expertMaterialsPath, { responseType: 'blob', timeout: 0, silent: true })
+    if (!response.headers['content-type']?.startsWith('application/zip')) {
+      const error = JSON.parse(await response.data.text())
+      throw new Error(error.message || '资料包生成失败')
+    }
+    downloadBlob(response.data, `串场专家资料-${projectId}.zip`)
+    expertMaterialsStatus.value = '已发起浏览器下载。'
+  } catch (error) {
+    const data = error.response?.data
+    const detail = data instanceof Blob ? await data.text().then(JSON.parse).catch(() => null) : null
+    expertMaterialsStatus.value = detail?.message || (error.response ? '资料包下载失败，请重试。' : error.message)
+  } finally {
+    expertMaterialsDownloading.value = false
+  }
+}
+
 const showUploading = ref(false)
 
 async function uploadShowFile(file) {
@@ -1603,6 +1655,33 @@ async function downloadProjectFile(d) {
 .doc-name { color: var(--ui-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-meta { color: var(--ui-text-muted); font-size: 12px; margin-left: auto; flex-shrink: 0; }
 .upload-area { margin-top: 6px; }
+.expert-materials-dialog {
+  width: min(34rem, calc(100% - 2rem));
+  box-sizing: border-box;
+  padding: 24px;
+  border: 1px solid var(--ui-border-weak);
+  border-radius: 12px;
+  color: var(--ui-text-main);
+}
+.expert-materials-dialog:modal { overscroll-behavior: contain; }
+.expert-materials-dialog::backdrop {
+  background: rgb(0 0 0 / 42%);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+.expert-materials-dialog h1 { margin: 0; font-size: 20px; }
+.expert-materials-dialog label { display: block; margin-top: 12px; }
+.expert-materials-dialog input,
+.expert-materials-dialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--ui-border-weak);
+}
+.expert-materials-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .fin-attach-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--ui-border-weak); }
 .rich-view { white-space: pre-wrap; color: var(--ui-text-sub); }
 .hint-text { color: var(--ui-text-muted); font-size: 13px; }
