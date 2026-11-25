@@ -12,3 +12,7 @@
 - JDK 17 定向测试 35 项通过，包含追加保留原批次、归档实测 ZIP 条目内容及排除历史批次。
 - `npm.cmd run build` 通过，有 Vite 大包体积告警。
 - `release-full.ps1 -Mode Preflight -Version 1.0.146 -Slug settlement-package` 通过，生产 1.0.145，未发现待执行迁移或漂移。
+
+## 发布状态
+
+1.0.146 已完成生产发布和技术验证，真实项目登录后待业务验收。隔离 Edge 已用正式制品验证逐次选文件、追加、手动归档和实际下载命名。见 [发布记录](../../releases/20261125-settlement-package-1.0.146.md)。
