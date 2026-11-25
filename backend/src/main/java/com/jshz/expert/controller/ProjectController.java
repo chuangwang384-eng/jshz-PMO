@@ -363,8 +363,16 @@ public class ProjectController {
     public ApiResponse<Void> submitSettlementMaterials(
             @PathVariable Long id, @PathVariable Long phaseId, @PathVariable String slot,
             @RequestParam(required = false) List<MultipartFile> files, @RequestParam(required = false) String reason,
-            @RequestParam(required = false) Long sourceDocId, @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
-        projectService.saveSettlementMaterials(id, phaseId, slot, files, reason, sourceDocId, user);
+            @RequestParam(required = false) Long sourceDocId, @RequestParam(defaultValue = "false") boolean append,
+            @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        projectService.saveSettlementMaterials(id, phaseId, slot, files, reason, sourceDocId, append, user);
+        return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/{id}/settlement-materials/{phaseId}/archive")
+    public ApiResponse<Void> archiveSettlementMaterials(@PathVariable Long id, @PathVariable Long phaseId,
+            @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        projectService.archiveSettlementPackage(id, phaseId, user);
         return ApiResponse.ok(null);
     }
 

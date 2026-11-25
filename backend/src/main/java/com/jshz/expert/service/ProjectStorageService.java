@@ -83,6 +83,29 @@ public class ProjectStorageService {
         return name;
     }
 
+    String saveSettlementPackage(SettlementPackageWriter writer) throws IOException {
+        String name = ProjectSettlementMaterials.PACKAGE_PREFIX + UUID.randomUUID().toString().replace("-", "") + ".zip";
+        Path path = storageDir.resolve(name);
+        try (var output = Files.newOutputStream(path, java.nio.file.StandardOpenOption.CREATE_NEW)) {
+            writer.write(output);
+        } catch (IOException | RuntimeException e) {
+            deleteFile(name);
+            throw e;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) deleteFile(name);
+                    }
+                });
+        return name;
+    }
+
+    @FunctionalInterface
+    interface SettlementPackageWriter {
+        void write(java.io.OutputStream output) throws IOException;
+    }
+
     /** 保存不可覆盖的对客报价文件，事务回滚时清理。 */
     public String saveBudgetQuote(byte[] content) {
         return saveGenerated(QUOTE_FILE_PREFIX, "xlsx", content);

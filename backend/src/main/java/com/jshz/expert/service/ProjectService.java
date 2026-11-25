@@ -2200,7 +2200,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     public record SettlementSlot(ProjectSettlementMaterials.Slot definition, boolean writable,
                                  List<List<ProjectDoc>> batches, String notApplicableReason, boolean complete) {}
 
-    public record SettlementOverview(List<SettlementSlot> slots, List<ProjectDoc> budgetSources) {}
+    public record SettlementOverview(List<SettlementSlot> slots, List<ProjectDoc> budgetSources, boolean canArchive) {}
 
     public SettlementOverview settlementOverview(Long id, Long phaseId, AuthUser user) {
         Project project = requireProject(id);
@@ -2223,12 +2223,19 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                             reason == null ? batches : List.of(), reason, complete);
                 }).toList();
         return new SettlementOverview(slots, member && phaseId.equals(project.getPhaseId())
-                ? settlementBudgetSources(project) : List.of());
+                ? settlementBudgetSources(project) : List.of(), member && settlementArchiveWritable(project, phase)
+                && slots.stream().filter(item -> item.definition().required()).allMatch(SettlementSlot::complete));
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void saveSettlementMaterials(Long id, Long phaseId, String code, List<MultipartFile> files,
                                         String reason, Long sourceDocId, AuthUser user) throws java.io.IOException {
+        saveSettlementMaterials(id, phaseId, code, files, reason, sourceDocId, false, user);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveSettlementMaterials(Long id, Long phaseId, String code, List<MultipartFile> files,
+                                        String reason, Long sourceDocId, boolean append, AuthUser user) throws java.io.IOException {
         Project project = lockProjectForUpdate(id);
         requireOperable(project, user);
         ProjectPhase phase = settlementPhase(project, phaseId);
@@ -2249,7 +2256,24 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
 
         var previous = settlementBatches(slot, phaseDocuments(id, phaseId));
-        String prefix = slot.prefix() + java.util.UUID.randomUUID().toString().replace("-", "") + "_";
+        String batch = java.util.UUID.randomUUID().toString().replace("-", "");
+        if (append) {
+            if (uploads.isEmpty() || previous.isEmpty() || ProjectSettlementMaterials.isReason(previous.get(0).get(0))) {
+                throw new BusinessException("当前批次没有可追加的资料，请重新上传");
+            }
+            var current = previous.get(0);
+            long size = uploads.stream().mapToLong(MultipartFile::getSize).sum();
+            for (ProjectDoc doc : current) {
+                var path = storageService.resolveFile(doc.getFilePath());
+                if (path == null) throw new BusinessException("当前批次文件缺失，请重新上传");
+                size += java.nio.file.Files.size(path);
+            }
+            if (current.size() + uploads.size() > 20 || size > SETTLEMENT_FILE_LIMIT) {
+                throw new BusinessException("追加后的批次最多 20 个文件且总大小不超过 50 MB");
+            }
+            batch = ProjectSettlementMaterials.batch(current.get(0));
+        }
+        String prefix = slot.prefix() + batch + "_";
         if (hasReason) {
             String note = reason.strip();
             if (!slot.allowsNotApplicable() || note.length() > 500) {
@@ -2281,7 +2305,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             }
         }
 
-        if (!slot.versioned()) {
+        if (!append && !slot.versioned()) {
             List<Long> ids = previous.stream().flatMap(List::stream).map(ProjectDoc::getId).toList();
             if (!ids.isEmpty()) {
                 docMapper.update(null, new LambdaUpdateWrapper<ProjectDoc>().in(ProjectDoc::getId, ids)
@@ -2292,6 +2316,61 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user), OperationLogService.ACTION_UPLOAD_DOC,
                 "项目「" + project.getName() + "」更新结算资料：" + slot.name(),
                 "PROJECT", id, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void archiveSettlementPackage(Long id, Long phaseId, AuthUser user) throws java.io.IOException {
+        Project project = lockProjectForUpdate(id);
+        requireOperable(project, user);
+        ProjectPhase phase = settlementPhase(project, phaseId);
+        if (!settlementArchiveWritable(project, phase)) {
+            throw new BusinessException("当前项目不可归档结算资料包");
+        }
+        var docs = phaseDocuments(id, phaseId);
+        record Entry(String name, java.nio.file.Path path) {}
+        List<Entry> entries = new ArrayList<>();
+        for (var slot : ProjectSettlementMaterials.applicable(project.getProjectType())) {
+            var batches = settlementBatches(slot, docs);
+            if (batches.isEmpty()) {
+                if (slot.required()) throw new BusinessException("请先提交：" + slot.name());
+                continue;
+            }
+            for (ProjectDoc doc : batches.get(0)) {
+                var path = storageService.resolveFile(doc.getFilePath());
+                if (path == null) throw new BusinessException("归档文件缺失：" + slot.name() + " · " + doc.getFileName());
+                String name = com.jshz.expert.common.FileNames.sanitize(doc.getFileName())
+                        .replaceAll("[\\p{Cntrl}:*?<>|]", "_").replace('"', '_');
+                entries.add(new Entry(slot.code() + "-" + slot.name() + "/" + doc.getId() + "-" + name, path));
+            }
+        }
+        String path = storageService.saveSettlementPackage(output -> {
+            try (var zip = new java.util.zip.ZipOutputStream(output, java.nio.charset.StandardCharsets.UTF_8)) {
+                for (Entry entry : entries) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry(entry.name()));
+                    java.nio.file.Files.copy(entry.path(), zip);
+                    zip.closeEntry();
+                }
+            }
+        });
+        var oldIds = docs.stream().filter(doc -> doc.getFilePath() != null
+                        && doc.getFilePath().startsWith(ProjectSettlementMaterials.PACKAGE_PREFIX))
+                .map(ProjectDoc::getId).toList();
+        if (!oldIds.isEmpty()) {
+            docMapper.update(null, new LambdaUpdateWrapper<ProjectDoc>().in(ProjectDoc::getId, oldIds)
+                    .set(ProjectDoc::getIsDeleted, 1).set(ProjectDoc::getDeletedBy, user.getUsername())
+                    .set(ProjectDoc::getDeletedTime, LocalDateTime.now()));
+        }
+        insertSettlementDocument(id, phaseId, "结算资料包.zip", path, user);
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user), OperationLogService.ACTION_UPLOAD_DOC,
+                "项目「" + project.getName() + "」归档结算资料包", "PROJECT", id, null);
+    }
+
+    private boolean settlementArchiveWritable(Project project, ProjectPhase phase) {
+        if (!STATUS_ACTIVE.equals(project.getStatus())) return false;
+        if (phase.getId().equals(project.getPhaseId())) return true;
+        ProjectPhase current = projectPhase(project, project.getPhaseId());
+        return current != null && current.getSort() != null && phase.getSort() != null
+                && current.getSort() > phase.getSort();
     }
 
     private Project lockProjectForUpdate(Long id) {
@@ -2317,12 +2396,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     private boolean settlementWritable(Project project, ProjectPhase phase, ProjectSettlementMaterials.Slot slot) {
-        if (!STATUS_ACTIVE.equals(project.getStatus())) return false;
-        if (phase.getId().equals(project.getPhaseId())) return true;
-        if (!"U18".equals(slot.code())) return false;
-        ProjectPhase current = projectPhase(project, project.getPhaseId());
-        return current != null && current.getSort() != null && phase.getSort() != null
-                && current.getSort() > phase.getSort();
+        return settlementArchiveWritable(project, phase)
+                && (phase.getId().equals(project.getPhaseId()) || "U18".equals(slot.code()));
     }
 
     private List<ProjectDoc> settlementBudgetSources(Project project) {

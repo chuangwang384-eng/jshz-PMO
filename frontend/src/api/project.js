@@ -272,3 +272,7 @@ export function getSettlementMaterials(projectId, phaseId) {
 export function saveSettlementMaterials(projectId, phaseId, slot, formData) {
   return request.post(`/project/${projectId}/settlement-materials/${phaseId}/${slot}`, formData, { timeout: 0 })
 }
+
+export function archiveSettlementMaterials(projectId, phaseId) {
+  return request.post(`/project/${projectId}/settlement-materials/${phaseId}/archive`, null, { timeout: 0 })
+}

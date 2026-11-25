@@ -4,7 +4,12 @@
       <el-button link type="primary" @click="load">重试</el-button>
     </el-alert>
     <template v-else-if="slots.length">
-      <p>必填资料已齐 {{ requiredComplete }} / {{ requiredCount }}</p>
+      <div class="settlement-heading">
+        <p>必填资料已齐 {{ requiredComplete }} / {{ requiredCount }}</p>
+        <el-button v-if="canArchive" type="primary" :loading="archiving" :disabled="busy"
+          @click="archive">归档结算资料包</el-button>
+      </div>
+      <p v-if="canArchive" class="ui-desc">归档会将当前各细项资料打包到项目文件。补件后可再次归档。</p>
       <p class="ui-desc" role="status">{{ status }}</p>
       <section v-for="[group, items] in groups" :key="group" class="settlement-group">
         <h3>{{ group }}</h3>
@@ -40,7 +45,9 @@
             </div>
           </details>
           <div v-if="item.writable && editor?.slot !== item.definition.code" class="settlement-actions">
-            <el-button size="small" :disabled="busy" @click="open(item, 'files')">
+            <el-button v-if="item.batches[0]?.length && !item.notApplicableReason" size="small"
+              :disabled="busy || archiving" @click="open(item, 'files', true)">追加文件</el-button>
+            <el-button size="small" :disabled="busy || archiving" @click="open(item, 'files')">
               {{ item.complete ? (item.definition.versioned ? '上传新版本' : '替换当前批次') : '上传文件' }}
             </el-button>
             <el-button v-if="item.definition.code === 'U09' && budgetSources.length" size="small" :disabled="busy"
@@ -52,10 +59,17 @@
             class="settlement-editor" :aria-label="`${item.definition.name}资料提交`" @submit.prevent="submit">
             <template v-if="editor.mode === 'files'">
               <label for="settlement-files">本批次文件</label>
-              <input id="settlement-files" type="file" multiple required :disabled="busy"
+              <input id="settlement-files" type="file" multiple :disabled="busy || archiving"
                 accept=".pdf,.xls,.xlsx,.doc,.docx,.png,.jpg,.jpeg,.webp,.zip,.rar,.7z,.txt,.ofd"
-                aria-describedby="settlement-file-help" @change="editor.files = Array.from($event.target.files)" />
-              <small id="settlement-file-help">最多 20 个文件，合计不超过 50 MB。</small>
+                aria-describedby="settlement-file-help" @change="addFiles" />
+              <small id="settlement-file-help">可多选，也可反复打开选择框添加。每批最多 20 个文件，合计不超过 50 MB。</small>
+              <ul v-if="editor.files.length" aria-label="待提交文件">
+                <li v-for="(file, index) in editor.files" :key="index">
+                  {{ file.name }}
+                  <el-button link type="danger" :disabled="busy" :aria-label="`移除 ${file.name}`"
+                    @click="editor.files.splice(index, 1)">移除</el-button>
+                </li>
+              </ul>
             </template>
             <template v-else-if="editor.mode === 'source'">
               <label for="settlement-source">本项目已归档的预算资料</label>
@@ -69,7 +83,7 @@
               <textarea id="settlement-reason" v-model.trim="editor.reason" maxlength="500" :disabled="busy" required rows="2" />
             </template>
             <div class="settlement-actions">
-              <el-button type="primary" size="small" native-type="submit" :loading="busy">提交</el-button>
+              <el-button type="primary" size="small" native-type="submit" :loading="busy" :disabled="archiving">提交</el-button>
               <el-button size="small" :disabled="busy" @click="editor = null">取消</el-button>
             </div>
           </form>
@@ -81,7 +95,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { getSettlementMaterials, saveSettlementMaterials } from '../../../api/project'
+import { archiveSettlementMaterials, getSettlementMaterials, saveSettlementMaterials } from '../../../api/project'
 
 const props = defineProps({
   projectId: { type: [String, Number], required: true },
@@ -90,6 +104,8 @@ const props = defineProps({
 const emit = defineEmits(['saved', 'preview', 'download'])
 const loading = ref(false)
 const failed = ref(false)
+const canArchive = ref(false)
+const archiving = ref(false)
 const busy = ref(false)
 const status = ref('')
 const slots = ref([])
@@ -114,6 +130,7 @@ async function load() {
   failed.value = false
   try {
     const result = await getSettlementMaterials(props.projectId, props.phaseId)
+    canArchive.value = result.canArchive
     slots.value = result.slots
     budgetSources.value = result.budgetSources
   } catch {
@@ -123,14 +140,35 @@ async function load() {
   }
 }
 
-function open(item, mode) {
+function open(item, mode, append = false) {
   status.value = ''
-  editor.value = { slot: item.definition.code, mode, files: [], source: '', reason: item.notApplicableReason || '' }
+  editor.value = { slot: item.definition.code, mode, append, files: [], source: '', reason: item.notApplicableReason || '' }
+}
+
+function addFiles(event) {
+  const input = event.target
+  editor.value.files.push(...Array.from(input.files))
+  input.value = ''
+}
+
+async function archive() {
+  if (archiving.value || busy.value) return
+  archiving.value = true
+  status.value = '正在归档结算资料包…'
+  try {
+    await archiveSettlementMaterials(props.projectId, props.phaseId)
+    status.value = '已归档。可在项目文件栏下载。'
+    emit('saved')
+  } catch {
+    status.value = '归档失败，请检查资料后重试。'
+  } finally {
+    archiving.value = false
+  }
 }
 
 async function submit() {
-  if (busy.value || !editor.value) return
-  const { slot, mode, files, source, reason } = editor.value
+  if (busy.value || archiving.value || !editor.value) return
+  const { slot, mode, append, files, source, reason } = editor.value
   const body = new FormData()
   if (mode === 'files') {
     if (!files.length || files.length > 20 || files.reduce((size, file) => size + file.size, 0) > 50 * 1024 * 1024) {
@@ -138,6 +176,7 @@ async function submit() {
       return
     }
     files.forEach(file => body.append('files', file))
+    if (append) body.append('append', 'true')
   } else if (mode === 'source') {
     body.append('sourceDocId', source)
   } else {

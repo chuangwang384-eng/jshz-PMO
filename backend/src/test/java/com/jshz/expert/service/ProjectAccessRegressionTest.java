@@ -255,4 +255,73 @@ class ProjectAccessRegressionTest {
         assertEquals("batch", ProjectSettlementMaterials.batch(doc));
         assertTrue(ProjectSettlementMaterials.isReason(doc));
     }
+
+    @Test void settlementAppendKeepsPreviouslySubmittedFiles(@org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        var project = project();
+        project.setPhaseId(12L);
+        when(projects.selectOne(any())).thenReturn(project);
+        when(phases.selectById(12L)).thenReturn(phase(12L, "结算资料上传", 102));
+        var existing = new ProjectDoc();
+        existing.setId(1L);
+        existing.setFilePath("project_settlement_U01_existing_first.pdf");
+        when(docs.selectList(any())).thenReturn(List.of(existing));
+        when(storage.resolveFile(existing.getFilePath())).thenReturn(java.nio.file.Files.write(temp.resolve("first.pdf"), new byte[]{1}));
+        when(storage.saveSettlement(eq("project_settlement_U01_existing_"), eq("pdf"), any()))
+                .thenReturn("project_settlement_U01_existing_second.pdf");
+        var upload = new org.springframework.mock.web.MockMultipartFile("files", "second.pdf", "application/pdf", new byte[]{2});
+
+        service.saveSettlementMaterials(1L, 12L, "U01", List.of(upload), null, null, true, user(2L));
+
+        var saved = ArgumentCaptor.forClass(ProjectDoc.class);
+        verify(docs).insert(saved.capture());
+        assertEquals("existing", ProjectSettlementMaterials.batch(saved.getValue()));
+        verify(docs, never()).update(isNull(), any());
+    }
+
+    @Test void settlementArchiveWritesFixedZipAndPublishesProjectDocument(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        var project = project();
+        project.setPhaseId(12L);
+        when(projects.selectOne(any())).thenReturn(project);
+        when(phases.selectById(12L)).thenReturn(phase(12L, "结算资料上传", 102));
+        var files = new ArrayList<ProjectDoc>();
+        for (var slot : ProjectSettlementMaterials.applicable(null)) {
+            if (!slot.required()) continue;
+            var file = new ProjectDoc();
+            file.setId((long) files.size() + 1);
+            file.setFileName("资料.txt");
+            file.setFilePath(slot.prefix() + "current_first.txt");
+            files.add(file);
+            when(storage.resolveFile(file.getFilePath())).thenReturn(
+                    java.nio.file.Files.writeString(temp.resolve(slot.code() + ".txt"), slot.code()));
+        }
+        var superseded = new ProjectDoc();
+        superseded.setId(0L);
+        superseded.setFilePath("project_settlement_U01_old_first.txt");
+        files.add(0, superseded);
+        when(docs.selectList(any())).thenReturn(files);
+        var output = new java.io.ByteArrayOutputStream();
+        when(storage.saveSettlementPackage(any())).thenAnswer(invocation -> {
+            ProjectStorageService.SettlementPackageWriter writer = invocation.getArgument(0);
+            writer.write(output);
+            return "project_settlement_package_snapshot.zip";
+        });
+
+        service.archiveSettlementPackage(1L, 12L, user(2L));
+
+        try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(output.toByteArray()))) {
+            var first = zip.getNextEntry();
+            assertEquals("U01-酒店发票/1-资料.txt", first.getName());
+            assertEquals("U01", new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            int entries = 1;
+            while (zip.getNextEntry() != null) entries++;
+            assertEquals(11, entries);
+        }
+        var saved = ArgumentCaptor.forClass(ProjectDoc.class);
+        verify(docs).insert(saved.capture());
+        assertEquals("结算资料包.zip", saved.getValue().getFileName());
+        assertFalse(ProjectSettlementMaterials.manages(saved.getValue().getFilePath()));
+    }
 }

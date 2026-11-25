@@ -1154,12 +1154,20 @@ function setViewPhase(p) {
 
 function docsOfPhase(phaseId, type) {
   return (detail.value.docs || []).filter(
-    (d) => Number(d.phaseId) === Number(phaseId) && (type === 'FILE' ? !d.isRichText : d.isRichText)
+    (d) => Number(d.phaseId) === Number(phaseId) && !d.filePath?.startsWith('project_settlement_package_') && (type === 'FILE' ? !d.isRichText : d.isRichText)
   )
 }
 // 相关附件仅真实文件附件（排除富文本存档，富文本在阶段资料区展示）
 const allDocs = computed(() => (detail.value.docs || []).filter((d) => !d.isRichText)
-  .sort((a, b) => Number(b.id) - Number(a.id)))
+  .sort((a, b) => Number(b.id) - Number(a.id))
+  .map(doc => ({ ...doc, fileName: projectFileDisplayName(doc) })))
+
+function projectFileDisplayName(doc) {
+  const name = doc.fileName || doc.filePath
+  const projectName = String(detail.value.name || '').trim().replace(/[<>:"/\\|?*]/g, '_')
+  if (!projectName || !name || name.startsWith(projectName)) return name
+  return `${projectName}-${name}`
+}
 
 function richTextOf(phaseId) {
   return richOfPhase.value[phaseId] ?? ''

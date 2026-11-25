@@ -10,6 +10,8 @@ final class ProjectSettlementMaterials {
     static final String PHASE = "结算资料上传";
     static final String PREFIX = ProjectStorageService.SETTLEMENT_FILE_PREFIX;
 
+    static final String PACKAGE_PREFIX = PREFIX + "package_";
+
     record Slot(String code, String group, String name, String description, String projectType,
                 String suggestedUploader, String suggestedReviewer, String deadline,
                 boolean required, boolean versioned, boolean allowsNotApplicable) {
@@ -45,7 +47,7 @@ final class ProjectSettlementMaterials {
     }
 
     static boolean manages(String path) {
-        return path != null && path.startsWith(PREFIX);
+        return path != null && path.startsWith(PREFIX) && !path.startsWith(PACKAGE_PREFIX);
     }
 
     static boolean isReason(ProjectDoc doc) {
