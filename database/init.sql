@@ -713,7 +713,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_favorite_customer_backup_20261029` (
 CREATE TABLE IF NOT EXISTS `notification` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL COMMENT '接收人 sys_user.id',
-  `type` varchar(50) NOT NULL COMMENT '事件类型（approval_result/approval_todo/role_changed/password_reset/doc_off_shelf/doc_deleted）',
+  `type` varchar(50) NOT NULL COMMENT '事件类型（NotificationService.KNOWN_TYPES：审批 5 类/账号 2 类/知识库 4 类/合规 5 类）',
   `title` varchar(200) NOT NULL COMMENT '通知标题',
   `content` varchar(500) DEFAULT NULL COMMENT '通知内容',
   `jump_path` varchar(255) DEFAULT NULL COMMENT '点击跳转前端路由（如 /profile/my-approvals?status=1）',
@@ -724,6 +724,15 @@ CREATE TABLE IF NOT EXISTS `notification` (
   KEY `idx_user_read` (`user_id`,`is_read`),
   KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='通用消息通知表';
+CREATE TABLE IF NOT EXISTS `notification_mute` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL COMMENT '接收人 sys_user.id',
+  `type` varchar(50) NOT NULL COMMENT '免打扰的通知类型（NotificationService.KNOWN_TYPES 内，password_reset 除外）',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_type` (`user_id`,`type`),
+  CONSTRAINT `fk_notif_mute_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='消息通知免打扰偏好（按类型）';
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE IF NOT EXISTS `operation_log` (
   `id` bigint NOT NULL AUTO_INCREMENT,

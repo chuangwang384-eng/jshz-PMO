@@ -78,6 +78,11 @@ expert:
     due-cron: "0 30 8 * * ?"
     # 全局责任人提醒提前天数
     assignee-days: 3
+  # 消息保留期清理（需求 A，2026-11-25）：每日 03:40 物理删除「已读且超过保留期」的通知，未读永不清理。
+  # 真源唯一，消费方 NotificationRetentionCleanTask
+  notification:
+    read-retention-days: '${NOTIFICATION_READ_RETENTION_DAYS:90}'
+    retention-clean-cron: '${NOTIFICATION_RETENTION_CLEAN_CRON:0 40 3 * * ?}'
   # 供应商图片存储根目录（前端压缩后上传，多图画廊展示）
   # 客户附件存储根目录（客户信息模块：客户档案附件，独立目录）
   customer:

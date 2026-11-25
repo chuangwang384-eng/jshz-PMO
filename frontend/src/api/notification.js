@@ -36,3 +36,13 @@ export function deleteNotification(id) {
 export function deleteNotificationsBatch(ids) {
   return request.delete('/notifications/batch', { data: { ids } })
 }
+
+// 本人免打扰类型列表（需求 D，2026-11-25）：返回 ["type1","type2"…]
+export function fetchMutedTypes() {
+  return request.get('/notifications/mutes')
+}
+
+// 全量保存本人免打扰类型：body {types: []}（password_reset 与未知类型后端 400 拒绝；空数组=全部恢复接收）
+export function saveMutedTypes(types) {
+  return request.put('/notifications/mutes', { types })
+}

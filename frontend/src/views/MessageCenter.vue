@@ -23,7 +23,10 @@
         style="width: 170px"
         @change="handleFilterChange"
       >
-        <el-option v-for="(label, t) in TYPE_LABELS" :key="t" :label="label" :value="t" />
+        <!-- 分组取自 utils/notificationTypes.js（需求 B）：组内顺序即展示顺序 -->
+        <el-option-group v-for="group in TYPE_GROUPS" :key="group.label" :label="group.label">
+          <el-option v-for="t in group.types" :key="t" :label="TYPE_LABELS[t]" :value="t" />
+        </el-option-group>
       </el-select>
       <el-button
         style="margin-left: 8px"
@@ -37,6 +40,7 @@
         :disabled="!selection.length"
         @click="handleBatchDelete"
       >批量删除{{ selection.length ? `(${selection.length})` : '' }}</el-button>
+      <el-button link type="primary" @click="openMuteDialog">通知偏好</el-button>
     </div>
 
     <el-table
@@ -50,7 +54,7 @@
       @row-click="handleRowClick"
     >
       <el-table-column type="selection" width="46" :selectable="(row) => true" />
-      <el-table-column label="类型" width="120" align="center">
+      <el-table-column label="类型" width="150" align="center">
         <template #default="{ row }">
           <el-tag :type="typeTagType(row.type)" size="small">{{ TYPE_LABELS[row.type] || row.type }}</el-tag>
         </template>
@@ -63,7 +67,12 @@
         </template>
       </el-table-column>
       <el-table-column prop="content" label="内容摘要" min-width="280" show-overflow-tooltip />
-      <el-table-column prop="createTime" label="时间" width="170" />
+      <el-table-column label="时间" width="140">
+        <template #default="{ row }">
+          <!-- 需求 B：相对时间展示，悬停看绝对时间 -->
+          <span :title="row.createTime">{{ formatRelativeTime(row.createTime) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="90" align="center" fixed="right">
         <template #default="{ row }">
           <el-button link type="danger" @click.stop="handleDelete(row)">删除</el-button>
@@ -82,6 +91,26 @@
         @current-change="fetchList"
       />
     </div>
+
+    <!-- 免打扰偏好（需求 D，2026-11-25）：勾选的类型不再接收站内通知；password_reset 强制送达不可关闭 -->
+    <el-dialog v-model="muteVisible" title="通知偏好（免打扰）" width="520px" :close-on-click-modal="false">
+      <p class="mute-tip">
+        勾选的类型将不再接收站内通知（已有的未读消息不受影响，只是之后不再产生新通知）。
+        「密码重置」属账号安全提醒，始终送达，不可关闭。
+      </p>
+      <div v-loading="muteLoading" class="mute-groups">
+        <div v-for="group in MUTABLE_GROUPS" :key="group.label" class="mute-group">
+          <div class="mute-group-label">{{ group.label }}</div>
+          <el-checkbox-group v-model="muteSelection" class="mute-checkboxes">
+            <el-checkbox v-for="t in group.types" :key="t" :value="t" :label="TYPE_LABELS[t]" />
+          </el-checkbox-group>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="muteVisible = false">取消</el-button>
+        <el-button type="primary" :loading="muteSaving" @click="saveMutePreferences">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -91,39 +120,24 @@ import { safeTarget } from '../utils/dashboard'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { fetchNotifications } from '../api/notification'
+import { fetchNotifications, fetchMutedTypes, saveMutedTypes } from '../api/notification'
 import { useNotificationStore } from '../store/notification'
+import {
+  TYPE_LABELS,
+  TYPE_GROUPS,
+  MUTABLE_TYPES,
+  typeTagType,
+  formatRelativeTime
+} from '../utils/notificationTypes'
 
 const route = useRoute()
 const router = useRouter()
 const notificationStore = useNotificationStore()
 
-// 类型枚举（与后端 NotificationService.TYPE_* 一致，共 10 类）
-const TYPE_LABELS = {
-  approval_result: '审批结果',
-  approval_todo: '待审批',
-  approval_withdrawn: '申请撤回',
-  approval_transferred: '审批转办',
-  approval_assigned: '审批加签',
-  role_changed: '角色调整',
-  password_reset: '密码重置',
-  doc_off_shelf: '文档下架',
-  doc_deleted: '文档删除',
-  doc_updated: '文档更新',
-  compliance_published: '合规事项发布',
-  compliance_updated: '合规事项更新',
-  compliance_due: '合规到期提醒',
-  compliance_assigned: '合规责任人指派',
-  compliance_done_notify: '合规责任人完成提醒'
-}
-
-function typeTagType(type) {
-  if (type && type.startsWith('compliance_')) return type === 'compliance_due' ? 'warning' : 'primary'
-  if (type === 'approval_result') return 'success'
-  if (type === 'approval_todo' || type === 'approval_transferred' || type === 'approval_assigned') return 'warning'
-  if (type === 'role_changed' || type === 'password_reset') return 'danger'
-  return 'info'
-}
+// 免打扰偏好弹窗的分组：不含「账号安全」组里的 password_reset（不可关闭），其余组原样展示
+const MUTABLE_GROUPS = TYPE_GROUPS
+  .map((g) => ({ label: g.label, types: g.types.filter((t) => MUTABLE_TYPES.includes(t)) }))
+  .filter((g) => g.types.length)
 
 const readTab = ref('all')
 const typeFilter = ref('')
@@ -139,7 +153,11 @@ const selectedUnreadIds = computed(() =>
   selection.value.filter((r) => r.isRead === 0).map((r) => r.id)
 )
 
+// 请求序号：仅最新一次请求可写状态，避免快速切 tab/类型时慢响应覆盖新筛选结果（P3-5）
+let requestSeq = 0
+
 async function fetchList() {
+  const seq = ++requestSeq
   loading.value = true
   try {
     const data = await fetchNotifications({
@@ -148,10 +166,17 @@ async function fetchList() {
       isRead: readTab.value === 'all' ? undefined : readTab.value === 'unread' ? 0 : 1,
       type: typeFilter.value || undefined
     })
+    if (seq !== requestSeq) return
     records.value = data?.items || []
     total.value = data?.total || 0
+    // 页码越界（删除/筛选后当前页为空但总数非 0）：回到最后一页重取，避免"共 N 条却空白"（P2-3）
+    const maxPage = Math.max(1, Math.ceil(total.value / size.value))
+    if (!records.value.length && total.value > 0 && page.value > maxPage) {
+      page.value = maxPage
+      fetchList()
+    }
   } finally {
-    loading.value = false
+    if (seq === requestSeq) loading.value = false
   }
 }
 
@@ -165,14 +190,15 @@ function handleSelectionChange(rows) {
   selection.value = rows || []
 }
 
-// 点击行 = 标记已读（未读时）+ 按类型跳转关联页面；点复选框列不触发
+// 点击行 = 标记已读（未读时）+ 按类型跳转关联页面；点复选框列不触发。
+// 已读状态本地更新即可（P2-4：此前额外 fetchList() 全量刷新，多一次请求且丢勾选状态）
 async function handleRowClick(row, column) {
   if (column && column.type === 'selection') return
   try {
     if (row.isRead === 0) {
       await notificationStore.markRead(row.id)
       row.isRead = 1
-      fetchList()
+      notificationStore.loadUnread()
     }
     if (row.jumpPath) {
       const resolved = router.resolve(row.jumpPath)
@@ -256,16 +282,55 @@ async function handleBatchDelete() {
   }
 }
 
+// ==================== 免打扰偏好（需求 D） ====================
+const muteVisible = ref(false)
+const muteLoading = ref(false)
+const muteSaving = ref(false)
+const muteSelection = ref([])
+
+async function openMuteDialog() {
+  muteVisible.value = true
+  muteLoading.value = true
+  try {
+    const muted = (await fetchMutedTypes()) || []
+    muteSelection.value = Array.isArray(muted) ? muted : []
+  } catch (e) {
+    // 拦截器已提示
+  } finally {
+    muteLoading.value = false
+  }
+}
+
+async function saveMutePreferences() {
+  muteSaving.value = true
+  try {
+    await saveMutedTypes([...muteSelection.value])
+    ElMessage.success(muteSelection.value.length
+      ? `已设置 ${muteSelection.value.length} 类消息免打扰`
+      : '已恢复接收全部类型通知')
+    muteVisible.value = false
+  } catch (e) {
+    // 拦截器已提示
+  } finally {
+    muteSaving.value = false
+  }
+}
+
 onMounted(() => {
   // 未读数走全局 store（与铃铛红点同源同步）；列表按当前筛选拉取
   notificationStore.loadUnread()
   fetchList()
 })
+// 工作台/消息深链：?notificationId=xxx 弹内容并跳关联事项；打开后从 URL 移除该参数，
+// 否则筛选/刷新时会再次触发（P3-6）
 watchDashboardFocus(route, 'notificationId', 'notification', async row => {
- if(row.isRead === 0) { await notificationStore.markRead(row.id); row.isRead=1; await fetchList() }
- let confirmed=false
- try { await ElMessageBox.alert(row.content || row.title, row.title, { confirmButtonText:'查看关联事项', dangerouslyUseHTMLString:false }); confirmed=true } catch {}
- if(confirmed) await handleRowClick(row)
+  if(row.isRead === 0) { await notificationStore.markRead(row.id); row.isRead=1; await fetchList() }
+  let confirmed=false
+  try { await ElMessageBox.alert(row.content || row.title, row.title, { confirmButtonText:'查看关联事项', dangerouslyUseHTMLString:false }); confirmed=true } catch {}
+  const query = { ...route.query }
+  delete query.notificationId
+  router.replace({ query }).catch(() => {})
+  if(confirmed) await handleRowClick(row)
 }, message => ElMessage.warning(message))
 </script>
 
@@ -277,6 +342,10 @@ watchDashboardFocus(route, 'notificationId', 'notification', async row => {
 }
 .toolbar {
   flex-wrap: wrap;
+  gap: 8px;
+}
+.toolbar :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .tab-badge {
   margin-left: 6px;
@@ -292,5 +361,24 @@ watchDashboardFocus(route, 'notificationId', 'notification', async row => {
 .unread-dot {
   margin-right: 6px;
   vertical-align: middle;
+}
+.mute-tip {
+  font-size: 13px;
+  color: var(--ui-text-sub);
+  margin: 0 0 12px;
+}
+.mute-group {
+  margin-bottom: 12px;
+}
+.mute-group-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-text-main);
+  margin-bottom: 6px;
+}
+.mute-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 </style>

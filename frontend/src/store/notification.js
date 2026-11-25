@@ -28,7 +28,13 @@ export const useNotificationStore = defineStore('notification', {
     // 已见过的消息 id 基线：初始加载 / 手动打开面板 / 弹提示后都会推进基线，避免重复提示
     baselineIds: [],
     // 最近一次轮询完成时间戳：供页面（如「我的申请」）跟随全局轮询刷新，避免各页面自建定时器（2026-11-24）
-    lastPollAt: 0
+    lastPollAt: 0,
+    // SSE 长连接（需求 E，2026-11-25）：EventSource 实例与连接状态；连接由铃铛组件登录后建立
+    sseSource: null,
+    sseConnected: false,
+    // poll 防重入标记：SSE 信号与 30s 定时器可能同时触发
+    polling: false,
+    lastSsePollAt: 0
   }),
   actions: {
     async loadUnread() {
@@ -60,24 +66,56 @@ export const useNotificationStore = defineStore('notification', {
       await this.loadList({ page: 1, pageSize: 20 })
       this.baselineIds = this.items.map((i) => i.id)
     },
-    // 轮询一次：刷新未读数与列表，检测新增消息弹轻提示
+    // 轮询一次：刷新未读数与列表，检测新增消息弹轻提示。
+    // 防重入（2026-11-25，P3-8 配套）：SSE 信号与定时器并发触发时只执行一次。
     async poll() {
-      const before = new Set(this.baselineIds)
-      await Promise.all([this.loadUnread(), this.loadAnnouncementUnread()])
-      await this.loadList({ page: 1, pageSize: 20 })
-      const fresh = this.items.filter((i) => !before.has(i.id))
-      if (fresh.length) {
-        const latest = fresh[0]
-        ElNotification({
-          title: latest.title,
-          message: latest.content || '',
-          type: 'info',
-          duration: 4500,
-          position: 'top-right'
-        })
-        this.baselineIds = this.items.map((i) => i.id)
+      if (this.polling) return
+      this.polling = true
+      try {
+        const before = new Set(this.baselineIds)
+        await Promise.all([this.loadUnread(), this.loadAnnouncementUnread()])
+        await this.loadList({ page: 1, pageSize: 20 })
+        const fresh = this.items.filter((i) => !before.has(i.id))
+        if (fresh.length) {
+          const latest = fresh[0]
+          const extra = fresh.length > 1 ? ` 等 ${fresh.length} 条新消息` : ''
+          ElNotification({
+            title: latest.title,
+            message: (latest.content || '') + extra,
+            type: 'info',
+            duration: 4500,
+            position: 'top-right'
+          })
+          this.baselineIds = this.items.map((i) => i.id)
+        }
+        this.lastPollAt = Date.now()
+      } finally {
+        this.polling = false
       }
-      this.lastPollAt = Date.now()
+    },
+    // SSE 长连接（需求 E，2026-11-25）：登录后由铃铛组件调用；收到 refresh 信号节流 2 秒拉取一次。
+    // 30 秒轮询保留为兜底（连接中断自动重连期间由轮询补位），故信号丢失不影响正确性。
+    connectSSE() {
+      if (this.sseSource) return
+      if (typeof EventSource === 'undefined') return
+      const source = new EventSource('/api/notifications/sse')
+      source.onopen = () => { this.sseConnected = true }
+      source.onerror = () => { this.sseConnected = false }
+      source.addEventListener('refresh', () => {
+        // 节流：通知风暴（一次审批通知多个审批人）下每人只会收到各自一条，但保险起见限频
+        const now = Date.now()
+        if (now - this.lastSsePollAt < 2000) return
+        this.lastSsePollAt = now
+        this.poll()
+      })
+      this.sseSource = source
+    },
+    disconnectSSE() {
+      if (this.sseSource) {
+        this.sseSource.close()
+        this.sseSource = null
+        this.sseConnected = false
+      }
     },
     startPolling() {
       if (this.pollTimer) return
@@ -90,6 +128,7 @@ export const useNotificationStore = defineStore('notification', {
         clearInterval(this.pollTimer)
         this.pollTimer = null
       }
+      this.disconnectSSE()
     },
     // 打开面板时刷新列表并推进基线（用户已查看，后续不再对当前列表弹提示）
     async refresh() {

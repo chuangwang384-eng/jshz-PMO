@@ -554,6 +554,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 | `PHOTOMATTE_LEGACY_ROOT` | 抠图历史 E 盘 venv 兜底（可置空跳过） | `E:/AI助手开发/pp-ocrv5` |
 | `OLLAMA_URL` / `OLLAMA_MODEL` / `OLLAMA_TIMEOUT` | 本地语义抽取 | 无（未设停用）/ qwen2.5:7b / 180s |
 | `LOG_DIR` | 应用日志目录 | `D:/jshz-PMO/logs` |
+| `NOTIFICATION_READ_RETENTION_DAYS` / `NOTIFICATION_RETENTION_CLEAN_CRON` | 已读消息保留期清理（需求 A） | 90 / `0 40 3 * * ?` |
 | `VITE_API_BASE` / `VITE_API_PROXY_TARGET` | 前端请求地址 / 开发代理 | `/api` / `http://127.0.0.1:8080` |
 
 清单与 `docs/deployment.md` 同步维护；新增变量先登记 deployment.md，再更新本表。

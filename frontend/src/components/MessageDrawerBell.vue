@@ -35,7 +35,9 @@
               :infinite-scroll-disabled="scrollDisabledAll"
               :infinite-scroll-distance="80"
             >
-              <div v-if="!mergedItems.length && !allLoading" class="msg-empty">暂无消息</div>
+              <div v-if="!mergedItems.length && !allLoading" class="msg-empty">
+                {{ notifError || annError ? '加载失败，请稍后重试' : '暂无消息' }}
+              </div>
               <template v-else>
                 <div
                   v-for="item in mergedItems"
@@ -71,7 +73,9 @@
               :infinite-scroll-disabled="scrollDisabledNotif"
               :infinite-scroll-distance="80"
             >
-              <div v-if="!notifItems.length && !notifLoading" class="msg-empty">暂无消息</div>
+              <div v-if="!notifItems.length && !notifLoading" class="msg-empty">
+                {{ notifError ? '加载失败，请稍后重试' : '暂无消息' }}
+              </div>
               <template v-else>
                 <div
                   v-for="item in notifItems"
@@ -106,7 +110,9 @@
               :infinite-scroll-disabled="scrollDisabledAnn"
               :infinite-scroll-distance="80"
             >
-              <div v-if="!annItems.length && !annLoading" class="msg-empty">暂无公告</div>
+              <div v-if="!annItems.length && !annLoading" class="msg-empty">
+                {{ annError ? '加载失败，请稍后重试' : '暂无公告' }}
+              </div>
               <template v-else>
                 <div
                   v-for="item in annItems"
@@ -144,6 +150,7 @@ import { useNotificationStore } from '../store/notification'
 import { useAuthStore } from '../store/auth'
 import { listAnnouncements, markAnnouncementRead, markAllAnnouncementsRead } from '../api/announcement'
 import { fetchNotifications } from '../api/notification'
+import { TYPE_LABELS as SHARED_TYPE_LABELS, typeTagType } from '../utils/notificationTypes'
 
 const PAGE_SIZE = 20
 
@@ -161,30 +168,20 @@ const notifItems = ref([])
 const notifPage = ref(0)
 const notifLoading = ref(false)
 const notifDone = ref(false)
+const notifError = ref(false)
 
 // 公告分页状态
 const annItems = ref([])
 const annPage = ref(0)
 const annLoading = ref(false)
 const annDone = ref(false)
+const annError = ref(false)
 
 // 全部 Tab：两路合并
 const mergedItems = ref([])
 
-// 类型标签映射（与消息中心页一致）
-const typeLabel = {
-  approval_result: '审批结果',
-  approval_todo: '待审批',
-  approval_withdrawn: '申请已撤回',
-  approval_transferred: '审批转办',
-  approval_assigned: '审批加签',
-  role_changed: '角色调整',
-  password_reset: '密码重置',
-  doc_off_shelf: '文档下架',
-  doc_deleted: '文档删除',
-  doc_updated: '文档更新',
-  doc_relisted: '文档上架'
-}
+// 类型标签映射：单一来源 utils/notificationTypes.js（2026-11-25 收口，P2-1：此前本副本缺 5 类合规类型）
+const typeLabel = SHARED_TYPE_LABELS
 
 // 总未读角标 = 系统消息未读 + 公告未读（均来自 store 轮询合成）
 const totalUnread = computed(() => notification.unread + notification.announcementUnread)
@@ -216,6 +213,7 @@ async function loadPage(page, state, fetchPage, mapItem) {
   state.loading.value = true
   try {
     const data = await fetchPage(page)
+    state.error.value = false
     const items = ((data && data.items) || []).map(mapItem)
     if (page === 1) {
       state.items.value = items
@@ -227,7 +225,8 @@ async function loadPage(page, state, fetchPage, mapItem) {
     state.page.value = page
     if (items.length < PAGE_SIZE) state.done.value = true
   } catch (e) {
-    // 网络异常静默，允许滚动重试
+    // 网络异常静默，允许滚动重试；但首屏失败要区分于「暂无消息」（P3-7）
+    state.error.value = true
   } finally {
     state.loading.value = false
     if (activeTab.value === 'all') mergeAll()
@@ -238,7 +237,7 @@ async function loadPage(page, state, fetchPage, mapItem) {
 function loadNotif(page) {
   return loadPage(
     page,
-    { items: notifItems, page: notifPage, loading: notifLoading, done: notifDone },
+    { items: notifItems, page: notifPage, loading: notifLoading, done: notifDone, error: notifError },
     (p) => fetchNotifications({ page: p, pageSize: PAGE_SIZE }),
     (n) => ({ ...n, source: 'notif', key: `notif-${n.id}` })
   )
@@ -248,7 +247,7 @@ function loadNotif(page) {
 function loadAnn(page) {
   return loadPage(
     page,
-    { items: annItems, page: annPage, loading: annLoading, done: annDone },
+    { items: annItems, page: annPage, loading: annLoading, done: annDone, error: annError },
     (p) => listAnnouncements({ scope: 'effective', page: p, size: PAGE_SIZE }),
     (a) => ({ ...a, source: 'ann', key: `ann-${a.id}` })
   )
@@ -279,30 +278,35 @@ function loadMoreAnn() {
   if (!annLoading.value && !annDone.value) loadAnn(annPage.value + 1)
 }
 
-// 打开抽屉：按当前 Tab 强制刷新第 1 页，并同步角标
+// 打开抽屉：按当前 Tab 强制刷新第 1 页，并同步角标。
+// 用 store.refresh() 推进已见基线（2026-11-25，P2-2：此前不推进基线，抽屉里看过的新消息
+// 会在下一轮轮询再次弹轻提示）
 function openDrawer() {
   drawerVisible.value = true
   refreshCurrentTab()
-  notification.loadUnread()
-  notification.loadAnnouncementUnread()
+  notification.refresh()
 }
 
 function refreshCurrentTab() {
   if (activeTab.value === 'all') {
     notifPage.value = 0
     notifDone.value = false
+    notifError.value = false
     annPage.value = 0
     annDone.value = false
+    annError.value = false
     mergedItems.value = []
     loadNotif(1)
     loadAnn(1)
   } else if (activeTab.value === 'notif') {
     notifPage.value = 0
     notifDone.value = false
+    notifError.value = false
     loadNotif(1)
   } else {
     annPage.value = 0
     annDone.value = false
+    annError.value = false
     loadAnn(1)
   }
 }
@@ -379,6 +383,8 @@ onMounted(() => {
   if (auth.isLoggedIn) {
     notification.init()
     notification.startPolling()
+    // SSE 实时推送（需求 E，2026-11-25）：收到信号即拉取；30 秒轮询保留为兜底
+    notification.connectSSE()
   }
 })
 
@@ -455,6 +461,7 @@ onBeforeUnmount(() => {
   color: var(--ui-text-muted);
   font-size: 13px;
 }
+/* 字面色值按 AGENTS 17.2 属允许字面量（近邻令牌：--ui-border-weak / --ui-fill），保持既有视觉不改 */
 .msg-item {
   padding: 10px 12px;
   border-bottom: 1px solid #f2f4f7;
