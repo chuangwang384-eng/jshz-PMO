@@ -492,7 +492,19 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * page/size 由服务层钳制（1..{@link #MAX_PAGE_SIZE}），进度记录按页批量回填（Q2）。
      */
     public Page<Application> listRequests(List<Integer> statuses, String keyword, long page, long size, AuthUser viewer) {
+        return listRequests(statuses, keyword, null, page, size, viewer);
+    }
+
+    /**
+     * 全部申请单分页（支持申请类型过滤，2026-11-25 审批筛选增强）：type 为空不过滤，
+     * 非空时须为 ApplicationType 枚举名（Controller 已归一化）。
+     */
+    public Page<Application> listRequests(List<Integer> statuses, String keyword, String type,
+                                          long page, long size, AuthUser viewer) {
         LambdaQueryWrapper<Application> wrapper = new LambdaQueryWrapper<>();
+        if (StringUtils.hasText(type)) {
+            wrapper.eq(Application::getApplicationType, type.trim());
+        }
         if (statuses != null && !statuses.isEmpty()) {
             wrapper.in(Application::getStatus, statuses);
             // 待办列表（含 status=0）按审批人快照过滤：快照为空（存量/任意审批人）放行；
@@ -1110,6 +1122,92 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         notifyApprovalWithdrawn(app);
         afterCommit("撤回清理临时照片", () -> cleanTempPhotos(app));
         return fillView(app);
+    }
+
+    // ==================== 滞留催办（2026-11-25 审批管理需求 E） ====================
+
+    /**
+     * 对滞留的待审批单发送催办：滞留时长自最近一次 SUBMIT/RESUBMIT 记录起算（与 R2 停留时长同口径）。
+     * 分级防骚扰：达到 firstHours 发一次 URGE_24，达到 secondHours 再发一次 URGE_72；
+     * 同级别只催一次（以审批进度记录 action=URGE_24/URGE_72 为去重凭据，不建新表）。
+     * 发送对象：审批人快照（或签/角色兜底，与既有待办通知同链路）+ 被转办人/被加签人。
+     *
+     * @return 本次实际发出的催办单数（每单每级别最多一条）
+     */
+    public int urgeStalePending(int firstHours, int secondHours, LocalDateTime now) {
+        int safeFirst = Math.max(1, firstHours);
+        int safeSecond = Math.max(safeFirst + 1, secondHours);
+        List<Application> pending = getBaseMapper().selectList(
+                new LambdaQueryWrapper<Application>().eq(Application::getStatus, STATUS_PENDING));
+        int sent = 0;
+        for (Application app : pending) {
+            if (app.getId() == null) {
+                continue;
+            }
+            // 原子确认仍在待审批（并发审批/撤回后不催）
+            if (getBaseMapper().updateStatusIfCurrent(app.getId(), STATUS_PENDING, STATUS_PENDING) != 1) {
+                continue;
+            }
+            List<ApprovalRecord> records = approvalRecordMapper.selectList(
+                    new LambdaQueryWrapper<ApprovalRecord>()
+                            .eq(ApprovalRecord::getApplicationId, app.getId())
+                            .orderByAsc(ApprovalRecord::getCreateTime));
+            LocalDateTime since = app.getCreateTime();
+            for (ApprovalRecord record : records) {
+                if (("SUBMIT".equals(record.getAction()) || "RESUBMIT".equals(record.getAction()))
+                        && record.getCreateTime() != null) {
+                    since = record.getCreateTime();
+                }
+            }
+            if (since == null) {
+                continue;
+            }
+            long hours = java.time.temporal.ChronoUnit.HOURS.between(since, now);
+            if (hours < safeFirst) {
+                continue;
+            }
+            String action = hours >= safeSecond ? "URGE_72" : "URGE_24";
+            boolean alreadyUrged = records.stream().anyMatch(r -> action.equals(r.getAction()));
+            if (alreadyUrged) {
+                continue;
+            }
+            addRecord(app.getId(), "滞留催办", action, "system",
+                    "该申请已滞留 " + hours + " 小时尚未审批，请尽快处理");
+            notifyApprovalUrge(app, hours);
+            sent++;
+        }
+        if (sent > 0) {
+            log.info("[审批流] 滞留催办完成：本次催办 {} 张（阈值 {}h/{}h）", sent, safeFirst, safeSecond);
+        }
+        return sent;
+    }
+
+    /** 催办通知：复用待办通知链路（快照内审批人/角色兜底），另单独补发被转办人与被加签人。 */
+    private void notifyApprovalUrge(Application app, long hours) {
+        String typeText = typeTextOf(app);
+        String title = "审批催办：" + typeText + "已滞留 " + hours + " 小时";
+        notifyApproverRole(app, NotificationService.TYPE_APPROVAL_TODO, title,
+                "「" + app.getExpertName() + "」的申请尚待审批，请及时处理");
+        try {
+            Set<Long> notified = new java.util.HashSet<>(snapshotUserIds(app));
+            List<String> directNames = new ArrayList<>();
+            if (StringUtils.hasText(app.getCurrentAssignee())) {
+                directNames.add(app.getCurrentAssignee());
+            }
+            if (StringUtils.hasText(app.getExtraApprover())) {
+                directNames.add(app.getExtraApprover());
+            }
+            for (String name : directNames) {
+                Long uid = notificationService.userIdOf(name);
+                if (uid != null && !notified.contains(uid)) {
+                    notificationService.notify(uid, NotificationService.TYPE_APPROVAL_TODO, title,
+                            "「" + app.getExpertName() + "」的申请尚待审批，请及时处理", MANAGE_PATH);
+                    notified.add(uid);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[审批流] 催办补充通知失败：申请单={}", app.getId(), e);
+        }
     }
 
     // ==================== 删除申请（申请人，2026-11-24 新增） ====================

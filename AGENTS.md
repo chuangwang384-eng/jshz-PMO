@@ -555,6 +555,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 | `OLLAMA_URL` / `OLLAMA_MODEL` / `OLLAMA_TIMEOUT` | 本地语义抽取 | 无（未设停用）/ qwen2.5:7b / 180s |
 | `LOG_DIR` | 应用日志目录 | `D:/jshz-PMO/logs` |
 | `NOTIFICATION_READ_RETENTION_DAYS` / `NOTIFICATION_RETENTION_CLEAN_CRON` | 已读消息保留期清理（需求 A） | 90 / `0 40 3 * * ?` |
+| `APPROVAL_URGE_FIRST_HOURS` / `APPROVAL_URGE_SECOND_HOURS` / `APPROVAL_URGE_CRON` | 审批滞留催办（需求 E） | 24 / 72 / `0 15 * * * ?` |
 | `VITE_API_BASE` / `VITE_API_PROXY_TARGET` | 前端请求地址 / 开发代理 | `/api` / `http://127.0.0.1:8080` |
 
 清单与 `docs/deployment.md` 同步维护；新增变量先登记 deployment.md，再更新本表。

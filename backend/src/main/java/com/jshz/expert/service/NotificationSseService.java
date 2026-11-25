@@ -29,11 +29,18 @@ public class NotificationSseService {
     /** 单用户连接数上限：超出时挤掉最旧连接，防止异常客户端累积。 */
     private static final int MAX_EMITTERS_PER_USER = 3;
 
+    /**
+     * 单连接最长存活（毫秒，2026-11-25）：到期由服务端关闭，EventSource 自动重连。
+     * 此前为 0（永不超时）+ 25s 心跳，连接永久存活，导致 nginx 优雅重载时旧 worker
+     * 持有的 SSE 连接无法排空、发布中止（1.0.143 首发实测）。有限超时使连接定期回收。
+     */
+    private static final long EMITTER_TIMEOUT_MS = 30 * 60 * 1000L;
+
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
     /** 注册本人连接（Controller 已完成登录校验）。 */
     public SseEmitter register(long userId) {
-        SseEmitter emitter = new SseEmitter(0L);
+        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
         CopyOnWriteArrayList<SseEmitter> list = emitters.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>());
         list.add(emitter);
         while (list.size() > MAX_EMITTERS_PER_USER) {

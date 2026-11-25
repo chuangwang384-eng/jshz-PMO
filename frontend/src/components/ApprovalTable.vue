@@ -33,11 +33,12 @@
       </el-table-column>
       <el-table-column prop="approveTime" label="审批时间" width="170" />
     </template>
-    <el-table-column v-if="mode === 'pending'" label="操作" width="220" align="center" fixed="right">
+    <el-table-column v-if="mode === 'pending'" label="操作" width="300" align="center" fixed="right">
       <template #default="{ row }">
         <el-button link type="primary" @click="emit('diff', row)">查看对比</el-button>
         <el-button v-permission="'approval:audit'" link type="success" @click="emit('approve', row)">通过</el-button>
         <el-button v-permission="'approval:audit'" link type="danger" @click="emit('reject', row)">驳回</el-button>
+        <el-button v-permission="'approval:audit'" link type="warning" @click="emit('return', row)">退回修改</el-button>
         <el-button
           v-if="ownedByMe(row)"
           v-permission="'approval:audit'"

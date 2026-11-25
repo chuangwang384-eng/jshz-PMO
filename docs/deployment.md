@@ -322,6 +322,15 @@ Publish 流程：版本文件同步（先备份到 `logs/version-backup-*`）→
 - `SR_UPSCALE_PYTHON`：低像素照片超分解释器（默认探测 `<LOCAL_PATH> Files/JSHZ/sr-upscale/venv/Scripts/python.exe`，不存在即整体跳过超分，2026-11-18）；worker 侧另有 `SR_UPSCALE_SCRIPT` / `SR_UPSCALE_MODELS` 覆盖口，缺省同根目录。
 - `APPROVAL_TEMP_PHOTO_RETENTION_DAYS`：审批临时照片保留天数（2026-11-24 新增），配置项 `expert.photo.temp-retention-days`，默认 7；消费点 `ApprovalTempPhotoCleanTask`（每日 03:10，只清理未被待审批/退回修改申请单引用的文件）。
 - `APPROVAL_TEMP_PHOTO_CLEAN_CRON`：上述清理任务的 cron，配置项 `expert.photo.temp-clean-cron`，默认 `0 10 3 * * ?`。
+- `NOTIFICATION_READ_RETENTION_DAYS`（2026-11-25 新增，需求 A）：已读消息保留天数，配置项 `expert.notification.read-retention-days`，默认 90；消费点 `NotificationRetentionCleanTask`（每日 03:40，只清理已读且超期行，未读永不清理）。
+- `NOTIFICATION_RETENTION_CLEAN_CRON`：上述清理任务的 cron，配置项 `expert.notification.retention-clean-cron`，默认 `0 40 3 * * ?`。
+- `APPROVAL_URGE_FIRST_HOURS`（2026-11-25 新增，审批管理需求 E）：审批滞留一级催办阈值（小时），配置项 `expert.approval.urge-first-hours`，默认 24；消费点 `ApprovalUrgeReminderTask`（每小时 :15 扫描待审批单，自最近提交/重提起算，达阈值发 URGE_24，同级别只催一次）。
+- `APPROVAL_URGE_SECOND_HOURS`：二级催办阈值（小时），配置项 `expert.approval.urge-second-hours`，默认 72（达阈值发 URGE_72）。
+- `APPROVAL_URGE_CRON`：催办任务 cron，配置项 `expert.approval.urge-cron`，默认 `0 15 * * * ?`。
+
+> **nginx 优雅重载与 SSE（2026-11-25，负责人批准）**：`D:
+ginx\conf
+ginx.conf` 主上下文新增 `worker_shutdown_timeout 60s;`。背景：1.0.142 引入 SSE 长连接后，nginx 优雅重载时旧 worker 持有的 SSE 连接永不关闭，排空超时（300s）导致蓝绿发布中止（1.0.143 首发实测）。该 directive 使旧 worker 在优雅退出 60s 后强制关闭 lingering 连接，SSE 客户端（EventSource）自动重连。配套：`NotificationSseService` 发射器改为有限超时（30 分钟）定期回收连接。备份 `nginx.conf.bak-20261125-wst`。
 - 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
 - **上传限额单一真源**（方案 D）：后端从 `application.yml expert.upload` 读取 photo/resume/doc-max-bytes，前端登录后经 `GET /api/meta/limits` 同步。调整时同步 `frontend/src/utils/limits.js` 中的离线兜底值。2026-11-20 photo-max-bytes 5MB→10MB（证件照/身份证/头像，Owner 要求），Nginx 60m 与 multipart 50MB 上限不变。
 - **专家简历限额**：`expert.upload.resume-max-bytes` 为 31457280 字节。2026-11-18 核对 `application.yml` 的 multipart 文件与请求上限分别为 50 MB 和 60 MB，运行中 Nginx 的 API 请求上限为 60m。发布先切后端限额，再切前端，无需调整代理或 multipart 配置。
@@ -697,6 +706,10 @@ expert:
 | 2026-11-24 15:07:06 | 1.0.137 | 成功 | expert-system.jar |
 | 2026-11-24 15:31:30 | 1.0.137.2 | 成功 | expert-system.jar |
 | 2026-11-24 16:29:44 | 1.0.138 | 成功 | expert-system.jar |
+| 2026-11-24 17:31:26 | 1.0.139 | 成功 | expert-system.jar |
+| 2026-11-25 09:00:35 | 1.0.140 | 成功 | expert-system.jar |
+| 2026-11-25 09:31:20 | 1.0.141 | 成功 | expert-system.jar |
+| 2026-11-25 10:23:37 | 1.0.142 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 

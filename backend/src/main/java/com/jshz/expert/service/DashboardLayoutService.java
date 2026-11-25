@@ -19,7 +19,7 @@ public class DashboardLayoutService {
             "stat.myApplications", "stat.riskOverdue", "stat.riskDue", "panel.returned",
             "panel.myProjects", "panel.favorites", "panel.announcements", "panel.notifications",
             "page.notifications", "page.profileHome");
-    private static final Set<String> APPROVAL_CARDS = Set.of("stat.myApprovals", "panel.myApprovals", "page.approvalManage");
+    private static final Set<String> APPROVAL_CARDS = Set.of("stat.myApprovals", "panel.myApprovals", "page.approvalManage", "panel.approvalStats");
     private static final Map<String, String> MODULE_CARDS = Map.of(
             "page.knowledge", "knowledge", "page.complianceAssociation", "knowledge",
             "page.complianceEnterprise", "knowledge", "page.complianceDocs", "knowledge", "page.project", "project",
@@ -127,7 +127,7 @@ public class DashboardLayoutService {
     }
 
     private List<Card> validate(AuthUser user, JsonNode items) {
-        // 目录含 24 张卡片（2026-11-09 补齐知识星球子页与我的主页入口），上限与目录规模对齐。
+        // 目录含 25 张卡片（2026-11-25 新增审批统计面板），上限为可放置数量。
         if (!items.isArray() || items.size() > 24) throw invalid();
         List<Card> cards = new ArrayList<>();
         Set<String> seen = new HashSet<>();

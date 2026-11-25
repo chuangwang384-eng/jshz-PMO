@@ -55,7 +55,7 @@ export function getMyApplications(params) {
   return request.get('/approval/my-applications', { params })
 }
 
-// 全部申请单：GET /approval/requests?status=&keyword=&page=&size=（仅管理员）
+// 全部申请单：GET /approval/requests?status=&statuses=&keyword=&type=&page=&size=（权限码 approval:audit；type 为申请类型过滤，2026-11-25）
 export function getApprovalRequests(params) {
   return request.get('/approval/requests', { params })
 }

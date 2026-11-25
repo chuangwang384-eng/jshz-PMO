@@ -230,14 +230,16 @@ public class ApplicationController {
     }
 
     /**
-     * 全部申请单：GET /api/approval/requests?status=&statuses=1,2&keyword=&page=&size=（权限码 approval:audit）。
-     * status：单状态过滤；statuses：多状态过滤（逗号分隔，如 1,2,3 表示已处理），优先于 status。
+     * 全部申请单：GET /api/approval/requests?status=&statuses=1,2&keyword=&type=&page=&size=（权限码 approval:audit）。
+     * status：单状态过滤；statuses：多状态过滤（逗号分隔，如 1,2,3 表示已处理），优先于 status；
+     * type：申请类型过滤（EXPERT_MODIFY/EXPERT_CREATE/CONTRACT，2026-11-25 审批筛选增强）。
      */
     @GetMapping("/requests")
     public ApiResponse<PageResult<Application>> listRequests(
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) String statuses,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
             @AuthenticationPrincipal AuthUser authUser) {
@@ -254,7 +256,7 @@ public class ApplicationController {
         } else if (status != null) {
             statusList = List.of(status);
         }
-        Page<Application> p = applicationService.listRequests(statusList, keyword,
+        Page<Application> p = applicationService.listRequests(statusList, keyword, normalizeType(type),
                 ParamUtils.clamp(page, 1, Long.MAX_VALUE), ParamUtils.clamp(size, 1, ApplicationService.MAX_PAGE_SIZE),
                 authUser);
         return ApiResponse.ok(PageResult.of(p.getTotal(), p.getRecords()));

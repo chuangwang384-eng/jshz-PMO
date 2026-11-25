@@ -78,6 +78,31 @@ public class DashboardReadService {
         items.forEach(m->{m.put("target",target("/profile/approval/manage","applicationId",m.get("id")));m.put("timeType","申请时间");});
         long total=count(from,args);return section(Map.of("total",total,"items",items),total==0);
     }
+    /** 工作台「审批统计」面板（2026-11-25 审批管理需求 D）：待审/滞留分级/今日已处理/近30天平均耗时，口径与待办面板一致。 */
+    public Map<String,Object> approvalStats(AuthUser user) {
+        if (!user.hasPermission("approval:audit")) throw new BusinessException(403,"无审批权限");
+        String scope="a.status=0 AND (a.approver_snapshot IS NULL OR a.approver_snapshot='' OR JSON_CONTAINS(a.approver_snapshot, JSON_OBJECT('username', ?)) OR a.current_assignee=? OR a.extra_approver=?) AND (a.current_assignee IS NULL OR TRIM(a.current_assignee)='' OR a.current_assignee=? OR a.extra_approver=?)";
+        List<Object> scopeArgs=List.of(user.getUsername(),user.getUsername(),user.getUsername(),user.getUsername());
+        Map<String,Object> pending=db.queryForMap("SELECT COUNT(*) pendingTotal,"+
+            "COALESCE(SUM(TIMESTAMPDIFF(HOUR,COALESCE(r.last_submit,a.create_time),NOW())>=24),0) overdue24,"+
+            "COALESCE(SUM(TIMESTAMPDIFF(HOUR,COALESCE(r.last_submit,a.create_time),NOW())>=72),0) overdue72 "+
+            "FROM application a LEFT JOIN (SELECT application_id,MAX(create_time) last_submit FROM approval_record "+
+            "WHERE action IN ('SUBMIT','RESUBMIT') GROUP BY application_id) r ON r.application_id=a.id WHERE "+scope,scopeArgs.toArray());
+        LocalDate today=LocalDate.now(ZONE);
+        LocalDateTime todayStart=today.atStartOfDay();
+        LocalDateTime monthAgo=todayStart.minusDays(30);
+        Map<String,Object> done=db.queryForMap("SELECT COUNT(*) todayDone,"+
+            "COALESCE(ROUND(AVG(CASE WHEN a.approve_time>=? THEN TIMESTAMPDIFF(MINUTE,a.create_time,a.approve_time)/60 END),1),0) avgHours30 "+
+            "FROM application a WHERE a.approve_by=? AND a.approve_time IS NOT NULL AND a.status IN (1,2,4) AND a.approve_time<? AND a.approve_time>=?",
+            todayStart.plusDays(1), user.getUsername(), todayStart.plusDays(1), monthAgo);
+        Map<String,Object> data=new LinkedHashMap<>();
+        data.put("pendingTotal",number(pending.get("pendingTotal")));
+        data.put("overdue24",number(pending.get("overdue24")));
+        data.put("overdue72",number(pending.get("overdue72")));
+        data.put("todayDone",number(done.get("todayDone")));
+        data.put("avgHours30",((Number)done.get("avgHours30")).doubleValue());
+        return section(data,false);
+    }
     public Map<String,Object> notifications(AuthUser user) {
         String from="FROM notification WHERE user_id=? AND is_read=0";
         List<Map<String,Object>> items=rows("SELECT id,title,create_time time "+from+" ORDER BY create_time DESC,id DESC LIMIT 3",user.getUserId());

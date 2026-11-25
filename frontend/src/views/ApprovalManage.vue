@@ -4,6 +4,38 @@
       <span class="page-sub">处理员工提交的专家信息修改申请</span>
     </div>
 
+    <!-- 筛选条（2026-11-25 审批筛选增强）：关键词 / 类型两 Tab 共用；状态筛选仅「已处理」Tab；条件写回 URL 便于分享与深链 -->
+    <div class="filter-bar ui-toolbar">
+      <el-input
+        v-model="keyword"
+        placeholder="搜索专家姓名 / 申请人"
+        clearable
+        class="filter-keyword"
+        @keyup.enter="applyFilters"
+        @clear="applyFilters"
+      />
+      <el-select v-model="type" placeholder="全部类型" clearable class="filter-type" @change="applyFilters">
+        <el-option v-for="opt in TYPE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+      </el-select>
+      <el-select
+        v-if="activeTab === 'done'"
+        v-model="doneStatus"
+        placeholder="全部状态"
+        clearable
+        class="filter-status"
+        @change="applyFilters"
+      >
+        <el-option v-for="opt in DONE_STATUS_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+      </el-select>
+      <el-button type="primary" @click="applyFilters">查询</el-button>
+      <el-button @click="resetFilters">重置</el-button>
+    </div>
+
+    <div v-if="loadError" class="load-error">
+      <span>{{ loadError }}</span>
+      <el-button link type="primary" @click="refresh()">重试</el-button>
+    </div>
+
     <el-tabs v-model="activeTab" style="margin-top: 12px" @tab-change="handleTabChange">
       <!-- 待审批 -->
       <el-tab-pane label="待审批" name="pending">
@@ -11,7 +43,7 @@
           type="info"
           :closable="false"
           show-icon
-          title="加签采用或签语义：您与被加签人任一人审批（通过/驳回）即生效；转办后仅被转办人可审批。"
+          title="加签采用或签语义：您与被加签人任一人审批（通过/驳回）即生效；转办后仅被转办人可审批。退回修改会保留临时照片，申请人可修改后重新提交。"
           style="margin-bottom: 12px"
         />
         <el-button v-if="pendingTotal > 3" type="primary" :loading="quickLoading"
@@ -33,9 +65,9 @@
             v-model:current-page="pendingPage"
             v-model:page-size="pendingSize"
             :total="pendingTotal"
-            :page-sizes="[10, 20, 50, 100]"
+            :page-sizes="PAGE_SIZES"
             layout="total, sizes, prev, pager, next, jumper"
-            @size-change="fetchPending"
+            @size-change="handlePendingSizeChange"
             @current-change="fetchPending"
           />
         </div>
@@ -55,9 +87,9 @@
             v-model:current-page="donePage"
             v-model:page-size="doneSize"
             :total="doneTotal"
-            :page-sizes="[10, 20, 50, 100]"
+            :page-sizes="PAGE_SIZES"
             layout="total, sizes, prev, pager, next, jumper"
-            @size-change="fetchDone"
+            @size-change="handleDoneSizeChange"
             @current-change="fetchDone"
           />
         </div>
@@ -73,9 +105,10 @@
       :queue-size="quickQueue.length"
       @navigate="navigateQuick"
       @success="handleDiffSuccess"
+      @stale="handleDiffStale"
     />
 
-    <!-- 转办弹窗：选人（仅列出有审批权限的用户） -->
+    <!-- 转办弹窗：选人（仅列出有审批权限的用户，排除本人） -->
     <el-dialog v-model="transferVisible" title="审批转办" width="480px" destroy-on-close>
       <div class="dialog-expert">专家：{{ actionRow?.expertName }}（申请人：{{ actionRow?.applicant }}）</div>
       <div class="dialog-summary">转办后仅被转办人可审批该申请单，请在下方选择接收人。</div>
@@ -85,7 +118,7 @@
         placeholder="选择被转办人（仅列出有审批权限的用户）"
         style="width: 100%"
       >
-        <el-option v-for="u in assignableUsers" :key="u.id" :label="u.username" :value="u.username" />
+        <el-option v-for="u in assignableOptions" :key="u.id" :label="u.username" :value="u.username" />
       </el-select>
       <template #footer>
         <el-button @click="transferVisible = false">取消</el-button>
@@ -105,7 +138,7 @@
         placeholder="选择被加签人（仅列出有审批权限的用户）"
         style="width: 100%; margin-bottom: 12px"
       >
-        <el-option v-for="u in assignableUsers" :key="u.id" :label="u.username" :value="u.username" />
+        <el-option v-for="u in assignableOptions" :key="u.id" :label="u.username" :value="u.username" />
       </el-select>
       <el-input
         v-model="addSignComment"
@@ -123,10 +156,8 @@
 </template>
 
 <script setup>
-import { useRoute } from 'vue-router'
-import { watchDashboardFocus } from '../utils/dashboardFocus'
-const route = useRoute()
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   getApprovalRequests,
@@ -135,28 +166,204 @@ import {
   getAssignableUsers
 } from '../api/approval'
 import { useAuthStore } from '../store/auth'
+import { useNotificationStore } from '../store/notification'
+import { TYPE_OPTIONS, PAGE_SIZES } from '../utils/approvalFields'
+import { watchDashboardFocus } from '../utils/dashboardFocus'
 import ApprovalTable from '../components/ApprovalTable.vue'
 import ApprovalDiffDialog from '../components/ApprovalDiffDialog.vue'
 
+const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
+const notificationStore = useNotificationStore()
 
 const activeTab = ref('pending')
 
-// 待审批
+// 已处理 Tab 的状态筛选（待审批 Tab 恒为 status=0，无需筛选）
+const DONE_STATUS_OPTIONS = [
+  { value: 1, label: '已通过' },
+  { value: 2, label: '已驳回' },
+  { value: 3, label: '已撤回' },
+  { value: 4, label: '退回修改' }
+]
+
+// ==================== 筛选条件（与 URL query 双向同步） ====================
+const FILTER_KEYS = ['keyword', 'type', 'status']
+const keyword = ref('')
+const type = ref('')
+const doneStatus = ref(undefined)
+
+function readFiltersFromRoute() {
+  const q = route.query
+  const rawStatus = q.status === undefined || q.status === '' ? undefined : Number(q.status)
+  return {
+    keyword: typeof q.keyword === 'string' ? q.keyword : '',
+    type: TYPE_OPTIONS.some((opt) => opt.value === q.type) ? q.type : '',
+    doneStatus: DONE_STATUS_OPTIONS.some((opt) => opt.value === rawStatus) ? rawStatus : undefined
+  }
+}
+
+function currentFilters() {
+  return {
+    keyword: (keyword.value || '').trim() || undefined,
+    type: type.value || undefined,
+    doneStatus: doneStatus.value ?? undefined
+  }
+}
+
+function applyFilters() {
+  const filters = currentFilters()
+  const query = { ...route.query }
+  FILTER_KEYS.forEach((key) => delete query[key])
+  if (filters.keyword) query.keyword = filters.keyword
+  if (filters.type) query.type = filters.type
+  if (filters.doneStatus !== undefined) query.status = String(filters.doneStatus)
+  pendingPage.value = 1
+  donePage.value = 1
+  if (JSON.stringify(query) !== JSON.stringify(route.query)) {
+    router.replace({ query }).catch(() => {})
+  }
+  fetchPending()
+  fetchDone()
+}
+
+function resetFilters() {
+  keyword.value = ''
+  type.value = ''
+  doneStatus.value = undefined
+  applyFilters()
+}
+
+// URL 变化（前进/后退、深链、分享链接）时同步筛选；仅本页路由内响应
+watch(
+  () => [route.name, route.query.keyword, route.query.type, route.query.status],
+  () => {
+    if (route.name !== 'approval-manage') return
+    const next = readFiltersFromRoute()
+    if (next.keyword === (keyword.value || '').trim()
+      && next.type === (type.value || '')
+      && next.doneStatus === doneStatus.value) return
+    keyword.value = next.keyword
+    type.value = next.type
+    doneStatus.value = next.doneStatus
+    pendingPage.value = 1
+    donePage.value = 1
+    fetchPending()
+    fetchDone()
+  }
+)
+
+// ==================== 列表 ====================
 const pendingList = ref([])
 const pendingTotal = ref(0)
 const pendingPage = ref(1)
 const pendingSize = ref(20)
 const pendingLoading = ref(false)
 
-// 已处理
 const doneList = ref([])
 const doneTotal = ref(0)
 const donePage = ref(1)
 const doneSize = ref(20)
 const doneLoading = ref(false)
 
-// 变更前后对比弹窗（view/approve/reject/return 四态）
+const loadError = ref('')
+// 请求序号：仅最新一次请求可写状态，避免快速切换筛选时慢响应覆盖新结果
+let pendingSeq = 0
+let doneSeq = 0
+
+async function fetchPending(options = {}) {
+  const silent = options.silent === true
+  const seq = ++pendingSeq
+  if (!silent) pendingLoading.value = true
+  loadError.value = ''
+  const filters = currentFilters()
+  try {
+    const data = await getApprovalRequests({
+      status: 0,
+      keyword: filters.keyword,
+      type: filters.type,
+      page: pendingPage.value,
+      size: pendingSize.value
+    })
+    if (seq !== pendingSeq) return
+    pendingList.value = data?.items || []
+    pendingTotal.value = data?.total || 0
+    const maxPage = Math.max(1, Math.ceil(pendingTotal.value / pendingSize.value))
+    if (!pendingList.value.length && pendingTotal.value > 0 && pendingPage.value > maxPage) {
+      pendingPage.value = maxPage
+      fetchPending()
+    }
+  } catch (e) {
+    if (seq !== pendingSeq) return
+    if (!silent) {
+      loadError.value = '待审批列表加载失败，请稍后重试'
+      pendingList.value = []
+      pendingTotal.value = 0
+    }
+  } finally {
+    if (seq === pendingSeq) pendingLoading.value = false
+  }
+}
+
+// 已处理 = 已通过(1) + 已驳回(2) + 已撤回(3) + 已退回修改(4)，后端 statuses 多状态统一分页；
+// 状态筛选选中时只查该状态
+async function fetchDone(options = {}) {
+  const silent = options.silent === true
+  const seq = ++doneSeq
+  if (!silent) doneLoading.value = true
+  loadError.value = ''
+  const filters = currentFilters()
+  try {
+    const data = await getApprovalRequests({
+      statuses: filters.doneStatus !== undefined ? String(filters.doneStatus) : '1,2,3,4',
+      keyword: filters.keyword,
+      type: filters.type,
+      page: donePage.value,
+      size: doneSize.value
+    })
+    if (seq !== doneSeq) return
+    doneList.value = data?.items || []
+    doneTotal.value = data?.total || 0
+    const maxPage = Math.max(1, Math.ceil(doneTotal.value / doneSize.value))
+    if (!doneList.value.length && doneTotal.value > 0 && donePage.value > maxPage) {
+      donePage.value = maxPage
+      fetchDone()
+    }
+  } catch (e) {
+    if (seq !== doneSeq) return
+    if (!silent) {
+      loadError.value = '已处理列表加载失败，请稍后重试'
+      doneList.value = []
+      doneTotal.value = 0
+    }
+  } finally {
+    if (seq === doneSeq) doneLoading.value = false
+  }
+}
+
+function handlePendingSizeChange() {
+  pendingPage.value = 1
+  fetchPending()
+}
+
+function handleDoneSizeChange() {
+  donePage.value = 1
+  fetchDone()
+}
+
+// 跟随全局通知轮询静默刷新当前 Tab（新申请提交后无需手动刷新即可出现）
+watch(
+  () => notificationStore.lastPollAt,
+  () => {
+    if (activeTab.value === 'pending') {
+      if (!pendingLoading.value) fetchPending({ silent: true })
+    } else if (!doneLoading.value) {
+      fetchDone({ silent: true })
+    }
+  }
+)
+
+// ==================== 对比弹窗 / 快速审批 ====================
 const diffVisible = ref(false)
 const diffRow = ref(null)
 const diffMode = ref('view')
@@ -164,48 +371,6 @@ const quickQueue = ref([])
 const quickIndex = ref(0)
 const quickLoading = ref(false)
 
-// 转办 / 加签（B2）
-const transferVisible = ref(false)
-const transferTarget = ref('')
-const addSignVisible = ref(false)
-const addSignTarget = ref('')
-const addSignComment = ref('')
-const assignableUsers = ref([])
-const actionRow = ref(null)
-const actionSubmitting = ref(false)
-
-async function fetchPending() {
-  pendingLoading.value = true
-  try {
-    const data = await getApprovalRequests({
-      status: 0,
-      page: pendingPage.value,
-      size: pendingSize.value
-    })
-    pendingList.value = data?.items || []
-    pendingTotal.value = data?.total || 0
-  } finally {
-    pendingLoading.value = false
-  }
-}
-
-// 已处理 = 已通过(1) + 已驳回(2) + 已撤回(3) + 已退回修改(4)，后端 statuses 多状态统一分页（避免各取一页合并导致总数不稳定）
-async function fetchDone() {
-  doneLoading.value = true
-  try {
-    const data = await getApprovalRequests({
-      statuses: '1,2,3,4',
-      page: donePage.value,
-      size: doneSize.value
-    })
-    doneList.value = data?.items || []
-    doneTotal.value = data?.total || 0
-  } finally {
-    doneLoading.value = false
-  }
-}
-
-// 打开变更前后对比弹窗（默认只读 view；通过/驳回/退回修改经对应 mode 进入）
 function openDiff(row, mode = 'view') {
   diffRow.value = row
   diffMode.value = mode
@@ -215,14 +380,21 @@ function openDiff(row, mode = 'view') {
 async function openQuickApproval() {
   if (quickLoading.value) return
   quickLoading.value = true
-  const size = 100
+  const size = Math.max(...PAGE_SIZES)
   const username = authStore.username
+  const filters = currentFilters()
   const queue = new Map()
   try {
     let page = 1
     let total
     do {
-      const result = await getApprovalRequests({ status: 0, page, size })
+      const result = await getApprovalRequests({
+        status: 0,
+        keyword: filters.keyword,
+        type: filters.type,
+        page,
+        size
+      })
       total = result?.total || 0
       for (const row of result?.items || []) {
         if (row.status === 0 && (!row.currentAssignee || row.currentAssignee === username || row.extraApprover === username)) {
@@ -231,8 +403,13 @@ async function openQuickApproval() {
       }
     } while (page++ * size < total)
     if (activeTab.value !== 'pending') return
-    if (total <= 3 || !queue.size) {
-      ElMessage.info(total <= 3 ? '待审批超过 3 条时可使用快速审批' : '当前没有可处理的待审批')
+    if (total <= 3) {
+      ElMessage.info('待审批超过 3 条时可使用快速审批')
+      refresh()
+      return
+    }
+    if (!queue.size) {
+      ElMessage.info('没有分给您的待审批（其余单据已转办给他人或不在您的审批人快照内）')
       refresh()
       return
     }
@@ -267,7 +444,36 @@ function handleDiffSuccess(id) {
   refresh()
 }
 
+// 并发抢占（409）：该单已被其他审批人处理——从快速审批队列移除并自动推进，不再停留报错
+function handleDiffStale(id) {
+  if (diffMode.value === 'quick') {
+    quickQueue.value = quickQueue.value.filter(row => row.id !== id)
+    if (quickQueue.value.length) {
+      if (quickIndex.value >= quickQueue.value.length) quickIndex.value = 0
+      diffRow.value = quickQueue.value[quickIndex.value]
+      ElMessage.info('该单已被其他审批人处理，已切换到下一条')
+    } else {
+      diffVisible.value = false
+      ElMessage.info('本轮待审批已处理完毕（部分单据已被他人处理）')
+    }
+  }
+  refresh()
+}
+
 // ==================== 转办 / 加签（B2） ====================
+const transferVisible = ref(false)
+const transferTarget = ref('')
+const addSignVisible = ref(false)
+const addSignTarget = ref('')
+const addSignComment = ref('')
+const assignableUsers = ref([])
+const actionRow = ref(null)
+const actionSubmitting = ref(false)
+
+// 下拉排除本人（后端拒绝转办/加签给自己，前端提前拦截避免无效提交）
+const assignableOptions = computed(() =>
+  assignableUsers.value.filter((u) => u.username !== authStore.username)
+)
 
 async function fetchAssignableUsers() {
   try {
@@ -275,6 +481,7 @@ async function fetchAssignableUsers() {
     assignableUsers.value = data?.items || data || []
   } catch (e) {
     assignableUsers.value = []
+    ElMessage.warning('可转办/加签用户加载失败，请关闭弹窗后重试')
   }
 }
 
@@ -354,11 +561,22 @@ function handleTabChange(tabName) {
 }
 
 onMounted(() => {
+  const initial = readFiltersFromRoute()
+  keyword.value = initial.keyword
+  type.value = initial.type
+  doneStatus.value = initial.doneStatus
   fetchPending()
   // 预加载已处理列表，保证首次切到"已处理"Tab 时数据已就绪
   fetchDone()
 })
-watchDashboardFocus(route, 'applicationId', 'approval', row => openDiff(row, 'approve'), message => ElMessage.warning(message))
+
+// 工作台/通知深链：?applicationId=xxx 直接打开审批弹窗；打开后从 URL 移除该参数，避免刷新重开
+watchDashboardFocus(route, 'applicationId', 'approval', async (row) => {
+  openDiff(row, 'approve')
+  const query = { ...route.query }
+  delete query.applicationId
+  await router.replace({ query }).catch(() => {})
+}, message => ElMessage.warning(message))
 </script>
 
 <style scoped>
@@ -366,6 +584,26 @@ watchDashboardFocus(route, 'applicationId', 'approval', row => openDiff(row, 'ap
   display: flex;
   align-items: baseline;
   gap: 12px;
+}
+.filter-bar {
+  margin-top: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filter-keyword {
+  width: 220px;
+}
+.filter-type,
+.filter-status {
+  width: 140px;
+}
+.load-error {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ui-danger);
 }
 .dialog-expert {
   font-size: 15px;

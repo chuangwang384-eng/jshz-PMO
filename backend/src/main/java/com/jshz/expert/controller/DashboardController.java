@@ -19,7 +19,7 @@ public class DashboardController {
     private final DashboardTasks tasks;
     private final DashboardLayoutService layouts;
     private final QuickAccessService quickAccess;
-    private static final List<String> SECTIONS=List.of("myApplications","myApprovals","projectRisk","myProjects","favorites","notifications","announcements");
+    private static final List<String> SECTIONS=List.of("myApplications","myApprovals","approvalStats","projectRisk","myProjects","favorites","notifications","announcements");
 
     @GetMapping("/layout/v2")
     public ApiResponse<DashboardLayoutService.Snapshot> layoutV2(@AuthenticationPrincipal AuthUser user) {
@@ -54,6 +54,7 @@ public class DashboardController {
         Map<String,Supplier<Map<String,Object>>> jobs=new LinkedHashMap<>();
         if(selected.contains("myApplications") && reads.allowedPath(user,"/api/approval/my-applications")) jobs.put("myApplications",()->reads.applications(user));
         if(selected.contains("myApprovals") && user.hasPermission("approval:audit") && reads.allowedPath(user,"/api/approval/requests")) jobs.put("myApprovals",()->reads.approvals(user));
+        if(selected.contains("approvalStats") && user.hasPermission("approval:audit") && reads.allowedPath(user,"/api/approval/requests")) jobs.put("approvalStats",()->reads.approvalStats(user));
         if((selected.contains("myProjects")||selected.contains("projectRisk")) && reads.allowed(user,"project")) jobs.put("projects",()->new LinkedHashMap<>(reads.projects(user)));
         if(selected.contains("favorites")&&reads.allowed(user,"knowledge")&&reads.allowedPath(user,"/api/knowledge/favorites")) jobs.put("favorites",()->reads.favorites(user));
         if(selected.contains("notifications")&&reads.allowedPath(user,"/api/notifications")) jobs.put("notifications",()->reads.notifications(user));

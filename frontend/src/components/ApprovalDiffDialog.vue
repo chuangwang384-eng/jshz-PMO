@@ -170,7 +170,7 @@ const props = defineProps({
   drawerSize: { type: String, default: 'min(760px, 94vw)' }
 })
 
-const emit = defineEmits(['update:modelValue', 'success', 'navigate'])
+const emit = defineEmits(['update:modelValue', 'success', 'navigate', 'stale'])
 
 // 字段键集合与展示顺序取自 utils/approvalFields.js（与后端白名单单一来源，2026-11-24 收口）
 const PHOTO_KEYS = PHOTO_FIELDS
@@ -273,7 +273,8 @@ async function confirm(action = props.mode) {
     if (props.mode !== 'quick') emit('update:modelValue', false)
     emit('success', id)
   } catch (e) {
-    // 错误提示已由拦截器统一处理
+    // 错误提示已由拦截器统一处理；409=该单已被其他审批人处理，上抛 stale 由父组件移出队列并推进
+    if (e && e.code === 409) emit('stale', id)
   } finally {
     submitting.value = false
   }

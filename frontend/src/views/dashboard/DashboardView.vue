@@ -26,6 +26,7 @@
               <!-- 面板：待我审批 -->
               <article v-else-if="item.i==='panel.myApprovals'" class="panel"><div class="panel-head"><h2>待我审批</h2><el-button link @click="refresh(['myApprovals'])">刷新</el-button></div><SectionState :value="section.myApprovals" :loading="loading && !section.myApprovals" @retry="refresh(['myApprovals'])"/><template v-if="section.myApprovals?.status !== 'error'"><button v-for="item2 in pendingItems('myApprovals')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ applicationTitle(item2.title) }}</b><small>{{ item2.timeType || '申请时间' }} · {{ approvalTime(item2.time) }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
               <!-- 面板：退回待修改 -->
+              <article v-else-if="item.i==='panel.approvalStats'" class="panel"><div class="panel-head"><h2>审批统计</h2><el-button link @click="refresh(['approvalStats'])">刷新</el-button></div><SectionState :value="section.approvalStats" :loading="loading && !section.approvalStats" @retry="refresh(['approvalStats'])"/><template v-if="section.approvalStats?.status === 'success'"><div class="approval-stats-grid"><button class="stat" @click="go({ path:'/profile/approval/manage' })"><span class="stat-label">待审总数</span><strong class="stat-value">{{ count('approvalStats','pendingTotal') }}</strong></button><button class="stat" @click="go({ path:'/profile/approval/manage' })"><span class="stat-label">滞留 ≥24h</span><strong class="stat-value stats-warn">{{ count('approvalStats','overdue24') }}</strong></button><button class="stat" @click="go({ path:'/profile/approval/manage' })"><span class="stat-label">滞留 ≥72h</span><strong class="stat-value stats-danger">{{ count('approvalStats','overdue72') }}</strong></button><button class="stat" @click="go({ path:'/profile/approval/manage' })"><span class="stat-label">今日已处理</span><strong class="stat-value">{{ count('approvalStats','todayDone') }}</strong></button></div><p class="muted approval-stats-avg">近 30 天平均处理耗时 {{ data('approvalStats').avgHours30 ?? '—' }} 小时</p></template></article>
               <article v-else-if="item.i==='panel.returned'" class="panel"><div class="panel-head"><h2>退回待修改</h2><el-button link @click="refresh(['myApplications'])">刷新</el-button></div><SectionState :value="section.myApplications" :loading="loading && !section.myApplications" @retry="refresh(['myApplications'])"/><p v-if="section.myApplications?.status!=='error' && !pendingItems('returned').length" class="muted">暂无退回待修改</p><template v-if="section.myApplications?.status !== 'error'"><button v-for="item2 in pendingItems('returned')" :key="item2.id" class="item-row" @click="go(item2.target)"><span><b>{{ applicationTitle(item2.title) }}</b><small>{{ item2.timeType || '申请时间' }} · {{ approvalTime(item2.time) }}</small></span><el-tag v-if="item2.status !== undefined" size="small">{{ statuses[item2.status] }}</el-tag><span v-else>处理 →</span></button></template></article>
               <article v-else-if="item.i === 'panel.applicationProgress'" class="panel">
                 <div class="panel-head"><h2>我的申请进度</h2><el-button link @click="go(cardTarget('page.myApplications'))">查看全部</el-button></div>
@@ -98,6 +99,7 @@ const CARD_CATALOG={
  'stat.riskOverdue':{title:'已逾期项目',w:3,h:1,kind:'stat'},
  'stat.riskDue':{title:'今天到期 / 七天内到期',w:3,h:1,kind:'stat'},
  'panel.myApprovals':{title:'待我审批',w:4,h:6,kind:'panel',perm:'approval:audit'},
+ 'panel.approvalStats':{title:'审批统计',w:4,h:6,kind:'panel',perm:'approval:audit'},
  'panel.returned':{title:'退回待修改',w:4,h:6,kind:'panel'},
  'panel.applicationProgress':{title:'我的申请进度',w:4,h:6,kind:'panel',cap:'myApplications'},
  'panel.myProjects':{title:'我的项目',w:4,h:6,kind:'panel'},
@@ -121,7 +123,7 @@ const CARD_CATALOG={
 }
 const DEFAULT_LAYOUT=[
  {i:'stat.myApprovals',w:3},{i:'stat.myApplications',w:3},{i:'stat.riskOverdue',w:3},{i:'stat.riskDue',w:3},
- {i:'panel.myApprovals',w:4},{i:'panel.returned',w:4},{i:'panel.myProjects',w:4},
+ {i:'panel.myApprovals',w:4},{i:'panel.approvalStats',w:4},{i:'panel.returned',w:4},{i:'panel.myProjects',w:4},
  {i:'panel.favorites',w:4},{i:'panel.announcements',w:4},{i:'panel.notifications',w:4}
 ]
 function canShow(id){
@@ -339,7 +341,7 @@ const count=(key,field)=>section.value[key]?.status==='error'?'暂不可用':dat
 const pendingItems=key=>key==='returned'?data('myApplications').returnedItems || []:key==='myApplications'?data(key).latestItems || []:data(key).items || []
 const applicationProgressItems = computed(() => pendingItems('myApplications').filter(item => Number(item.status) !== 4))
 const SectionState=defineComponent({props:['value','loading'],emits:['retry'],setup(p,{emit}){return()=>p.loading?h('p',{class:'muted'},'正在加载…'):p.value?.status==='error'?h('p',{class:'section-error'},['加载失败，数据暂不可用。',h('button',{onClick:()=>emit('retry')},'重试')]):p.value?.status==='empty'?h('p',{class:'muted'},'暂无相关事项'):null}})
-const allSections=['myApplications','myApprovals','myProjects','projectRisk','favorites','announcements','notifications']
+const allSections=['myApplications','myApprovals','approvalStats','myProjects','projectRisk','favorites','announcements','notifications']
 const requests=new Set()
 let timer,tickTimer,lastFocus=0,alive=true,pending=0,capabilityVersion=0
 async function refresh(keys) {
@@ -416,4 +418,24 @@ onBeforeUnmount(()=>{
 .edit-tip{font-size:12px;color:#758298;background:#f4f8ff;border:1px solid #dce5f2;border-radius:6px;padding:8px 12px;margin:12px 0}
 .palette{margin-top:16px;background:white;border:1px solid #e3eaf3;border-radius:10px;padding:14px}.palette-head{font-size:12px;color:#758298;margin-bottom:10px}.palette-list{display:flex;flex-wrap:wrap;gap:8px}.palette-item{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:12px;color:#334e72;background:#f5f8fd;border:1px solid #dce5f2;border-radius:14px;cursor:pointer}.palette-item:hover{border-color:#a0cfff;background:#ecf5ff}.palette-item small{color:#8fa2b9}
 .chip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.chip-dot[data-color='primary']{background:var(--ui-primary)}.chip-dot[data-color='warning']{background:var(--ui-warning)}.chip-dot[data-color='success']{background:var(--ui-success)}
+.approval-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.approval-stats-grid .stat {
+  border: 1px solid var(--ui-border-weak);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-fill);
+  cursor: pointer;
+}
+.stats-warn {
+  color: var(--ui-warning);
+}
+.stats-danger {
+  color: var(--ui-danger);
+}
+.approval-stats-avg {
+  margin-top: 10px;
+}
 </style>
