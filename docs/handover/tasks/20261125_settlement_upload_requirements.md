@@ -30,3 +30,7 @@
 - JDK 17：`mvn -f backend/pom.xml -DgitShort=7338f87 -Drevision=1.0.145 -Dtest=ProjectAccessRegressionTest,ProjectShow*Test,ProjectResumeAvatarTest,ScheduleSpeakerDiffTest,ScheduleSpeakerWorkflowTest test`，33 项通过。
 - 前端 `npm.cmd run build` 通过，Vite 提示大包体积。隔离 Edge 模拟项目验证不适用、两文件批次、版本历史、同项目预算引用 UI 和平台推进后补件。
 - `release-full.ps1 -Mode Preflight -Version 1.0.145 -Slug settlement-upload` 通过，生产基线 1.0.144，无待执行迁移及漂移。发布验证和真实项目验收以发布记录为准。
+
+## 发布状态
+
+1.0.145 已部署并通过生产技术验证，状态为已完成待业务验收。见 [发布记录](../../releases/20261125-settlement-upload-1.0.145.md)。
