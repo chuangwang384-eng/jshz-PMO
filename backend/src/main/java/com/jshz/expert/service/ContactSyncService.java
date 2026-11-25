@@ -596,30 +596,48 @@ public class ContactSyncService {
         return vo;
     }
 
-    /** 普通员工个人通讯录：根到本部门链路 + 本部门成员（手机号脱敏；未绑定/无部门返回空结构） */
+    /** 普通员工个人通讯录：根到本部门链路 + 本部门成员（手机号脱敏；未绑定/无部门返回空结构）。
+     * 2026-11-25：不再过滤停用成员（status==0 保留，前端用红 tag 展示）；
+     * isMain 真实回填（含兼职成员）；部门链路沿 parent 逐级按 deptId 查询（不再全表加载），
+     * 链路因部门缺失/父指针成环截断时响应附 truncated=true。 */
     public Map<String, Object> getMyDirectory(Long userId) {
         Map<String, Object> result = new LinkedHashMap<>();
         List<DepartmentNodeVo> ancestors = new ArrayList<>();
         List<DepartmentNodeVo.MemberItem> members = new ArrayList<>();
         result.put("ancestors", ancestors);
         result.put("members", members);
+        result.put("truncated", false);
         if (userId == null || sysUserMapper.selectById(userId) == null) {
             return result;
         }
-        WecomUserDepartment main = wecomUserDepartmentMapper.selectOne(
+        List<WecomUserDepartment> myDepts = wecomUserDepartmentMapper.selectList(
                 new LambdaQueryWrapper<WecomUserDepartment>()
-                        .eq(WecomUserDepartment::getUserId, userId)
-                        .eq(WecomUserDepartment::getIsMain, 1)
-                        .last("LIMIT 1"));
-        if (main == null) {
+                        .eq(WecomUserDepartment::getUserId, userId));
+        if (myDepts.isEmpty()) {
             return result;
         }
-        Map<Long, WecomDepartment> byId = wecomDepartmentMapper.selectList(null).stream()
-                .collect(Collectors.toMap(WecomDepartment::getDeptId, d -> d));
+        // 主部门优先；无主部门标记时回退第一条（放开 isMain=1 过滤）
+        WecomUserDepartment main = myDepts.stream()
+                .filter(w -> w.getIsMain() != null && w.getIsMain() == 1)
+                .findFirst()
+                .orElse(myDepts.get(0));
         Long cur = main.getDeptId();
         LinkedHashSet<Long> seen = new LinkedHashSet<>();
-        while (cur != null && byId.containsKey(cur) && seen.add(cur)) {
-            WecomDepartment d = byId.get(cur);
+        boolean truncated = false;
+        while (cur != null) {
+            if (!seen.add(cur)) {
+                // 父指针成环，链路无法继续向上，标记截断
+                truncated = true;
+                break;
+            }
+            WecomDepartment d = wecomDepartmentMapper.selectOne(
+                    new LambdaQueryWrapper<WecomDepartment>()
+                            .eq(WecomDepartment::getDeptId, cur));
+            if (d == null) {
+                // 上级部门在库中缺失，链路静默截断
+                truncated = true;
+                break;
+            }
             DepartmentNodeVo node = new DepartmentNodeVo();
             node.setDeptId(d.getDeptId());
             node.setName(d.getName());
@@ -631,28 +649,28 @@ public class ContactSyncService {
         }
         List<WecomUserDepartment> sameDept = wecomUserDepartmentMapper.selectList(
                 new LambdaQueryWrapper<WecomUserDepartment>()
-                        .eq(WecomUserDepartment::getDeptId, main.getDeptId())
-                        .eq(WecomUserDepartment::getIsMain, 1));
+                        .eq(WecomUserDepartment::getDeptId, main.getDeptId()));
         Set<Long> ids = sameDept.stream().map(WecomUserDepartment::getUserId).collect(Collectors.toSet());
         if (!ids.isEmpty()) {
             Map<Long, SysUser> umap = sysUserMapper.selectBatchIds(ids).stream()
                     .collect(Collectors.toMap(SysUser::getId, u -> u));
             for (WecomUserDepartment wud : sameDept) {
                 SysUser u = umap.get(wud.getUserId());
-                if (u == null || u.getStatus() == null || u.getStatus() == 0) {
+                if (u == null) {
                     continue;
                 }
                 DepartmentNodeVo.MemberItem mi = new DepartmentNodeVo.MemberItem();
                 mi.setUserId(u.getId());
                 mi.setUsername(u.getUsername());
                 mi.setMobileMasked(WecomApiClient.maskMobile(u.getMobile()));
-                mi.setIsMain(true);
+                mi.setIsMain(wud.getIsMain() != null && wud.getIsMain() == 1);
                 mi.setStatus(u.getStatus());
                 members.add(mi);
             }
         }
         result.put("ancestors", ancestors);
         result.put("members", members);
+        result.put("truncated", truncated);
         return result;
     }
 }

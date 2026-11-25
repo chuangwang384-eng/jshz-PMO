@@ -6,7 +6,7 @@
         <div>
           <el-button type="primary" :loading="running" @click="handleDryRun">立即同步（DryRun 试算）</el-button>
           <el-button type="danger" :loading="running" @click="handleRealRun">确认实跑同步</el-button>
-          <span class="muted" style="margin-left: 8px">DryRun 只试算变更清单，不写业务数据；实跑前请先试算确认</span>
+          <span class="muted small hint">DryRun 只试算变更清单，不写业务数据；实跑前请先试算确认</span>
         </div>
         <div class="spacer" />
         <el-tag v-if="syncStatus" :type="statusTagType(syncStatus.status)" size="large">
@@ -15,7 +15,7 @@
       </div>
 
       <!-- 同步结果卡片 -->
-      <el-descriptions v-if="syncStatus" :column="4" border style="margin-top: 16px">
+      <el-descriptions v-if="syncStatus" :column="4" border class="status-desc">
         <el-descriptions-item label="触发方式">{{ syncStatus.triggerType }}</el-descriptions-item>
         <el-descriptions-item label="操作人">{{ syncStatus.operator || '-' }}</el-descriptions-item>
         <el-descriptions-item label="拉取成员">{{ syncStatus.fetchedUsers ?? '-' }}</el-descriptions-item>
@@ -28,7 +28,7 @@
         <el-descriptions-item label="结束时间">{{ syncStatus.endTime || '-' }}</el-descriptions-item>
         <el-descriptions-item label="错误信息" :span="2">
           <span v-if="syncStatus.errorMsg" class="error-text">{{ syncStatus.errorMsg }}</span>
-          <span v-else class="muted">-</span>
+          <span v-else class="muted small">-</span>
         </el-descriptions-item>
       </el-descriptions>
     </el-card>
@@ -56,7 +56,7 @@
         <el-table-column prop="errorMsg" label="错误信息" min-width="160">
           <template #default="{ row }">
             <span v-if="row.errorMsg" class="error-text">{{ row.errorMsg }}</span>
-            <span v-else class="muted">-</span>
+            <span v-else class="muted small">-</span>
           </template>
         </el-table-column>
       </el-table>
@@ -75,8 +75,8 @@
         <template #default="{ data }">
           <span class="tree-node">
             <span>{{ data.name }}</span>
-            <el-tag v-if="data.status === 0" size="small" type="warning" style="margin-left: 6px">已删除</el-tag>
-            <span class="muted" style="margin-left: 6px">（{{ data.memberCount || 0 }} 人）</span>
+            <el-tag v-if="data.status === 0" size="small" type="warning" class="tag-gap">已删除</el-tag>
+            <span class="muted small tag-gap">（{{ data.memberCount || 0 }} 人）</span>
           </span>
           <span v-if="data.members && data.members.length" class="tree-members">
             <el-tag
@@ -84,7 +84,7 @@
               :key="m.userId"
               size="small"
               :type="m.status === 1 ? 'info' : 'danger'"
-              style="margin-right: 4px; margin-top: 4px"
+              class="member-tag"
             >
               {{ m.username }} · {{ m.mobileMasked || '未录手机号' }}<template v-if="m.isMain"> · 主部门</template>
             </el-tag>
@@ -101,13 +101,13 @@
         :closable="false"
         show-icon
         title="企微侧重名/系统侧已有同名绑定等歧义成员会进入「企微未匹配成员」列表；管理员可在此为存量账号人工指认绑定"
-        style="margin-bottom: 12px"
+        class="unbound-alert"
       />
       <el-table :data="unbound.systemUsers" border stripe v-loading="loading" size="small">
         <el-table-column prop="id" label="ID" width="70" align="center" />
         <el-table-column prop="username" label="系统账号姓名" width="150" />
         <el-table-column prop="mobile" label="手机号（脱敏）" width="150">
-          <template #default="{ row }">{{ maskMobile(row.mobile) }}</template>
+          <template #default="{ row }">{{ maskMobile(row.mobile) || '-' }}</template>
         </el-table-column>
         <el-table-column prop="departmentName" label="部门" min-width="120">
           <template #default="{ row }">{{ row.departmentName || '-' }}</template>
@@ -115,7 +115,7 @@
         <el-table-column label="企微绑定" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.wecomUserId" type="success" size="small">{{ row.wecomUserId }}</el-tag>
-            <span v-else class="muted">未绑定</span>
+            <span v-else class="muted small">未绑定</span>
           </template>
         </el-table-column>
         <el-table-column label="人工绑定" min-width="220">
@@ -126,7 +126,7 @@
               size="small"
               clearable
               filterable
-              style="width: 160px"
+              class="bind-select"
             >
               <el-option
                 v-for="m in unbound.wecomMembers"
@@ -140,7 +140,7 @@
               size="small"
               :disabled="!bindSelections[row.id]"
               :loading="bindingIds.includes(row.id)"
-              style="margin-left: 6px"
+              class="tag-gap"
               @click="handleBind(row)"
             >
               绑定
@@ -148,7 +148,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="!unbound.systemUsers || !unbound.systemUsers.length" class="muted" style="margin-top: 12px">
+      <div v-if="!unbound.systemUsers || !unbound.systemUsers.length" class="muted small unbound-empty">
         暂无未绑定系统账号
       </div>
     </el-card>
@@ -166,6 +166,11 @@ import {
   getUnbound,
   bindWecom
 } from '../api/wecom'
+import { maskMobile } from '../utils/format'
+
+// R4：同步轮询参数具名常量（间隔 3s，总时长放宽到 10 分钟）
+const SYNC_POLL_INTERVAL_MS = 3000
+const SYNC_POLL_TIMEOUT_MS = 10 * 60 * 1000
 
 const loading = ref(false)
 const running = ref(false)
@@ -187,23 +192,15 @@ function statusText(s) {
 function statusTagType(s) {
   return { RUNNING: 'warning', SUCCESS: 'success', FAILED: 'danger' }[s] || 'info'
 }
-function maskMobile(m) {
-  if (!m) return '-'
-  const s = String(m)
-  if (s.length !== 11) return `${s.slice(0, 3)}****${s.slice(-4)}`
-  return `${s.slice(0, 3)}****${s.slice(-4)}`
-}
 
-// 轮询同步状态直到结束
+// 轮询同步状态直到结束（超时提示保留、完成弹确认逻辑不变）
 async function waitSyncDone(logId) {
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 1000))
+  const deadline = Date.now() + SYNC_POLL_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, SYNC_POLL_INTERVAL_MS))
     const st = await getSyncStatus(logId)
     syncStatus.value = st
-    if (!st || (st.status !== 'RUNNING' && st.status !== undefined && st.status !== null)) {
-      return st
-    }
-    if (!st.status || st.status === '') {
+    if (st && st.status && st.status !== 'RUNNING') {
       return st
     }
   }
@@ -320,8 +317,31 @@ onMounted(refresh)
 .section-card {
   margin-bottom: 16px;
 }
-.muted {
+/* 12px 变体：.muted 颜色已全局收口（ui-tokens.css），此处仅补字号 */
+.small {
   font-size: 12px;
+}
+.hint {
+  margin-left: 8px;
+}
+.status-desc {
+  margin-top: 16px;
+}
+.tag-gap {
+  margin-left: 6px;
+}
+.member-tag {
+  margin-right: 4px;
+  margin-top: 4px;
+}
+.unbound-alert {
+  margin-bottom: 12px;
+}
+.bind-select {
+  width: 160px;
+}
+.unbound-empty {
+  margin-top: 12px;
 }
 .error-text {
   color: var(--ui-danger);

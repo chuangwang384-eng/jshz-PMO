@@ -1,4 +1,15 @@
 // 审批/申请通用展示纯函数（MyApproval 与 ApprovalManage 共用，防两处漂移）
+// 消费方：MyApproval.vue、ApprovalManage.vue、WecomSyncManage.vue、profile/Directory.vue
+
+// 手机号脱敏（WecomSyncManage/Directory 共用，2026-11-25 收口）
+// 行为对齐后端 com.jshz.expert.client.WecomApiClient.maskMobile：
+// 空值返回 ''，长度 < 7 原样返回，其余 138****1234；禁止复制私有副本
+export function maskMobile(mobile) {
+  if (mobile === null || mobile === undefined) return ''
+  const s = String(mobile)
+  if (s.length < 7) return s
+  return `${s.slice(0, 3)}****${s.slice(-4)}`
+}
 
 import { PHOTO_FIELDS } from './approvalFields'
 

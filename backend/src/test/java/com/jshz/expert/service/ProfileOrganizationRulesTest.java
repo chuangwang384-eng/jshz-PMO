@@ -53,6 +53,7 @@ class ProfileOrganizationRulesTest {
     private long memberCount = 0L;
     @SuppressWarnings("unchecked")
     private ResultSet[] memberRows;
+    private ResultSet[] directoryRows;
     private JdbcTemplate jdbc;
     private PermissionService permissions;
     private UserAuthStateService authState;
@@ -260,6 +261,46 @@ class ProfileOrganizationRulesTest {
         assertThat(leader.generalManager()).isFalse();
     }
 
+    // ---------------- 通讯录兜底（企微未绑定时读手动组织树） ----------------
+
+    @Test
+    void directoryFallbackBuildsChainAndMembersForUnboundWecomUser() throws Exception {
+        mockMembership(PROJECT_1, "FDE");
+        ResultSet yi = mock(ResultSet.class);
+        when(yi.getLong(1)).thenReturn(YI);
+        when(yi.getString(2)).thenReturn("乙");
+        when(yi.getString(3)).thenReturn("13812345678");
+        when(yi.getInt(4)).thenReturn(1);
+        when(yi.getString(5)).thenReturn("FDE");
+        directoryRows = new ResultSet[] {yi};
+
+        Map<String, Object> result = service.directoryFallback(YI);
+
+        assertThat(result.get("source")).isEqualTo("profile");
+        assertThat(result.get("truncated")).isEqualTo(false);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> ancestors = (List<Map<String, Object>>) result.get("ancestors");
+        assertThat(ancestors).extracting(m -> m.get("name"))
+                .containsExactly("总经理", "总经办", "项目部", "项目一部");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> members = (List<Map<String, Object>>) result.get("members");
+        assertThat(members).hasSize(1);
+        assertThat(members.get(0)).containsEntry("username", "乙")
+                .containsEntry("mobileMasked", "138****5678")
+                .containsEntry("position", "FDE")
+                .containsEntry("status", 1)
+                .containsEntry("isMain", true);
+    }
+
+    @Test
+    void directoryFallbackEmptyWhenNoMembership() {
+        Map<String, Object> result = service.directoryFallback(YI);
+
+        assertThat((List<?>) result.get("ancestors")).isEmpty();
+        assertThat((List<?>) result.get("members")).isEmpty();
+        assertThat(result.get("source")).isEqualTo("profile");
+    }
+
     // ---------------- 替身数据库 ----------------
 
     private Object answer(org.mockito.invocation.InvocationOnMock inv) throws Throwable {
@@ -298,6 +339,14 @@ class ProfileOrganizationRulesTest {
             RowMapper<Member> mapper = (RowMapper<Member>) args[1];
             List<Member> rows = new ArrayList<>();
             for (ResultSet row : memberRows == null ? new ResultSet[0] : memberRows) rows.add(mapper.mapRow(row, 0));
+            return rows;
+        }
+        if (sql.startsWith("SELECT m.user_id")) {
+            RowMapper<Object> mapper = (RowMapper<Object>) args[1];
+            List<Object> rows = new ArrayList<>();
+            for (ResultSet row : directoryRows == null ? new ResultSet[0] : directoryRows) {
+                rows.add(mapper.mapRow(row, 0));
+            }
             return rows;
         }
         if (sql.startsWith("SELECT COUNT(*) FROM sys_user u")) return memberCount;

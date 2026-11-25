@@ -1,5 +1,6 @@
 package com.jshz.expert.service;
 
+import com.jshz.expert.client.WecomApiClient;
 import com.jshz.expert.common.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +104,71 @@ public class ProfileOverviewService {
             }
         }
         return new Organization(path(tree, node.id()), membership.position(), leaderName, false, led);
+    }
+
+    /**
+     * 通讯录兜底数据：企微未绑定/未同步部门时读取手动组织树（profile_membership 链路 + 同部门成员）。
+     * 响应结构与 ContactSyncService.getMyDirectory 对齐（ancestors/members/truncated），
+     * 另附 source=profile 供前端展示数据来源提示；手机号同样脱敏（WecomApiClient.maskMobile，禁止复制本地副本）。
+     * 仅返回本人部门链路与同部门成员，不暴露全量组织架构；未建档返回空结构。
+     */
+    public Map<String, Object> directoryFallback(long userId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> ancestors = new ArrayList<>();
+        List<Map<String, Object>> members = new ArrayList<>();
+        result.put("ancestors", ancestors);
+        result.put("members", members);
+        result.put("truncated", false);
+        result.put("source", "profile");
+        Membership membership = null;
+        try {
+            membership = jdbc.queryForObject("SELECT department_id,position FROM profile_membership WHERE user_id=?",
+                    (rs, n) -> new Membership(rs.getLong(1), rs.getString(2)), userId);
+        } catch (EmptyResultDataAccessException e) {
+            // 无手动组织树归属 → 返回空结构，由前端展示未绑定部门空态
+        }
+        if (membership == null) {
+            return result;
+        }
+        List<Node> tree = tree(false);
+        Map<Long, Node> byId = new HashMap<>();
+        for (Node node : tree) {
+            byId.putIfAbsent(node.id(), node);
+        }
+        Long cur = membership.departmentId();
+        LinkedHashSet<Long> seen = new LinkedHashSet<>();
+        boolean truncated = false;
+        while (cur != null) {
+            if (!seen.add(cur)) {
+                truncated = true; // 父指针成环，链路截断
+                break;
+            }
+            Node node = byId.get(cur);
+            if (node == null) {
+                truncated = true; // 部门节点缺失，链路截断
+                break;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("deptId", node.id());
+            item.put("name", node.name());
+            ancestors.add(0, item);
+            cur = node.parentId();
+        }
+        members.addAll(jdbc.query(
+                "SELECT m.user_id,u.username,u.mobile,u.status,m.position FROM profile_membership m "
+                        + "JOIN sys_user u ON u.id=m.user_id WHERE m.department_id=? ORDER BY m.user_id",
+                (rs, n) -> {
+                    Map<String, Object> mi = new LinkedHashMap<>();
+                    mi.put("userId", rs.getLong(1));
+                    mi.put("username", rs.getString(2));
+                    mi.put("mobileMasked", WecomApiClient.maskMobile(rs.getString(3)));
+                    mi.put("status", rs.getInt(4));
+                    mi.put("position", rs.getString(5));
+                    mi.put("isMain", true);
+                    return mi;
+                }, membership.departmentId()));
+        result.put("truncated", truncated);
+        return result;
     }
 
     /**
