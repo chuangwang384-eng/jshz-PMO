@@ -5,7 +5,7 @@
     </div>
 
     <!-- 筛选条（R1 2026-11-24）：状态 / 类型 / 关键词 / 提交日期，条件写回 URL 便于通知跳转与他人分享 -->
-    <div class="filter-bar">
+    <div class="filter-bar ui-toolbar">
       <el-select v-model="status" placeholder="全部状态" clearable class="filter-status" @change="applyFilters">
         <el-option v-for="opt in STATUS_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
       </el-select>
@@ -31,19 +31,40 @@
       />
       <el-button type="primary" @click="applyFilters">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
+      <!-- 批量删除（2026-11-25，参照消息中心）：仅「已驳回 / 已撤回」可勾选，口径与单条删除一致 -->
+      <el-button type="danger" plain :disabled="!selection.length" @click="handleBatchDelete">
+        批量删除{{ selection.length ? `(${selection.length})` : '' }}
+      </el-button>
     </div>
 
     <div v-if="loadError" class="load-error">
       <span>{{ loadError }}</span>
-      <el-button link type="primary" @click="fetchList">重试</el-button>
+      <el-button link type="primary" @click="fetchList()">重试</el-button>
     </div>
 
     <!-- 桌面端表格 -->
-    <el-table v-if="!isMobile" :data="requests" border stripe v-loading="loading" style="margin-top: 16px">
-      <el-table-column prop="expertName" label="专家姓名" width="130" />
-      <el-table-column label="申请类型" width="110" align="center">
+    <el-table
+      v-if="!isMobile"
+      ref="tableRef"
+      :data="requests"
+      row-key="id"
+      border
+      stripe
+      v-loading="loading"
+      style="margin-top: 16px"
+      @selection-change="handleSelectionChange"
+    >
+      <el-table-column type="selection" width="46" :selectable="canDelete" />
+      <el-table-column label="专家姓名" width="150" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-link type="primary" :underline="false" @click="openDetail(row)">{{ row.expertName || '-' }}</el-link>
+        </template>
+      </el-table-column>
+      <el-table-column label="申请类型" width="150" align="center">
         <template #default="{ row }">
           <el-tag :type="row.requestType === 1 ? 'success' : 'info'">{{ row.requestTypeText || '修改申请' }}</el-tag>
+          <!-- 退回修改单的原照片已被清理：提示需重传，避免申请人以为不重传也能生效 -->
+          <el-tag v-if="hasExpiredPhoto(row)" type="danger" size="small" class="expired-tag">照片失效</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="申请时间" width="170" />
@@ -71,8 +92,7 @@
       </el-table-column>
       <el-table-column label="审批意见" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
-          <span v-if="row.status === 4 && row.returnComment">退回意见：{{ row.returnComment }}</span>
-          <span v-else-if="row.approveComment">{{ row.approveComment }}</span>
+          <span v-if="commentText(row)">{{ commentText(row) }}</span>
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
@@ -90,10 +110,9 @@
           <span v-else class="muted">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="330" align="center" fixed="right">
+      <el-table-column label="操作" width="260" align="center" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openProgress(row)">查看进度</el-button>
-          <el-button link type="primary" @click="openDiff(row)">查看对比</el-button>
+          <el-button link type="primary" @click="openDetail(row)">详情</el-button>
           <el-button v-if="row.status === 0" link type="danger" @click="handleWithdraw(row)">撤回</el-button>
           <el-button v-if="row.status === 4" link type="warning" @click="handleResubmit(row)">重新编辑提交</el-button>
           <el-button v-if="canDelete(row)" link type="danger" @click="handleDelete(row)">删除</el-button>
@@ -105,12 +124,19 @@
     <div v-else class="card-list" v-loading="loading">
       <div v-for="row in requests" :key="row.id" class="approval-card ui-card">
         <div class="card-head">
+          <el-checkbox
+            :model-value="isSelected(row)"
+            :disabled="!canDelete(row)"
+            aria-label="选择该申请"
+            @change="toggleSelect(row)"
+          />
           <span class="card-title">{{ row.expertName || '-' }}</span>
           <el-tag :type="approvalStatusTagType(row.status)" size="small">{{ approvalStatusText(row.status) }}</el-tag>
         </div>
         <div class="card-row">
           <span class="card-label">类型</span>
           <span>{{ row.requestTypeText || '修改申请' }}</span>
+          <el-tag v-if="hasExpiredPhoto(row)" type="danger" size="small">照片失效</el-tag>
         </div>
         <div class="card-row">
           <span class="card-label">申请时间</span>
@@ -133,8 +159,7 @@
           <span class="card-summary">{{ commentText(row) }}</span>
         </div>
         <div class="card-actions">
-          <el-button size="small" @click="openProgress(row)">进度</el-button>
-          <el-button size="small" @click="openDiff(row)">对比</el-button>
+          <el-button size="small" @click="openDetail(row)">详情</el-button>
           <el-button v-if="row.status === 0" size="small" type="danger" plain @click="handleWithdraw(row)">撤回</el-button>
           <el-button v-if="row.status === 4" size="small" type="warning" plain @click="handleResubmit(row)">重新编辑</el-button>
           <el-button v-if="canDelete(row)" size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
@@ -152,19 +177,26 @@
         :small="isMobile"
         :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
         @size-change="handleSizeChange"
-        @current-change="fetchList"
+        @current-change="handlePageChange"
       />
     </div>
 
     <!-- 重新编辑提交：字段 + 照片 + 原因，照片可重传（不上传则保留原申请照片） -->
-    <el-dialog v-model="resubmitVisible" title="重新编辑提交" width="600px" :close-on-click-modal="false">
+    <el-dialog v-model="resubmitVisible" title="重新编辑提交" :width="fixedWidth(600)" :close-on-click-modal="false">
       <el-alert v-if="resubmitRow?.returnComment" :title="resubmitRow.returnComment" type="warning" :closable="false" />
+      <el-alert
+        v-if="resubmitRow?.expiredPhotoFields?.length"
+        type="error"
+        :closable="false"
+        :title="`原申请的${resubmitRow.expiredPhotoFields.join('、')}已失效（文件已被清理），请重新上传，否则本次提交将不包含该照片`"
+        style="margin-top: 8px"
+      />
       <p class="page-sub dialog-tip">
-        修改需要变更的内容后重新提交（值未变化的字段不会覆盖专家档案）。照片可重新上传，不上传则保留原申请照片；
-        身份证号 / 银行卡号留空表示保留原提交值。
+        修改需要变更的内容后重新提交；清空某个字段表示撤回该字段的变更（专家档案保留原值），值未变化的字段不会覆盖专家档案。
+        照片可重新上传，不上传则保留原申请照片；身份证号 / 银行卡号留空表示保留原提交值。
       </p>
       <el-form label-position="top">
-        <el-form-item v-for="field in resubmitFields" :key="field" :label="field" :required="requiredResubmitFields.includes(field)">
+        <el-form-item v-for="field in resubmitFields" :key="field" :label="field" :required="CREATE_REQUIRED_FIELDS.includes(field)">
           <el-input
             v-if="!SENSITIVE_FIELDS.includes(field)"
             v-model="resubmitChanges[field]"
@@ -184,7 +216,7 @@
           </template>
         </el-form-item>
         <el-form-item v-for="key in resubmitPhotoKeys" :key="key" :label="key">
-          <span class="resubmit-photo-state">{{ resubmitPhotoState(key) }}</span>
+          <span class="resubmit-photo-state" :class="{ 'photo-expired': isExpiredPhoto(key) }">{{ resubmitPhotoState(key) }}</span>
           <el-upload
             :show-file-list="false"
             :accept="PHOTO_ACCEPT"
@@ -210,32 +242,44 @@
       </template>
     </el-dialog>
 
-    <!-- 审批进度：时间线 -->
-    <el-dialog v-model="progressVisible" title="审批进度" width="560px" destroy-on-close>
-      <div class="progress-expert">专家：{{ progressRow?.expertName }}</div>
-      <el-timeline v-if="progressRow?.records?.length">
-        <el-timeline-item
-          v-for="record in progressRow.records"
-          :key="record.id"
-          :timestamp="record.createTime"
-          :type="timelineType(record.action)"
-          placement="top"
-        >
-          <div class="timeline-node">{{ record.nodeName }}</div>
-          <div class="timeline-meta">操作人：{{ record.operator || '-' }}　动作：{{ actionText(record.action) }}</div>
-          <div v-if="record.comment" class="timeline-comment">意见：{{ record.comment }}</div>
-        </el-timeline-item>
-      </el-timeline>
-      <el-empty v-else description="暂无进度记录" :image-size="80" />
-    </el-dialog>
-
-    <!-- 变更前后对比弹窗（只读，无审批操作区） -->
-    <ApprovalDiffDialog v-model="diffVisible" :row="diffRow" mode="view" />
+    <!-- 申请详情抽屉（2026-11-25）：变更对比 + 审批进度时间线 + 行内操作，合并原「查看进度」「查看对比」两个弹窗 -->
+    <ApprovalDiffDialog
+      v-model="detailVisible"
+      :row="detailRow"
+      mode="view"
+      variant="drawer"
+      :drawer-size="isMobile ? '100%' : 'min(760px, 94vw)'"
+    >
+      <template #extra>
+        <div v-if="detailRow" class="detail-block">
+          <div class="detail-title">审批进度</div>
+          <el-timeline v-if="detailRow.records?.length">
+            <el-timeline-item
+              v-for="record in detailRow.records"
+              :key="record.id"
+              :timestamp="record.createTime"
+              :type="timelineType(record.action)"
+              placement="top"
+            >
+              <div class="timeline-node">{{ record.nodeName }}</div>
+              <div class="timeline-meta">操作人：{{ record.operator || '-' }}　动作：{{ actionText(record.action) }}</div>
+              <div v-if="record.comment" class="timeline-comment">意见：{{ record.comment }}</div>
+            </el-timeline-item>
+          </el-timeline>
+          <div v-else class="muted">暂无进度记录</div>
+          <div class="detail-actions">
+            <el-button v-if="detailRow.status === 0" type="danger" plain @click="handleWithdraw(detailRow)">撤回申请</el-button>
+            <el-button v-if="detailRow.status === 4" type="warning" @click="resubmitFromDetail">重新编辑提交</el-button>
+            <el-button v-if="canDelete(detailRow)" type="danger" plain @click="handleDelete(detailRow)">删除申请单</el-button>
+          </div>
+        </div>
+      </template>
+    </ApprovalDiffDialog>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -243,7 +287,8 @@ import {
   withdrawRequest,
   resubmitRequest,
   uploadApprovalPhoto,
-  deleteApplication
+  deleteApplication,
+  deleteApplications
 } from '../api/approval'
 import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
 import { useNotificationStore } from '../store/notification'
@@ -253,6 +298,8 @@ import {
   PHOTO_FIELDS,
   SENSITIVE_FIELDS,
   CONTRACT_FIELDS,
+  CREATE_REQUIRED_FIELDS,
+  NAME_PATTERN,
   MAX_TEXT_LENGTH,
   MAX_REASON_LENGTH,
   PHOTO_ACCEPT,
@@ -268,15 +315,13 @@ const route = useRoute()
 const router = useRouter()
 const notificationStore = useNotificationStore()
 
-// 退回修改后可重传的照片字段（取自 utils/approvalFields.js，与后端 PHOTO_FIELDS 单一来源）
-const PHOTO_KEYS = PHOTO_FIELDS
-
 const requests = ref([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(20)
 const loading = ref(false)
 const loadError = ref('')
+const tableRef = ref(null)
 
 // ==================== 筛选条件（R1，与 URL query 双向同步） ====================
 const FILTER_KEYS = ['status', 'type', 'keyword', 'startDate', 'endDate']
@@ -351,10 +396,12 @@ function resetFilters() {
   applyFilters()
 }
 
-// URL 变化（浏览器前进/后退、通知跳转、他人分享链接）时同步本地筛选
+// URL 变化（浏览器前进/后退、通知跳转、他人分享链接）时同步本地筛选。
+// 仅在本页路由内响应：离页瞬间 route.query 属于目标页，不得据此拉取列表或改写本页筛选。
 watch(
-  () => [route.query.status, route.query.type, route.query.keyword, route.query.startDate, route.query.endDate],
+  () => [route.name, route.query.status, route.query.type, route.query.keyword, route.query.startDate, route.query.endDate],
   () => {
+    if (route.name !== 'my-approvals') return
     const next = readFiltersFromRoute()
     if (sameFilters(next, currentFilters())) return
     status.value = next.status
@@ -372,6 +419,10 @@ let mediaQuery = null
 function syncMedia(event) {
   isMobile.value = event.matches
 }
+/** 弹窗宽度：窄屏按百分比自适应（固定 600px 在 375px 屏会溢出），宽屏沿用原像素宽度 */
+function fixedWidth(px) {
+  return isMobile.value ? '94%' : `${px}px`
+}
 
 // ==================== 列表 ====================
 // 列表刷新驱动（2026-11-24 修正）：跟随全局消息通知 store 的 30s 轮询（store.lastPollAt），
@@ -379,8 +430,9 @@ function syncMedia(event) {
 watch(
   () => notificationStore.lastPollAt,
   () => {
+    // 轮询刷新走静默模式：不置 loading，避免表格/卡片每 30 秒闪一次遮罩
     if (!loading.value) {
-      fetchList()
+      fetchList({ silent: true })
     }
   }
 )
@@ -388,9 +440,10 @@ watch(
 // 请求序号：仅最新一次请求可写状态，避免慢返回的旧请求覆盖新筛选结果（Q6）
 let requestSeq = 0
 
-async function fetchList() {
+async function fetchList(options = {}) {
+  const silent = options.silent === true
   const seq = ++requestSeq
-  loading.value = true
+  if (!silent) loading.value = true
   loadError.value = ''
   const filters = currentFilters()
   try {
@@ -407,6 +460,13 @@ async function fetchList() {
     const items = data?.items || []
     requests.value = items
     total.value = data?.total || 0
+    // 数据刷新后清空勾选：已选行对象可能与新列表不再对应，避免批量删除误带旧选择
+    clearSelection()
+    // 已打开的详情抽屉按 id 换成最新行数据（单据被处理/转办后抽屉内容随之更新）
+    if (detailVisible.value && detailRow.value) {
+      const fresh = items.find((item) => item.id === detailRow.value.id)
+      if (fresh) detailRow.value = fresh
+    }
     // 页码越界（删除/筛选后当前页为空但总数非 0）：回到最后一页重取，避免"共 N 条却空白"
     const maxPage = Math.max(1, Math.ceil(total.value / size.value))
     if (!items.length && total.value > 0 && page.value > maxPage) {
@@ -415,10 +475,12 @@ async function fetchList() {
     }
   } catch (e) {
     if (seq !== requestSeq) return
-    // 失败态必须可见（此前仅全局 toast 一闪，页面停留在旧数据）
-    loadError.value = '申请列表加载失败，请稍后重试'
-    requests.value = []
-    total.value = 0
+    // 失败态必须可见（此前仅全局 toast 一闪，页面停留在旧数据）；静默轮询失败保留旧数据不打扰
+    if (!silent) {
+      loadError.value = '申请列表加载失败，请稍后重试'
+      requests.value = []
+      total.value = 0
+    }
   } finally {
     if (seq === requestSeq) loading.value = false
   }
@@ -430,6 +492,35 @@ function handleSizeChange() {
   fetchList()
 }
 
+function handlePageChange() {
+  fetchList()
+}
+
+// ==================== 勾选 / 批量删除 ====================
+const selection = ref([])
+
+function handleSelectionChange(rows) {
+  selection.value = rows || []
+}
+
+function isSelected(row) {
+  return selection.value.some((item) => item.id === row.id)
+}
+
+/** 移动端卡片没有表格勾选列，手动维护勾选集合 */
+function toggleSelect(row) {
+  if (selection.value.some((item) => item.id === row.id)) {
+    selection.value = selection.value.filter((item) => item.id !== row.id)
+  } else {
+    selection.value = [...selection.value, row]
+  }
+}
+
+function clearSelection() {
+  selection.value = []
+  nextTick(() => tableRef.value?.clearSelection?.())
+}
+
 // ==================== 展示辅助 ====================
 function timelineType(action) {
   if (action === 'APPROVE') return 'success'
@@ -437,7 +528,6 @@ function timelineType(action) {
   if (action === 'WITHDRAW') return 'danger'
   if (action === 'RETURN') return 'warning'
   if (action === 'TRANSFER') return 'warning'
-  if (action === 'ADD_APPROVER') return 'primary'
   return 'primary'
 }
 
@@ -474,9 +564,18 @@ function commentText(row) {
   return row.approveComment || ''
 }
 
-/** 删除入口：仅「已驳回 / 已撤回」（与后端 deleteApplication 口径一致） */
+/** 删除入口：仅「已驳回 / 已撤回」（与后端 deleteApplication / deleteApplications 口径一致） */
 function canDelete(row) {
   return row.status === 2 || row.status === 3
+}
+
+/** 退回修改单的原照片已被清理任务删除（后端 expiredPhotoFields） */
+function hasExpiredPhoto(row) {
+  return Array.isArray(row?.expiredPhotoFields) && row.expiredPhotoFields.length > 0
+}
+
+function isExpiredPhoto(key) {
+  return Array.isArray(resubmitRow.value?.expiredPhotoFields) && resubmitRow.value.expiredPhotoFields.includes(key)
 }
 
 function maskedOf(value) {
@@ -486,20 +585,20 @@ function maskedOf(value) {
   return `${text.slice(0, 3)}****${text.slice(-4)}`
 }
 
-function openProgress(row) {
-  progressRow.value = row
-  progressVisible.value = true
+// ==================== 详情抽屉 ====================
+const detailVisible = ref(false)
+const detailRow = ref(null)
+
+function openDetail(row) {
+  detailRow.value = row
+  detailVisible.value = true
 }
 
-function openDiff(row) {
-  diffRow.value = row
-  diffVisible.value = true
+/** 抽屉内发起重新编辑：先收起抽屉，避免弹窗与抽屉叠层 */
+function resubmitFromDetail() {
+  detailVisible.value = false
+  handleResubmit(detailRow.value)
 }
-
-const progressVisible = ref(false)
-const progressRow = ref(null)
-const diffVisible = ref(false)
-const diffRow = ref(null)
 
 // ==================== 撤回 / 删除 ====================
 async function handleWithdraw(row) {
@@ -543,9 +642,45 @@ async function handleDelete(row) {
   try {
     await deleteApplication(row.id)
     ElMessage.success('申请单已删除')
+    // 被删单据的详情抽屉一并关闭
+    if (detailRow.value?.id === row.id) detailVisible.value = false
     await fetchList()
   } catch (e) {
     // 错误提示已由拦截器统一处理（如并发的状态变更会返回 409）
+  }
+}
+
+/** 批量删除：后端跳过不可删条目并返回实际条数，这里把「未删成」的部分明确提示出来 */
+async function handleBatchDelete() {
+  const rows = selection.value.filter((row) => canDelete(row))
+  if (!rows.length) return
+  const ids = rows.map((row) => row.id)
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${ids.length} 张申请单吗？删除后申请单与审批进度记录不可恢复；专家档案与已审批结果不受影响。`,
+      '批量删除',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    const count = await deleteApplications(ids)
+    const removed = Number(count) || 0
+    if (removed < ids.length) {
+      ElMessage.warning(`已删除 ${removed} 张，另有 ${ids.length - removed} 张因状态已变化未删除`)
+    } else {
+      ElMessage.success(`已删除 ${removed} 张`)
+    }
+    if (detailRow.value && ids.includes(detailRow.value.id)) detailVisible.value = false
+    await fetchList()
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
   }
 }
 
@@ -559,13 +694,11 @@ const resubmitReason = ref('')
 const resubmitPhotoKeys = ref([])
 const resubmitPhotos = ref({})
 const resubmitPhotoUploading = ref({})
-const requiredResubmitFields = ['姓名', '单位']
 
 function handleResubmit(row) {
   resubmitRow.value = row
   const contract = row.applicationType === 'CONTRACT'
-  const extraKeys = Object.keys(row.changes || {}).filter((key) => TEXT_FIELDS.includes(key))
-  resubmitFields.value = contract ? [...CONTRACT_FIELDS] : [...new Set([...TEXT_FIELDS, ...extraKeys])]
+  resubmitFields.value = contract ? [...CONTRACT_FIELDS] : [...TEXT_FIELDS]
   resubmitChanges.value = Object.fromEntries(
     resubmitFields.value.map((key) => [
       key,
@@ -578,7 +711,7 @@ function handleResubmit(row) {
   if (rawReason.length > MAX_REASON_LENGTH) {
     ElMessage.warning(`原申请原因超过 ${MAX_REASON_LENGTH} 字，已截断，请确认后再提交`)
   }
-  resubmitPhotoKeys.value = contract ? [] : PHOTO_KEYS
+  resubmitPhotoKeys.value = contract ? [] : PHOTO_FIELDS
   resubmitPhotos.value = {}
   resubmitPhotoUploading.value = {}
   resubmitVisible.value = true
@@ -592,28 +725,39 @@ async function confirmResubmit() {
     const original = String(resubmitRow.value.changes?.[field] ?? '').trim()
     // 敏感字段留空 = 保留原提交值
     if (SENSITIVE_FIELDS.includes(field) && !value) continue
-    if (requiredResubmitFields.includes(field) && !value) {
+    if (CREATE_REQUIRED_FIELDS.includes(field) && !value) {
       ElMessage.warning(`请填写${field}`)
       return
     }
-    if (field === '姓名' && value && !/^[\u4e00-\u9fa5·]{2,20}$/.test(value)) {
+    if (field === '姓名' && value && !NAME_PATTERN.test(value)) {
       ElMessage.warning('姓名格式不正确（2-20 个汉字，可含间隔号）')
       return
     }
     if (value === original) continue
+    // 非必填文本字段清空 = 撤回该字段的变更：由后端从变更中移除，不写入空串
     changes[field] = value
   }
   // 照片：仅提交本次重新上传的字段（未重传的保留原申请照片）
   Object.assign(changes, resubmitPhotos.value)
   resubmitLoading.value = true
+  let result
   try {
-    await resubmitRequest(resubmitRow.value.id, { changes, reason: resubmitReason.value })
-    resubmitVisible.value = false
-    ElMessage.success('已重新提交，等待审批')
-    await fetchList()
+    result = await resubmitRequest(resubmitRow.value.id, { changes, reason: resubmitReason.value })
+  } catch (e) {
+    // 错误提示已由拦截器统一处理
+    return
   } finally {
     resubmitLoading.value = false
   }
+  resubmitVisible.value = false
+  // 原照片临时文件已失效时后端会剔除该字段：必须告知申请人，不能静默成功
+  const dropped = Array.isArray(result?.droppedPhotoFields) ? result.droppedPhotoFields : []
+  if (dropped.length) {
+    ElMessage.warning(`已重新提交；原申请的「${dropped.join('、')}」已失效，本次提交不包含该照片`)
+  } else {
+    ElMessage.success('已重新提交，等待审批')
+  }
+  await fetchList()
 }
 
 function sensitivePlaceholder(field) {
@@ -643,6 +787,7 @@ async function uploadResubmitPhoto(key, { file }) {
 
 function resubmitPhotoState(key) {
   if (resubmitPhotos.value[key]) return '已重新上传，提交后生效'
+  if (isExpiredPhoto(key)) return '原照片已失效，请重新上传'
   return resubmitRow.value?.changes?.[key] ? '原申请已更换照片（不重传则保留）' : '未更换（沿用专家现有照片）'
 }
 
@@ -662,12 +807,22 @@ onBeforeUnmount(() => {
   }
 })
 
-// 工作台/通知深链：?applicationId=xxx 直接打开进度或重提弹窗
+// 工作台/通知深链：?applicationId=xxx 直接打开详情或重提弹窗。
+// 打开后从 URL 移除该参数：否则筛选/刷新时会再次触发，且分享链接会带着它。
 watchDashboardFocus(
   route,
   'applicationId',
   'application',
-  (row) => (row.status === 4 ? handleResubmit(row) : openProgress(row)),
+  async (row) => {
+    if (row.status === 4) {
+      handleResubmit(row)
+    } else {
+      openDetail(row)
+    }
+    const query = { ...route.query }
+    delete query.applicationId
+    await router.replace({ query }).catch(() => {})
+  },
   (message) => ElMessage.warning(message)
 )
 </script>
@@ -680,9 +835,7 @@ watchDashboardFocus(
 }
 .filter-bar {
   margin-top: 12px;
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 8px;
 }
 .filter-status,
@@ -695,6 +848,9 @@ watchDashboardFocus(
 .filter-date {
   width: 250px;
 }
+.expired-tag {
+  margin-left: 4px;
+}
 .load-error {
   margin-top: 12px;
   display: flex;
@@ -702,12 +858,6 @@ watchDashboardFocus(
   gap: 8px;
   font-size: 13px;
   color: var(--ui-danger);
-}
-.progress-expert {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ui-text-main);
-  margin-bottom: 16px;
 }
 .timeline-node {
   font-size: 14px;
@@ -724,10 +874,28 @@ watchDashboardFocus(
   color: var(--ui-text-sub);
   margin-top: 4px;
 }
+.detail-block {
+  margin-top: 20px;
+}
+.detail-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ui-text-main);
+  margin-bottom: 14px;
+}
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
 .resubmit-photo-state {
   font-size: 13px;
   color: var(--ui-text-muted);
   margin-right: 12px;
+}
+.photo-expired {
+  color: var(--ui-danger);
 }
 .field-current {
   font-size: 12px;
@@ -762,11 +930,12 @@ watchDashboardFocus(
 .card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
 }
 .card-title {
+  flex: 1;
+  min-width: 0;
   font-size: 15px;
   font-weight: 600;
   color: var(--ui-text-main);
@@ -802,10 +971,13 @@ watchDashboardFocus(
   margin-left: 0;
 }
 @media (max-width: 768px) {
+  /* 选择器带 .filter-bar 前缀，特异性高于上面的 .filter-* 定宽规则，无需 !important */
   .filter-bar :deep(.el-select),
-  .filter-bar :deep(.el-input),
   .filter-bar :deep(.el-date-editor) {
-    width: 100% !important;
+    width: 100%;
+  }
+  .filter-keyword {
+    width: 100%;
   }
   .page-head {
     flex-direction: column;

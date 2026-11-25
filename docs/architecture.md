@@ -168,6 +168,16 @@ AIGC:
 
 > 审批「申请前后变化」对比（2026-10-27）：修改申请提交时 `ApplicationService.submitRequest` 从 expert_info 读全量字段写 biz_data.oldData 旧值快照（14 键：11 文本 + 3 照片文件名，新增申请置空）；查询接口返回项增加 `oldData`（脱敏口径见下方 2026-11-24 脱敏统一说明）与 `photoChanges`（照片原始文件名供前端预览）；审批通过时把 biz_data.changes 照片键 TMP: 值回填为归档文件名（生效后可预览），且 oldData 快照存在时跳过旧照片物理删除（保证历史单随时可还原「变更前」）。`WebConfig` 新增 /api/files-tmp/** 映射审批临时照片目录（待审批单新照片预览）。前端新增公共组件 `ApprovalDiffDialog.vue`（审批管理 + 我的申请共用，mode=view/approve/reject/return），审批管理与我的申请操作列加「查看对比」、通过/驳回整合进对比弹窗、摘要列升级「旧值 → 新值」；移除原展开行实时查专家表逻辑（oldValuesMap/handleExpand）。存量迁移 `database/migration/20261027_backfill_application_old_data.sql`：EXPERT_MODIFY 且 status∈{0,2,3} 的存量单用 expert_info 当前值回填 oldData（幂等、无 DDL），status=1 已通过单保持空（前端显示历史单提示）。
 
+> 「我的申请」第二轮审查 P2/P3 修复 + 详情抽屉 + 批量删除（2026-11-25，1.0.140；交接 `docs/handover/tasks/20261125_my_applications_p2p3_detail_drawer.md`）：
+>
+> **接口**：新增 `DELETE /api/approval/requests/batch`（body `{ids:[…]}`，≤100，登录即可 + Service 本人校验，口径同单条删除：仅已驳回/已撤回；不可删条目跳过，返回实际删除条数）。`Application` 响应新增 `expiredPhotoFields`（退回修改单里临时文件已被清理的照片键）与重提响应的 `droppedPhotoFields`（本次被剔除的失效照片键）；`bizData`、`approverSnapshot` 不再序列化（解析后的展示字段已承载）。提交修改/新增/合同接口的 `changes`/`reason` 类型错误按 400 拒绝（此前强转抛 500）。
+>
+> **业务规则**：① 重提时清空非必填文本字段 = 撤回该字段的变更（仅对带 `oldData` 快照的修改申请生效；必填字段清空仍拒绝；新增/合同申请维持原语义），避免审批通过把专家字段覆盖成空串；② 重提的敏感字段格式校验限定到本次改动的键，存量旧格式值不再阻塞重提；③ 列表关键词去掉恒真的 `applicant` 条件并转义 LIKE 通配符，排序追加 `id` 兜底；④ 合同申请的待办/撤回通知文案改用 `typeTextOf`。
+>
+> **前端**：`MyApproval.vue` 的「查看进度」「查看对比」合并为详情抽屉（`ApprovalDiffDialog` 新增 `variant=drawer`、`drawerSize`、`extra` 插槽，默认值不变，审批管理页不受影响）；列表多选 + 批量删除；30 秒轮询改静默刷新并按 id 更新已打开的详情；弹窗/抽屉按屏宽自适应；深链打开后移除 URL 的 `applicationId`；`approvalFields.js` 新增 `CREATE_REQUIRED_FIELDS`、`NAME_PATTERN`，移除零调用的 `applicationTypeText`。对比弹窗修正退回修改单的临时照片被误标「已清理」（退回时实际保留）。
+>
+> 未做（待负责人决策）：P1 退回修改单可撤回；合同发起提交的待办通知。无数据库/权限/配置变更。
+
 > 「我的申请」审查修复与增强（2026-11-24，1.0.139；审查报告 `docs/reviews/20261124-我的申请-代码审查.md`）：
 >
 > **缺陷修复（P1/P2/P3 共 18 项）**：① `readBiz` 解析失败记 ERROR 日志，`approveModify` 遇空 changes、`approveContract` 遇缺 `contractId` 直接阻断（此前会「空审批通过」：状态置已通过但专家字段一条未更新）；② 分页参数在 Controller 与服务层双重钳制（page≥1、1≤size≤100），`MybatisPlusConfig` 设 `maxLimit=100` 兜底，列表进度记录改为按页内 id 集合一次 `IN` 查询回填（消除逐行 `recordsOf` 的 N+1）；③ 合同重提回写 `contract.status=PENDING` 与 `approval_ref=申请单id`，撤回/驳回/退回时清空 `approval_ref`，并新增「同一合同只允许一张在审单（status∈{0,4}）」校验；④ 修改申请与重提增加姓名/单位非空与姓名格式校验（只校验本次实际改动的键，避免历史值卡死重提），文本值必须为字符串、单字段≤5000 字，申请原因提交与重提统一≤1000 字；⑤ 重提时已失效的临时照片键自动剔除并记 WARN（不再硬拒导致 status=4 永久滞留），新增 `ApprovalTempPhotoCleanTask` 按保留期清理临时照片（默认 7 天，保护待审批/退回修改单据引用的文件）；⑥ 前端列表请求加序号防乱序覆盖、失败态可重试、页码越界自动回退、改变每页条数重置页码，URL `status`/`type` 白名单校验；⑦ `applyChanges` 补「身份证有效期」映射（此前白名单放行但无落库分支，值被静默丢弃）；⑧ 清理悬挂 javadoc、`applyChanges` 恒假条件、`maskedOldData` 与 `isFullSensitive`。

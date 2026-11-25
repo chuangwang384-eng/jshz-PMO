@@ -40,6 +40,8 @@ import java.util.Map;
  * - GET /api/approval/requests：审批管理全部申请（权限码 approval:audit）；
  * - POST /api/approval/requests/{id}/approve|reject|withdraw|transfer|add-approver|return|resubmit；
  * - DELETE /api/approval/requests/{id}：申请人删除本人已驳回/已撤回的申请单（2026-11-24 新增）；
+ * - DELETE /api/approval/requests/batch：批量删除本人已驳回/已撤回的申请单，body {ids:[…]}（2026-11-25 新增，
+ *   参照消息中心批量删除；不可删条目跳过，返回实际删除条数）；
  * - GET /api/approval/assignable-users：可转办/加签用户列表。
  */
 @RestController
@@ -102,9 +104,8 @@ public class ApplicationController {
             throw new com.jshz.expert.common.BusinessException("请求体不能为空");
         }
         Long expertId = ParamUtils.toLong(body.get("expertId"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> changes = (Map<String, Object>) body.get("changes");
-        String reason = (String) body.get("reason");
+        Map<String, Object> changes = typedChanges(body.get("changes"));
+        String reason = typedReason(body.get("reason"));
         return ApiResponse.ok(applicationService.submitRequest(expertId, changes, reason, authUser));
     }
 
@@ -118,9 +119,8 @@ public class ApplicationController {
         if (body == null) {
             throw new com.jshz.expert.common.BusinessException("请求体不能为空");
         }
-        @SuppressWarnings("unchecked")
-        Map<String, Object> changes = (Map<String, Object>) body.get("changes");
-        String reason = (String) body.get("reason");
+        Map<String, Object> changes = typedChanges(body.get("changes"));
+        String reason = typedReason(body.get("reason"));
         return ApiResponse.ok(applicationService.submitCreateRequest(changes, reason, authUser));
     }
 
@@ -137,10 +137,38 @@ public class ApplicationController {
         }
         Long contractId = ParamUtils.toLong(body.get("contractId"));
         Long projectId = ParamUtils.toLong(body.get("projectId"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> changes = (Map<String, Object>) body.get("changes");
-        String reason = (String) body.get("reason");
+        Map<String, Object> changes = typedChanges(body.get("changes"));
+        String reason = typedReason(body.get("reason"));
         return ApiResponse.ok(applicationService.submitContractApproval(contractId, projectId, changes, reason, authUser));
+    }
+
+    /**
+     * 提交类接口的 changes 类型校验（2026-11-25）：此前直接强转 Map，类型不对会抛 ClassCastException 变成 500；
+     * 与 resubmit 的口径一致按 400 拒绝。changes 为空时返回 null，由 Service 提示「变更内容不能为空」。
+     */
+    private static Map<String, Object> typedChanges(Object changes) {
+        if (changes == null) {
+            return null;
+        }
+        if (!(changes instanceof Map<?, ?> map)) {
+            throw new BusinessException(400, "changes须为字段对象（文本为字符串，照片为 TMP: 临时文件名）");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (!(entry.getKey() instanceof String key)) {
+                throw new BusinessException(400, "字段名称无效");
+            }
+            result.put(key, entry.getValue());
+        }
+        return result;
+    }
+
+    /** 提交类接口的 reason 类型校验：须为字符串或空。 */
+    private static String typedReason(Object reason) {
+        if (reason != null && !(reason instanceof String)) {
+            throw new BusinessException(400, "申请原因格式无效");
+        }
+        return (String) reason;
     }
 
     /**
@@ -272,6 +300,32 @@ public class ApplicationController {
                                            @AuthenticationPrincipal AuthUser authUser) {
         applicationService.deleteApplication(id, authUser);
         return ApiResponse.ok(null);
+    }
+
+    /**
+     * 批量删除申请单：DELETE /api/approval/requests/batch，body {ids:[…]}（仅申请人本人）。
+     * 口径同单条删除：仅「已驳回 / 已撤回」可删；非本人、非终态、不存在的条目跳过不中断整批。
+     * 返回实际删除条数；ids 最多 100 条（与单页上限一致）。
+     */
+    @DeleteMapping("/requests/batch")
+    public ApiResponse<Integer> deleteBatch(@RequestBody(required = false) Map<String, Object> body,
+                                            @AuthenticationPrincipal AuthUser authUser) {
+        Object rawIds = body == null ? null : body.get("ids");
+        if (!(rawIds instanceof List<?> list) || list.isEmpty()) {
+            throw new BusinessException(400, "请选择要删除的申请单");
+        }
+        if (list.size() > ApplicationService.MAX_PAGE_SIZE) {
+            throw new BusinessException(400, "单次最多删除 " + ApplicationService.MAX_PAGE_SIZE + " 条");
+        }
+        List<Long> ids = new ArrayList<>();
+        for (Object item : list) {
+            Long id = ParamUtils.toLong(item);
+            if (id == null || id <= 0) {
+                throw new BusinessException(400, "申请单编号无效");
+            }
+            ids.add(id);
+        }
+        return ApiResponse.ok(applicationService.deleteApplications(ids, authUser));
     }
 
     /**

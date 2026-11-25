@@ -123,6 +123,12 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /** 审批管理页面路由（菜单已迁移至个人中心） */
     private static final String MANAGE_PATH = "/profile/approval/manage";
 
+    /** 「我的申请」页面路由（审批结果/退回/转办通知跳转用；带 status 参数） */
+    private static final String MY_APPLICATIONS_PATH = "/profile/my-approvals";
+
+    /** 合同申请允许变更的字段（提交与重提同源；前端 utils/approvalFields.js CONTRACT_FIELDS 为展示层副本） */
+    private static final List<String> CONTRACT_FIELDS = List.of("身份证号", "银行卡号");
+
     private final ApprovalConfigMapper approvalConfigMapper;
     private final ApprovalConfigUserMapper approvalConfigUserMapper;
     private final ApprovalRecordMapper approvalRecordMapper;
@@ -365,7 +371,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 throw new BusinessException("单位不能为空");
             }
         }
-        validateSensitiveFields(changes);
+        validateSensitiveFields(changes, touched);
     }
 
     /**
@@ -431,17 +437,25 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         if (StringUtils.hasText(f.keyword())) {
             String kw = f.keyword().trim();
-            // 关键词覆盖：专家姓名（biz_data.expertName）/ 申请原因（biz_data.reason）/ 申请人用户名
-            wrapper.and(w -> w.like(Application::getApplicant, kw)
-                    .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.expertName')) LIKE CONCAT('%', {0}, '%')", kw)
-                    .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.reason')) LIKE CONCAT('%', {0}, '%')", kw));
+            // 关键词覆盖：专家姓名（biz_data.expertName）/ 申请原因（biz_data.reason）。
+            // 不再匹配 applicant：本人列表里申请人恒为当前用户，该条件只会让命中自己用户名的关键词返回全量。
+            // 通配符转义：关键词里的 % _ 按字面匹配（ESCAPE '/'）。
+            String esc = escapeLike(kw);
+            wrapper.and(w -> w.apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.expertName')) LIKE CONCAT('%', {0}, '%') ESCAPE '/'", esc)
+                    .or().apply("JSON_UNQUOTE(JSON_EXTRACT(biz_data, '$.reason')) LIKE CONCAT('%', {0}, '%') ESCAPE '/'", esc));
         }
         applyDateRange(wrapper, f.startDate(), f.endDate());
-        wrapper.orderByDesc(Application::getCreateTime);
+        // 同秒提交的单据按 id 兜底，避免翻页重复/遗漏
+        wrapper.orderByDesc(Application::getCreateTime).orderByDesc(Application::getId);
         Page<Application> result = this.page(new Page<>(ParamUtils.clamp(page, 1, Long.MAX_VALUE),
                 ParamUtils.clamp(size, 1, MAX_PAGE_SIZE)), wrapper);
         fillViews(result.getRecords());
         return result;
+    }
+
+    /** LIKE 通配符转义（配合 SQL 中的 ESCAPE '/'）：先转义转义符本身，再转义 % 与 _。 */
+    private static String escapeLike(String value) {
+        return value.replace("/", "//").replace("%", "/%").replace("_", "/_");
     }
 
     /** Authorized single-record lookup for dashboard deep links; no action permissions changed. */
@@ -889,9 +903,18 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             for (Map.Entry<String,Object> entry : patch.entrySet()) {
                 String field = entry.getKey(); Object value = entry.getValue();
                 boolean photoField = PHOTO_FIELDS.contains(field);
-                if ((!WHITELIST_FIELDS.contains(field) && !photoField) || (photoField && contract)) throw new BusinessException(contract ? "合同申请仅支持修改身份与银行卡字段" : "字段不在可修改范围内");
-                if (contract && !List.of("身份证号","银行卡号").contains(field)) throw new BusinessException("合同申请仅支持修改身份与银行卡字段");
+                if (contract && !CONTRACT_FIELDS.contains(field)) throw new BusinessException("合同申请仅支持修改身份与银行卡字段");
+                if (!contract && !WHITELIST_FIELDS.contains(field) && !photoField) throw new BusinessException("字段不在可修改范围内");
                 if (value != null && (!(value instanceof String) || value.toString().length() > MAX_TEXT_LENGTH)) throw new BusinessException("字段内容格式不正确或过长");
+                // 清空文本字段 = 撤回该字段的变更（2026-11-25）：修改申请带旧值快照时，空白值不再写入 changes，
+                // 否则审批通过会把专家档案对应字段覆盖成空串。新增申请/合同申请无旧值快照，维持原语义；
+                // 必填字段（姓名/单位）不适用，清空仍按「不能为空」拒绝。
+                boolean hasOldSnapshot = biz.get("oldData") instanceof Map<?, ?> old && old.containsKey(field);
+                if (!photoField && !CREATE_REQUIRED_FIELDS.contains(field) && hasOldSnapshot
+                        && value != null && value.toString().isBlank()) {
+                    changes.remove(field);
+                    continue;
+                }
                 // 照片被替换：记下旧临时文件名，事务提交后清理（格式与临时文件存在性由 checkChanges 校验）
                 if (photoField && value != null && changes.get(field) instanceof String prev
                         && prev.startsWith(TMP_PREFIX) && !prev.equals(value)) {
@@ -909,13 +932,14 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 continue;
             }
             String tempName = raw.substring(TMP_PREFIX.length());
-            if (!photoStorageService.existsTempPhoto(tempName)) {
-                changes.remove(key);
-                droppedPhotoFields.add(key);
-                bizChanged = true;
-                log.warn("[审批流] 重新提交：照片临时文件已失效，已从变更中剔除（需重新上传）：申请单={}，字段={}，文件={}",
-                        id, key, tempName);
+            if (photoStorageService.existsTempPhoto(tempName)) {
+                continue;
             }
+            changes.remove(key);
+            droppedPhotoFields.add(key);
+            bizChanged = true;
+            log.warn("[审批流] 重新提交：照片临时文件已失效，已从变更中剔除（需重新上传）：申请单={}，字段={}，文件={}",
+                    id, key, tempName);
         }
         checkChanges(changes);
         // 校验口径（Q4）：姓名/单位等文本字段只校验本次实际改动的键，避免历史单因存量值不合规被永久卡住
@@ -975,7 +999,10 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 }
             });
         }
-        return fillView(app);
+        Application result = fillView(app);
+        // 被剔除的照片键回传前端提示：静默剔除会让申请人误以为照片仍会随审批生效
+        result.setDroppedPhotoFields(droppedPhotoFields);
+        return result;
     }
 
     // ==================== 审批人管理（R2 指定具体审批人） ====================
@@ -1116,8 +1143,15 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         }
         Integer status = app.getStatus();
         if (status == null || (status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
-            throw new BusinessException("仅「已驳回」或「已撤回」的申请可删除；待审批请先撤回，退回修改请先重提或撤回");
+            throw new BusinessException("仅「已驳回」或「已撤回」的申请可删除；待审批请先撤回，退回修改的申请先重新提交");
         }
+        deleteApplication(app, user);
+    }
+
+    /** 删除单据本体（调用方已完成本人与状态校验）。 */
+    private void deleteApplication(Application app, AuthUser user) {
+        Long id = app.getId();
+        Integer status = app.getStatus();
         fillBiz(app);
         String statusText = statusText(status);
         // 条件删除：以原状态为条件，避免与并发重提/审批交错（并发下影响行数为 0 即拒绝）
@@ -1136,6 +1170,32 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                         + "」" + typeTextOf(app) + "（状态 " + statusText + "）",
                 "APPLICATION", id, null);
         afterCommit("删除申请清理临时照片", () -> cleanTempPhotos(app));
+    }
+
+    /**
+     * 批量删除申请单（2026-11-25，参照消息中心批量删除）：申请人一次清理多条本人「已驳回 / 已撤回」单据。
+     * 逐条沿用 {@link #deleteApplication(Long, AuthUser)} 的口径；不满足条件的条目（非本人、非终态、不存在）
+     * 静默跳过而不中断整批，返回实际删除条数，由前端提示「已删除 N 条」。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int deleteApplications(List<Long> ids, AuthUser user) {
+        if (user == null) {
+            throw new BusinessException("未登录");
+        }
+        int removed = 0;
+        for (Long id : new java.util.LinkedHashSet<>(ids)) {
+            Application app = getById(id);
+            if (app == null || !isApplicant(app, user)) {
+                continue;
+            }
+            Integer status = app.getStatus();
+            if (status == null || (status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
+                continue;
+            }
+            deleteApplication(app, user);
+            removed++;
+        }
+        return removed;
     }
 
     /**
@@ -1479,7 +1539,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * 新申请待审通知（approval_todo）：通知审批人角色下全部用户。
      */
     private void notifyApprovalTodo(Application app) {
-        String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+        String typeText = typeTextOf(app);
         notifyApproverRole(app, NotificationService.TYPE_APPROVAL_TODO,
                 "新的" + typeText + "待审批",
                 "申请人 " + app.getApplicant() + " 提交了新的申请，请及时处理");
@@ -1489,7 +1549,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * 撤回通知（approval_withdrawn）：通知审批人角色下全部用户「申请已撤回」。
      */
     private void notifyApprovalWithdrawn(Application app) {
-        String typeText = isCreateRequest(app) ? "新增专家申请" : "专家信息修改申请";
+        String typeText = typeTextOf(app);
         notifyApproverRole(app, NotificationService.TYPE_APPROVAL_WITHDRAWN,
                 "申请已撤回：" + typeText,
                 "申请人 " + app.getApplicant() + " 撤回了" + typeText + "，无需再处理");
@@ -1511,7 +1571,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             if (StringUtils.hasText(app.getApproveComment())) {
                 content += "，意见：" + app.getApproveComment();
             }
-            String jump = approved ? "/profile/my-approvals?status=1" : "/profile/my-approvals?status=2";
+            String jump = approved ? MY_APPLICATIONS_PATH + "?status=1" : MY_APPLICATIONS_PATH + "?status=2";
             notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
                     (approved ? "审批通过：" : "审批驳回：") + typeText, content, jump);
         } catch (Exception e) {
@@ -1539,7 +1599,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_TRANSFERRED,
                         "您的申请已转办",
                         "您的「" + app.getExpertName() + "」" + typeText + "已转办给 " + targetUser + " 审批",
-                        "/profile/my-approvals");
+                        MY_APPLICATIONS_PATH);
             }
         } catch (Exception e) {
             // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
@@ -1687,7 +1747,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 content += "，意见：" + app.getApproveComment();
             }
             notificationService.notify(applicantId, NotificationService.TYPE_APPROVAL_RESULT,
-                    "退回修改：" + typeText, content, "/profile/my-approvals?status=4");
+                    "退回修改：" + typeText, content, MY_APPLICATIONS_PATH + "?status=4");
         } catch (Exception e) {
             // 通知失败不影响主流程，但留痕便于核查（2026-11-24 补日志）
             log.warn("[审批流] 通知发送失败：申请单={}", app.getId(), e);
@@ -1784,7 +1844,29 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
         app.setStatusText(statusText(app.getStatus()));
         app.setRecords(records);
         fillTimeliness(app, records);
+        fillExpiredPhotos(app, rawChanges);
         return app;
+    }
+
+    /**
+     * 退回修改单的失效照片键（2026-11-25）：status=4 且照片值仍为 TMP: 临时文件而文件已不存在
+     * （被保留期清理任务删除）。前端据此提示「需重新上传」，避免申请人以为不重传也能生效。
+     * 其余状态不探测文件系统。
+     */
+    private void fillExpiredPhotos(Application app, Map<String, Object> rawChanges) {
+        if (!Integer.valueOf(STATUS_RETURNED).equals(app.getStatus()) || rawChanges == null || rawChanges.isEmpty()) {
+            return;
+        }
+        List<String> expired = new ArrayList<>();
+        for (String key : PHOTO_FIELDS) {
+            if (rawChanges.get(key) instanceof String raw && raw.startsWith(TMP_PREFIX)
+                    && !photoStorageService.existsTempPhoto(raw.substring(TMP_PREFIX.length()))) {
+                expired.add(key);
+            }
+        }
+        if (!expired.isEmpty()) {
+            app.setExpiredPhotoFields(expired);
+        }
     }
 
     /**
@@ -1896,10 +1978,21 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
      * 仅对本次变更涉及且值非空的身份证号/银行卡号/联系方式做格式校验。
      */
     private void validateSensitiveFields(Map<String, Object> changes) {
+        validateSensitiveFields(changes, null);
+    }
+
+    /**
+     * 敏感字段格式校验（限定键）：touched 非空时只校验 touched 内的敏感字段——
+     * 重新提交时历史单里未改动的存量值（如旧格式的联系方式）不应永久阻塞重提。
+     */
+    private void validateSensitiveFields(Map<String, Object> changes, Set<String> touched) {
         if (changes == null || changes.isEmpty()) {
             return;
         }
         for (String key : SENSITIVE_FIELDS) {
+            if (touched != null && !touched.contains(key)) {
+                continue;
+            }
             Object raw = changes.get(key);
             if (raw == null || !StringUtils.hasText(String.valueOf(raw).trim())) {
                 continue;

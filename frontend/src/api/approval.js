@@ -91,6 +91,12 @@ export function deleteApplication(id) {
   return request.delete(`/approval/requests/${id}`)
 }
 
+// 批量删除申请单：DELETE /approval/requests/batch，body {ids}（仅申请人本人，仅「已驳回/已撤回」可删；
+// 不可删条目后端跳过，返回实际删除条数；单次上限 100 条）
+export function deleteApplications(ids) {
+  return request.delete('/approval/requests/batch', { data: { ids } })
+}
+
 // ==================== 审批转办 / 加签（B2，或签语义） ====================
 
 // 审批转办：POST /approval/requests/{id}/transfer，body {targetUser}

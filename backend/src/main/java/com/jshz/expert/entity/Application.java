@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
@@ -49,7 +50,11 @@ public class Application {
     @JsonProperty("status")
     private Integer status;
 
-    /** 业务详情 JSON（专家申请：expertId/expertName/changes/reason） */
+    /**
+     * 业务详情 JSON（专家申请：expertId/expertName/changes/reason/oldData）。
+     * 不随接口返回：解析后的 changes / oldData / reason 已由展示字段承载，原串重复传输且体积翻倍。
+     */
+    @JsonIgnore
     @JsonProperty("bizData")
     private String bizData;
 
@@ -70,7 +75,7 @@ public class Application {
     @JsonProperty("returnComment")
     private String returnComment;
 
-    /** 当前审批人（B2 转办后有值；为空=未转办，任何拥有 approval:audit 的用户可审批） */
+    /** 当前审批人（B2 转办后有值；为空=未转办，由审批人快照内的用户或任意拥有 approval:audit 的用户可审批） */
     @JsonProperty("currentAssignee")
     private String currentAssignee;
 
@@ -79,6 +84,7 @@ public class Application {
     private String extraApprover;
 
     /** 审批人快照 JSON 数组 [{"id":1,"username":"jshz"}]（提交时由流程配置生成；空数组=任意有审批权限的用户可审；存量单为空） */
+    @JsonIgnore
     @JsonProperty("approverSnapshot")
     private String approverSnapshot;
 
@@ -114,7 +120,7 @@ public class Application {
     @JsonProperty("changes")
     private Map<String, Object> changes;
 
-    /** 旧值快照解析对象（biz_data.oldData，提交修改申请时专家全量字段快照；非管理员身份证号/银行卡号脱敏；非数据库列） */
+    /** 旧值快照解析对象（biz_data.oldData，提交修改申请时专家全量字段快照；一律明文，可见范围仅本人与审批人；非数据库列） */
     @TableField(exist = false)
     @JsonProperty("oldData")
     private Map<String, Object> oldData;
@@ -159,4 +165,20 @@ public class Application {
     @TableField(exist = false)
     @JsonProperty("pendingHours")
     private Long pendingHours;
+
+    /**
+     * 失效照片键（2026-11-25，非数据库列）：退回修改单里值仍为 TMP: 临时文件但文件已被清理任务删除的照片字段。
+     * 列表与详情据此提示「照片已失效，需重新上传」；无失效为 null。
+     */
+    @TableField(exist = false)
+    @JsonProperty("expiredPhotoFields")
+    private List<String> expiredPhotoFields;
+
+    /**
+     * 本次重新提交时被剔除的照片键（2026-11-25，非数据库列）：临时文件已丢失且本次未重传的照片字段，
+     * 仅重新提交响应携带；前端据此提示申请人，其余接口为 null。
+     */
+    @TableField(exist = false)
+    @JsonProperty("droppedPhotoFields")
+    private List<String> droppedPhotoFields;
 }

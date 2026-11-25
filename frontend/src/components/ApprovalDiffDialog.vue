@@ -1,8 +1,10 @@
 <template>
-  <el-dialog
+  <!-- variant=dialog（默认，审批管理页沿用）/ variant=drawer（「我的申请」详情抽屉：对比表 + 进度时间线同屏） -->
+  <component
+    :is="variant === 'drawer' ? 'el-drawer' : 'el-dialog'"
     :model-value="modelValue"
     :title="dialogTitle"
-    width="760px"
+    v-bind="shellProps"
     destroy-on-close
     :show-close="!submitting"
     :close-on-press-escape="!submitting"
@@ -81,7 +83,7 @@
         </div>
         <div class="diff-td arrow">→</div>
         <div class="diff-td new">
-          <!-- 照片字段：变更后缩略图（待审批=临时照片，已生效=归档照片，驳回/撤回=临时文件已清理） -->
+          <!-- 照片字段：变更后缩略图（待审批/退回修改=临时照片，已生效=归档照片，驳回/撤回=临时文件已清理） -->
           <template v-if="item.photo">
             <PhotoImage
               v-if="newPhotoOf(item.key)"
@@ -91,6 +93,7 @@
               :height="72"
               empty-text="未上传"
             />
+            <span v-else-if="isExpiredPhoto(item.key)" class="photo-expired">临时照片已失效，请重新上传</span>
             <span v-else-if="newPhotoCleaned(item.key)" class="muted">临时照片已清理</span>
             <span v-else class="muted">-</span>
           </template>
@@ -99,6 +102,9 @@
       </div>
       <el-empty v-if="!diffRows.length" description="无变更内容" :image-size="60" />
     </div>
+
+    <!-- 扩展区（如「我的申请」详情抽屉的审批进度时间线与操作按钮） -->
+    <slot name="extra" />
 
     <!-- 底部操作区：按 mode 区分 -->
     <template #footer>
@@ -136,7 +142,7 @@
         </div>
       </div>
     </template>
-  </el-dialog>
+  </component>
 </template>
 
 <script setup>
@@ -150,12 +156,18 @@ import PhotoImage from './PhotoImage.vue'
 // 审批变更前后对比弹窗（审批管理 + 我的申请共用）：
 // mode=view 只读查看 / approve 通过（意见可空）/ reject 驳回（意见必填）/ return 退回修改（意见必填），
 // 审批动作在弹窗内完成，成功后 emit('success') 由父组件刷新列表。
+// variant=dialog（默认）| drawer：抽屉形态仅「我的申请」详情使用，默认值不变，审批管理页行为不受影响。
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   row: { type: Object, default: null },
   mode: { type: String, default: 'view' },
   queueIndex: { type: Number, default: 0 },
-  queueSize: { type: Number, default: 0 }
+  queueSize: { type: Number, default: 0 },
+  variant: { type: String, default: 'dialog' },
+  /** dialog 形态宽度（默认值与抽屉改造前一致，调用方可按屏宽覆盖） */
+  width: { type: String, default: '760px' },
+  /** drawer 形态宽度（CSS size，调用方可按屏宽覆盖） */
+  drawerSize: { type: String, default: 'min(760px, 94vw)' }
 })
 
 const emit = defineEmits(['update:modelValue', 'success', 'navigate'])
@@ -179,12 +191,16 @@ const actionType = computed(() => {
   return 'danger'
 })
 
+const shellProps = computed(() => (props.variant === 'drawer'
+  ? { direction: 'rtl', size: props.drawerSize }
+  : { width: props.width }))
+
 const dialogTitle = computed(() => {
   if (props.mode === 'quick') return '快速审批（变更前后对比）'
   if (props.mode === 'approve') return '审批通过（变更前后对比）'
   if (props.mode === 'reject') return '审批驳回（变更前后对比）'
   if (props.mode === 'return') return '退回修改（变更前后对比）'
-  return '申请详情对比'
+  return props.variant === 'drawer' ? '申请详情' : '申请详情对比'
 })
 
 // 历史单提示：修改申请且无旧值快照（存量已通过单未回填）。
@@ -208,22 +224,31 @@ const diffRows = computed(() => {
   }))
 })
 
-// 变更后照片源：photoChanges 原始值（TMP: 前缀=待审批临时照片走 /api/files-tmp，否则为生效后归档文件名）
+// 可预览临时照片的状态：待审批（在审）与退回修改（退回时保留临时照片供重提，此前被误判为「已清理」）
+const TEMP_PREVIEW_STATUS = [0, 4]
+
+// 变更后照片源：photoChanges 原始值（TMP: 前缀=待审批/退回修改的临时照片走 /api/files-tmp，否则为生效后归档文件名）
 function newPhotoOf(key) {
   const raw = props.row?.photoChanges?.[key]
   if (!raw) return null
   const value = String(raw)
   if (value.startsWith('TMP:')) {
-    if (props.row.status !== 0) return null
+    if (!TEMP_PREVIEW_STATUS.includes(props.row.status)) return null
+    if (isExpiredPhoto(key)) return null
     return { temp: true, name: value.slice('TMP:'.length) }
   }
   return { temp: false, name: value }
 }
 
-// 驳回/撤回后临时照片已被清理（值仍为 TMP: 但单据非待审批），无法预览
+// 退回修改单的临时照片已被清理任务删除（后端 expiredPhotoFields 标出）：无法预览，需重新上传
+function isExpiredPhoto(key) {
+  return Array.isArray(props.row?.expiredPhotoFields) && props.row.expiredPhotoFields.includes(key)
+}
+
+// 驳回/撤回后临时照片已被清理（值仍为 TMP: 但单据已不在审），无法预览
 function newPhotoCleaned(key) {
   const raw = props.row?.photoChanges?.[key]
-  return !!raw && String(raw).startsWith('TMP:') && props.row.status !== 0
+  return !!raw && String(raw).startsWith('TMP:') && !TEMP_PREVIEW_STATUS.includes(props.row.status)
 }
 
 async function confirm(action = props.mode) {
@@ -326,6 +351,10 @@ async function confirm(action = props.mode) {
 .diff-td.arrow {
   justify-content: center;
   color: var(--ui-text-muted);
+}
+.photo-expired {
+  font-size: 12px;
+  color: var(--ui-danger);
 }
 .footer-action {
   display: flex;

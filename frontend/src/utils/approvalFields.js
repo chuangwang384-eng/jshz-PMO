@@ -41,6 +41,12 @@ export const STATUS_OPTIONS = [
   { value: 4, label: '退回修改' }
 ]
 
+/** 新增专家 / 重提必填的文本字段（后端 ApplicationService.CREATE_REQUIRED_FIELDS；重提弹窗据此做非空校验） */
+export const CREATE_REQUIRED_FIELDS = ['姓名', '单位']
+
+/** 姓名格式（后端 ApplicationService.NAME_PATTERN）：2-20 个汉字，可含间隔号 */
+export const NAME_PATTERN = /^[一-龥·]{2,20}$/
+
 /** 合法状态值集合（URL 参数白名单校验用） */
 export const VALID_STATUS = STATUS_OPTIONS.map((item) => item.value)
 
@@ -50,12 +56,6 @@ export const TYPE_OPTIONS = [
   { value: 'EXPERT_CREATE', label: '新增申请' },
   { value: 'CONTRACT', label: '合同审批' }
 ]
-
-/** 申请类型英文名 -> 中文（移动端卡片与筛选项复用） */
-export function applicationTypeText(applicationType, fallback) {
-  const hit = TYPE_OPTIONS.find((item) => item.value === applicationType)
-  return hit ? hit.label : (fallback || '修改申请')
-}
 
 /** 单页条数选项（上限与后端 ApplicationService.MAX_PAGE_SIZE 一致） */
 export const PAGE_SIZES = [10, 20, 50, 100]
