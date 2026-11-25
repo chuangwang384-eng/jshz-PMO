@@ -226,13 +226,17 @@ public class ProjectShowService {
         return TIME.matcher(line).find() || AGENDA_MARKER.matcher(line).find();
     }
 
+    /** 串场 PPT 单文件上限：单一真源 expert.upload.doc-max-bytes（2026-11-25 50MB→100MB）。 */
+    @org.springframework.beans.factory.annotation.Value("${expert.upload.doc-max-bytes:104857600}")
+    private long showFileMaxBytes = 104857600L;
+
     @Transactional
     public void upload(Long id, MultipartFile file, AuthUser user) throws IOException {
         Project project = currentShow(id, user);
         String name = file.getOriginalFilename();
         String ext = com.jshz.expert.common.FileNames.extension(name).toLowerCase(Locale.ROOT);
-        if (file.isEmpty() || file.getSize() > 50L * 1024 * 1024 || !List.of("ppt", "pptx").contains(ext)) {
-            throw new BusinessException("请选择不超过 50 MB 的 PPT 或 PPTX 文件");
+        if (file.isEmpty() || file.getSize() > showFileMaxBytes || !List.of("ppt", "pptx").contains(ext)) {
+            throw new BusinessException("请选择不超过 " + (showFileMaxBytes / 1024 / 1024) + " MB 的 PPT 或 PPTX 文件");
         }
         try (var input = file.getInputStream()) {
             if ("pptx".equals(ext)) {

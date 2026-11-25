@@ -16,7 +16,7 @@ import java.util.Set;
 
 /**
  * 知识文档存储服务（知识星球）。
- * 允许扩展名：pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png；单文件 ≤50MB。
+ * 允许扩展名：pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png；单文件 ≤100MB。
  * 命名规则：doc_<时间戳>_<原文件名>。
  * 存储目录：{STORAGE_ROOT}\知识文档库（application.yml expert.knowledge.storage-dir）。
  * 通用逻辑（清洗/校验/目录归一化）统一复用 common.FileNames / common.UploadGuard（2026-11-13）。
@@ -30,7 +30,7 @@ public class KnowledgeDocStorageService {
     private final long maxBytes;
 
     public KnowledgeDocStorageService(@Value("${expert.knowledge.storage-dir}") String storageDir,
-                                      @Value("${expert.upload.doc-max-bytes:52428800}") long maxBytes) {
+                                      @Value("${expert.upload.doc-max-bytes:104857600}") long maxBytes) {
         this.storageDir = FileNames.normalizeDir(storageDir);
         this.maxBytes = maxBytes;
         try {

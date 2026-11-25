@@ -20,9 +20,10 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
   servlet:
     multipart:
-      # 上传大小限制（照片单文件 ≤5MB；知识文档单文件 ≤50MB，请求 ≤60MB）
-      max-file-size: 50MB
-      max-request-size: 60MB
+      # 上传大小限制（照片单文件 ≤10MB；知识文档/项目资料单文件 ≤100MB；结算资料单批次合计 ≤500MB，见 expert.upload）
+      # 2026-11-25：doc-max-bytes 50MB→100MB（负责人要求），multipart 单文件同步 100MB；max-request-size 520MB 保持
+      max-file-size: 100MB
+      max-request-size: 520MB
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -103,7 +104,8 @@ expert:
   upload:
     photo-max-bytes: 10485760       # 照片单文件 ≤10MB（证件照/身份证/头像预校验，2026-11-20 Owner 要求 5MB→10MB）
     resume-max-bytes: 31457280      # 简历单文件 ≤30MB（单份解析）
-    doc-max-bytes: 52428800         # 知识/项目资料/日程单文件 ≤50MB（multipart 上限见 spring.servlet.multipart）
+    doc-max-bytes: 104857600        # 知识/项目资料/日程/串场/结算单文件 ≤100MB（2026-11-25 50MB→100MB，multipart 上限见 spring.servlet.multipart）
+    settlement-batch-max-bytes: 524288000   # 结算资料单批次合计 ≤500MB（2026-11-25 取消「每批最多 20 个文件、合计 50MB」）
   # 存储占用预警阈值（单目录字节；Owner 2026-11-12 存储管理工具）
   storage:
     warn-threshold-bytes: 10737418240      # 10GB 提醒

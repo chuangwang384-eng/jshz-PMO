@@ -91,7 +91,7 @@
               <el-upload v-if="canOperatePhase" :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
                 <el-button size="small" type="primary" plain>上传附件资料到本阶段</el-button>
               </el-upload>
-              <span class="hint-text">合同、发票、会议通知等附件资料在此上传，与表单一并作为本阶段材料</span>
+              <span class="hint-text">合同、发票、会议通知等附件资料在此上传，与表单一并作为本阶段材料（单文件 ≤{{ toMb(uploadLimits.docMaxBytes) }}MB）</span>
             </div>
             <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
               <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
@@ -104,7 +104,7 @@
           </template>
           <template v-else-if="viewPhaseObj?.name === '结算资料上传'">
             <el-empty v-if="phaseState(viewPhaseObj) === 'future'" description="进入结算资料上传阶段后可提交资料" :image-size="60" />
-            <ProjectSettlementMaterials v-else :key="`${projectId}-${viewPhaseObj.id}`"
+            <ProjectSettlementMaterials v-else :key="`${projectId}-${viewPhaseObj.id}`" ref="settlementRef"
               :project-id="projectId" :phase-id="viewPhaseObj.id"
               @saved="fetchDetail" @preview="openFilePreview" @download="downloadProjectFile" />
             <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
@@ -141,7 +141,7 @@
               <el-upload v-if="canOperate" :show-file-list="false" :auto-upload="false" :on-change="onScheduleFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,.xlsx,.xls">
                 <el-button type="primary" plain :loading="parsing">{{ schedule ? '重新上传日程（替换当前份）' : '上传日程文件' }}</el-button>
               </el-upload>
-              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png/xlsx/xls，≤50MB；重新上传将替换当前日程并自动重新解析</span>
+              <span class="hint-text">支持 pdf/doc/docx/ppt/pptx/jpg/png/xlsx/xls，≤100MB；重新上传将替换当前日程并自动重新解析</span>
               <el-button v-if="schedule && canOperate && schedule.parseStatus !== 'PARSING'" size="small" plain style="margin-left: auto" @click="doParse">
                 {{ schedule.parseStatus === 'DONE' ? '重新解析' : '开始解析' }}
               </el-button>
@@ -188,6 +188,7 @@
                   >
                     <el-button size="small" type="primary" plain>上传资料到本阶段</el-button>
                   </el-upload>
+                  <span class="hint-text">单文件 ≤{{ toMb(uploadLimits.docMaxBytes) }}MB</span>
                 </div>
                 <div v-if="!docsOfPhase(viewPhaseObj.id, 'FILE').length" class="hint-text">本阶段暂无附件资料</div>
               </div>
@@ -664,6 +665,8 @@ const visibleComplianceTodos = computed(() =>
   (detail.value.complianceTodos ?? []).filter(todo => todo.status === complianceView.value))
 // 查看阶段（Stepper 点击切换，仅影响展示层，不触发流转）；初始=当前阶段
 const viewPhaseId = ref('')
+// 结算资料上传组件：右侧待办「去处理」按细项定位到对应上传卡片
+const settlementRef = ref(null)
 
 const editVisible = ref(false)
 const editRow = ref(null)
@@ -781,13 +784,28 @@ function toCandidateDraft(c) {
   }
 }
 
-async function onScheduleFile(file) {
-  if (!file || !file.raw) return
-  // 前端预检：超限给明确提示，不再让 Nginx 413 弹英文报错（限额单一真源 application.yml expert.upload，2026-11-10）
-  if (file.raw.size > uploadLimits.docMaxBytes) {
-    ElMessage.warning(`日程文件超过 ${toMb(uploadLimits.docMaxBytes)}MB 限制，请压缩后再上传`)
-    return
+// 上传前端预检（2026-11-25 统一）：限额单一真源 expert.upload.doc-max-bytes（GET /api/meta/limits），
+// 超限或类型不符时直接给出可见提示，不再让用户只看到后端 500 或 Nginx 413 英文报错。
+// 本页所有上传入口（阶段资料、会前财务附件、串场 PPT、日程、模板附件、兜底附件）统一走这里。
+const PHASE_DOC_ACCEPT = ['.pdf', '.xls', '.xlsx', '.doc', '.docx', '.ppt', '.pptx',
+  '.png', '.jpg', '.jpeg', '.webp', '.zip', '.rar', '.7z', '.txt', '.ofd']
+function precheckUpload(file, { label = '文件', accept = PHASE_DOC_ACCEPT } = {}) {
+  const raw = file?.raw
+  if (!raw) return false
+  const ext = (raw.name.match(/\.[^.]+$/) || [''])[0].toLowerCase()
+  if (accept.length && !accept.includes(ext)) {
+    ElMessage.warning(`${label}仅支持 ${accept.join('/')} 格式`)
+    return false
   }
+  if (raw.size > uploadLimits.docMaxBytes) {
+    ElMessage.warning(`${label}超过 ${toMb(uploadLimits.docMaxBytes)}MB 限制，请压缩后再上传`)
+    return false
+  }
+  return true
+}
+
+async function onScheduleFile(file) {
+  if (!precheckUpload(file, { label: '日程文件' })) return
   try {
     await uploadSchedule(projectId, file.raw)
     await Promise.all([fetchDetail({ refreshSchedule: false }), fetchSchedule()])
@@ -1184,12 +1202,18 @@ function isTemplateFulfilled(t) {
 
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
 const SCHEDULE_UPLOAD_TASK = '上传日程'
+const SETTLEMENT_PHASE_NAME = '结算资料上传'
+function inSettlementStage() {
+  return currentPhase.value?.name === SETTLEMENT_PHASE_NAME || viewPhaseObj.value?.name === SETTLEMENT_PHASE_NAME
+}
 function resolveLabel(m) {
   if (m === BUDGET_QUOTE_TASK) return '去保存报价单'
   if (m === '保存阶段表单') return '去填写表单'
   if (m.startsWith('上传串场 PPT')) return '去制作串场'
   if (m === SCHEDULE_UPLOAD_TASK) return '去上传日程'
   if (m.startsWith('专家匹配入库')) return '去匹配专家'
+  // 结算资料细项：直接定位到该细项的上传卡片；成本单为在线填表
+  if (inSettlementStage()) return m === '成本单' ? '去填写成本单' : '去上传'
   if (m.includes('附件')) return '去上传附件'
   if (m.includes('文本')) return '去填写文本'
   return '去处理'
@@ -1214,6 +1238,18 @@ async function resolveMissing(m) {
     viewPhaseId.value = String(detail.value.phaseId)
     const t = (currentPhase.value?.templates || []).find((x) => x.templateType === 'RICH_TEXT' && x.required === 1)
     if (t) editRich(currentPhase.value.id, t.templateId)
+    return
+  }
+  // 结算资料上传阶段（2026-11-25 负责人要求）：待办「去处理」必须落到对应细项的上传卡片，
+  // 而不是统一滚到「阶段资料」顶部；拿不到组件实例时退化为原来的顶部定位。
+  if (inSettlementStage()) {
+    // 已在查看结算阶段时保持当前视图（平台补件场景当前阶段可能已推进到后续阶段）
+    if (viewPhaseObj.value?.name !== SETTLEMENT_PHASE_NAME) viewPhaseId.value = String(detail.value.phaseId)
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await nextTick()
+      if (await settlementRef.value?.focusSlot?.(m)) return
+    }
+    document.getElementById('project-stage-materials')?.scrollIntoView({ block: 'start' })
     return
   }
   viewPhaseId.value = String(detail.value.phaseId)
@@ -1371,7 +1407,8 @@ async function downloadExpertMaterials() {
 const showUploading = ref(false)
 
 async function uploadShowFile(file) {
-  if (showUploading.value || !file.raw) return
+  if (showUploading.value) return
+  if (!precheckUpload(file, { label: '串场 PPT', accept: ['.ppt', '.pptx'] })) return
   showUploading.value = true
   try {
     await uploadShowPpt(projectId, file.raw)
@@ -1383,7 +1420,7 @@ async function uploadShowFile(file) {
 }
 
 async function uploadDoc(phaseId, file) {
-  if (!file || !file.raw) return
+  if (!precheckUpload(file, { label: '阶段资料' })) return
   await uploadProjectDoc(projectId, phaseId, file.raw)
   ElMessage.success('资料已上传')
   fetchDetail()

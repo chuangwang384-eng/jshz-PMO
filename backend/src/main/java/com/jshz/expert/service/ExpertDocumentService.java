@@ -40,7 +40,7 @@ public class ExpertDocumentService extends ServiceImpl<ExpertDocumentMapper, Exp
     private final long maxBytes;
 
     public ExpertDocumentService(@Value("${expert.document.storage-dir}") String storageDir,
-                                 @Value("${expert.upload.doc-max-bytes:52428800}") long maxBytes) {
+                                 @Value("${expert.upload.doc-max-bytes:104857600}") long maxBytes) {
         this.storageDir = FileNames.normalizeDir(storageDir);
         try {
             Files.createDirectories(this.storageDir);

@@ -28,8 +28,12 @@ public class MetaController {
     @Value("${expert.upload.resume-max-bytes}")
     private long resumeMaxBytes;
 
-    @Value("${expert.upload.doc-max-bytes:52428800}")
+    @Value("${expert.upload.doc-max-bytes:104857600}")
     private long docMaxBytes;
+
+    /** 结算资料单批次合计上限（2026-11-25 取消 20 个文件限制，仅保留可配置总量）。 */
+    @Value("${expert.upload.settlement-batch-max-bytes:524288000}")
+    private long settlementBatchMaxBytes;
 
     @GetMapping("/limits")
     public ApiResponse<Map<String, Long>> limits() {
@@ -37,6 +41,7 @@ public class MetaController {
         data.put("photoMaxBytes", photoMaxBytes);
         data.put("resumeMaxBytes", resumeMaxBytes);
         data.put("docMaxBytes", docMaxBytes);
+        data.put("settlementBatchMaxBytes", settlementBatchMaxBytes);
         return ApiResponse.ok(data);
     }
 }

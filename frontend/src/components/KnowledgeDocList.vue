@@ -117,7 +117,7 @@
           >
             <el-button size="small" type="primary" plain>选择文件</el-button>
             <template #tip>
-              <div class="el-upload__tip">支持 pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png，单文件 ≤50MB</div>
+              <div class="el-upload__tip">支持 pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png，单文件 ≤100MB</div>
             </template>
           </el-upload>
         </el-form-item>

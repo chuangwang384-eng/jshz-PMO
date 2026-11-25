@@ -369,6 +369,20 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    /** 成本单表单（U08，2026-11-25）：费用项目录 + 表头默认值 + 上次保存值。 */
+    @GetMapping("/{id}/cost-sheet/{phaseId}")
+    public ApiResponse<Map<String, Object>> costSheetForm(@PathVariable Long id, @PathVariable Long phaseId,
+            @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectService.costSheetForm(id, phaseId, user));
+    }
+
+    /** 保存成本单表单并生成 Excel，登记为 U08「成本单」资料。 */
+    @PostMapping("/{id}/cost-sheet/{phaseId}")
+    public ApiResponse<Map<String, Object>> saveCostSheet(@PathVariable Long id, @PathVariable Long phaseId,
+            @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        return ApiResponse.ok(projectService.saveCostSheet(id, phaseId, body, user));
+    }
+
     @DeleteMapping("/{id}/settlement-materials/{phaseId}/{slot}/{docId}")
     public ApiResponse<Void> deleteSettlementFile(@PathVariable Long id, @PathVariable Long phaseId,
             @PathVariable String slot, @PathVariable Long docId, @AuthenticationPrincipal AuthUser user) {

@@ -16,7 +16,7 @@ import java.util.Set;
 
 /**
  * 客户附件存储服务（独立客户附件存储目录）。
- * 允许扩展名：pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png/zip/rar/7z/txt；单文件 ≤50MB。
+ * 允许扩展名：pdf/doc/docx/xls/xlsx/ppt/pptx/jpg/jpeg/png/zip/rar/7z/txt；单文件 ≤100MB。
  * 命名规则：cust_<时间戳>_<原文件名>。
  * 存储目录：{STORAGE_ROOT}\客户附件库（application.yml expert.customer.storage-dir）。
  * 通用逻辑（清洗/校验/目录归一化）统一复用 common.FileNames / common.UploadGuard（2026-11-13）。
@@ -32,7 +32,7 @@ public class CustomerAttachmentStorageService {
     private final long maxBytes;
 
     public CustomerAttachmentStorageService(@Value("${expert.customer.storage-dir}") String storageDir,
-                                            @Value("${expert.upload.doc-max-bytes:52428800}") long maxBytes) {
+                                            @Value("${expert.upload.doc-max-bytes:104857600}") long maxBytes) {
         this.storageDir = FileNames.normalizeDir(storageDir);
         this.maxBytes = maxBytes;
         try {

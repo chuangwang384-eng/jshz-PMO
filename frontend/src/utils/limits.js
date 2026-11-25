@@ -7,7 +7,9 @@ import request from '../api/request'
 export const uploadLimits = reactive({
   photoMaxBytes: 10 * 1024 * 1024,
   resumeMaxBytes: 30 * 1024 * 1024,
-  docMaxBytes: 50 * 1024 * 1024
+  docMaxBytes: 100 * 1024 * 1024,
+  // 结算资料单批次合计上限（2026-11-25 取消「每批最多 20 个文件」限制，仅保留可配置总量）
+  settlementBatchMaxBytes: 500 * 1024 * 1024
 })
 
 let fetched = false

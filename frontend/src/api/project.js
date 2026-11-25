@@ -109,7 +109,7 @@ export function listPhaseOptions() {
 
 // ==================== 日程上传（2026-11-09 流程重塑第一阶段） ====================
 
-// 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤50MB；覆盖当前生效份）
+// 上传日程文件（pdf/doc/docx/ppt/pptx/jpg/png，≤100MB；覆盖当前生效份）
 export function uploadSchedule(id, file) {
   const fd = new FormData()
   fd.append('file', file)
@@ -275,6 +275,15 @@ export function saveSettlementMaterials(projectId, phaseId, slot, formData) {
 
 export function archiveSettlementMaterials(projectId, phaseId) {
   return request.post(`/project/${projectId}/settlement-materials/${phaseId}/archive`, null, { timeout: 0 })
+}
+
+// 成本单表单（2026-11-25）：费用项目录 + 表头默认值 + 上次保存值；保存后服务端生成 Excel 并登记为 U08 资料
+export function getCostSheetForm(projectId, phaseId) {
+  return request.get(`/project/${projectId}/cost-sheet/${phaseId}`)
+}
+
+export function saveCostSheetForm(projectId, phaseId, body) {
+  return request.post(`/project/${projectId}/cost-sheet/${phaseId}`, body, { timeout: 0 })
 }
 
 export function deleteSettlementFile(projectId, phaseId, slot, docId) {

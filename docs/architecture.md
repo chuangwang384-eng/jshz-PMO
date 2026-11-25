@@ -65,7 +65,7 @@ AIGC:
 
 ## 4. 数据模型
 
-数据库：`expert_system`（MySQL 8，utf8mb4），共 **103 张表**（87 业务/结构表 + 10 历史备份表 + 6 迁移标记表，2026-11-20 实测），含 RBAC 四表（role / permission / role_permission / user_role）、供应商七表（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel / supplier_image）、企微通讯录同步三表（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）、合规 17 表、项目 16 表、客户 4 表、知识 3 表、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）、知识文档收藏表（knowledge_favorite，C3）、用户操作日志表（operation_log，B2）与通用申请主表（application，「我的申请」改版）。
+数据库：`expert_system`（MySQL 8，utf8mb4），共 **108 张表**（92 业务/结构表 + 10 历史备份表 + 6 迁移标记表，2026-11-25 实测，与上文口径一致），含 RBAC 四表（role / permission / role_permission / user_role）、供应商七表（supplier / supplier_type / supplier_city / supplier_price_item / supplier_review / supplier_hotel_print_rel / supplier_image）、企微通讯录同步三表（wecom_department / wecom_user_department / wecom_sync_log，2026-10-27）、合规 17 表、项目 16 表、客户 4 表、知识 3 表、消息通知表（notification）、审批申请字段模板表（approval_template，R-B4）、知识文档收藏表（knowledge_favorite，C3）、用户操作日志表（operation_log，B2）与通用申请主表（application，「我的申请」改版）。
 
 下表仅详列**早期核心表**（25 张）的字段说明；合规 / 项目 / 供应商扩展 / 客户等后续模块请直接查看 `backend/src/main/java/com/jshz/expert/entity/` 与 `database/migration/` 对应脚本。
 
@@ -414,8 +414,13 @@ PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只�
 - 串场阶段的「下载专家资料」调用 `GET /api/project/{id}/show/expert-materials`。接口要求登录、项目可读且调用者为项目成员；没有已匹配的已确认参会专家时返回业务错误 404。服务按专家 ID 去重，查询姓名、头像和简介，并从专家库照片存储读取头像。成功响应为 `application/zip` 附件且禁止缓存，内含 `专家资料.md` 和 `头像/`。档案、头像或简介缺失时在文档注明。ZIP 按请求生成，无项目文件归档、数据库写入或外部模型调用。弹窗显示可复制的鉴权链接、资料内容及 AI 提示词。
 - 结算资料通过 `GET /api/project/{id}/settlement-materials/{phaseId}` 读取适用上传口、当前批次、历史批次、可写状态和预算来源。项目成员使用 `POST /api/project/{id}/settlement-materials/{phaseId}/{slot}` 提交 multipart `files`、`reason` 或 `sourceDocId` 中的一项。读取沿用项目可读规则，写入并校验项目阶段、类型和成员，只有平台 U18 在后续阶段可补传。
 - 结算资料复用 `project_doc` 和项目资料库，服务生成 `project_settlement_<slot>_<batch>_...` 用于归类。替换批次软删前批，文件下载检查有效文档与项目读取权限，普通删除入口保护管理中的结算资料。同一项目内资料提交与阶段推进通过项目行锁串行，事务回滚清理本次新文件。推进依据适用口最新批次和物理文件，历史普通附件不自动计入。无 DDL、配置或权限码改动。详见 [结算资料需求](requirements/2026-11-25-settlement-materials.md)。
-- 结算上传支持 multipart `append=true`，在项目锁内校验追加后批次的文件数和总量。项目成员可在适用必填齐全时调用 `POST /api/project/{id}/settlement-materials/{phaseId}/archive`，以当前各细项最新批次写入固定 ZIP，同次事务登记为项目文件并替换旧包。ZIP 流式写盘，服务端复核必填与源文件，失败时保留上次归档。项目文件栏为所有资料计算带项目名前缀的显示和下载名。
+- 结算上传支持 multipart `append=true`，在项目锁内校验追加后批次的合计总量。文件数量不再限制（2026-11-25 取消原「每批最多 20 个文件」），单文件上限取 `expert.upload.doc-max-bytes`（100 MB），单批次合计上限取 `expert.upload.settlement-batch-max-bytes`（500 MB），两者经 `GET /api/meta/limits` 同步给前端做预校验；请求体上限由 `spring.servlet.multipart.max-request-size`（520 MB）与 Nginx `client_max_body_size`（520m）承接。项目成员可在适用必填齐全时调用 `POST /api/project/{id}/settlement-materials/{phaseId}/archive`，以当前各细项最新批次写入固定 ZIP，同次事务登记为项目文件并替换旧包。ZIP 流式写盘，服务端复核必填与源文件，失败时保留上次归档。项目文件栏为所有资料计算带项目名前缀的显示和下载名。
 - `DELETE /api/project/{id}/settlement-materials/{phaseId}/{slot}/{docId}` 按项目成员、阶段和适用上传口校验，仅软删当前批次指定文件并留痕。最后一个文件删除后，空批次仍是当前，历史不会参与推进或打包。新 ZIP 按「业务小节/资料细项/文件」组织，已归档 ZIP 保持原内容。无数据迁移。
+- 成本单制作（U08，2026-11-25）改为填表生成：`GET /api/project/{id}/cost-sheet/{phaseId}` 返回费用项目录、表头默认值与上次保存值；`POST` 同路径保存表单并生成 xlsx。目录与校验的唯一实现在 `ProjectCostSheetWorkbook`（8 个费用分节、11 列），金额口径为 应付金额=单价×数量、退款金额=结算金额−应付金额，空表拒绝。生成的文件经 `saveSettlement` 落项目资料库并以「会议成本单.xlsx」登记为 U08 当前版本，历史批次保留；表单 JSON 存 `project_stage_form` 的 `costSheet` 键，仅覆盖该键以保留同阶段其它表单。无 DDL 与权限码变更。
+- 成本单 Excel 版式（2026-11-25 负责人要求）：11 列按中文宽度分配，表头信息区改为「标签格 + 合并值区」三行，分节、小计与合计分层配色，金额右对齐、明细零值显示「-」，表尾说明独占整行；A4 横向、页宽适应一页、表头行重复、冻结前 5 行。数据值与公式口径不变：明细 `F=C×E`、`H=G−F`，分节 `SUM`，总计为各分节小计单元格的 `SUM`（不再写服务端静态值），并置 `fullCalcOnLoad` 保证打开即重算。
+- 成本单表单在前端按细项状态收起：`ProjectSettlementMaterials` 把 `item.complete` 传给 `ProjectCostSheetForm`，已提交时只显示「已提交 + 合计摘要 + 展开修改」，重新生成成功后自动收起；细项回到未提交（如删除当前批次）时自动展开。收起只影响展示，不改变已生成文件与表单数据。
+- 项目详情右侧「当前待办」的结算资料细项入口（2026-11-25）不再统一滚到阶段资料顶部：按细项名称或编码定位到 `settlement-slot-<code>` 卡片，`scrollIntoView` 居中并高亮 3 秒，可写上传类细项同时展开文件选择区（成本单定位到在线填表区）；组件未挂载或名称未命中时回退原有「阶段资料」定位。组件 `load()` 复用进行中的请求，避免跳转与首屏加载并发时把刚打开的编辑器冲掉。
+- 劳务费用资料包（2026-11-25）拆为「劳务协议」（U07，必填，沿用原编码与既有文件）与「会议资料」（U07B，选填）两个细项，同组归档路径随之分层；推进必填校验只认劳务协议。
 - 编辑器路由为 /project/:id/show。主 K 和配图支持 PNG、JPEG、WebP，离线 HTML 内嵌图片并强制附件下载。财务、串场制品按项目阅读权限访问，沿用原数据库和文件目录。项目详情「PPT 制作」在当前项目中打开四步向导（模板与封面 → 专家信息 → 日程与角色 → 预览演示），也可访问独立向导路由 /project/:id/show-wizard。向导与编辑器共用 stage-form 草稿。
 - 同一日程段及过场成员集合内，专家简介页的前后顺序同步到过场头像和文字。旧草稿缺少简介时，可从对应过场卡片手动补齐。第三步保留页面编辑，第四步为只读演示，支持左侧真实页面缩略图导航、保存草稿和归档。归档 HTML 的展示和下载文件名为「项目名-串场制作-YYYY-MM-DD.html」，日期取服务器归档日。预览和重新归档的 HTML 共用播放器，有位置调整的页面按文本框的最终排版从上到下、同一行从左到右播放已有出场动画。
 - 专家头像通过本地人脸检测和肩部留量生成初始裁剪，手动可在固定尺寸的圆框内平移和缩放原图。输出沿用 400×400 圆形透明图片。

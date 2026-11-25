@@ -42,7 +42,7 @@ public class ProjectStorageService {
     }
 
     /**
-     * 保存上传文件（无类型/大小限制，≤50MB 由 servlet 兜底），返回随机文件名。
+     * 保存上传文件（无类型/大小限制，≤100MB 由 servlet 兜底），返回随机文件名。
      */
     public String saveFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {

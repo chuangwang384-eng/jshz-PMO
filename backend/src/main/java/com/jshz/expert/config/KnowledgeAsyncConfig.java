@@ -12,7 +12,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  * 知识文档异步解析线程池（P2-7）。
  *
  * <p>上传/更新请求只负责流式落盘并提交任务，正文抽取、合规草稿生成在线程池内执行，
- * 避免最大 50MB 文档占用请求线程。队列满时使用 AbortPolicy，由调用方同步标记 FAILED，
+ * KB 级大文档（上限见 expert.upload.doc-max-bytes）占用请求线程。队列满时使用 AbortPolicy，由调用方同步标记 FAILED，
  * 不把压力转移回请求线程。</p>
  */
 @Configuration

@@ -2195,7 +2195,21 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     private static final java.util.Set<String> SETTLEMENT_EXTENSIONS = java.util.Set.of(
             "pdf", "xls", "xlsx", "doc", "docx", "png", "jpg", "jpeg", "webp", "zip", "rar", "7z", "txt", "ofd");
-    private static final long SETTLEMENT_FILE_LIMIT = 50L * 1024 * 1024;
+
+    /**
+     * 结算资料单文件上限（2026-11-25）：单一真源 expert.upload.doc-max-bytes，默认 100MB。
+     * 字段初始值为非 Spring 环境（单元测试）兜底，运行期由 @Value 覆盖。
+     */
+    @org.springframework.beans.factory.annotation.Value("${expert.upload.doc-max-bytes:104857600}")
+    private long settlementFileMaxBytes = 104857600L;
+
+    /**
+     * 结算资料单批次合计上限（2026-11-25）：单一真源 expert.upload.settlement-batch-max-bytes，默认 500MB。
+     * 同一 Owner 需求取消了原「每批最多 20 个文件、合计 50MB」的数量与总量限制；文件数量不再限制，
+     * 仅保留可配置的单批次总量上限，避免单请求无界占用磁盘与超时。
+     */
+    @org.springframework.beans.factory.annotation.Value("${expert.upload.settlement-batch-max-bytes:524288000}")
+    private long settlementBatchMaxBytes = 524288000L;
 
     public record SettlementSlot(ProjectSettlementMaterials.Slot definition, boolean writable,
                                  List<List<ProjectDoc>> batches, String notApplicableReason, boolean complete) {}
@@ -2249,8 +2263,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if ((uploads.isEmpty() ? 0 : 1) + (hasReason ? 1 : 0) + (sourceDocId == null ? 0 : 1) != 1) {
             throw new BusinessException("请选择上传文件、引用资料或填写不适用原因中的一种");
         }
-        if (uploads.size() > 20 || uploads.stream().mapToLong(MultipartFile::getSize).sum() > SETTLEMENT_FILE_LIMIT) {
-            throw new BusinessException("每批最多 20 个文件且总大小不超过 50 MB");
+        if (uploads.stream().mapToLong(MultipartFile::getSize).sum() > settlementBatchMaxBytes) {
+            throw new BusinessException("本批次合计不能超过 " + settlementBatchMaxMb() + " MB");
         }
 
         var previous = settlementBatches(slot, settlementDocuments(id, phaseId));
@@ -2266,8 +2280,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 if (path == null) throw new BusinessException("当前批次文件缺失，请重新上传");
                 size += java.nio.file.Files.size(path);
             }
-            if (current.size() + uploads.size() > 20 || size > SETTLEMENT_FILE_LIMIT) {
-                throw new BusinessException("追加后的批次最多 20 个文件且总大小不超过 50 MB");
+            if (size > settlementBatchMaxBytes) {
+                throw new BusinessException("追加后的整批合计不能超过 " + settlementBatchMaxMb() + " MB");
             }
             batch = ProjectSettlementMaterials.batch(current.get(0));
         }
@@ -2292,7 +2306,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             }
         } else {
             for (MultipartFile file : uploads) {
-                com.jshz.expert.common.UploadGuard.requireValid(file, SETTLEMENT_FILE_LIMIT, SETTLEMENT_EXTENSIONS,
+                com.jshz.expert.common.UploadGuard.requireValid(file, settlementFileMaxBytes, SETTLEMENT_EXTENSIONS,
                         "仅支持 PDF、Excel、Word、常用图片、压缩包、TXT 或 OFD 文件");
                 String name = com.jshz.expert.common.FileNames.sanitize(file.getOriginalFilename());
                 if (name.length() > 255) throw new BusinessException("文件名不能超过 255 个字符");
@@ -2314,6 +2328,103 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user), OperationLogService.ACTION_UPLOAD_DOC,
                 "项目「" + project.getName() + "」更新结算资料：" + slot.name(),
                 "PROJECT", id, null);
+    }
+
+    /** 结算资料单批次上限展示值（MB），与 expert.upload.settlement-batch-max-bytes 同源。 */
+    private long settlementBatchMaxMb() {
+        return settlementBatchMaxBytes / 1024 / 1024;
+    }
+
+    /**
+     * 成本单表单（U08，2026-11-25）：返回费用项目录、表头默认值和上次保存值，供前端渲染表单。
+     * 只读权限与结算资料一致（项目可读）。
+     */
+    public Map<String, Object> costSheetForm(Long id, Long phaseId, AuthUser user) {
+        Project project = requireProject(id);
+        requireProjectReadable(project, user);
+        settlementPhase(project, phaseId);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sections", ProjectCostSheetWorkbook.catalog());
+        data.put("defaults", ProjectCostSheetWorkbook.defaults(project));
+        data.put("form", savedCostSheet(id, phaseId));
+        return data;
+    }
+
+    /**
+     * 保存成本单表单并生成 Excel，登记为 U08「成本单」资料（版本口，历史批次保留）。
+     * 金额口径与模板一致：应付金额=单价×数量，退款金额=结算金额−应付金额，全部由服务端校验。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> saveCostSheet(Long id, Long phaseId, Map<String, Object> body, AuthUser user)
+            throws java.io.IOException {
+        Project project = lockProjectForUpdate(id);
+        requireOperable(project, user);
+        ProjectPhase phase = settlementPhase(project, phaseId);
+        var slot = settlementSlot(project, ProjectCostSheetWorkbook.SLOT);
+        if (!settlementWritable(project, phase, slot)) {
+            throw new BusinessException("当前阶段不可提交成本单");
+        }
+        Map<String, Object> form = ProjectCostSheetWorkbook.normalize(body, project);
+        byte[] workbook = ProjectCostSheetWorkbook.generate(form);
+        String batch = java.util.UUID.randomUUID().toString().replace("-", "");
+        String path = storageService.saveSettlement(slot.prefix() + batch + "_cost_", "xlsx",
+                new java.io.ByteArrayInputStream(workbook));
+        insertSettlementDocument(id, phaseId, "会议成本单.xlsx", path, user);
+        saveCostSheetJson(id, phaseId, form, user);
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
+                OperationLogService.ACTION_UPLOAD_DOC,
+                "项目「" + project.getName() + "」填写并生成成本单", "PROJECT", id, null);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sections", ProjectCostSheetWorkbook.catalog());
+        data.put("defaults", ProjectCostSheetWorkbook.defaults(project));
+        data.put("form", form);
+        return data;
+    }
+
+    /** 读取已保存的成本单表单（project_stage_form 的 costSheet 键）；无记录返回 null。 */
+    private Map<String, Object> savedCostSheet(Long id, Long phaseId) {
+        ProjectStageForm stage = costSheetStageForm(id, phaseId);
+        if (stage == null) return null;
+        Object raw = parseStageFormData(stage.getFormData()).get("costSheet");
+        if (!(raw instanceof Map<?, ?>)) return null;
+        return objectMapper.convertValue(raw, objectMapper.getTypeFactory()
+                .constructMapType(LinkedHashMap.class, String.class, Object.class));
+    }
+
+    /** 成本单表单与其它阶段表单共用 project_stage_form：只覆盖 costSheet 键，保留同阶段已有键。 */
+    private void saveCostSheetJson(Long id, Long phaseId, Map<String, Object> form, AuthUser user) {
+        Long userId = ParamUtils.userIdOf(user);
+        ProjectStageForm stage = costSheetStageForm(id, phaseId);
+        Map<String, Object> all = new LinkedHashMap<>();
+        String json;
+        try {
+            if (stage != null) all.putAll(parseStageFormData(stage.getFormData()));
+            all.put("costSheet", form);
+            json = objectMapper.writeValueAsString(all);
+        } catch (Exception e) {
+            throw new BusinessException("成本单表单序列化失败");
+        }
+        if (stage == null) {
+            stage = new ProjectStageForm();
+            stage.setProjectId(id);
+            stage.setPhaseId(phaseId);
+            stage.setFormData(json);
+            stage.setCreateBy(userId);
+            stage.setUpdateBy(userId);
+            stageFormMapper.insert(stage);
+        } else {
+            stage.setFormData(json);
+            stage.setUpdateBy(userId);
+            stageFormMapper.updateById(stage);
+        }
+    }
+
+    private ProjectStageForm costSheetStageForm(Long id, Long phaseId) {
+        return stageFormMapper.selectOne(new LambdaQueryWrapper<ProjectStageForm>()
+                .eq(ProjectStageForm::getProjectId, id)
+                .eq(ProjectStageForm::getPhaseId, phaseId)
+                .orderByDesc(ProjectStageForm::getId)
+                .last("LIMIT 1"));
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -65,8 +65,8 @@ public class ScheduleParseService {
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.transaction.support.TransactionTemplate transactions;
 
-    /** 日程单文件上限：单一真源 application.yml expert.upload.doc-max-bytes（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 全局 50MB 对齐）。 */
-    @Value("${expert.upload.doc-max-bytes:52428800}")
+    /** 日程单文件上限：单一真源 application.yml expert.upload.doc-max-bytes（Owner 2026-11-10：真实日程 pptx 内嵌图片多，20MB 撞 413；与 Spring multipart 单文件 100MB 对齐（2026-11-25 50MB→100MB））。 */
+    @Value("${expert.upload.doc-max-bytes:104857600}")
     private long docMaxBytes;
     private static final List<String> ALLOWED_EXTENSIONS =
             List.of("pdf", "doc", "docx", "ppt", "pptx", "jpg", "jpeg", "png", "xlsx", "xls");

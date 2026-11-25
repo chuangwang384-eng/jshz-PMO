@@ -245,9 +245,9 @@ class ProjectAccessRegressionTest {
     }
 
     @Test void settlementSlotCountsAndMarkersMatchConfirmedRules() {
-        assertEquals(14, ProjectSettlementMaterials.applicable("KEY").size());
-        assertEquals(17, ProjectSettlementMaterials.applicable("DIRECT_PAY").size());
-        assertEquals(16, ProjectSettlementMaterials.applicable("PLATFORM").size());
+        assertEquals(15, ProjectSettlementMaterials.applicable("KEY").size());
+        assertEquals(18, ProjectSettlementMaterials.applicable("DIRECT_PAY").size());
+        assertEquals(17, ProjectSettlementMaterials.applicable("PLATFORM").size());
         assertEquals(11, ProjectSettlementMaterials.applicable(null).stream()
                 .filter(ProjectSettlementMaterials.Slot::required).count());
         ProjectDoc doc = new ProjectDoc();
@@ -279,8 +279,109 @@ class ProjectAccessRegressionTest {
         verify(docs, never()).update(isNull(), any());
     }
 
-    @Test void settlementArchiveWritesFixedZipAndPublishesProjectDocument(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
+    /** 2026-11-25：取消「每批最多 20 个文件」限制，30+ 个票据文件应一次性提交成功。 */
+    @Test void settlementBatchAcceptsMoreThanTwentyFiles() throws Exception {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        Project project = project();
+        project.setPhaseId(12L);
+        when(projects.selectOne(any())).thenReturn(project);
+        when(phases.selectById(12L)).thenReturn(phase(12L, "结算资料上传", 102));
+        when(docs.selectList(any())).thenReturn(List.of());
+        when(storage.saveSettlement(startsWith("project_settlement_U01_"), eq("pdf"), any()))
+                .thenAnswer(invocation -> "project_settlement_U01_batch_"
+                        + UUID.randomUUID().toString().replace("-", "") + ".pdf");
+        var uploads = new ArrayList<org.springframework.web.multipart.MultipartFile>();
+        for (int i = 1; i <= 33; i++) {
+            uploads.add(new org.springframework.mock.web.MockMultipartFile("files", "rail-" + i + ".pdf",
+                    "application/pdf", new byte[] {1}));
+        }
+
+        service.saveSettlementMaterials(1L, 12L, "U01", uploads, null, null, user(2L));
+
+        verify(docs, times(33)).insert(any(ProjectDoc.class));
+    }
+
+    /** 单批次合计上限仍生效，且提示不再包含文件数量口径。 */
+    /** 成本单（U08 填表生成）：空表被拒，填一行后能生成 xlsx，金额口径为 应付=单价×数量、退款=结算−应付。 */
+    @Test void costSheetWorkbookGeneratesXlsxAndRejectsEmptyForm() {
+        Project project = project();
+        project.setName("示例会议");
+        project.setClientCompany("示例客户");
+        assertTrue(assertThrows(BusinessException.class,
+                () -> ProjectCostSheetWorkbook.normalize(new LinkedHashMap<>(), project)).getMessage().contains("至少"));
+
+        var body = new LinkedHashMap<String, Object>();
+        body.put("projectName", "示例会议");
+        body.put("sections", List.of(Map.of("key", "HOTEL", "items", List.of(
+                Map.of("key", "HOTEL-1", "price", 1200, "qty", 2, "settle", 2600, "supplier", "示例酒店")))));
+
+        var form = ProjectCostSheetWorkbook.normalize(body, project);
+        byte[] bytes = ProjectCostSheetWorkbook.generate(form);
+
+        assertEquals('P', (char) bytes[0]);
+        assertEquals('K', (char) bytes[1]);
+        var hotel = (List<?>) ((Map<?, ?>) ((List<?>) form.get("sections")).get(0)).get("items");
+        var first = (Map<?, ?>) hotel.get(0);
+        assertEquals(new java.math.BigDecimal("2400.00"), first.get("payable"));
+        assertEquals(new java.math.BigDecimal("200.00"), first.get("refund"));
+    }
+
+    /** 2026-11-25 版式美化：列宽、表头合并、明细公式与总计公式都要保留，数据值不变。 */
+    @Test void costSheetWorkbookKeepsFormulasAndReadableLayout() throws Exception {
+        Project project = project();
+        var body = new LinkedHashMap<String, Object>();
+        body.put("projectName", "版式校验会议");
+        body.put("sections", List.of(Map.of("key", "HOTEL", "items", List.of(
+                Map.of("key", "HOTEL-1", "price", 380, "qty", 2, "settle", 800, "supplier", "示例酒店")))));
+
+        byte[] bytes = ProjectCostSheetWorkbook.generate(ProjectCostSheetWorkbook.normalize(body, project));
+        try (var wb = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(bytes))) {
+            var sheet = wb.getSheetAt(0);
+            assertTrue(sheet.getColumnWidth(0) >= 16 * 256, "项目列需容纳 6 字费用名称");
+            assertTrue(sheet.getColumnWidth(5) >= 15 * 256, "金额列需容纳「应付金额（元）」表头");
+            assertTrue(sheet.getNumMergedRegions() >= 12, "标题/信息区/分节/合计/说明均需合并单元格");
+            assertEquals("项目结算成本", sheet.getRow(0).getCell(0).getStringCellValue());
+
+            int headerRow = 4;
+            assertEquals("应付金额（元）", sheet.getRow(headerRow).getCell(5).getStringCellValue());
+            // 分节标题行后是费用明细行，再后是小计行
+            var itemRow = sheet.getRow(headerRow + 2);
+            assertEquals(380.0, itemRow.getCell(2).getNumericCellValue(), 0.001);
+            assertEquals(2.0, itemRow.getCell(4).getNumericCellValue(), 0.001);
+            assertEquals("C7*E7", itemRow.getCell(5).getCellFormula());
+            assertEquals("G7-F7", itemRow.getCell(7).getCellFormula());
+
+            org.apache.poi.ss.usermodel.Row totalRow = null;
+            for (int i = 0; i <= sheet.getLastRowNum() && totalRow == null; i++) {
+                var row = sheet.getRow(i);
+                if (row != null && row.getCell(0) != null
+                        && row.getCell(0).getStringCellValue().contains("共计")) totalRow = row;
+            }
+            assertTrue(totalRow != null, "缺少总计行");
+            assertTrue(totalRow.getCell(5).getCellFormula().startsWith("SUM("), "总计应为可重算公式");
+        }
+    }
+
+    @Test void settlementBatchRejectsTotalOverConfiguredLimit() {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        ReflectionTestUtils.setField(service, "settlementBatchMaxBytes", 1024L);
+        Project project = project();
+        project.setPhaseId(12L);
+        when(projects.selectOne(any())).thenReturn(project);
+        when(phases.selectById(12L)).thenReturn(phase(12L, "结算资料上传", 102));
+        var uploads = List.<org.springframework.web.multipart.MultipartFile>of(
+                new org.springframework.mock.web.MockMultipartFile("files", "a.pdf", "application/pdf", new byte[700]),
+                new org.springframework.mock.web.MockMultipartFile("files", "b.pdf", "application/pdf", new byte[700]));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.saveSettlementMaterials(1L, 12L, "U01", uploads, null, null, user(2L)));
+
+        assertTrue(error.getMessage().contains("本批次合计"));
+        assertFalse(error.getMessage().contains("20 个文件"));
+        verify(docs, never()).insert(any(ProjectDoc.class));
+    }
+
+    @Test void settlementArchiveWritesFixedZipAndPublishesProjectDocument(            @org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
         ReflectionTestUtils.setField(service, "baseMapper", projects);
         var project = project();
         project.setPhaseId(12L);
