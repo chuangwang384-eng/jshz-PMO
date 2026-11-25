@@ -199,6 +199,7 @@ public class ProjectController {
     private java.nio.file.Path resolveReadableStoredFile(String fileName, AuthUser user) {
         if (fileName.startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
                 || fileName.startsWith("project_finance_")
+                || fileName.startsWith(ProjectStorageService.SETTLEMENT_FILE_PREFIX)
                 || fileName.startsWith(com.jshz.expert.service.ProjectShowService.FILE_PREFIX)) {
             projectService.requireArchivedFileReadable(fileName, user);
         }
@@ -350,6 +351,21 @@ public class ProjectController {
             throw new BusinessException("阶段参数缺失，无法保存表单");
         }
         return ApiResponse.ok(projectService.saveStageForm(id, body, user));
+    }
+
+    @GetMapping("/{id}/settlement-materials/{phaseId}")
+    public ApiResponse<ProjectService.SettlementOverview> settlementMaterials(
+            @PathVariable Long id, @PathVariable Long phaseId, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectService.settlementOverview(id, phaseId, user));
+    }
+
+    @PostMapping("/{id}/settlement-materials/{phaseId}/{slot}")
+    public ApiResponse<Void> submitSettlementMaterials(
+            @PathVariable Long id, @PathVariable Long phaseId, @PathVariable String slot,
+            @RequestParam(required = false) List<MultipartFile> files, @RequestParam(required = false) String reason,
+            @RequestParam(required = false) Long sourceDocId, @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        projectService.saveSettlementMaterials(id, phaseId, slot, files, reason, sourceDocId, user);
+        return ApiResponse.ok(null);
     }
 
     @GetMapping("/{id}/show/agenda")

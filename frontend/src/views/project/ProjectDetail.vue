@@ -71,7 +71,10 @@
         <div id="project-stage-materials" class="pd-phase ui-card">
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">阶段资料 · {{ viewPhaseObj?.name || '-' }}</span>
-            <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">非当前阶段（只读）</span>
+            <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">
+              {{ viewPhaseObj?.name === '结算资料上传' && detail.projectType === 'PLATFORM' && phaseState(viewPhaseObj) === 'done'
+                ? '非当前阶段 · 平台补件入口保留' : '非当前阶段（只读）' }}
+            </span>
           </div>
 
           <!-- 会前财务资料上传阶段（2026-11-20）：按项目类型差异化表单 + 附件补充 -->
@@ -98,6 +101,17 @@
               </div>
             </template>
             <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
+          </template>
+          <template v-else-if="viewPhaseObj?.name === '结算资料上传'">
+            <el-empty v-if="phaseState(viewPhaseObj) === 'future'" description="进入结算资料上传阶段后可提交资料" :image-size="60" />
+            <ProjectSettlementMaterials v-else :key="`${projectId}-${viewPhaseObj.id}`"
+              :project-id="projectId" :phase-id="viewPhaseObj.id"
+              @saved="fetchDetail" @preview="openFilePreview" @download="downloadProjectFile" />
+            <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
+              <h3>历史阶段附件</h3>
+              <el-button v-for="doc in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="doc.id"
+                link type="primary" @click="openFilePreview(doc)">{{ doc.fileName }}</el-button>
+            </template>
           </template>
           <template v-else-if="viewPhaseObj?.name === '串场制作'">
             <div v-if="canOperatePhase" class="fin-attach-row">
@@ -614,6 +628,7 @@ import ProjectEdit from './ProjectEdit.vue'
 import ProjectBudgetPanel from './components/ProjectBudgetPanel.vue'
 import { uploadShowPpt } from '../../api/project'
 import ProjectFinanceForm from './components/ProjectFinanceForm.vue'
+import ProjectSettlementMaterials from './components/ProjectSettlementMaterials.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
 import { uploadLimits, ensureUploadLimits, toMb } from '../../utils/limits'
@@ -1101,7 +1116,6 @@ const FINANCE_PHASE_NAME = '会前财务资料上传'
 const isFinanceViewing = computed(() => viewPhaseObj.value?.name === FINANCE_PHASE_NAME)
 const PLACEHOLDER_PHASE_NAMES = new Set([
   '会前财务资料上传',
-  '结算资料上传',
   '会议费用结算及项目结项'
 ])
 const isPlaceholderPhaseViewing = computed(() => PLACEHOLDER_PHASE_NAMES.has(viewPhaseObj.value?.name))

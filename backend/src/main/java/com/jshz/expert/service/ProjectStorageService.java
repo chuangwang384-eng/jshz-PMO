@@ -63,6 +63,26 @@ public class ProjectStorageService {
         return fileName;
     }
 
+    public static final String SETTLEMENT_FILE_PREFIX = "project_settlement_";
+
+    /** Store a new settlement attachment and remove it on transaction rollback. */
+    String saveSettlement(String prefix, String extension, java.io.InputStream input) {
+        String name = prefix + UUID.randomUUID().toString().replace("-", "") + "." + extension;
+        try {
+            Files.copy(input, storageDir.resolve(name));
+        } catch (IOException e) {
+            deleteFile(name);
+            throw new BusinessException("结算资料保存失败");
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) deleteFile(name);
+                    }
+                });
+        return name;
+    }
+
     /** 保存不可覆盖的对客报价文件，事务回滚时清理。 */
     public String saveBudgetQuote(byte[] content) {
         return saveGenerated(QUOTE_FILE_PREFIX, "xlsx", content);

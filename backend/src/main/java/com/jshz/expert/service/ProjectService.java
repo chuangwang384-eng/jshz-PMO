@@ -556,7 +556,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
      */
     @Transactional(rollbackFor = Exception.class)
     public void changePhase(Long id, Long phaseId, String reason, AuthUser user) {
-        Project project = requireProject(id);
+        Project project = lockProjectForUpdate(id);
         if (!isOwnerOrCreator(project, user)) {
             throw new BusinessException("仅项目总负责人或创建人可推进/回退阶段");
         }
@@ -903,6 +903,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         List<ProjectDoc> docs = docMapper.selectList(qw);
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectDoc doc : docs) {
+            if (ProjectSettlementMaterials.manages(doc.getFilePath())) continue;
             Map<String, Object> m = toMap(doc);
             m.put("phaseName", docPhaseName(id, doc.getPhaseId()));
             m.put("isRichText", doc.getFilePath() != null && doc.getFilePath().startsWith("_richtext/"));
@@ -951,6 +952,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         ProjectDoc doc = docMapper.selectById(docId);
         if (doc == null || !doc.getProjectId().equals(id)) {
             throw new BusinessException("资料不存在");
+        }
+        if (ProjectSettlementMaterials.manages(doc.getFilePath())) {
+            throw new BusinessException("请在结算资料上传口管理此文件");
         }
         if (doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)) {
             throw new BusinessException("已生成的对客报价随版本保留");
@@ -2189,6 +2193,169 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         else docMapper.updateById(doc);
     }
 
+    private static final java.util.Set<String> SETTLEMENT_EXTENSIONS = java.util.Set.of(
+            "pdf", "xls", "xlsx", "doc", "docx", "png", "jpg", "jpeg", "webp", "zip", "rar", "7z", "txt", "ofd");
+    private static final long SETTLEMENT_FILE_LIMIT = 50L * 1024 * 1024;
+
+    public record SettlementSlot(ProjectSettlementMaterials.Slot definition, boolean writable,
+                                 List<List<ProjectDoc>> batches, String notApplicableReason, boolean complete) {}
+
+    public record SettlementOverview(List<SettlementSlot> slots, List<ProjectDoc> budgetSources) {}
+
+    public SettlementOverview settlementOverview(Long id, Long phaseId, AuthUser user) {
+        Project project = requireProject(id);
+        requireProjectReadable(project, user);
+        ProjectPhase phase = settlementPhase(project, phaseId);
+        List<ProjectDoc> docs = phaseDocuments(id, phaseId);
+        boolean member = isProjectMember(project, user);
+        List<SettlementSlot> slots = ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
+                .map(slot -> {
+                    var batches = settlementBatches(slot, docs);
+                    var latest = batches.isEmpty() ? List.<ProjectDoc>of() : batches.get(0);
+                    String reason = null;
+                    if (!latest.isEmpty() && ProjectSettlementMaterials.isReason(latest.get(0))) {
+                        byte[] content = storageRead(latest.get(0).getFilePath());
+                        if (content != null) reason = new String(content, java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                    boolean complete = !latest.isEmpty() && latest.stream()
+                            .allMatch(doc -> storageService.resolveFile(doc.getFilePath()) != null);
+                    return new SettlementSlot(slot, member && settlementWritable(project, phase, slot),
+                            reason == null ? batches : List.of(), reason, complete);
+                }).toList();
+        return new SettlementOverview(slots, member && phaseId.equals(project.getPhaseId())
+                ? settlementBudgetSources(project) : List.of());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveSettlementMaterials(Long id, Long phaseId, String code, List<MultipartFile> files,
+                                        String reason, Long sourceDocId, AuthUser user) throws java.io.IOException {
+        Project project = lockProjectForUpdate(id);
+        requireOperable(project, user);
+        ProjectPhase phase = settlementPhase(project, phaseId);
+        var slot = ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
+                .filter(item -> item.code().equals(code)).findFirst()
+                .orElseThrow(() -> new BusinessException("该资料上传口不适用于本项目"));
+        if (!settlementWritable(project, phase, slot)) {
+            throw new BusinessException("当前阶段不可提交此结算资料");
+        }
+
+        List<MultipartFile> uploads = files == null ? List.of() : files;
+        boolean hasReason = StringUtils.hasText(reason);
+        if ((uploads.isEmpty() ? 0 : 1) + (hasReason ? 1 : 0) + (sourceDocId == null ? 0 : 1) != 1) {
+            throw new BusinessException("请选择上传文件、引用资料或填写不适用原因中的一种");
+        }
+        if (uploads.size() > 20 || uploads.stream().mapToLong(MultipartFile::getSize).sum() > SETTLEMENT_FILE_LIMIT) {
+            throw new BusinessException("每批最多 20 个文件且总大小不超过 50 MB");
+        }
+
+        var previous = settlementBatches(slot, phaseDocuments(id, phaseId));
+        String prefix = slot.prefix() + java.util.UUID.randomUUID().toString().replace("-", "") + "_";
+        if (hasReason) {
+            String note = reason.strip();
+            if (!slot.allowsNotApplicable() || note.length() > 500) {
+                throw new BusinessException("此处不支持不适用标记，或原因超过 500 字");
+            }
+            String path = storageService.saveGenerated(prefix + "na_", "txt", note.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            insertSettlementDocument(id, phaseId, "不适用说明.txt", path, user);
+        } else if (sourceDocId != null) {
+            if (!"U09".equals(code)) throw new BusinessException("仅预算单支持引用已归档资料");
+            ProjectDoc source = settlementBudgetSources(project).stream()
+                    .filter(doc -> sourceDocId.equals(doc.getId())).findFirst()
+                    .orElseThrow(() -> new BusinessException("本项目的预算归档资料不存在"));
+            var path = storageService.resolveFile(source.getFilePath());
+            if (path == null) throw new BusinessException("预算归档文件不存在");
+            try (var input = java.nio.file.Files.newInputStream(path)) {
+                insertSettlementDocument(id, phaseId, source.getFileName(), storageService.saveSettlement(prefix,
+                        com.jshz.expert.common.FileNames.extension(source.getFilePath()), input), user);
+            }
+        } else {
+            for (MultipartFile file : uploads) {
+                com.jshz.expert.common.UploadGuard.requireValid(file, SETTLEMENT_FILE_LIMIT, SETTLEMENT_EXTENSIONS,
+                        "仅支持 PDF、Excel、Word、常用图片、压缩包、TXT 或 OFD 文件");
+                String name = com.jshz.expert.common.FileNames.sanitize(file.getOriginalFilename());
+                if (name.length() > 255) throw new BusinessException("文件名不能超过 255 个字符");
+                try (var input = file.getInputStream()) {
+                    String path = storageService.saveSettlement(prefix, com.jshz.expert.common.FileNames.extension(name), input);
+                    insertSettlementDocument(id, phaseId, name, path, user);
+                }
+            }
+        }
+
+        if (!slot.versioned()) {
+            List<Long> ids = previous.stream().flatMap(List::stream).map(ProjectDoc::getId).toList();
+            if (!ids.isEmpty()) {
+                docMapper.update(null, new LambdaUpdateWrapper<ProjectDoc>().in(ProjectDoc::getId, ids)
+                        .set(ProjectDoc::getIsDeleted, 1).set(ProjectDoc::getDeletedBy, user.getUsername())
+                        .set(ProjectDoc::getDeletedTime, LocalDateTime.now()));
+            }
+        }
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user), OperationLogService.ACTION_UPLOAD_DOC,
+                "项目「" + project.getName() + "」更新结算资料：" + slot.name(),
+                "PROJECT", id, null);
+    }
+
+    private Project lockProjectForUpdate(Long id) {
+        Project project = baseMapper.selectOne(new LambdaQueryWrapper<Project>().eq(Project::getId, id).last("FOR UPDATE"));
+        if (project == null || STATUS_DELETED.equals(project.getStatus())) {
+            throw new BusinessException("项目不存在");
+        }
+        return project;
+    }
+
+    private ProjectPhase settlementPhase(Project project, Long phaseId) {
+        ProjectPhase phase = projectPhase(project, phaseId);
+        if (phase == null || !ProjectSettlementMaterials.PHASE.equals(phase.getName())) {
+            throw new BusinessException("结算资料上传阶段不存在");
+        }
+        return phase;
+    }
+
+    private ProjectPhase projectPhase(Project project, Long phaseId) {
+        if (phaseId == null) return null;
+        var snapshot = snapshotOrNull(project);
+        return snapshot == null ? phaseMapper.selectById(phaseId) : configuration.phase(snapshot, phaseId);
+    }
+
+    private boolean settlementWritable(Project project, ProjectPhase phase, ProjectSettlementMaterials.Slot slot) {
+        if (!STATUS_ACTIVE.equals(project.getStatus())) return false;
+        if (phase.getId().equals(project.getPhaseId())) return true;
+        if (!"U18".equals(slot.code())) return false;
+        ProjectPhase current = projectPhase(project, project.getPhaseId());
+        return current != null && current.getSort() != null && phase.getSort() != null
+                && current.getSort() > phase.getSort();
+    }
+
+    private List<ProjectDoc> settlementBudgetSources(Project project) {
+        return docMapper.selectList(new LambdaQueryWrapper<ProjectDoc>()
+                        .eq(ProjectDoc::getProjectId, project.getId()).eq(ProjectDoc::getIsDeleted, 0)
+                        .isNotNull(ProjectDoc::getPhaseId).orderByDesc(ProjectDoc::getId)).stream()
+                .filter(doc -> java.util.Set.of("xlsx", "xls", "pdf").contains(
+                        com.jshz.expert.common.FileNames.extension(doc.getFilePath())))
+                .filter(doc -> doc.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
+                        || PHASE_BUDGET_MAKING.equals(docPhaseName(project, doc.getPhaseId())))
+                .filter(doc -> storageService.resolveFile(doc.getFilePath()) != null)
+                .toList();
+    }
+
+    private static List<List<ProjectDoc>> settlementBatches(ProjectSettlementMaterials.Slot slot, List<ProjectDoc> docs) {
+        Map<String, List<ProjectDoc>> grouped = new LinkedHashMap<>();
+        docs.stream().filter(doc -> doc.getFilePath() != null && doc.getFilePath().startsWith(slot.prefix()))
+                .sorted(java.util.Comparator.comparing(ProjectDoc::getId).reversed())
+                .forEach(doc -> grouped.computeIfAbsent(ProjectSettlementMaterials.batch(doc), key -> new ArrayList<>()).add(doc));
+        return List.copyOf(grouped.values());
+    }
+
+    private void insertSettlementDocument(Long projectId, Long phaseId, String name, String path, AuthUser user) {
+        var doc = new ProjectDoc();
+        doc.setProjectId(projectId);
+        doc.setPhaseId(phaseId);
+        doc.setFileName(name);
+        doc.setFilePath(path);
+        doc.setUploadBy(ParamUtils.usernameOf(user));
+        doc.setIsDeleted(0);
+        docMapper.insert(doc);
+    }
+
     /** 返回当前阶段缺少的业务材料及必填模板。 */
     private List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
         List<String> missing = new ArrayList<>();
@@ -2225,6 +2392,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                     missing.add("专家匹配入库（" + unmatched + " 位库外专家）");
                 }
             }
+        }
+        if (ProjectSettlementMaterials.PHASE.equals(phaseName)) {
+            var docs = phaseDocuments(project.getId(), phaseId);
+            return ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
+                    .filter(ProjectSettlementMaterials.Slot::required)
+                    .filter(slot -> {
+                        var batches = settlementBatches(slot, docs);
+                        return batches.isEmpty() || batches.get(0).stream()
+                                .anyMatch(doc -> storageService.resolveFile(doc.getFilePath()) == null);
+                    })
+                    .map(ProjectSettlementMaterials.Slot::name).toList();
         }
         // 新流程项目无快照模板，仍执行阶段业务材料校验。
         if (snapshotOrNull(project) == null) {
