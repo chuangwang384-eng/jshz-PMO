@@ -2206,7 +2206,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Project project = requireProject(id);
         requireProjectReadable(project, user);
         ProjectPhase phase = settlementPhase(project, phaseId);
-        List<ProjectDoc> docs = phaseDocuments(id, phaseId);
+        List<ProjectDoc> docs = settlementDocuments(id, phaseId);
         boolean member = isProjectMember(project, user);
         List<SettlementSlot> slots = ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
                 .map(slot -> {
@@ -2239,9 +2239,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Project project = lockProjectForUpdate(id);
         requireOperable(project, user);
         ProjectPhase phase = settlementPhase(project, phaseId);
-        var slot = ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
-                .filter(item -> item.code().equals(code)).findFirst()
-                .orElseThrow(() -> new BusinessException("该资料上传口不适用于本项目"));
+        var slot = settlementSlot(project, code);
         if (!settlementWritable(project, phase, slot)) {
             throw new BusinessException("当前阶段不可提交此结算资料");
         }
@@ -2255,10 +2253,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             throw new BusinessException("每批最多 20 个文件且总大小不超过 50 MB");
         }
 
-        var previous = settlementBatches(slot, phaseDocuments(id, phaseId));
+        var previous = settlementBatches(slot, settlementDocuments(id, phaseId));
         String batch = java.util.UUID.randomUUID().toString().replace("-", "");
         if (append) {
-            if (uploads.isEmpty() || previous.isEmpty() || ProjectSettlementMaterials.isReason(previous.get(0).get(0))) {
+            if (uploads.isEmpty() || previous.isEmpty() || previous.get(0).isEmpty() || ProjectSettlementMaterials.isReason(previous.get(0).get(0))) {
                 throw new BusinessException("当前批次没有可追加的资料，请重新上传");
             }
             var current = previous.get(0);
@@ -2319,6 +2317,36 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public void deleteSettlementFile(Long id, Long phaseId, String code, Long docId, AuthUser user) {
+        Project project = lockProjectForUpdate(id);
+        requireOperable(project, user);
+        ProjectPhase phase = settlementPhase(project, phaseId);
+        var slot = settlementSlot(project, code);
+        if (!settlementWritable(project, phase, slot)) {
+            throw new BusinessException("当前阶段不可删除此结算资料");
+        }
+
+        var batches = settlementBatches(slot, settlementDocuments(id, phaseId));
+        var current = batches.isEmpty() ? List.<ProjectDoc>of() : batches.get(0);
+        ProjectDoc doc = current.stream()
+                .filter(file -> docId.equals(file.getId()) && !ProjectSettlementMaterials.isReason(file))
+                .findFirst().orElseThrow(() -> new BusinessException(404, "当前批次中找不到该文件"));
+        doc.setIsDeleted(1);
+        doc.setDeletedBy(user.getUsername());
+        doc.setDeletedTime(LocalDateTime.now());
+        docMapper.updateById(doc);
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user), OperationLogService.ACTION_DELETE_DOC,
+                "项目「" + project.getName() + "」删除结算资料：" + slot.name() + " · " + doc.getFileName(),
+                "PROJECT", id, null);
+    }
+
+    private ProjectSettlementMaterials.Slot settlementSlot(Project project, String code) {
+        return ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
+                .filter(item -> item.code().equals(code)).findFirst()
+                .orElseThrow(() -> new BusinessException("该资料上传口不适用于本项目"));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void archiveSettlementPackage(Long id, Long phaseId, AuthUser user) throws java.io.IOException {
         Project project = lockProjectForUpdate(id);
         requireOperable(project, user);
@@ -2326,12 +2354,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (!settlementArchiveWritable(project, phase)) {
             throw new BusinessException("当前项目不可归档结算资料包");
         }
-        var docs = phaseDocuments(id, phaseId);
+        var docs = settlementDocuments(id, phaseId);
         record Entry(String name, java.nio.file.Path path) {}
         List<Entry> entries = new ArrayList<>();
         for (var slot : ProjectSettlementMaterials.applicable(project.getProjectType())) {
             var batches = settlementBatches(slot, docs);
-            if (batches.isEmpty()) {
+            if (batches.isEmpty() || batches.get(0).isEmpty()) {
                 if (slot.required()) throw new BusinessException("请先提交：" + slot.name());
                 continue;
             }
@@ -2340,7 +2368,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 if (path == null) throw new BusinessException("归档文件缺失：" + slot.name() + " · " + doc.getFileName());
                 String name = com.jshz.expert.common.FileNames.sanitize(doc.getFileName())
                         .replaceAll("[\\p{Cntrl}:*?<>|]", "_").replace('"', '_');
-                entries.add(new Entry(slot.code() + "-" + slot.name() + "/" + doc.getId() + "-" + name, path));
+                entries.add(new Entry(slot.group() + "/" + slot.name() + "/" + doc.getId() + "-" + name, path));
             }
         }
         String path = storageService.saveSettlementPackage(output -> {
@@ -2352,7 +2380,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 }
             }
         });
-        var oldIds = docs.stream().filter(doc -> doc.getFilePath() != null
+        var oldIds = docs.stream().filter(doc -> !Integer.valueOf(1).equals(doc.getIsDeleted()) && doc.getFilePath() != null
                         && doc.getFilePath().startsWith(ProjectSettlementMaterials.PACKAGE_PREFIX))
                 .map(ProjectDoc::getId).toList();
         if (!oldIds.isEmpty()) {
@@ -2416,8 +2444,21 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         Map<String, List<ProjectDoc>> grouped = new LinkedHashMap<>();
         docs.stream().filter(doc -> doc.getFilePath() != null && doc.getFilePath().startsWith(slot.prefix()))
                 .sorted(java.util.Comparator.comparing(ProjectDoc::getId).reversed())
-                .forEach(doc -> grouped.computeIfAbsent(ProjectSettlementMaterials.batch(doc), key -> new ArrayList<>()).add(doc));
-        return List.copyOf(grouped.values());
+                .forEach(doc -> {
+                    var batch = grouped.computeIfAbsent(ProjectSettlementMaterials.batch(doc), key -> new ArrayList<>());
+                    if (!Integer.valueOf(1).equals(doc.getIsDeleted())) batch.add(doc);
+                });
+        if (grouped.isEmpty()) return List.of();
+        var batches = new ArrayList<>(grouped.values());
+        // An emptied current batch remains current. Archives and advancement must not reuse a historical batch.
+        batches.subList(1, batches.size()).removeIf(List::isEmpty);
+        return List.copyOf(batches);
+    }
+
+    private List<ProjectDoc> settlementDocuments(Long projectId, Long phaseId) {
+        return docMapper.selectList(new LambdaQueryWrapper<ProjectDoc>()
+                .eq(ProjectDoc::getProjectId, projectId).eq(ProjectDoc::getPhaseId, phaseId)
+                .likeRight(ProjectDoc::getFilePath, ProjectStorageService.SETTLEMENT_FILE_PREFIX));
     }
 
     private void insertSettlementDocument(Long projectId, Long phaseId, String name, String path, AuthUser user) {
@@ -2469,12 +2510,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             }
         }
         if (ProjectSettlementMaterials.PHASE.equals(phaseName)) {
-            var docs = phaseDocuments(project.getId(), phaseId);
+            var docs = settlementDocuments(project.getId(), phaseId);
             return ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
                     .filter(ProjectSettlementMaterials.Slot::required)
                     .filter(slot -> {
                         var batches = settlementBatches(slot, docs);
-                        return batches.isEmpty() || batches.get(0).stream()
+                        return batches.isEmpty() || batches.get(0).isEmpty() || batches.get(0).stream()
                                 .anyMatch(doc -> storageService.resolveFile(doc.getFilePath()) == null);
                     })
                     .map(ProjectSettlementMaterials.Slot::name).toList();

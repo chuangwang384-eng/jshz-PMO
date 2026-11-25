@@ -276,3 +276,7 @@ export function saveSettlementMaterials(projectId, phaseId, slot, formData) {
 export function archiveSettlementMaterials(projectId, phaseId) {
   return request.post(`/project/${projectId}/settlement-materials/${phaseId}/archive`, null, { timeout: 0 })
 }
+
+export function deleteSettlementFile(projectId, phaseId, slot, docId) {
+  return request.delete(`/project/${projectId}/settlement-materials/${phaseId}/${slot}/${docId}`)
+}

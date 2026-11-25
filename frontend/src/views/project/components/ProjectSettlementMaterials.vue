@@ -31,6 +31,8 @@
             <span>{{ doc.fileName }}</span>
             <el-button link type="primary" @click="emit('preview', doc)">预览</el-button>
             <el-button link type="primary" @click="emit('download', doc)">下载</el-button>
+            <el-button v-if="item.writable" link type="danger" :disabled="busy || archiving"
+              :aria-label="`删除 ${doc.fileName}`" @click="removeFile(item, doc)">删除</el-button>
             <small>{{ doc.uploadBy }} {{ doc.createTime }}</small>
           </div>
           <details v-if="item.batches.length > 1">
@@ -95,7 +97,8 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { archiveSettlementMaterials, getSettlementMaterials, saveSettlementMaterials } from '../../../api/project'
+import { ElMessageBox } from 'element-plus'
+import { archiveSettlementMaterials, deleteSettlementFile, getSettlementMaterials, saveSettlementMaterials } from '../../../api/project'
 
 const props = defineProps({
   projectId: { type: [String, Number], required: true },
@@ -149,6 +152,27 @@ function addFiles(event) {
   const input = event.target
   editor.value.files.push(...Array.from(input.files))
   input.value = ''
+}
+
+async function removeFile(item, doc) {
+  if (busy.value || archiving.value) return
+  try {
+    await ElMessageBox.confirm(`删除「${doc.fileName}」？已归档的资料包会保留当时的文件。`, '删除结算资料',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', autofocus: false })
+  } catch {
+    return
+  }
+  busy.value = true
+  try {
+    await deleteSettlementFile(props.projectId, props.phaseId, item.definition.code, doc.id)
+    status.value = '文件已删除。'
+    await load()
+    emit('saved')
+  } catch {
+    status.value = '删除失败，请重试。'
+  } finally {
+    busy.value = false
+  }
 }
 
 async function archive() {

@@ -369,6 +369,13 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    @DeleteMapping("/{id}/settlement-materials/{phaseId}/{slot}/{docId}")
+    public ApiResponse<Void> deleteSettlementFile(@PathVariable Long id, @PathVariable Long phaseId,
+            @PathVariable String slot, @PathVariable Long docId, @AuthenticationPrincipal AuthUser user) {
+        projectService.deleteSettlementFile(id, phaseId, slot, docId, user);
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/{id}/settlement-materials/{phaseId}/archive")
     public ApiResponse<Void> archiveSettlementMaterials(@PathVariable Long id, @PathVariable Long phaseId,
             @AuthenticationPrincipal AuthUser user) throws java.io.IOException {

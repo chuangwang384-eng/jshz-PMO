@@ -313,7 +313,7 @@ class ProjectAccessRegressionTest {
 
         try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(output.toByteArray()))) {
             var first = zip.getNextEntry();
-            assertEquals("U01-酒店发票/1-资料.txt", first.getName());
+            assertEquals("供应商费用核对/酒店发票/1-资料.txt", first.getName());
             assertEquals("U01", new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
             int entries = 1;
             while (zip.getNextEntry() != null) entries++;
@@ -323,5 +323,34 @@ class ProjectAccessRegressionTest {
         verify(docs).insert(saved.capture());
         assertEquals("结算资料包.zip", saved.getValue().getFileName());
         assertFalse(ProjectSettlementMaterials.manages(saved.getValue().getFilePath()));
+    }
+
+    @Test void settlementDeletionIsScopedToCurrentBatchAndDoesNotPromoteHistory() {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        var project = project();
+        project.setPhaseId(12L);
+        when(projects.selectOne(any())).thenReturn(project);
+        when(projects.selectById(1L)).thenReturn(project);
+        when(phases.selectById(12L)).thenReturn(phase(12L, "结算资料上传", 102));
+        var historical = new ProjectDoc();
+        historical.setId(1L);
+        historical.setFilePath("project_settlement_U08_old_document.pdf");
+        var current = new ProjectDoc();
+        current.setId(2L);
+        current.setFileName("成本单.pdf");
+        current.setFilePath("project_settlement_U08_current_document.pdf");
+        when(docs.selectList(any())).thenReturn(List.of(historical, current));
+
+        assertThrows(BusinessException.class, () -> service.deleteSettlementFile(1L, 12L, "U08", 1L, user(2L)));
+        assertThrows(BusinessException.class, () -> service.deleteSettlementFile(1L, 12L, "U07", 2L, user(2L)));
+        service.deleteSettlementFile(1L, 12L, "U08", 2L, user(2L));
+
+        assertEquals(1, current.getIsDeleted());
+        assertEquals("fixture", current.getDeletedBy());
+        verify(docs).updateById(current);
+        var slot = service.settlementOverview(1L, 12L, user(2L)).slots().stream()
+                .filter(item -> item.definition().code().equals("U08")).findFirst().orElseThrow();
+        assertFalse(slot.complete());
+        assertEquals(List.of(List.of(), List.of(historical)), slot.batches());
     }
 }
