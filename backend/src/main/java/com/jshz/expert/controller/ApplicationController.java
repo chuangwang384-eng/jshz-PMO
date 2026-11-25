@@ -39,8 +39,9 @@ import java.util.Map;
  *   （旧兼容路径 /my-requests 已于 2026-11-24 下线：前端零调用，仅 my-applications 一个入口）
  * - GET /api/approval/requests：审批管理全部申请（权限码 approval:audit）；
  * - POST /api/approval/requests/{id}/approve|reject|withdraw|transfer|add-approver|return|resubmit；
- * - DELETE /api/approval/requests/{id}：申请人删除本人已驳回/已撤回的申请单（2026-11-24 新增）；
- * - DELETE /api/approval/requests/batch：批量删除本人已驳回/已撤回的申请单，body {ids:[…]}（2026-11-25 新增，
+ * - DELETE /api/approval/requests/{id}：申请人删除本人已通过/已驳回/已撤回的申请单（2026-11-24 新增；
+ *   2026-11-25 放宽：已通过也可删，变更留痕由 operation_log 保留）；
+ * - DELETE /api/approval/requests/batch：批量删除本人已通过/已驳回/已撤回的申请单，body {ids:[…]}（2026-11-25 新增，
  *   参照消息中心批量删除；不可删条目跳过，返回实际删除条数）；
  * - GET /api/approval/assignable-users：可转办/加签用户列表。
  */
@@ -304,7 +305,7 @@ public class ApplicationController {
 
     /**
      * 批量删除申请单：DELETE /api/approval/requests/batch，body {ids:[…]}（仅申请人本人）。
-     * 口径同单条删除：仅「已驳回 / 已撤回」可删；非本人、非终态、不存在的条目跳过不中断整批。
+     * 口径同单条删除：仅「已通过 / 已驳回 / 已撤回」可删；非本人、非终态、不存在的条目跳过不中断整批。
      * 返回实际删除条数；ids 最多 100 条（与单页上限一致）。
      */
     @DeleteMapping("/requests/batch")

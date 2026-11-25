@@ -1117,13 +1117,13 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     /**
      * 删除申请单：申请人清理本人「已驳回 / 已撤回」的历史单据。
      *
-     * <p>业务边界（不扩大影响面）：</p>
+     * <p>业务边界（2026-11-25 负责人放宽：已通过(1) 也可删除）：</p>
      * <ul>
      *     <li>仅申请人本人（applicant_id / applicant 双条件，与列表口径一致）；</li>
-     *     <li>仅终态且无后续处理可能的 status∈{2 已驳回, 3 已撤回}；待审批(0)须先撤回、退回修改(4)须先重提或撤回，</li>
-     *     <li>已通过(1)不可删除（专家档案已按该单变更生效，删除会丢失变更留痕）；</li>
+     *     <li>仅终态 status∈{1 已通过, 2 已驳回, 3 已撤回}；待审批(0)须先撤回、退回修改(4)须先重新提交；</li>
+     *     <li>已通过单删除后专家档案保持已生效状态不受影响，变更留痕由 operation_log（DELETE_APPLICATION）保留；</li>
      *     <li>同事务删除该单的审批进度记录，并以条件更新（status 仍为原终态）防止与并发操作竞争；</li>
-     *     <li>删除前写 operation_log（DELETE_APPLICATION）保留审计痕迹，事务提交后清理临时照片文件。</li>
+     *     <li>事务提交后清理临时照片文件。</li>
      * </ul>
      */
     @Transactional(rollbackFor = Exception.class)
@@ -1142,8 +1142,8 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
             throw new BusinessException("仅申请人本人可删除申请单");
         }
         Integer status = app.getStatus();
-        if (status == null || (status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
-            throw new BusinessException("仅「已驳回」或「已撤回」的申请可删除；待审批请先撤回，退回修改的申请先重新提交");
+        if (status == null || (status != STATUS_APPROVED && status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
+            throw new BusinessException("仅「已通过 / 已驳回 / 已撤回」的申请可删除；待审批请先撤回，退回修改的申请请先重新提交");
         }
         deleteApplication(app, user);
     }
@@ -1173,7 +1173,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
     }
 
     /**
-     * 批量删除申请单（2026-11-25，参照消息中心批量删除）：申请人一次清理多条本人「已驳回 / 已撤回」单据。
+     * 批量删除申请单（2026-11-25，参照消息中心批量删除）：申请人一次清理多条本人「已通过 / 已驳回 / 已撤回」单据。
      * 逐条沿用 {@link #deleteApplication(Long, AuthUser)} 的口径；不满足条件的条目（非本人、非终态、不存在）
      * 静默跳过而不中断整批，返回实际删除条数，由前端提示「已删除 N 条」。
      */
@@ -1189,7 +1189,7 @@ public class ApplicationService extends ServiceImpl<ApplicationMapper, Applicati
                 continue;
             }
             Integer status = app.getStatus();
-            if (status == null || (status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
+            if (status == null || (status != STATUS_APPROVED && status != STATUS_REJECTED && status != STATUS_WITHDRAWN)) {
                 continue;
             }
             deleteApplication(app, user);

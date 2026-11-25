@@ -85,13 +85,14 @@ export function resubmitRequest(id, data) {
   return request.post(`/approval/requests/${id}/resubmit`, data)
 }
 
-// 删除申请单：DELETE /approval/requests/{id}（仅申请人本人，仅「已驳回/已撤回」可删）
+// 删除申请单：DELETE /approval/requests/{id}（仅申请人本人，「已通过/已驳回/已撤回」可删；
+// 2026-11-25 放宽：已通过也可删，变更留痕由操作日志保留）
 // 后端同事务删除审批进度记录并写 operation_log（DELETE_APPLICATION）留痕
 export function deleteApplication(id) {
   return request.delete(`/approval/requests/${id}`)
 }
 
-// 批量删除申请单：DELETE /approval/requests/batch，body {ids}（仅申请人本人，仅「已驳回/已撤回」可删；
+// 批量删除申请单：DELETE /approval/requests/batch，body {ids}（仅申请人本人，「已通过/已驳回/已撤回」可删；
 // 不可删条目后端跳过，返回实际删除条数；单次上限 100 条）
 export function deleteApplications(ids) {
   return request.delete('/approval/requests/batch', { data: { ids } })

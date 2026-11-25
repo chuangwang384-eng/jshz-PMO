@@ -168,6 +168,8 @@ AIGC:
 
 > 审批「申请前后变化」对比（2026-10-27）：修改申请提交时 `ApplicationService.submitRequest` 从 expert_info 读全量字段写 biz_data.oldData 旧值快照（14 键：11 文本 + 3 照片文件名，新增申请置空）；查询接口返回项增加 `oldData`（脱敏口径见下方 2026-11-24 脱敏统一说明）与 `photoChanges`（照片原始文件名供前端预览）；审批通过时把 biz_data.changes 照片键 TMP: 值回填为归档文件名（生效后可预览），且 oldData 快照存在时跳过旧照片物理删除（保证历史单随时可还原「变更前」）。`WebConfig` 新增 /api/files-tmp/** 映射审批临时照片目录（待审批单新照片预览）。前端新增公共组件 `ApprovalDiffDialog.vue`（审批管理 + 我的申请共用，mode=view/approve/reject/return），审批管理与我的申请操作列加「查看对比」、通过/驳回整合进对比弹窗、摘要列升级「旧值 → 新值」；移除原展开行实时查专家表逻辑（oldValuesMap/handleExpand）。存量迁移 `database/migration/20261027_backfill_application_old_data.sql`：EXPERT_MODIFY 且 status∈{0,2,3} 的存量单用 expert_info 当前值回填 oldData（幂等、无 DDL），status=1 已通过单保持空（前端显示历史单提示）。
 
+> 「我的申请」删除口径放宽（2026-11-25，1.0.141，负责人决策）：单条与批量删除（`DELETE /api/approval/requests/{id}` 与 `/batch`）的状态条件由 {2 已驳回, 3 已撤回} 放宽为 {1 已通过, 2 已驳回, 3 已撤回}；已通过单删除后专家档案保持已生效状态，变更留痕由 operation_log（DELETE_APPLICATION）保留；待审批(0)须先撤回、退回修改(4)须先重新提交的限制不变。「我的申请」列表去掉「变更摘要」列（移动端卡片同步），变更内容在详情抽屉查看。
+
 > 「我的申请」第二轮审查 P2/P3 修复 + 详情抽屉 + 批量删除（2026-11-25，1.0.140；交接 `docs/handover/tasks/20261125_my_applications_p2p3_detail_drawer.md`）：
 >
 > **接口**：新增 `DELETE /api/approval/requests/batch`（body `{ids:[…]}`，≤100，登录即可 + Service 本人校验，口径同单条删除：仅已驳回/已撤回；不可删条目跳过，返回实际删除条数）。`Application` 响应新增 `expiredPhotoFields`（退回修改单里临时文件已被清理的照片键）与重提响应的 `droppedPhotoFields`（本次被剔除的失效照片键）；`bizData`、`approverSnapshot` 不再序列化（解析后的展示字段已承载）。提交修改/新增/合同接口的 `changes`/`reason` 类型错误按 400 拒绝（此前强转抛 500）。

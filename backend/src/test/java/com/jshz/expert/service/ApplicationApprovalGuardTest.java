@@ -38,7 +38,7 @@ import static org.mockito.Mockito.when;
  * 「我的申请」审查修复回归测试（2026-11-24，Q1/Q4/Q9/删除功能）。
  *
  * <p>覆盖：biz_data 损坏或变更缺失时审批必须阻断（不再「空转置为已通过」）；
- * 重新提交对已失效的临时照片降级剔除而不是硬拒；删除仅允许本人对「已驳回/已撤回」单据执行；
+ * 重新提交对已失效的临时照片降级剔除而不是硬拒；删除仅允许本人对「已通过/已驳回/已撤回」单据执行；
  * 姓名等文本字段的白名单校验；分页参数钳制。</p>
  */
 class ApplicationApprovalGuardTest {
@@ -166,14 +166,23 @@ class ApplicationApprovalGuardTest {
         assertDoesNotThrow(() -> service.deleteApplication(100L, userOf(5L, "alice")));
     }
 
-    /** 待审批 / 已通过不可删：待审批须先撤回，已通过涉及专家档案变更留痕 */
+    /** 待审批 / 退回修改不可删：待审批须先撤回，退回修改须先重新提交（2026-11-25 起已通过可删） */
     @Test
-    void deleteRejectsNonTerminalOrApproved() {
+    void deleteRejectsNonTerminalStatus() {
         appOf(PENDING, "{\"expertId\":9,\"changes\":{}}", "EXPERT_MODIFY");
         assertThrows(BusinessException.class, () -> service.deleteApplication(100L, userOf(5L, "alice")));
 
-        appOf(APPROVED, "{\"expertId\":9,\"changes\":{}}", "EXPERT_MODIFY");
+        appOf(RETURNED, "{\"expertId\":9,\"changes\":{}}", "EXPERT_MODIFY");
         assertThrows(BusinessException.class, () -> service.deleteApplication(100L, userOf(5L, "alice")));
+    }
+
+    /** 2026-11-25 负责人放宽：已通过单本人可删（专家档案不受影响，留痕在操作日志） */
+    @Test
+    void deleteAllowsApprovedForOwner() {
+        appOf(APPROVED, "{\"expertId\":9,\"changes\":{}}", "EXPERT_MODIFY");
+        assertDoesNotThrow(() -> service.deleteApplication(100L, userOf(5L, "alice")));
+        verify(operationLogService).record(any(), eq("alice"),
+                eq(OperationLogService.ACTION_DELETE_APPLICATION), anyString(), eq("APPLICATION"), eq(100L), any());
     }
 
     @Test

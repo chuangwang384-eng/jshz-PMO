@@ -68,9 +68,6 @@
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="申请时间" width="170" />
-      <el-table-column label="变更摘要" min-width="220" show-overflow-tooltip>
-        <template #default="{ row }">{{ changeSummary(row.changes, row.oldData) }}</template>
-      </el-table-column>
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
           <el-tag :type="approvalStatusTagType(row.status)">{{ approvalStatusText(row.status) }}</el-tag>
@@ -149,10 +146,6 @@
         <div v-if="row.status === 0 && row.pendingHours !== null && row.pendingHours !== undefined" class="card-row">
           <span class="card-label">已等待</span>
           <span :class="pendingHoursClass(row.pendingHours)">{{ pendingText(row.pendingHours) }}</span>
-        </div>
-        <div class="card-row card-row-block">
-          <span class="card-label">变更摘要</span>
-          <span class="card-summary">{{ changeSummary(row.changes, row.oldData) }}</span>
         </div>
         <div v-if="commentText(row)" class="card-row card-row-block">
           <span class="card-label">意见</span>
@@ -292,7 +285,7 @@ import {
 } from '../api/approval'
 import { uploadLimits, ensureUploadLimits, toMb } from '../utils/limits'
 import { useNotificationStore } from '../store/notification'
-import { changeSummary, approvalStatusTagType, approvalStatusText } from '../utils/format'
+import { approvalStatusTagType, approvalStatusText } from '../utils/format'
 import {
   TEXT_FIELDS,
   PHOTO_FIELDS,
@@ -564,9 +557,9 @@ function commentText(row) {
   return row.approveComment || ''
 }
 
-/** 删除入口：仅「已驳回 / 已撤回」（与后端 deleteApplication / deleteApplications 口径一致） */
+/** 删除入口：「已通过 / 已驳回 / 已撤回」（与后端 deleteApplication / deleteApplications 口径一致；待审批/退回修改不可删） */
 function canDelete(row) {
-  return row.status === 2 || row.status === 3
+  return row.status === 1 || row.status === 2 || row.status === 3
 }
 
 /** 退回修改单的原照片已被清理任务删除（后端 expiredPhotoFields） */
@@ -627,7 +620,7 @@ async function handleWithdraw(row) {
 async function handleDelete(row) {
   try {
     await ElMessageBox.confirm(
-      `确认删除「${row.expertName || '-'}」这张${approvalStatusText(row.status)}的申请单吗？\n删除后申请单与审批进度记录不可恢复；专家档案与已审批结果不受影响。`,
+      `确认删除「${row.expertName || '-'}」这张${approvalStatusText(row.status)}的申请单吗？\n删除后申请单与审批进度记录不可恢复（删除动作本身会记录在操作日志）；专家档案不受影响。`,
       '删除确认',
       {
         confirmButtonText: '确认删除',

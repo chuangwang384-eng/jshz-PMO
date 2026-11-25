@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
 /**
  * 「我的申请」第二轮审查回归（2026-11-25）。
  *
- * <p>覆盖：批量删除只删本人「已驳回/已撤回」单据并返回实际条数；重新提交时清空文本字段视为撤回该变更
+ * <p>覆盖：批量删除只删本人「已通过/已驳回/已撤回」单据并返回实际条数；重新提交时清空文本字段视为撤回该变更
  * （不再把空串写进变更）；临时照片失效被剔除时响应必须回传被剔除的字段；重提只校验本次改动键的敏感字段格式；
  * 合同申请的待办/撤回通知文案不再误显示为「专家信息修改申请」；退回修改单的失效照片键随列表返回。</p>
  */
@@ -108,22 +108,22 @@ class ApplicationMyApplicationsHardeningTest {
 
     // ---------------- 批量删除 ----------------
 
-    /** 混合批次：只删本人且已驳回/已撤回的条目，其余跳过，不中断整批 */
+    /** 混合批次：只删本人且已通过/已驳回/已撤回的条目，其余跳过，不中断整批 */
     @Test
     void batchDeleteRemovesOnlyOwnTerminalApplications() {
         appOf(1L, WITHDRAWN, "alice", 5L);
         appOf(2L, REJECTED, "alice", 5L);
         appOf(3L, PENDING, "alice", 5L);      // 待审批：不可删
-        appOf(4L, APPROVED, "alice", 5L);     // 已通过：不可删
+        appOf(4L, APPROVED, "alice", 5L);     // 已通过：2026-11-25 起可删
         appOf(5L, RETURNED, "alice", 5L);     // 退回修改：不可删
         appOf(6L, REJECTED, "carol", 9L);     // 他人单据：不可删
         // id=7 不存在
 
         int removed = service.deleteApplications(Arrays.asList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 1L), userOf(5L, "alice"));
 
-        assertEquals(2, removed);
-        verify(applicationMapper, times(2)).delete(any());
-        verify(operationLogService, times(2)).record(any(), eq("alice"),
+        assertEquals(3, removed);
+        verify(applicationMapper, times(3)).delete(any());
+        verify(operationLogService, times(3)).record(any(), eq("alice"),
                 eq(OperationLogService.ACTION_DELETE_APPLICATION), anyString(), anyString(), anyLong(), any());
     }
 
