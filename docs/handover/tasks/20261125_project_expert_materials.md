@@ -30,3 +30,7 @@
 - 2026-11-25，JDK 17 下 Maven 定向测试 19 项通过，0 失败、0 跳过。范围为 `ProjectShow*Test`、`ProjectResumeAvatarTest`、`ScheduleSpeakerDiffTest`、`ScheduleSpeakerWorkflowTest`。测试准备阶段补齐 Maven 构建标识和 MyBatis 单元测试元数据后通过。
 - `npm.cmd run build` 通过，Vite 报大包体积警告。隔离 Edge 使用模拟项目数据，验证已匹配和未匹配行、浏览器 ZIP 下载、弹窗 URL、AI 提示词、Esc 关闭及焦点恢复。
 - `release-full.ps1 -Mode Preflight -Version 1.0.144 -Slug project-expert-materials` 通过，确认生产 1.0.143、首页 200、无待执行迁移或漂移、目标发布 ID 可用。生产切换与登录验收以发布记录为准。
+
+## 发布状态
+
+已合入本地 main 并部署生产 1.0.144，状态为已完成待业务验收。真实项目的登录后验收待进行。见 [1.0.144 发布记录](../../releases/20261125-project-expert-materials-1.0.144.md)。
