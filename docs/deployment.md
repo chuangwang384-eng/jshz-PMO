@@ -332,8 +332,10 @@ Publish 流程：版本文件同步（先备份到 `logs/version-backup-*`）→
 ginx\conf
 ginx.conf` 主上下文新增 `worker_shutdown_timeout 60s;`。背景：1.0.142 引入 SSE 长连接后，nginx 优雅重载时旧 worker 持有的 SSE 连接永不关闭，排空超时（300s）导致蓝绿发布中止（1.0.143 首发实测）。该 directive 使旧 worker 在优雅退出 60s 后强制关闭 lingering 连接，SSE 客户端（EventSource）自动重连。配套：`NotificationSseService` 发射器改为有限超时（30 分钟）定期回收连接。备份 `nginx.conf.bak-20261125-wst`。
 - 以上默认值均为本机当前值：不注入变量时运行行为与出口化前完全一致。
-- **上传限额单一真源**（方案 D）：后端从 `application.yml expert.upload` 读取 photo/resume/doc-max-bytes，前端登录后经 `GET /api/meta/limits` 同步。调整时同步 `frontend/src/utils/limits.js` 中的离线兜底值。2026-11-20 photo-max-bytes 5MB→10MB（证件照/身份证/头像，Owner 要求），Nginx 60m 与 multipart 50MB 上限不变。
-- **专家简历限额**：`expert.upload.resume-max-bytes` 为 31457280 字节。2026-11-18 核对 `application.yml` 的 multipart 文件与请求上限分别为 50 MB 和 60 MB，运行中 Nginx 的 API 请求上限为 60m。发布先切后端限额，再切前端，无需调整代理或 multipart 配置。
+- **上传限额单一真源**（方案 D）：后端从 `application.yml expert.upload` 读取 photo/resume/doc-max-bytes，前端登录后经 `GET /api/meta/limits` 同步。调整时同步 `frontend/src/utils/limits.js` 中的离线兜底值。2026-11-20 photo-max-bytes 5MB→10MB（证件照/身份证/头像，Owner 要求）。
+- **结算资料限额**（2026-11-25）：取消「每批最多 20 个文件」限制，改由 `expert.upload.doc-max-bytes`（单文件 **100MB**，2026-11-25 第二轮由 50MB 上调）与 `expert.upload.settlement-batch-max-bytes`（单批次 500MB，524288000 字节）约束，前端经 `GET /api/meta/limits` 的 `docMaxBytes` / `settlementBatchMaxBytes` 预校验。同批调整 `spring.servlet.multipart.max-file-size` 50MB→100MB、`max-request-size` 60MB→520MB，并把运行中 Nginx `<LOCAL_PATH>` 的 API 段 `client_max_body_size` 60m→520m、新增 `client_body_timeout 300s`。四处须同源调整，任一处偏小会先以 413 或「超过限制」失败；改 Nginx 后 `nginx -t` 校验并走 `scripts/invoke-nginx-graceful.ps1` 平滑重载（需提权，前端 graceful 发布会自动重载）。
+- **成本单填表生成**（2026-11-25）：U08 由上传改为填表 + 服务端 POI 生成，无新增配置项、无数据库迁移；表单 JSON 复用 `project_stage_form`。生成文件名固定「会议成本单.xlsx」，可在结算资料批次中预览下载。
+- **专家简历限额**：`expert.upload.resume-max-bytes` 为 31457280 字节。2026-11-18 核对 `application.yml` 的 multipart 文件与请求上限分别为 50 MB 和 60 MB，运行中 Nginx 的 API 请求上限为 60m（2026-11-25 请求体上限已上调至 520MB/520m，见上一条）。发布先切后端限额，再切前端。
 - **凭据解析统一**（方案 A）：`backup.ps1`、`db-migrate.ps1`、7 个 apply-migration-*.ps1 的 MYSQL_PASSWORD 解析实现统一收敛到 `scripts/common-credentials.ps1`（环境变量优先 → start-backend.bat 运行时解析），其余脚本沿用会话注入约定不变。
 
 ### 登录模式切换节奏（评审结论）
@@ -710,6 +712,16 @@ expert:
 | 2026-11-25 09:00:35 | 1.0.140 | 成功 | expert-system.jar |
 | 2026-11-25 09:31:20 | 1.0.141 | 成功 | expert-system.jar |
 | 2026-11-25 10:23:37 | 1.0.142 | 成功 | expert-system.jar |
+| 2026-11-25 11:34:25 | 1.0.143 | 成功 | expert-system.jar |
+| 2026-11-25 12:07:07 | 1.0.144 | 成功 | expert-system.jar |
+| 2026-11-25 12:49:29 | 1.0.145 | 成功 | expert-system.jar |
+| 2026-11-25 14:02:10 | 1.0.146 | 成功 | expert-system.jar |
+| 2026-11-25 14:19:48 | 1.0.147 | 成功 | expert-system.jar |
+| 2026-11-25 14:58:29 | 1.0.148 | 成功 | expert-system.jar |
+| 2026-11-25 15:38:29 | 1.0.148 | 成功 | expert-system.jar |
+| 2026-11-25 16:31:46 | 1.0.149 | 成功 | expert-system.jar |
+| 2026-11-25 16:57:17 | 1.0.150 | 成功 | expert-system.jar |
+| 2026-11-25 17:41:10 | 1.0.151 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
