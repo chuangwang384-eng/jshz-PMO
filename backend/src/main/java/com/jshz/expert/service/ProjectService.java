@@ -58,11 +58,6 @@ import com.jshz.expert.mapper.SysUserMapper;
 import com.jshz.expert.mapper.UserRoleMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -110,18 +105,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             "DEPT2", "项目二部",
             "DEPT3", "项目三部");
 
-    /** 项目类型合法值（2026-11-20 新增，固定三类；前端展示名见 PROJECT_TYPE_LABELS） */
+    /** 项目类型合法值（2026-11-20 新增，固定三类；前端展示副本见 frontend/src/utils/dict.js PROJECT_TYPE_LABELS，成对修改） */
     public static final Set<String> PROJECT_TYPES = Set.of("PLATFORM", "DIRECT_PAY", "KEY");
 
-    /** 项目类型展示名 */
-    private static final Map<String, String> PROJECT_TYPE_LABELS = Map.of(
-            "PLATFORM", "平台类项目",
-            "DIRECT_PAY", "直付类项目",
-            "KEY", "重点类项目");
-
-    String projectTypeLabelOf(String projectType) {
-        return projectType == null ? "" : PROJECT_TYPE_LABELS.getOrDefault(projectType, projectType);
-    }
 
     private final ProjectTypeMapper typeMapper;
     private final ProjectTypePhaseRelMapper typePhaseRelMapper;
@@ -171,7 +157,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         LambdaQueryWrapper<Project> qw = new LambdaQueryWrapper<Project>()
                 .ne(Project::getStatus, STATUS_DELETED);
         if (StringUtils.hasText(keyword)) {
-            String kw = keyword.trim();
+            // P3-3（2026-11-26）：LIKE 通配符转义收口（ParamUtils.escapeLike）
+            String kw = ParamUtils.escapeLike(keyword);
             qw.and(w -> w.like(Project::getName, kw)
                     .or().like(Project::getClientCompany, kw)
                     .or().like(Project::getClientName, kw));
@@ -201,6 +188,9 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 Long phaseId = parseLong(status);
                 if (phaseId != null) {
                     qw.eq(Project::getPhaseId, phaseId).ne(Project::getStatus, STATUS_COMPLETED);
+                } else {
+                    // P2-3（2026-11-26 审查修复）：非法状态值显式报错，不再静默跳过筛选返回全量
+                    throw new BusinessException("状态筛选参数不合法");
                 }
             }
         }
@@ -523,6 +513,11 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         if (str(body.get("endDate")) != null) {
             project.setEndDate(parseDateNullable(str(body.get("endDate"))));
+        }
+        // P2-1（2026-11-26 审查修复）：编辑与创建同口径校验起止先后，防时间线倒挂污染到期风险统计
+        if (project.getStartDate() != null && project.getEndDate() != null
+                && project.getEndDate().isBefore(project.getStartDate())) {
+            throw new BusinessException("项目结束时间不能早于开始时间");
         }
         if (toLong(body.get("ownerId")) != null) {
             Long newOwner = toLong(body.get("ownerId"));
@@ -1379,173 +1374,6 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return value.substring(0, 4) + "****" + value.substring(value.length() - 4);
     }
 
-    // ==================== 导出 xlsx ====================
-
-    /**
-     * 导出项目列表 xlsx（含专家/供应商明细，三 sheet）；写 DOWNLOAD 留痕。
-     */
-    public Workbook buildExportWorkbook(String keyword, String status, String startBegin, String startEnd,
-                                        String endBegin, String endEnd, Long ownerId,
-                                        String category,
-                                        String team, Long cityId, Long assistantId, AuthUser user) {
-        List<Project> projects = collectProjects(keyword, status, startBegin, startEnd, endBegin, endEnd, ownerId, category, team, cityId, assistantId, user);
-        Workbook wb = new XSSFWorkbook();
-        Sheet sheet = wb.createSheet("项目列表");
-        String[] headers = {"项目ID", "会议名称", "项目类型", "地点", "团队", "会议城市", "项目开始时间", "项目结束时间", "举办开始", "举办结束", "总负责人", "协助人", "客户单位", "客户姓名", "当前阶段", "状态", "预算金额", "备注", "创建时间"};
-        Row head = sheet.createRow(0);
-        for (int i = 0; i < headers.length; i++) {
-            head.createCell(i).setCellValue(headers[i]);
-        }
-        int r = 1;
-        for (Project p : projects) {
-            Row row = sheet.createRow(r++);
-            row.createCell(0).setCellValue(p.getId() == null ? "" : String.valueOf(p.getId()));
-            row.createCell(1).setCellValue(p.getName() == null ? "" : p.getName());
-            row.createCell(2).setCellValue(projectTypeLabelOf(p.getProjectType()));
-            row.createCell(3).setCellValue("ONLINE".equals(p.getCategory()) ? "线上" : ("OFFLINE".equals(p.getCategory()) ? "线下" : ""));
-            row.createCell(4).setCellValue(teamLabelOf(p.getTeam()));
-            row.createCell(5).setCellValue(cityNameOf(p.getCityId()));
-            row.createCell(6).setCellValue(p.getStartDate() == null ? "" : p.getStartDate().format(DATE_FMT));
-            row.createCell(7).setCellValue(p.getEndDate() == null ? "" : p.getEndDate().format(DATE_FMT));
-            row.createCell(8).setCellValue(p.getMeetingStartDate() == null ? "" : p.getMeetingStartDate().format(DATE_FMT));
-            row.createCell(9).setCellValue(p.getMeetingEndDate() == null ? "" : p.getMeetingEndDate().format(DATE_FMT));
-            row.createCell(10).setCellValue(usernameOf(p.getOwnerId()));
-            row.createCell(11).setCellValue(String.join("、", assistantNamesOf(p.getId())));
-            row.createCell(12).setCellValue(p.getClientCompany() == null ? "" : p.getClientCompany());
-            row.createCell(13).setCellValue(p.getClientName() == null ? "" : p.getClientName());
-            row.createCell(14).setCellValue(phaseNameOf(p));
-            row.createCell(15).setCellValue(statusText(p));
-            row.createCell(16).setCellValue(p.getBudgetAmount() == null ? "" : p.getBudgetAmount().toPlainString());
-            row.createCell(17).setCellValue(p.getRemark() == null ? "" : p.getRemark());
-            row.createCell(18).setCellValue(p.getCreateTime() == null ? "" : p.getCreateTime().format(DT_FMT));
-        }
-
-        Sheet expertSheet = wb.createSheet("项目专家明细");
-        String[] expHeaders = {"项目ID", "项目名称", "专家姓名", "单位", "职称", "角色分工", "劳务费", "合同状态"};
-        Row eh = expertSheet.createRow(0);
-        for (int i = 0; i < expHeaders.length; i++) {
-            eh.createCell(i).setCellValue(expHeaders[i]);
-        }
-        r = 1;
-        for (Project p : projects) {
-            for (ProjectExpert rel : expertRelMapper.selectList(new LambdaQueryWrapper<ProjectExpert>()
-                    .eq(ProjectExpert::getProjectId, p.getId()).orderByAsc(ProjectExpert::getId))) {
-                Expert expert = expertService.getById(rel.getExpertId());
-                if (expert == null) {
-                    continue;
-                }
-                Row row = expertSheet.createRow(r++);
-                row.createCell(0).setCellValue(p.getId());
-                row.createCell(1).setCellValue(p.getName());
-                row.createCell(2).setCellValue(expert.getName());
-                row.createCell(3).setCellValue(expert.getUnit() == null ? "" : expert.getUnit());
-                row.createCell(4).setCellValue(expert.getTitle() == null ? "" : expert.getTitle());
-                row.createCell(5).setCellValue(rel.getRole() == null ? "" : rel.getRole());
-                row.createCell(6).setCellValue(rel.getFee() == null ? "" : rel.getFee().toPlainString());
-                row.createCell(7).setCellValue(rel.getContractStatus() == null ? "" : rel.getContractStatus());
-            }
-        }
-
-        Sheet supplierSheet = wb.createSheet("项目供应商明细");
-        String[] supHeaders = {"项目ID", "项目名称", "供应商名称", "供应商类型", "用途", "费用"};
-        Row sh = supplierSheet.createRow(0);
-        for (int i = 0; i < supHeaders.length; i++) {
-            sh.createCell(i).setCellValue(supHeaders[i]);
-        }
-        r = 1;
-        for (Project p : projects) {
-            for (ProjectSupplier rel : supplierRelMapper.selectList(new LambdaQueryWrapper<ProjectSupplier>()
-                    .eq(ProjectSupplier::getProjectId, p.getId()).orderByAsc(ProjectSupplier::getId))) {
-                Supplier supplier = supplierMapper.selectById(rel.getSupplierId());
-                if (supplier == null) {
-                    continue;
-                }
-                Row row = supplierSheet.createRow(r++);
-                row.createCell(0).setCellValue(p.getId());
-                row.createCell(1).setCellValue(p.getName());
-                row.createCell(2).setCellValue(supplier.getName());
-                row.createCell(3).setCellValue(nameOfSupplierType(supplier.getTypeId()));
-                row.createCell(4).setCellValue(rel.getPurpose() == null ? "" : rel.getPurpose());
-                row.createCell(5).setCellValue(rel.getFee() == null ? "" : rel.getFee().toPlainString());
-            }
-        }
-        for (int i = 0; i < headers.length; i++) {
-            sheet.autoSizeColumn(i);
-        }
-        for (int i = 0; i < expHeaders.length; i++) {
-            expertSheet.autoSizeColumn(i);
-        }
-        for (int i = 0; i < supHeaders.length; i++) {
-            supplierSheet.autoSizeColumn(i);
-        }
-        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user),
-                OperationLogService.ACTION_DOWNLOAD, "导出项目列表 xlsx（共 " + projects.size() + " 个项目）",
-                "PROJECT", null, null);
-        return wb;
-    }
-
-    private List<Project> collectProjects(String keyword, String status, String startBegin, String startEnd,
-                                          String endBegin, String endEnd, Long ownerId,
-                                          String category,
-                                          String team, Long cityId, Long assistantId, AuthUser user) {
-        LambdaQueryWrapper<Project> qw = new LambdaQueryWrapper<Project>().ne(Project::getStatus, STATUS_DELETED);
-        if (StringUtils.hasText(keyword)) {
-            String kw = keyword.trim();
-            qw.and(w -> w.like(Project::getName, kw)
-                    .or().like(Project::getClientCompany, kw)
-                    .or().like(Project::getClientName, kw));
-        }
-        if (StringUtils.hasText(team)) {
-            qw.eq(Project::getTeam, team);
-        }
-        if (cityId != null) {
-            qw.eq(Project::getCityId, cityId);
-        }
-        if (assistantId != null) {
-            List<Long> projectIds = assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
-                            .eq(ProjectAssistant::getUserId, assistantId))
-                    .stream().map(ProjectAssistant::getProjectId).distinct().collect(Collectors.toList());
-            if (projectIds.isEmpty()) {
-                qw.eq(Project::getId, -1L);
-            } else {
-                qw.in(Project::getId, projectIds);
-            }
-        }
-        if (StringUtils.hasText(status)) {
-            if (STATUS_CANCELED.equals(status) || STATUS_COMPLETED.equals(status)) {
-                qw.eq(Project::getStatus, status);
-            } else {
-                Long phaseId = parseLong(status);
-                if (phaseId != null) {
-                    qw.eq(Project::getPhaseId, phaseId).ne(Project::getStatus, STATUS_COMPLETED);
-                }
-            }
-        }
-        if (StringUtils.hasText(startBegin)) {
-            qw.ge(Project::getStartDate, parseDate(startBegin));
-        }
-        if (StringUtils.hasText(startEnd)) {
-            qw.le(Project::getStartDate, parseDate(startEnd));
-        }
-        if (StringUtils.hasText(endBegin)) {
-            qw.ge(Project::getEndDate, parseDate(endBegin));
-        }
-        if (StringUtils.hasText(endEnd)) {
-            qw.le(Project::getEndDate, parseDate(endEnd));
-        }
-        if (ownerId != null) {
-            qw.eq(Project::getOwnerId, ownerId);
-        }
-        if (StringUtils.hasText(category)) {
-            qw.eq(Project::getCategory, category);
-        }
-        // 行级数据权限：非豁免用户仅见本人负责或执行的项目
-        if (!canViewAllProjects(user)) {
-            appendRowLevelCondition(qw, user);
-        }
-        qw.orderByDesc(Project::getCreateTime);
-        return this.list(qw);
-    }
 
     // ==================== 配置管理（project:manage 由 Controller 校验） ====================
 

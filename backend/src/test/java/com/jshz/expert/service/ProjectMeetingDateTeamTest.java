@@ -119,6 +119,36 @@ class ProjectMeetingDateTeamTest {
     }
 
     @Test
+    void updateRejectsReversedProjectDates() {
+        // P2-1（2026-11-26）：编辑起止倒挂与创建同口径拒绝
+        Project p = new Project();
+        p.setId(1L);
+        p.setOwnerId(9L);
+        p.setStatus("ACTIVE");
+        p.setStartDate(java.time.LocalDate.of(2026, 12, 1));
+        p.setEndDate(java.time.LocalDate.of(2026, 12, 5));
+        when(projects.selectOne(any())).thenReturn(p);
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.update(1L, Map.of("endDate", "2026-11-01"), admin()));
+        assertEquals("项目结束时间不能早于开始时间", e.getMessage());
+    }
+
+    @Test
+    void pageProjectsRejectsInvalidStatusFilter() {
+        // P2-3（2026-11-26）：非法 status 不再静默返回全量
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.pageProjects(null, "abc", null, null, null, null, null, null, null, null, null, 1, 10, admin()));
+        assertEquals("状态筛选参数不合法", e.getMessage());
+    }
+
+    @Test
+    void escapeLikeEscapesWildcards() {
+        // P3-3（2026-11-26）：LIKE 通配符转义
+        assertEquals("100\\%\\_x\\\\y", com.jshz.expert.common.ParamUtils.escapeLike("100%_x\\y"));
+        assertNull(com.jshz.expert.common.ParamUtils.escapeLike(null));
+    }
+
+    @Test
     void updateDerivesTeamOnOwnerChange() {
         Project p = new Project();
         p.setId(1L);

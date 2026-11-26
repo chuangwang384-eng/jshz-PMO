@@ -116,9 +116,14 @@ export function panelSlideV2({ label, title, persons }) {
 
 // 大会角色四种（2026-11-21 v4：与日程解析 ProjectSpeaker.ROLE_* 对齐），重要度递减：
 // 大会主席 > 大会主持 > 大会讲者 > 讨论嘉宾；同一专家多角色时取重要度更高者。
+// 参会专家角色字典（17.7 单一副本 2026-11-26 收口）：
+// 权威定义=project_speaker.role 列注释 + 后端 com.jshz.expert.entity.SpeakerRole 枚举；
+// 本文件是唯一前端副本，ProjectDetail/ShowWizard 均引用此处，禁止再建本地副本。
 export const ROLE_OPTIONS = ['大会主席', '大会主持', '大会讲者', '讨论嘉宾']
 export const ROLE_RANK = { 大会主席: 0, 大会主持: 1, 大会讲者: 2, 讨论嘉宾: 3 }
 export const ROLE_ENUM_LABEL = { CHAIR: '大会主席', HOST: '大会主持', SPEAKER: '大会讲者', DISCUSSANT: '讨论嘉宾' }
+/** 角色枚举值下拉选项（CHAIR/HOST/SPEAKER/DISCUSSANT，ProjectDetail 角色选择用）。 */
+export const ROLE_VALUE_OPTIONS = Object.entries(ROLE_ENUM_LABEL).map(([value, label]) => ({ value, label }))
 
 export function roleRank(role) {
   return ROLE_RANK[role] ?? 9

@@ -2,7 +2,7 @@
   <div class="pcal">
     <div class="pcal-tools">
       <el-button size="small" @click="move(-1)" aria-label="上一月">‹</el-button>
-      <strong class="pcal-month">{{ ym.year }} 年 {{ ym.month }} 月</strong>
+      <strong class="pcal-month">{{ year }} 年 {{ month }} 月</strong>
       <el-button size="small" @click="move(1)" aria-label="下一月">›</el-button>
       <el-button size="small" text @click="goToday">今天</el-button>
       <span class="spacer"></span>

@@ -662,10 +662,14 @@ import {
   archiveManual, applyScheduleComparison, clearConfirmedSpeakers, deleteScheduleDoc, fetchProjectFile, fetchProjectWorkbook
 } from '../../api/project'
 import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
+import { ROLE_ENUM_LABEL, ROLE_VALUE_OPTIONS } from '../../utils/showDeck'
+import { PROJECT_TYPE_LABELS } from '../../utils/dict'
 
 const route = useRoute()
 const router = useRouter()
-const projectId = route.params.id
+// P1-1（2026-11-26 审查修复）：响应式 projectId——路由复用同组件跳另一项目时重载数据，
+// 防止页面展示/写操作仍挂旧项目（全局搜索/AI 深链从详情页直跳详情页的真实路径）
+const projectId = computed(() => route.params.id)
 
 const ShowWizard = defineAsyncComponent(() => import('./ShowWizard.vue'))
 const showWizardOpen = ref(false)
@@ -673,8 +677,6 @@ const showWizardOpen = ref(false)
 function openShowWizard() {
   showWizardOpen.value = true
 }
-// 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
-const PROJECT_TYPE_LABELS = { PLATFORM: '平台类项目', DIRECT_PAY: '直付类项目', KEY: '重点类项目' }
 const loading = ref(false)
 const detail = ref({})
 const complianceView = ref('PENDING')
@@ -702,11 +704,15 @@ const budgetAmount = computed(() => detail.value.budget?.budgetAmount ?? detail.
 
 const sortedPhases = computed(() => [...(detail.value.phases || [])].sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0)))
 
+watch(projectId, (nv, ov) => {
+  if (nv && nv !== ov) fetchDetail()
+}, { immediate: true })
+
 async function fetchDetail({ refreshSchedule = true } = {}) {
   loading.value = true
   try {
     const previousPhaseId = detail.value.phaseId
-    detail.value = await getProjectDetail(projectId)
+    detail.value = await getProjectDetail(projectId.value)
     if ((!viewPhaseId.value || previousPhaseId !== detail.value.phaseId) && detail.value.phases?.length) {
       viewPhaseId.value = String(detail.value.phaseId || detail.value.phases[0].id)
     }
@@ -746,15 +752,9 @@ const schedule = ref(null)
 const candidates = ref([])
 const candidateDraft = ref([])
 const speakers = ref([])
-const roleOptions = [
-  { value: 'CHAIR', label: '大会主席' },
-  { value: 'HOST', label: '大会主持' },
-  { value: 'SPEAKER', label: '大会讲者' },
-  { value: 'DISCUSSANT', label: '讨论嘉宾' }
-]
-function roleLabel(v) {
-  return roleOptions.find((r) => r.value === v)?.label || v
-}
+// 角色字典收口（P2-2）：复用 utils/showDeck.js 唯一副本（ROLE_ENUM_LABEL 派生下拉与文案）
+const roleOptions = ROLE_VALUE_OPTIONS
+const roleLabel = (v) => ROLE_ENUM_LABEL[v] || v
 const scheduleBadgeText = computed(() => {
   if (!schedule.value) return '待上传'
   if (schedule.value.parseStatus === 'PARSING') return '解析中'
@@ -770,7 +770,7 @@ const scheduleBadgeClass = computed(() => {
 })
 
 async function fetchSchedule({ preserveDraft = false } = {}) {
-  const data = await getScheduleOverview(projectId)
+  const data = await getScheduleOverview(projectId.value)
   const previous = new Set(candidates.value.map(row => row.id))
   schedule.value = data?.schedule || null
   parseRevision.value = data?.parseRevision || null
@@ -825,7 +825,7 @@ function precheckUpload(file, { label = '文件', accept = PHASE_DOC_ACCEPT } = 
 async function onScheduleFile(file) {
   if (!precheckUpload(file, { label: '日程文件' })) return
   try {
-    await uploadSchedule(projectId, file.raw)
+    await uploadSchedule(projectId.value, file.raw)
     await Promise.all([fetchDetail({ refreshSchedule: false }), fetchSchedule()])
     ElMessage.success('日程已上传')
   } catch (e) {
@@ -851,7 +851,7 @@ async function removeScheduleDoc(d) {
     '删除附件',
     { type: 'warning' }
   )
-  await deleteScheduleDoc(projectId, d.id)
+  await deleteScheduleDoc(projectId.value, d.id)
   ElMessage.success(isCurrent ? '已删除生效日程并清除解析候选' : '附件已删除')
   await fetchDetail()
 }
@@ -859,7 +859,7 @@ async function doParse() {
   if (!schedule.value) return
   parsing.value = true
   try {
-    await parseSchedule(projectId, schedule.value.id)
+    await parseSchedule(projectId.value, schedule.value.id)
     await fetchSchedule()
     ElMessage.success(candidates.value.length ? '解析完成，请保存新增候选' : '解析完成，无新增候选')
   } catch (e) {
@@ -905,7 +905,7 @@ async function loadExpertMatches(value) {
 async function removeCandidateRow(row) {
   // 2026-11-20：移除须同步丢弃后端候选，否则右侧「待保存专家信息」待办永远不消失
   try {
-    await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, [], row.id)
+    await confirmSpeakers(projectId.value, schedule.value.id, parseRevision.value, [], row.id)
     // preserveDraft 保留其他行的本地编辑（姓名/角色/专家库匹配）
     await fetchSchedule({ preserveDraft: true })
   } catch (e) {
@@ -932,7 +932,7 @@ async function saveSpeakerRows(rows, candidateId) {
   }
   savingSpeakers.value = true
   try {
-    speakers.value = await confirmSpeakers(projectId, schedule.value.id, parseRevision.value, payload, candidateId)
+    speakers.value = await confirmSpeakers(projectId.value, schedule.value.id, parseRevision.value, payload, candidateId)
     ElMessage.success(payload.length ? '参会专家已确认保存' : '已放弃候选')
     await Promise.all([fetchSchedule({ preserveDraft: Boolean(candidateId) }), fetchDetail({ refreshSchedule: false })])
     if (payload.length) notifyIdCardRisks()
@@ -959,7 +959,7 @@ async function clearSavedSpeakers() {
   if (savingSpeakers.value) return
   savingSpeakers.value = true
   try {
-    await clearConfirmedSpeakers(projectId)
+    await clearConfirmedSpeakers(projectId.value)
     ElMessage.success('已清空本项目已保存的参会记录')
     await Promise.all([fetchSchedule({ preserveDraft: true }), fetchDetail({ refreshSchedule: false })])
   } finally {
@@ -998,7 +998,7 @@ async function saveComparison(accepted) {
   if (savingComparison.value || !comparison.value) return
   savingComparison.value = true
   try {
-    await applyScheduleComparison(projectId, schedule.value.id, comparison.value.token, accepted)
+    await applyScheduleComparison(projectId.value, schedule.value.id, comparison.value.token, accepted)
     comparisonVisible.value = false
     await Promise.all([fetchSchedule({ preserveDraft: true }), fetchDetail({ refreshSchedule: false })])
   } finally {
@@ -1014,7 +1014,7 @@ function goToScheduleCandidates() {
 const manualName = ref('')
 const manualRole = ref(null)
 async function doAddSpeaker() {
-  await addSpeaker(projectId, { expertName: manualName.value.trim(), role: manualRole.value })
+  await addSpeaker(projectId.value, { expertName: manualName.value.trim(), role: manualRole.value })
   ElMessage.success('已补录')
   manualName.value = ''
   manualRole.value = null
@@ -1048,7 +1048,7 @@ function openArchiveDialog(row, candidate = false) {
 }
 
 async function saveProjectResume(fields, photo, existingExpertId) {
-  const result = await archiveManual(projectId, {
+  const result = await archiveManual(projectId.value, {
     name: fields.姓名,
     unit: fields.单位,
     department: fields.科室,
@@ -1098,7 +1098,7 @@ async function doArchiveManual() {
   }
   archiveRunning.value = true
   try {
-    const result = await archiveManual(projectId, {
+    const result = await archiveManual(projectId.value, {
       name: archiveForm.name.trim(),
       unit: archiveForm.unit.trim(),
       title: archiveForm.title.trim(),
@@ -1122,7 +1122,7 @@ async function removeSpeaker(row) {
   } catch (e) {
     return
   }
-  await deleteSpeaker(projectId, row.id)
+  await deleteSpeaker(projectId.value, row.id)
   fetchSchedule()
 }
 
@@ -1327,7 +1327,7 @@ async function confirmAdvance() {
   } catch (e) {
     return
   }
-  await changePhase(projectId, next.id)
+  await changePhase(projectId.value, next.id)
   ElMessage.success(`已推进到「${next.name}」阶段`)
   fetchDetail()
 }
@@ -1371,7 +1371,7 @@ async function doRollback() {
   }
   rollingBack.value = true
   try {
-    await changePhase(projectId, t.id, rollbackReason.value.trim())
+    await changePhase(projectId.value, t.id, rollbackReason.value.trim())
     ElMessage.success(`已回退到「${t.name}」阶段`)
     rollbackVisible.value = false
     fetchDetail()
@@ -1396,7 +1396,7 @@ async function openCompletedProject() {
       inputType: 'textarea', inputValidator: value => Boolean(value?.trim()) && value.trim().length <= 500 || '请输入 1 至 500 字',
       confirmButtonText: '重新打开', cancelButtonText: '取消'
     })
-    await reopenProject(projectId, value.trim())
+    await reopenProject(projectId.value, value.trim())
     await fetchDetail()
   } catch {
     // 取消或请求失败时保留当前页面。
@@ -1408,7 +1408,7 @@ async function openCompletedProject() {
 // 恢复已取消项目（Owner 2026-11-10：与取消对称；阶段保持不变）
 async function doRestore() {
   await ElMessageBox.confirm('确认恢复项目「' + detail.value.name + '」？恢复后项目回到 ACTIVE 状态，阶段保持不变。', '恢复项目', { type: 'warning' })
-  await restoreProject(projectId)
+  await restoreProject(projectId.value)
   ElMessage.success('项目已恢复')
   fetchDetail()
 }
@@ -1418,7 +1418,7 @@ function openCancel() {
   cancelVisible.value = true
 }
 async function doCancel() {
-  await cancelProject(projectId, cancelReason.value.trim())
+  await cancelProject(projectId.value, cancelReason.value.trim())
   ElMessage.success('项目已取消')
   cancelVisible.value = false
   fetchDetail()
@@ -1434,7 +1434,7 @@ function openEdit() {
 const expertMaterialsDialog = ref(null)
 const expertMaterialsStatus = ref('')
 const expertMaterialsDownloading = ref(false)
-const expertMaterialsPath = `/project/${encodeURIComponent(projectId)}/show/expert-materials`
+const expertMaterialsPath = `/project/${encodeURIComponent(projectId.value)}/show/expert-materials`
 const expertMaterialsUrl = new URL(request.getUri({ url: expertMaterialsPath }), window.location.origin).href
 
 function openExpertMaterials() {
@@ -1452,7 +1452,7 @@ async function downloadExpertMaterials() {
       const error = JSON.parse(await response.data.text())
       throw new Error(error.message || '资料包生成失败')
     }
-    downloadBlob(response.data, `串场专家资料-${projectId}.zip`)
+    downloadBlob(response.data, `串场专家资料-${projectId.value}.zip`)
     expertMaterialsStatus.value = '已发起浏览器下载。'
   } catch (error) {
     const data = error.response?.data
@@ -1470,7 +1470,7 @@ async function uploadShowFile(file) {
   if (!precheckUpload(file, { label: '串场 PPT', accept: ['.ppt', '.pptx'] })) return
   showUploading.value = true
   try {
-    await uploadShowPpt(projectId, file.raw)
+    await uploadShowPpt(projectId.value, file.raw)
     await fetchDetail()
     ElMessage.success('串场 PPT 已归档')
   } finally {
@@ -1480,19 +1480,19 @@ async function uploadShowFile(file) {
 
 async function uploadDoc(phaseId, file) {
   if (!precheckUpload(file, { label: '阶段资料' })) return
-  await uploadProjectDoc(projectId, phaseId, file.raw)
+  await uploadProjectDoc(projectId.value, phaseId, file.raw)
   ElMessage.success('资料已上传')
   fetchDetail()
 }
 async function removeDoc(doc) {
-  await deleteProjectDoc(projectId, doc.id)
+  await deleteProjectDoc(projectId.value, doc.id)
   ElMessage.success('资料已删除（留痕）')
   fetchDetail()
 }
 function editRich(phaseId, templateId) {
   if (editingRich.value[phaseId]) {
     // REQ-20261102：补传 templateId（第一道防线；后端已加固不再抛 NumberFormatException）
-    saveRichText(projectId, { phaseId, templateId, content: richDrafts.value[phaseId] || '' }).then(() => {
+    saveRichText(projectId.value, { phaseId, templateId, content: richDrafts.value[phaseId] || '' }).then(() => {
       ElMessage.success('文本已保存')
       editingRich.value[phaseId] = false
       fetchDetail()
@@ -1504,7 +1504,7 @@ function editRich(phaseId, templateId) {
 }
 
 onMounted(async () => {
-  fetchDetail()
+  // fetchDetail 由 watch(projectId, {immediate:true}) 触发（P1-1 路由复用修复）
   ownerOptions.value = await listProjectOwners()
   const userData = await listProjectUsers()
   userOptions.value = userData || []

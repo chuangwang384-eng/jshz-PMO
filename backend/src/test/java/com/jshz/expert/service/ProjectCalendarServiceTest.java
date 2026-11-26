@@ -34,6 +34,8 @@ class ProjectCalendarServiceTest {
 
     @Mock JdbcTemplate db;
     ProjectCalendarService service;
+    /** 记录最近一次 db.query 的展开实参（varargs 绑定回归用）。 */
+    Object[] lastQueryArgs;
 
     @BeforeEach
     void setUp() {
@@ -128,6 +130,7 @@ class ProjectCalendarServiceTest {
         Deque<Object[][]> queue = new ArrayDeque<>();
         queue.add(userRoles);
         doAnswer(inv -> {
+            lastQueryArgs = inv.getArguments();
             RowCallbackHandler handler = inv.getArgument(1);
             for (Object[] ur : queue.poll()) {
                 ResultSet rs = mock(ResultSet.class, withSettings().lenient());
@@ -160,6 +163,21 @@ class ProjectCalendarServiceTest {
         List<ProjectCalendarService.Meeting> second = service.myMeetings(user(9),
                 LocalDate.of(2026, 12, 1), LocalDate.of(2026, 12, 31));
         assertEquals(List.of("EXECUTOR"), second.get(0).rolesOf(9L));
+    }
+
+    @Test
+    void queryArgsAreFlatNotNestedArray() {
+        // 2026-11-26 根因回归：varargs 混传标量+toArray 会嵌套 Object[]，
+        // MySQL 驱动将其序列化为 blob 绑定 IN 占位符导致日历恒空；断言参数平铺。
+        mockMeetingRows(1L, "峰会A", "甲", LocalDate.of(2026, 12, 1), LocalDate.of(2026, 12, 2),
+                new Object[][] {{9L, "OWNER"}});
+        service.myMeetings(user(9), LocalDate.of(2026, 11, 25), LocalDate.of(2026, 12, 31));
+        // varargs 实参由 mockMeetingRows 的 Answer 记录（getArguments 展开 varargs）
+        assertNotNull(lastQueryArgs);
+        assertEquals(5, lastQueryArgs.length, "sql + handler + to + from + 1 个 userId");
+        for (int i = 2; i < lastQueryArgs.length; i++) {
+            assertFalse(lastQueryArgs[i] instanceof Object[], "JDBC 参数不得为嵌套数组（实际：" + lastQueryArgs[i] + "）");
+        }
     }
 
     @Test

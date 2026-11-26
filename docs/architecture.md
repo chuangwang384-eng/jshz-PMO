@@ -494,3 +494,11 @@ body.t-forum-fade #deck > .slide.active .sec-title {
 - **限额真源**：`/api/meta/limits` 新增 `supplierMaxImages/supplierMaxSingleBytes/supplierMaxTotalBytes`，真源=SupplierImageService/SupplierStorageService 公共常量；前端提示文案经 utils/limits.js 读取。
 - **绑定概览**：`GET /api/supplier/bindings/unbound?cityId=` 返回酒店↔打印店双类型中未绑定任何对端的供应商（id/name/typeBizKey/typeName/cityId/cityName，城市→类型→名称排序）；前端详情页"绑定概览"对话框按城市分组反向核对。
 - 数据清理：迁移 `20261126_cleanup_supplier_review_tmp.sql` 守卫式删除联调遗留类型 `_review_tmp`（仅 0 引用生效）。
+
+## 项目板块修复（2026-11-26，1.0.157）
+
+- **日历不显示双根因修复**：① 月历/排期组件模板误引 `ym`（应为 props year/month）致渲染崩溃；② `ProjectCalendarService.queryForUsers` varargs 混传标量+toArray 产生嵌套 Object[]，MySQL 驱动序列化内层数组绑定 IN 占位符致恒空——改显式平铺参数数组；回归断言 `queryArgsAreFlatNotNestedArray`。**教训：JdbcTemplate varargs 禁止混传标量与数组。**
+- **详情页路由复用**：ProjectDetail projectId 改 computed + watch(immediate) 重载，防同组件跳另一项目时写操作挂旧项目。
+- **导出下线**：GET /api/project/export 端点与 buildExportWorkbook/collectProjects 全删（用户决策）；permission 规则行保留无副作用。
+- **字典收口**：角色 ROLE_ENUM_LABEL/ROLE_VALUE_OPTIONS 唯一前端副本 utils/showDeck.js + 后端 SpeakerRole 枚举；项目类型文案唯一副本 utils/dict.js PROJECT_TYPE_LABELS（后端仅 PROJECT_TYPES 码集）。
+- **防御**：pageProjects 非法 status 报 400；ParamUtils.escapeLike 收口 LIKE 通配符转义；编辑起止倒挂与创建同口径拒绝；日历 scope=me 返回 missingDates 提示计数。

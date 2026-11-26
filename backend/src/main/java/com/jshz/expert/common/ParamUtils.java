@@ -74,5 +74,19 @@ public final class ParamUtils {
 
     public static String usernameOf(AuthUser authUser) {
         return authUser == null ? null : authUser.getUsername();
+    }    /**
+     * LIKE 关键字转义（2026-11-26 项目板块审查 P3-3）：转义 \ % _，防通配符误匹配。
+     * MySQL LIKE 默认以反斜杠为转义符，参数化传参加前缀即可生效（无需 ESCAPE 子句）。
+     * 空值原样返回 null。
+     */
+    public static String escapeLike(String keyword) {
+        if (keyword == null) {
+            return null;
+        }
+        return keyword.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 }
+

@@ -80,6 +80,8 @@ public class ProjectController {
         out.put("scope", scope);
         if ("me".equals(scope)) {
             out.put("meetings", calendarMeetings(projectCalendarService.myMeetings(user, range[0], range[1]), user.getUserId()));
+            // P3-4：缺失会议日期提示计数（与我相关的 ACTIVE 项目）
+            out.put("missingDates", projectCalendarService.countMissingMeetingDates(user.getUserId()));
             return ApiResponse.ok(out);
         }
         if ("dept".equals(scope)) {
@@ -597,29 +599,7 @@ public class ProjectController {
         return ApiResponse.ok(projectService.submitContractApproval(id, contractId, user));
     }
 
-    /** 导出 xlsx（含专家/供应商明细；DOWNLOAD 留痕；类型/执行人列已随概念删除）。 */
-    @GetMapping("/export")
-    public void export(@RequestParam(required = false) String keyword,
-                       @RequestParam(required = false) String status,
-                       @RequestParam(required = false) String startBegin,
-                       @RequestParam(required = false) String startEnd,
-                       @RequestParam(required = false) String endBegin,
-                       @RequestParam(required = false) String endEnd,
-                       @RequestParam(required = false) Long ownerId,
-                       @RequestParam(required = false) String category,
-                       @RequestParam(required = false) String team,
-                       @RequestParam(required = false) Long cityId,
-                       @RequestParam(required = false) Long assistantId,
-                       HttpServletResponse response,
-                       @AuthenticationPrincipal AuthUser user) throws Exception {
-        Workbook wb = projectService.buildExportWorkbook(keyword, status, startBegin, startEnd, endBegin, endEnd,
-                ownerId, category, team, cityId, assistantId, user);
-        String fileName = "项目列表_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()) + ".xlsx";
-        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=\"" + java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20") + "\"");
-        wb.write(response.getOutputStream());
-        wb.close();
-    }
+    /** 导出 xlsx 功能已下线（2026-11-26 项目板块审查：无下载留痕、列宽冗余；如需恢复按留痕+列勾选白名单方案重做）。 */
 
     /** 负责人候选（拥有 PROJECT_OWNER 角色的用户 + 超级管理员）。 */
     @GetMapping("/owners")

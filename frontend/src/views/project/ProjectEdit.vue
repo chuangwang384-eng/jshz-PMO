@@ -195,6 +195,11 @@ async function save() {
     ElMessage.warning('项目起止时间必填')
     return
   }
+  // P2-1（2026-11-26 审查修复）：与后端同口径校验起止先后
+  if (dateRange.value[1] < dateRange.value[0]) {
+    ElMessage.warning('项目结束时间不能早于开始时间')
+    return
+  }
   if (!form.category || !form.ownerId) {
     ElMessage.warning('地点/总负责人必填')
     return

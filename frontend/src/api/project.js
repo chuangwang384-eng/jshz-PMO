@@ -1,4 +1,4 @@
-import request, { downloadFile } from './request'
+import request from './request'
 
 // 项目管理接口（对应后端 /api/project/*）
 // 写操作（创建/编辑/软删/关联专家供应商/资料/合同/日程/参会专家）需 project:manage；
@@ -87,11 +87,6 @@ export function saveStageForm(id, data) {
 // 修改合同敏感字段（同步回写 expert_info 留痕）
 // 上传合同文件
 // 发起合同审批（复用现有审批流）
-// 导出 xlsx（含专家/供应商明细；DOWNLOAD 留痕）
-export function exportProjects(params) {
-  return downloadFile('/project/export', params)
-}
-
 // 负责人候选（PROJECT_OWNER 角色用户 + 超级管理员）
 export function listProjectOwners() {
   return request.get('/project/owners')

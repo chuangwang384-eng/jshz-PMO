@@ -9,3 +9,8 @@ const RELATION_DIRECTION_TEXT = { DIRECTED: '单向', BIDIRECTED: '双向', UNDI
 export function relationDirectionLabel(direction) {
   return RELATION_DIRECTION_TEXT[direction] || '单向'
 }
+
+// 项目类型展示名（2026-11-26 审查收口）：后端权威=ProjectService.PROJECT_TYPES 码集
+// （PLATFORM/DIRECT_PAY/KEY，仅校验码不存文案）；本映射为唯一前端展示副本，
+// ProjectList/ProjectDetail 引用此处；新增/改文案须与后端码集成对修改（AGENTS 17.7）。
+export const PROJECT_TYPE_LABELS = { PLATFORM: '平台类项目', DIRECT_PAY: '直付类项目', KEY: '重点类项目' }

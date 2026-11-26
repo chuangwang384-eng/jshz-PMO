@@ -15,7 +15,6 @@
               <el-radio-button value="dept">本部门</el-radio-button>
             </el-radio-group>
           </template>
-          <el-button v-permission="'project:manage'" plain @click="handleExport">导出 Excel</el-button>
           <el-button v-permission="'project:create'" type="primary" @click="openEdit(null)">新建项目</el-button>
         </div>
       </div>
@@ -86,6 +85,7 @@
           :meetings="calMeetings"
           :year="calYm.year"
           :month="calYm.month"
+          :missing-dates="calMissing"
           @open="goDetail"
           @change-month="onMonthChange"
         />
@@ -210,15 +210,14 @@ import ProjectCalendar from './components/ProjectCalendar.vue'
 import ProjectDeptSchedule from './components/ProjectDeptSchedule.vue'
 import { useAuthStore } from '../../store/auth'
 import {
-  listProjects, exportProjects, deleteProject, cancelProject, restoreProject,
+  listProjects, deleteProject, cancelProject, restoreProject,
   listPhaseOptions, listProjectUsers, getProjectCalendar
 } from '../../api/project'
 import { getOrganization } from '../../api/profileOverview'
 import { listSupplierCities } from '../../api/supplier'
 import { primaryRole, roleLabel } from '../../utils/projectCalendar'
+import { PROJECT_TYPE_LABELS } from '../../utils/dict'
 
-// 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
-const PROJECT_TYPE_LABELS = { PLATFORM: '平台类', DIRECT_PAY: '直付类', KEY: '重点类' }
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -271,6 +270,7 @@ const calYm = reactive({
 })
 const deptAvailable = ref(false)   // 本部门入口显隐：本人是部门负责人/总经理时开放（组织架构判定）
 const calMeetings = ref([])
+const calMissing = ref(0)
 const deptMembers = ref([])
 const calLoading = ref(false)
 const dayVisible = ref(false)
@@ -288,6 +288,7 @@ async function loadCalendar() {
     const data = await getProjectCalendar({ scope: scope.value, from, to })
     if (scope.value === 'me') {
       calMeetings.value = data?.meetings || []
+      calMissing.value = data?.missingDates || 0
     } else {
       deptMembers.value = data?.members || []
     }
@@ -435,15 +436,6 @@ function meetingText(row) {
   if (!row.meetingStartDate && !row.meetingEndDate) return '—'
   if (row.meetingStartDate === row.meetingEndDate) return row.meetingStartDate
   return `${row.meetingStartDate || '-'} ~ ${row.meetingEndDate || '-'}`
-}
-
-async function handleExport() {
-  try {
-    await exportProjects(buildParams())
-    ElMessage.success('导出成功')
-  } catch (e) {
-    // downloadFile 内部已提示
-  }
 }
 
 function goDetail(id) {

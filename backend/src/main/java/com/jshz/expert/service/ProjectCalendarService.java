@@ -300,6 +300,15 @@ public class ProjectCalendarService {
         List<Meeting> meetings = new ArrayList<>();
         Map<Long, Meeting> byId = new LinkedHashMap<>();
         String sql = String.format(SQL_MEETINGS, placeholders(userIds.size()));
+        // 2026-11-26 根因修复：varargs 混传标量+数组会被打包成嵌套 Object[]，
+        // MySQL 驱动把内层数组当 Serializable blob 绑定到 IN 占位符 → 永远匹配不到（日历恒空）。
+        // 必须显式拼平铺参数数组后单数组传入 varargs。
+        Object[] args = new Object[userIds.size() + 2];
+        args[0] = to;
+        args[1] = from;
+        for (int i = 0; i < userIds.size(); i++) {
+            args[i + 2] = userIds.get(i);
+        }
         db.query(sql, rs -> {
             long projectId = rs.getLong(1);
             Meeting m = byId.get(projectId);
@@ -312,12 +321,27 @@ public class ProjectCalendarService {
                 meetings.add(m);
             }
             m.addRole(rs.getLong(6), rs.getString(7));
-        }, to, from, userIds.toArray());
+        }, args);
         return meetings;
     }
 
     private static String placeholders(int n) {
         return String.join(",", Collections.nCopies(n, "?"));
+    }
+
+    /**
+     * P3-4（2026-11-26 完善）：与我相关（负责人/协助人/历史执行人）且 ACTIVE、
+     * 但会议日期缺失的项目数——日历页"有 N 个项目未设置会议日期"提示的数据源。
+     * 会议日期已必填后通常为 0；存量/历史数据缺失时给出可见提示。
+     */
+    public long countMissingMeetingDates(long userId) {
+        Long n = db.queryForObject(
+                "SELECT COUNT(*) FROM project p WHERE p.status = 'ACTIVE' "
+                + "AND (p.meeting_start_date IS NULL OR p.meeting_end_date IS NULL) "
+                + "AND (p.owner_id = ? OR EXISTS (SELECT 1 FROM project_assistant a WHERE a.project_id = p.id AND a.user_id = ?) "
+                + "OR EXISTS (SELECT 1 FROM project_executor e WHERE e.project_id = p.id AND e.user_id = ?))",
+                Long.class, userId, userId, userId);
+        return n == null ? 0 : n;
     }
 
     /** 与 DashboardReadService.section 同构（status/data/updatedAt），供工作台卡片复用。 */
