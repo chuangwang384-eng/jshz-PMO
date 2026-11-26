@@ -6,7 +6,13 @@
     <template v-else-if="overview">
       <div class="closeout-summary" role="status">
         <span>已确认 {{ confirmedCount }} / {{ overview.items.length }} 项</span>
-        <el-tag v-if="overview.completed" type="success">已结项</el-tag>
+        <el-tag v-if="overview.completed" type="success">已完成</el-tag>
+        <template v-else-if="overview.canComplete">
+          <span v-if="!ready" class="ui-desc">确认全部完结证明后可完结</span>
+          <el-button type="primary" :disabled="!ready || Boolean(saving)" :loading="completing" @click="finish">
+            项目完结
+          </el-button>
+        </template>
       </div>
       <section v-for="item in overview.items" :key="item.code" class="closeout-item">
         <div>
@@ -39,8 +45,8 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getProjectCloseout, saveProjectCloseout } from '../../../api/project'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { completeProject, getProjectCloseout, saveProjectCloseout } from '../../../api/project'
 import { ensureUploadLimits, toMb, uploadLimits } from '../../../utils/limits'
 
 const props = defineProps({
@@ -51,8 +57,27 @@ const emit = defineEmits(['saved', 'preview', 'download'])
 const loading = ref(false)
 const failed = ref(false)
 const saving = ref('')
+const completing = ref(false)
 const overview = ref(null)
 const confirmedCount = computed(() => overview.value?.items.filter(item => item.confirmed).length ?? 0)
+const ready = computed(() => confirmedCount.value > 0 && confirmedCount.value === overview.value?.items.length)
+
+async function finish() {
+  if (completing.value || saving.value || !ready.value || !overview.value?.canComplete) return
+  completing.value = true
+  try {
+    await ElMessageBox.confirm('完结后，项目将归入已完成档案并设为只读。确认完结？', '项目完结', {
+      confirmButtonText: '确认完结', cancelButtonText: '取消', type: 'warning'
+    })
+    await completeProject(props.projectId)
+    await load()
+    emit('saved')
+  } catch {
+    // 取消确认或请求失败，保留当前状态。
+  } finally {
+    completing.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -67,7 +92,7 @@ async function load() {
 }
 
 async function submit(item, event) {
-  if (saving.value || !overview.value?.writable) return
+  if (saving.value || completing.value || !overview.value?.writable) return
   const form = event.currentTarget
   const body = new FormData(form)
   const files = body.getAll('files').filter(file => file.name)

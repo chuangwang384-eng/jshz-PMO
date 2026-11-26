@@ -19,7 +19,7 @@ final class ProjectCloseout {
     static List<Item> items(String projectType) {
         if ("PLATFORM".equals(projectType)) return List.of(LABOR, EXECUTION);
         if ("DIRECT_PAY".equals(projectType)) return List.of(DIRECT);
-        return List.of();
+        return List.of(new Item("general", "通用完结证明", "项目完结证明文件"));
     }
 
     private ProjectCloseout() {}

@@ -83,7 +83,7 @@ class ProjectShowExpertMaterialsServiceTest {
     @Test
     void rejectsNonMembersBeforeReadingSpeakerOrExpertData() {
         when(projects.requireProject(10L)).thenReturn(project);
-        doThrow(new BusinessException(403, "无权下载")).when(projects).requireOperable(project, user);
+        doThrow(new BusinessException(403, "无权下载")).when(projects).requireProjectMember(project, user);
         assertThrows(BusinessException.class, () -> service.prepare(10L, user));
         verifyNoInteractions(schedules, experts, photos);
     }

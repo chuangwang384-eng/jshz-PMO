@@ -32,6 +32,11 @@ class ProjectAccessRegressionTest {
     @Mock ProjectPhaseHistoryMapper phaseHistory;
     AuthUser user(long id, String... permissions) { return new AuthUser(id,"fixture",false,false,Set.of(),Set.of(permissions)); }
     Project project() { Project p = new Project(); p.setId(1L); p.setOwnerId(2L); p.setStatus("ACTIVE"); return p; }
+    @Test void completedProjectIsReadOnlyForItsOwner() {
+        Project project = project();
+        project.setStatus("COMPLETED");
+        assertThrows(BusinessException.class, () -> service.requireOperable(project, user(2L)));
+    }
     void setup() { ReflectionTestUtils.setField(service,"baseMapper",projects); when(projects.selectById(1L)).thenReturn(project()); }
     @Test void showArchiveLocksProjectBeforeReplacingTheActiveDocument() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), "fixture"), ProjectDoc.class);
@@ -503,8 +508,18 @@ class ProjectAccessRegressionTest {
                 () -> service.saveCloseoutEvidence(1L, 13L, "direct", List.of(upload), user(2L)));
         service.saveCloseoutEvidence(1L, 13L, "labor", List.of(upload), user(2L));
         assertFalse(service.closeoutOverview(1L, 13L, user(2L)).completed());
+        assertThrows(BusinessException.class, () -> service.completeProject(1L, user(2L)));
         service.saveCloseoutEvidence(1L, 13L, "execution", List.of(upload), user(2L));
+        assertFalse(service.closeoutOverview(1L, 13L, user(2L)).completed());
+        assertEquals(403, assertThrows(BusinessException.class, () -> service.completeProject(1L, user(3L))).getCode());
+        service.completeProject(1L, user(2L));
         assertTrue(service.closeoutOverview(1L, 13L, user(2L)).completed());
+        assertFalse(service.closeoutOverview(1L, 13L, user(2L)).writable());
+        assertEquals("COMPLETED", project.getStatus());
+        assertThrows(BusinessException.class, () -> service.reopenProject(1L, " ", user(2L)));
+        service.reopenProject(1L, "补充凭证", user(2L));
+        assertEquals("ACTIVE", project.getStatus());
+        assertTrue(service.closeoutOverview(1L, 13L, user(2L)).writable());
         assertEquals(13L, project.getPhaseId());
         project.setStatus("CANCELED");
         assertFalse(service.closeoutOverview(1L, 13L, user(2L)).completed());
@@ -512,6 +527,7 @@ class ProjectAccessRegressionTest {
                 () -> service.saveCloseoutEvidence(1L, 13L, "execution", List.of(upload), user(2L)));
         assertEquals(2, files.size());
         assertEquals(List.of("direct"), ProjectCloseout.items("DIRECT_PAY").stream().map(ProjectCloseout.Item::code).toList());
-        assertTrue(ProjectCloseout.items("KEY").isEmpty());
+        assertEquals(List.of("general"), ProjectCloseout.items("KEY").stream().map(ProjectCloseout.Item::code).toList());
+        assertEquals(ProjectCloseout.items("KEY"), ProjectCloseout.items(null));
     }
 }

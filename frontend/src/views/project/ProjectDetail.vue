@@ -9,6 +9,7 @@
           <span class="pd-name">{{ detail.name }}</span>
           <span class="ui-badge ui-badge-primary">{{ detail.phaseName || '-' }}</span>
           <span v-if="detail.status === 'CANCELED'" class="ui-badge ui-badge-danger">已取消</span>
+          <span v-else-if="isCompletedProject" class="ui-badge ui-badge-success">已完成</span>
           <span v-else class="ui-badge ui-badge-success">有效</span>
         </div>
         <div class="pd-meta">
@@ -28,8 +29,9 @@
       </div>
       <div class="pd-actions">
         <el-button v-if="!isSettlementCurrent && detail.canAdvance && hasNextPhase" type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
-        <el-button v-if="detail.canManage || detail.canEditBasic" @click="openEdit">编辑项目</el-button>
-        <el-dropdown trigger="click" @command="onHeadCommand">
+        <el-button v-if="detail.canReopen" :loading="reopening" @click="openCompletedProject">重新打开</el-button>
+        <el-button v-if="!isCompletedProject && (detail.canManage || detail.canEditBasic)" @click="openEdit">编辑项目</el-button>
+        <el-dropdown v-if="!isCompletedProject" trigger="click" @command="onHeadCommand">
           <el-button>更多操作<el-icon style="margin-left: 4px"><ArrowDown /></el-icon></el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -129,9 +131,9 @@
               <span class="doc-meta">{{ d.uploadBy }} · {{ d.createTime }}</span>
             </div>
           </template>
-          <template v-else-if="isCloseoutViewing && supportsCloseout">
+          <template v-else-if="isCloseoutViewing">
             <el-empty v-if="phaseState(viewPhaseObj) === 'future'" description="进入结项阶段后可提交凭证" :image-size="60" />
-            <ProjectCloseout v-else :key="`${projectId}-${viewPhaseObj.id}`" :project-id="projectId" :phase-id="viewPhaseObj.id"
+            <ProjectCloseout v-else :key="`${projectId}-${viewPhaseObj.id}-${detail.status}`" :project-id="projectId" :phase-id="viewPhaseObj.id"
               @saved="fetchDetail" @preview="openFilePreview" @download="downloadProjectFile" />
           </template>
           <el-empty v-else-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
@@ -399,7 +401,7 @@
         </section>
 
         <!-- 2026-11-16 Owner 口径：会议预算制作阶段只展示 生命周期/阶段资料，右侧待办/文件/合规均隐藏 -->
-        <div v-if="!isSettlementCurrent" class="ui-card side-card">
+        <div v-if="!isSettlementCurrent && !isCompletedProject" class="ui-card side-card">
           <div class="pd-sec-title">当前待办</div>
           <template v-if="otherRequiredTemplates.length">
             <div v-for="(m, i) in otherRequiredTemplates" :key="i" class="todo-item">
@@ -431,7 +433,7 @@
         <div class="ui-card side-card">
           <div class="pd-sec-title">项目文件（{{ allDocs.length }}）</div>
           <template v-if="allDocs.length">
-            <div v-for="d in allDocs.slice(0, 10)" :key="d.id" class="side-doc">
+            <div v-for="d in sidebarDocs" :key="d.id" class="side-doc">
               <a href="javascript:void(0)" class="doc-name" :title="d.fileName" @click="openFilePreview(d)">{{ d.fileName }}</a>
               <div class="side-doc-ops">
                 <el-button link type="primary" size="small" @click="openFilePreview(d)">预览</el-button>
@@ -439,7 +441,7 @@
                 <span class="doc-meta">{{ d.createTime }}</span>
               </div>
             </div>
-            <div v-if="allDocs.length > 10" class="hint-text" style="margin-top: 4px">共 {{ allDocs.length }} 份，仅展示最近 10 份</div>
+            <div v-if="allDocs.length > sidebarDocs.length" class="hint-text" style="margin-top: 4px">共 {{ allDocs.length }} 份，展示 {{ sidebarDocs.length }} 份</div>
           </template>
           <div v-else class="hint-text">暂无附件资料</div>
         </div>
@@ -653,7 +655,7 @@ import { downloadBlob, formatMoney as fmt } from '../../utils/common'
 
 ensureUploadLimits()
 import {
-  getProjectDetail, changePhase, cancelProject, restoreProject,
+  getProjectDetail, changePhase, cancelProject, restoreProject, reopenProject,
   uploadProjectDoc, deleteProjectDoc, saveRichText,
   listProjectOwners, listProjectUsers,
   uploadSchedule, getScheduleOverview, parseSchedule, confirmSpeakers, addSpeaker, deleteSpeaker,
@@ -1150,7 +1152,6 @@ const FINANCE_PHASE_NAME = '会前财务资料上传'
 const isFinanceViewing = computed(() => viewPhaseObj.value?.name === FINANCE_PHASE_NAME)
 const CLOSEOUT_PHASE_NAME = '会议费用结算及项目结项'
 const isCloseoutViewing = computed(() => viewPhaseObj.value?.name === CLOSEOUT_PHASE_NAME)
-const supportsCloseout = computed(() => ['PLATFORM', 'DIRECT_PAY'].includes(detail.value.projectType))
 const PLACEHOLDER_PHASE_NAMES = new Set([
   '会前财务资料上传',
   CLOSEOUT_PHASE_NAME
@@ -1165,7 +1166,8 @@ const isMember = computed(() => {
   const uid = authStoreForDetail.id
   return Array.isArray(d.assistantIds) && d.assistantIds.includes(uid)
 })
-const canOperate = computed(() => isMember.value)
+const isCompletedProject = computed(() => detail.value.status === 'COMPLETED')
+const canOperate = computed(() => !isCompletedProject.value && isMember.value)
 const canOperatePhase = computed(() => canOperate.value && isViewingCurrent.value)
 
 function phaseState(p) {
@@ -1198,6 +1200,15 @@ function docsOfPhase(phaseId, type) {
 const allDocs = computed(() => (detail.value.docs || []).filter((d) => !d.isRichText)
   .sort((a, b) => Number(b.id) - Number(a.id))
   .map(doc => ({ ...doc, fileName: projectFileDisplayName(doc) })))
+const sidebarDocs = computed(() => {
+  const proofs = []
+  const other = []
+  for (const doc of allDocs.value) {
+    if (doc.filePath?.startsWith('project_closeout_')) proofs.push(doc)
+    else other.push(doc)
+  }
+  return [...proofs, ...other.slice(0, Math.max(0, 10 - proofs.length))]
+})
 
 function projectFileDisplayName(doc) {
   const name = doc.fileName || doc.filePath
@@ -1374,6 +1385,24 @@ function onHeadCommand(cmd) {
   if (cmd === 'rollback') openRollback()
   else if (cmd === 'cancel') openCancel()
   else if (cmd === 'restore') doRestore()
+}
+
+const reopening = ref(false)
+async function openCompletedProject() {
+  if (reopening.value) return
+  reopening.value = true
+  try {
+    const { value } = await ElMessageBox.prompt('填写重新打开的原因。', '重新打开项目', {
+      inputType: 'textarea', inputValidator: value => Boolean(value?.trim()) && value.trim().length <= 500 || '请输入 1 至 500 字',
+      confirmButtonText: '重新打开', cancelButtonText: '取消'
+    })
+    await reopenProject(projectId, value.trim())
+    await fetchDetail()
+  } catch {
+    // 取消或请求失败时保留当前页面。
+  } finally {
+    reopening.value = false
+  }
 }
 
 // 恢复已取消项目（Owner 2026-11-10：与取消对称；阶段保持不变）

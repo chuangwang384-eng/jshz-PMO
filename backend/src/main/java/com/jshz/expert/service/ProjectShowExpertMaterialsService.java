@@ -37,7 +37,7 @@ public class ProjectShowExpertMaterialsService {
     public Archive prepare(Long projectId, AuthUser user) {
         var project = projects.requireProject(projectId);
         projects.requireProjectReadable(project, user);
-        projects.requireOperable(project, user);
+        projects.requireProjectMember(project, user);
 
         Map<Long, ProjectSpeaker> speakers = new LinkedHashMap<>();
         for (var speaker : schedules.confirmedSpeakers(projectId)) {

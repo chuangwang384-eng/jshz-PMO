@@ -25,6 +25,7 @@ const writes = []
 let failOnce = true
 let deletions = 0
 let archived = false
+let projectCompleted = false
 const missing = () => {
   const pending = slots.filter(item => item.definition.required && !item.complete).map(item => item.definition.name)
   return pending.length || archived ? pending : ['归档结算资料包']
@@ -50,10 +51,18 @@ try {
     let data = []
     if (url.pathname === '/api/auth/me') data = user
     if (url.pathname === '/api/project/1') data = { id: 1, name: '测试结算', status: 'ACTIVE', phaseId: 5, phaseName: '结算资料上传', projectType: 'PLATFORM', phases, docs: [], canOperate: true, canAdvance: true, missingRequiredTemplates: missing() }
-    if (url.pathname === '/api/project/2') data = { id: 2, name: '测试结项', status: 'ACTIVE', phaseId: 6, phaseName: '会议费用结算及项目结项', projectType: 'PLATFORM', phases, docs: [], canOperate: true, canAdvance: true, missingRequiredTemplates: [] }
+    if (url.pathname === '/api/project/2') data = { id: 2, name: '测试结项', status: projectCompleted ? 'COMPLETED' : 'ACTIVE', phaseId: 6, phaseName: '会议费用结算及项目结项', projectType: 'PLATFORM', phases, docs: closeoutItems.flatMap(item => item.files), canOperate: !projectCompleted, canAdvance: !projectCompleted, canReopen: projectCompleted, missingRequiredTemplates: [] }
     if (url.pathname === '/api/project/1/settlement-materials/5') data = { slots, canArchive: true, budgetSources: [] }
     if (url.pathname === '/api/project/1/settlement-materials/5/archive' && req.method() === 'POST') archived = true
-    if (url.pathname === '/api/project/2/closeout/6') data = { items: closeoutItems, writable: true, completed: closeoutItems.every(item => item.confirmed) }
+    if (url.pathname === '/api/project/2/closeout/6') data = { items: closeoutItems, writable: !projectCompleted, completed: projectCompleted, canComplete: !projectCompleted }
+    if (url.pathname === '/api/project/2/complete' && req.method() === 'PUT') {
+      assert.ok(closeoutItems.every(item => item.confirmed))
+      projectCompleted = true
+    }
+    if (url.pathname === '/api/project/2/reopen' && req.method() === 'PUT') {
+      assert.equal(req.postDataJSON().reason, '补正资料')
+      projectCompleted = false
+    }
     const match = url.pathname.match(/\/settlement-materials\/5\/(U\d+)(?:\/(\d+))?$/)
     if (match && req.method() === 'POST') {
       const target = slots.find(item => item.definition.code === match[1])
@@ -78,7 +87,8 @@ try {
       const form = await new Response(req.postDataBuffer(), { headers: { 'content-type': req.headers()['content-type'] } }).formData()
       const item = closeoutItems.find(candidate => candidate.code === closeout[1])
       assert.deepEqual([...form.keys()], ['files'])
-      item.files = [doc(200 + closeoutItems.indexOf(item), form.get('files').name)]
+      item.files = [{ ...doc(200 + closeoutItems.indexOf(item), form.get('files').name),
+        filePath: `project_closeout_${item.code}_test.pdf` }]
       item.confirmed = true
     }
     return route.fulfill({ json: { code: 0, data } })
@@ -134,13 +144,28 @@ try {
   await steps.getByRole('button', { name: /结算资料上传/ }).waitFor()
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto(origin + '/project/2')
+  const complete = page.getByRole('button', { name: '项目完结', exact: true })
+  await complete.waitFor()
+  assert.ok(await complete.isDisabled())
   for (const [index, item] of closeoutItems.entries()) {
     const form = page.getByRole('form', { name: item.label })
     await form.getByLabel('选择凭证文件').setInputFiles(sample(`${item.code}.pdf`))
     await form.getByRole('button', { name: '上传凭证并确认' }).click()
     await page.getByText(`已确认 ${index + 1} / 2 项`, { exact: true }).waitFor()
-    assert.equal(await page.getByText('已结项', { exact: true }).count(), index)
   }
+  assert.ok(await complete.isEnabled())
+  await page.locator('.side-doc').getByText('测试结项-labor.pdf').waitFor()
+  await complete.click()
+  await page.getByRole('button', { name: '确认完结', exact: true }).click()
+  const reopen = page.getByRole('button', { name: '重新打开', exact: true })
+  await reopen.waitFor()
+  await page.locator('.pd-title-row').getByText('已完成', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: '替换凭证并确认' }).count(), 0)
+  await reopen.click()
+  await page.getByRole('dialog', { name: '重新打开项目' }).getByRole('textbox').fill('补正资料')
+  await page.getByRole('dialog', { name: '重新打开项目' }).getByRole('button', { name: '重新打开', exact: true }).click()
+  await complete.waitFor()
+  assert.ok(await complete.isEnabled())
   assert.deepEqual(errors, [])
   console.log('Settlement stage browser regression passed.')
 } finally {

@@ -95,6 +95,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_CANCELED = "CANCELED";
+    public static final String STATUS_COMPLETED = "COMPLETED";
     public static final String STATUS_DELETED = "DELETED";
 
     /** 会议预算制作阶段名（阶段字典 data-driven；missingRequiredTemplates 推进校验与报价服务共用）。 */
@@ -190,14 +191,14 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             }
         }
         if (StringUtils.hasText(status)) {
-            if ("CANCELED".equals(status)) {
-                qw.eq(Project::getStatus, STATUS_CANCELED);
+            if (STATUS_CANCELED.equals(status) || STATUS_COMPLETED.equals(status)) {
+                qw.eq(Project::getStatus, status);
             } else if ("ACTIVE".equals(status)) {
                 qw.ne(Project::getStatus, STATUS_DELETED);
             } else {
                 Long phaseId = parseLong(status);
                 if (phaseId != null) {
-                    qw.eq(Project::getPhaseId, phaseId);
+                    qw.eq(Project::getPhaseId, phaseId).ne(Project::getStatus, STATUS_COMPLETED);
                 }
             }
         }
@@ -229,7 +230,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .map(project -> {
                     Map<String, Object> m = toBriefMap(project);
                     // 项目级操作授权（与详情页 canAdvance 同义：负责人/执行人/超管），供列表"取消项目"按钮显隐
-                    m.put("canAdvance", isOwnerOrCreator(project, user));
+                    m.put("canAdvance", !STATUS_COMPLETED.equals(project.getStatus()) && isOwnerOrCreator(project, user));
                     return m;
                 }).collect(Collectors.toList());
         return new Page<Map<String, Object>>(p.getCurrent(), p.getSize(), p.getTotal()).setRecords(items);
@@ -329,15 +330,17 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             m.put("phases", phaseList);
         }
         m.put("timeline", timeline(id, user));
-        m.put("canManage", user != null && (user.isAdmin() || user.hasPermission("project:manage")));
-        m.put("canAdvance", isOwnerOrCreator(project, user));
-        m.put("canOperate", fullSensitive);
+        boolean completed = STATUS_COMPLETED.equals(project.getStatus());
+        m.put("canManage", !completed && user != null && (user.isAdmin() || user.hasPermission("project:manage")));
+        m.put("canAdvance", !completed && isOwnerOrCreator(project, user));
+        m.put("canOperate", !completed && fullSensitive);
+        m.put("canReopen", completed && isOwnerOrCreator(project, user));
         // REQ-20261102 需求三：回退权限独立字段（2026-11-09 起与推进一致=负责人+创建人）
-        m.put("canRollback", isOwnerOrCreator(project, user));
+        m.put("canRollback", !completed && isOwnerOrCreator(project, user));
         // 恢复（与取消对称，Owner 2026-11-10）：仅已取消项目且负责人/创建人可见
         m.put("canRestore", STATUS_CANCELED.equals(project.getStatus()) && isOwnerOrCreator(project, user));
         // 基础信息编辑（Owner 2026-11-10 放宽）：管理员/project:manage 或项目成员均可编辑
-        m.put("canEditBasic", user != null && (user.isAdmin() || user.hasPermission("project:manage")
+        m.put("canEditBasic", !completed && user != null && (user.isAdmin() || user.hasPermission("project:manage")
                 || isProjectMember(project, user)));
 
         // 合规要求注意事项（Owner 2026-11-10 记事本需求规则5）：绑定文档名+推送待办（推送时快照）
@@ -350,7 +353,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .orderByDesc(ProjectPhaseHistory::getCreateTime)
                 .last("LIMIT 20"));
         m.put("phaseHistory", hists);
-        m.put("missingRequiredTemplates", missingRequiredTemplates(project, project.getPhaseId(), (String) m.get("phaseName")));
+        m.put("missingRequiredTemplates", completed ? List.of() : missingRequiredTemplates(project, project.getPhaseId(), (String) m.get("phaseName")));
         return m;
     }
 
@@ -447,7 +450,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
      */
     @Transactional(rollbackFor = Exception.class)
     public Project update(Long id, Map<String, Object> body, AuthUser user) {
-        Project project = requireProject(id);
+        Project project = lockProjectForUpdate(id);
         requireOperable(project, user);
         boolean personnelCarrier = body.containsKey("ownerId") || body.containsKey("assistantIds");
         if (personnelCarrier && !(user != null && (user.isAdmin() || isOwnerOrCreator(project, user)))) {
@@ -536,7 +539,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 软删除：列表隐藏、数据保留、日志保留。 */
     @Transactional(rollbackFor = Exception.class)
     public void deleteSoft(Long id, AuthUser user) {
-        Project project = requireProject(id);
+        Project project = lockProjectForUpdate(id);
+        requireProjectMutable(project);
         requireManage(user);
         project.setStatus(STATUS_DELETED);
         this.updateById(project);
@@ -557,6 +561,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void changePhase(Long id, Long phaseId, String reason, AuthUser user) {
         Project project = lockProjectForUpdate(id);
+        requireProjectMutable(project);
         if (!isOwnerOrCreator(project, user)) {
             throw new BusinessException("仅项目总负责人或创建人可推进/回退阶段");
         }
@@ -643,7 +648,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 取消（必填原因）；取消后仍可回退（changePhase 已支持从 CANCELED 恢复）。 */
     @Transactional(rollbackFor = Exception.class)
     public void cancel(Long id, String reason, AuthUser user) {
-        Project project = requireProject(id);
+        Project project = lockProjectForUpdate(id);
+        requireProjectMutable(project);
         if (!isOwnerOrCreator(project, user)) {
             throw new BusinessException("仅项目总负责人或创建人可取消项目");
         }
@@ -666,7 +672,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
      */
     @Transactional(rollbackFor = Exception.class)
     public void restore(Long id, AuthUser user) {
-        Project project = requireProject(id);
+        Project project = lockProjectForUpdate(id);
         if (!isOwnerOrCreator(project, user)) {
             throw new BusinessException("仅项目总负责人或创建人可恢复项目");
         }
@@ -733,6 +739,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void addExpert(Long id, Long expertId, String role, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         if (expertId == null || expertService.getById(expertId) == null) {
             throw new BusinessException("专家不存在");
@@ -757,6 +764,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void removeExpert(Long id, Long expertId, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         ProjectExpert rel = expertRelMapper.selectOne(new LambdaQueryWrapper<ProjectExpert>()
                 .eq(ProjectExpert::getProjectId, id).eq(ProjectExpert::getExpertId, expertId));
@@ -776,6 +784,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public Expert createExpertCard(Long id, Map<String, Object> body, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         String name = str(body.get("name"));
         if (!StringUtils.hasText(name)) {
@@ -850,6 +859,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void addSupplier(Long id, Long supplierId, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         Supplier supplier = supplierId == null ? null : supplierMapper.selectOne(new LambdaQueryWrapper<Supplier>()
                 .eq(Supplier::getId, supplierId).last("FOR UPDATE"));
@@ -876,6 +886,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void removeSupplier(Long id, Long supplierId, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         ProjectSupplier rel = supplierRelMapper.selectOne(new LambdaQueryWrapper<ProjectSupplier>()
                 .eq(ProjectSupplier::getProjectId, id).eq(ProjectSupplier::getSupplierId, supplierId));
@@ -919,6 +930,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public ProjectDoc uploadDoc(Long id, Long phaseId, MultipartFile file, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可上传资料");
         }
@@ -946,6 +958,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void deleteDoc(Long id, Long docId, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可删除资料");
         }
@@ -992,6 +1005,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void saveRichText(Long id, Long phaseId, Long templateId, String content, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可维护阶段内容");
         }
@@ -1158,6 +1172,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void registerBudget(Long id, BigDecimal amount, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可登记预算");
         }
@@ -1218,6 +1233,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public ProjectContract createContract(Long id, Long expertId, BigDecimal fee, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可登记合同");
         }
@@ -1260,6 +1276,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void uploadContractFile(Long id, Long contractId, MultipartFile file, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可上传合同文件");
         }
@@ -1285,6 +1302,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void updateContractSensitive(Long id, Long contractId, Map<String, Object> changes, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可修改合同敏感字段");
         }
@@ -1334,6 +1352,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     /** 发起合同审批（复用现有审批流；通过后合同生效）。 */
     public Application submitContractApproval(Long id, Long contractId, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         if (!isProjectMember(project, user)) {
             throw new BusinessException("仅项目成员（负责人/创建人/协助人）可发起合同审批");
         }
@@ -1487,12 +1506,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             }
         }
         if (StringUtils.hasText(status)) {
-            if ("CANCELED".equals(status)) {
-                qw.eq(Project::getStatus, STATUS_CANCELED);
+            if (STATUS_CANCELED.equals(status) || STATUS_COMPLETED.equals(status)) {
+                qw.eq(Project::getStatus, status);
             } else {
                 Long phaseId = parseLong(status);
                 if (phaseId != null) {
-                    qw.eq(Project::getPhaseId, phaseId);
+                    qw.eq(Project::getPhaseId, phaseId).ne(Project::getStatus, STATUS_COMPLETED);
                 }
             }
         }
@@ -2017,8 +2036,19 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     /** 供日程解析等协作服务复用：校验当前用户可操作该项目（成员级）。 */
     public void requireOperable(Project project, AuthUser user) {
+        requireProjectMember(project, user);
+        requireProjectMutable(project);
+    }
+
+    public void requireProjectMember(Project project, AuthUser user) {
         if (!isProjectMember(project, user)) {
             throw new BusinessException(403, "仅项目成员（负责人/创建人/协助人）可执行该操作");
+        }
+    }
+
+    public void requireProjectMutable(Project project) {
+        if (STATUS_COMPLETED.equals(project.getStatus())) {
+            throw new BusinessException("项目已完成，请重新打开后再修改");
         }
     }
 
@@ -2464,22 +2494,54 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     public record CloseoutItem(String code, String label, String evidence, List<ProjectDoc> files, boolean confirmed) {}
-    public record CloseoutOverview(List<CloseoutItem> items, boolean writable, boolean completed) {}
+    public record CloseoutOverview(List<CloseoutItem> items, boolean writable, boolean completed, boolean canComplete) {}
 
     public CloseoutOverview closeoutOverview(Long id, Long phaseId, AuthUser user) {
         Project project = requireProject(id);
         requireProjectReadable(project, user);
         requireCloseoutStage(project, phaseId);
+        var rows = closeoutItems(project, phaseId);
+        boolean writable = closeoutWritable(project, phaseId);
+        return new CloseoutOverview(rows, writable && isProjectMember(project, user),
+                STATUS_COMPLETED.equals(project.getStatus()), writable && isOwnerOrCreator(project, user));
+    }
+
+    private List<CloseoutItem> closeoutItems(Project project, Long phaseId) {
         var items = ProjectCloseout.items(project.getProjectType());
-        var docs = items.isEmpty() ? List.<ProjectDoc>of() : closeoutDocuments(id, phaseId);
-        var rows = items.stream().map(item -> {
+        var docs = closeoutDocuments(project.getId(), phaseId);
+        return items.stream().map(item -> {
             var files = docs.stream().filter(doc -> doc.getFilePath().startsWith(item.prefix())).toList();
             boolean confirmed = !files.isEmpty() && files.stream()
                     .allMatch(doc -> storageService.resolveFile(doc.getFilePath()) != null);
             return new CloseoutItem(item.code(), item.label(), item.evidence(), files, confirmed);
         }).toList();
-        return new CloseoutOverview(rows, closeoutWritable(project, phaseId) && isProjectMember(project, user),
-                closeoutWritable(project, phaseId) && !rows.isEmpty() && rows.stream().allMatch(CloseoutItem::confirmed));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void completeProject(Long id, AuthUser user) {
+        Project project = lockProjectForUpdate(id);
+        if (!isOwnerOrCreator(project, user)) throw new BusinessException(403, "仅项目总负责人或创建人可完结项目");
+        if (STATUS_COMPLETED.equals(project.getStatus())) return;
+        Long phaseId = project.getPhaseId();
+        requireCloseoutStage(project, phaseId);
+        if (!closeoutWritable(project, phaseId)) throw new BusinessException("仅当前活跃结项阶段可完结");
+        if (closeoutItems(project, phaseId).stream().anyMatch(item -> !item.confirmed())) {
+            throw new BusinessException("请先上传并确认全部完结证明");
+        }
+        project.setStatus(STATUS_COMPLETED);
+        this.updateById(project);
+        operationRecord(user, "完结项目「" + project.getName() + "」", "PROJECT", id);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void reopenProject(Long id, String reason, AuthUser user) {
+        Project project = lockProjectForUpdate(id);
+        if (!isOwnerOrCreator(project, user)) throw new BusinessException(403, "仅项目总负责人或创建人可重新打开项目");
+        if (!STATUS_COMPLETED.equals(project.getStatus())) throw new BusinessException("仅已完成的项目可重新打开");
+        if (!StringUtils.hasText(reason) || reason.strip().length() > 500) throw new BusinessException("请填写重新打开原因（1 至 500 字）");
+        project.setStatus(STATUS_ACTIVE);
+        this.updateById(project);
+        operationRecord(user, "重新打开项目「" + project.getName() + "」，原因：" + reason.strip(), "PROJECT", id);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -2937,6 +2999,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     private String statusText(Project p) {
+        if (STATUS_COMPLETED.equals(p.getStatus())) return "已完成";
         if (STATUS_CANCELED.equals(p.getStatus())) {
             return "已取消";
         }
@@ -3013,6 +3076,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void saveExpertFee(Long id, Long expertId, Double fee, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         ProjectExpert rel = expertRelMapper.selectOne(new LambdaQueryWrapper<ProjectExpert>()
                 .eq(ProjectExpert::getProjectId, id)
@@ -3034,6 +3098,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     @Transactional(rollbackFor = Exception.class)
     public void saveSupplierFee(Long id, Long supplierId, Double fee, AuthUser user) {
         Project project = requireProject(id);
+        requireProjectMutable(project);
         requireManage(user);
         ProjectSupplier rel = supplierRelMapper.selectOne(new LambdaQueryWrapper<ProjectSupplier>()
                 .eq(ProjectSupplier::getProjectId, id)

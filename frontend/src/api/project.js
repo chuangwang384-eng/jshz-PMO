@@ -273,6 +273,14 @@ export function getProjectCloseout(projectId, phaseId) {
   return request.get(`/project/${projectId}/closeout/${phaseId}`)
 }
 
+export function completeProject(projectId) {
+  return request.put(`/project/${projectId}/complete`)
+}
+
+export function reopenProject(projectId, reason) {
+  return request.put(`/project/${projectId}/reopen`, { reason })
+}
+
 export function saveProjectCloseout(projectId, phaseId, item, data) {
   return request.post(`/project/${projectId}/closeout/${phaseId}/${item}`, data, { timeout: 0 })
 }

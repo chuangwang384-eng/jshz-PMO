@@ -133,7 +133,7 @@ public class DashboardReadService {
         String scope="FROM project p LEFT JOIN sys_user u ON u.id=p.owner_id "+
             "LEFT JOIN project_phase ph ON ph.id=p.phase_id "+
             "LEFT JOIN supplier_city sc ON sc.id=p.city_id "+
-            "WHERE p.status NOT IN ('DELETED','CANCELED') AND (p.owner_id=? OR p.creator_id=? "+
+            "WHERE p.status NOT IN ('DELETED','CANCELED','COMPLETED') AND (p.owner_id=? OR p.creator_id=? "+
             "OR EXISTS(SELECT 1 FROM project_assistant a2 WHERE a2.project_id=p.id AND a2.user_id=?) "+
             "OR EXISTS(SELECT 1 FROM project_executor e WHERE e.project_id=p.id AND e.user_id=?))";
         Object[] scopeArgs={uid,uid,uid,uid};

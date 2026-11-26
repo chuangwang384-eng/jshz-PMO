@@ -124,6 +124,19 @@ public class ProjectController {
         return ApiResponse.ok(null);
     }
 
+    @PutMapping("/{id}/complete")
+    public ApiResponse<Void> complete(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+        projectService.completeProject(id, user);
+        return ApiResponse.ok(null);
+    }
+
+    @PutMapping("/{id}/reopen")
+    public ApiResponse<Void> reopen(@PathVariable Long id, @RequestBody Map<String, Object> body, @AuthenticationPrincipal AuthUser user) {
+        Object reason = body.get("reason");
+        projectService.reopenProject(id, reason instanceof String text ? text : null, user);
+        return ApiResponse.ok(null);
+    }
+
     /**
      * 项目文件流（Owner 2026-11-12 在线预览/下载）：GET /api/project/files/{fileName}?download=1&preview=true。
      * 登录即可；preview=true 时 Office 经 DocPreviewService 转 PDF（失败返回结构化 JSON），PDF/图片原流。

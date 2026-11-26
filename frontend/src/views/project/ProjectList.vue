@@ -23,6 +23,7 @@
         <el-select v-model="filters.status" placeholder="当前阶段" aria-label="当前阶段" clearable @change="handleSearch">
           <el-option v-for="p in phases" :key="p.id" :label="p.name" :value="String(p.id)" />
           <el-option label="已取消" value="CANCELED" />
+          <el-option label="已完成" value="COMPLETED" />
         </el-select>
         <div class="filter-actions">
           <el-button type="primary" @click="handleSearch">搜索</el-button>
@@ -77,6 +78,7 @@
         <el-table-column label="当前阶段" width="180">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'CANCELED'" type="danger">已取消</el-tag>
+            <el-tag v-else-if="row.status === 'COMPLETED'" type="success">已完成</el-tag>
             <template v-else-if="row.phaseName === '日程上传'">
               <el-tag v-if="row.speakerConfirmedCnt > 0" type="success">{{ row.phaseName }}·已完成</el-tag>
               <el-tag v-else-if="row.scheduleStatus === 'DONE'" type="warning">{{ row.phaseName }}·待确认</el-tag>
@@ -105,7 +107,7 @@
           <template #default="{ row }">
             <div class="row-actions" @click.stop>
               <el-button link type="primary" @click="goDetail(row.id)">详情</el-button>
-              <el-dropdown v-if="auth.hasPermission('project:manage') || row.canAdvance" trigger="click" @command="handleRowAction($event, row)">
+              <el-dropdown v-if="row.status !== 'COMPLETED' && (auth.hasPermission('project:manage') || row.canAdvance)" trigger="click" @command="handleRowAction($event, row)">
                 <el-button link aria-label="更多项目操作">更多</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>

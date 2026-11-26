@@ -238,6 +238,7 @@ public class ComplianceNotebookService {
         }
         todoMapper.lockProject(projectId);   // 与来源撤下一致锁顺序，串行化跨文档并发首次绑定
         Project project = projectService.requireProject(projectId);
+        projectService.requireProjectMutable(project);
         if (!projectService.isRealProjectMember(project, user)) {
             throw new BusinessException("仅项目真实参与人（负责人/创建人/协助人/历史执行人）可推送");
         }
@@ -325,6 +326,7 @@ public class ComplianceNotebookService {
             throw new BusinessException("待办不存在");
         }
         Project project = projectService.requireProject(todo.getProjectId());
+        projectService.requireProjectMutable(project);
         if (!projectService.isRealProjectMember(project, user)) {
             throw new BusinessException("仅项目真实参与人可处理合规待办");
         }
