@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,13 +32,6 @@ import java.util.Map;
 public class AnnouncementController {
 
     private final AnnouncementService announcementService;
-
-    /** 首页生效列表：最多 5 条，置顶优先 + 发布时间倒序 */
-    @GetMapping("/effective")
-    public ApiResponse<List<Announcement>> effective(@AuthenticationPrincipal AuthUser user,
-                                                     @RequestParam(defaultValue = "5") int limit) {
-        return ApiResponse.ok(announcementService.effectiveList(user, limit));
-    }
 
     /** 分页列表：管理视角含已读进度；员工视角仅 ONLINE；scope=effective 追加生效中过滤 */
     @GetMapping
@@ -112,6 +104,13 @@ public class AnnouncementController {
     public ApiResponse<Announcement> toggleTop(@AuthenticationPrincipal AuthUser user, @PathVariable Long id,
                                                @RequestParam boolean top, HttpServletRequest request) {
         return ApiResponse.ok(announcementService.toggleTop(user, id, top, request));
+    }
+
+    /** 置顶组内上移/下移（需求四 2026-11-26，announcement:manage），dir=up|down */
+    @PostMapping("/{id}/move")
+    public ApiResponse<Announcement> moveTop(@AuthenticationPrincipal AuthUser user, @PathVariable Long id,
+                                             @RequestParam String dir, HttpServletRequest request) {
+        return ApiResponse.ok(announcementService.moveTop(user, id, dir, request));
     }
 
     /** 标记已读（登录即可，幂等，不入操作日志） */

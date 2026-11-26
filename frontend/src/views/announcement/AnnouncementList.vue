@@ -101,6 +101,10 @@
           <el-button link type="primary" @click="goDetail(row.id)">查看</el-button>
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="warning" @click="toggleTop(row)">{{ row.isTop === 1 ? '取消置顶' : '置顶' }}</el-button>
+          <template v-if="row.isTop === 1">
+            <el-button link type="primary" :disabled="row.$topFirst" @click="moveTop(row, 'up')" aria-label="上移">↑</el-button>
+            <el-button link type="primary" :disabled="row.$topLast" @click="moveTop(row, 'down')" aria-label="下移">↓</el-button>
+          </template>
           <el-button link :type="row.status === 'ONLINE' ? 'danger' : 'success'" @click="toggleStatus(row)">
             {{ row.status === 'ONLINE' ? '下架' : '上架' }}
           </el-button>
@@ -120,7 +124,7 @@
         :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next, jumper"
-        @size-change="loadList"
+        @size-change="handleSizeChange"
         @current-change="loadList"
       />
     </div>
@@ -147,7 +151,8 @@ import {
   listAnnouncements,
   deleteAnnouncement,
   changeAnnouncementStatus,
-  toggleAnnouncementTop
+  toggleAnnouncementTop,
+  moveAnnouncementTop
 } from '../../api/announcement'
 import AnnouncementFormDialog from './AnnouncementFormDialog.vue'
 import AnnouncementReadStatsDialog from './AnnouncementReadStatsDialog.vue'
@@ -163,8 +168,8 @@ const filters = reactive({ keyword: '', status: '', page: 1, size: 10 })
 // 权限感知：管理模式开关仅 announcement:manage 持有者可见（SUPER_ADMIN 由后端全权返回）
 const canManage = computed(() => authStore.hasPermission('announcement:manage'))
 
-// 管理模式会话记忆（localStorage，刷新不丢）
-const MANAGE_MODE_KEY = 'announcement_manage_mode'
+// 管理模式会话记忆（localStorage，刷新不丢；P3-4：按用户隔离，避免共用电脑串状态）
+const MANAGE_MODE_KEY = `announcement_manage_mode:${authStore.id ?? 'anon'}`
 const manageMode = ref(localStorage.getItem(MANAGE_MODE_KEY) === '1')
 watch(manageMode, (v) => {
   localStorage.setItem(MANAGE_MODE_KEY, v ? '1' : '0')
@@ -198,7 +203,21 @@ async function loadList() {
       page: filters.page,
       size: filters.size
     })
-    records.value = data.items || []
+    const items = data.items || []
+    // 需求四：置顶组边界按钮禁用（列表已按 top_sort 升序，置顶组在表头连续段）
+    let firstTopIdx = -1
+    let lastTopIdx = -1
+    items.forEach((r, i) => {
+      if (r.isTop === 1) {
+        if (firstTopIdx < 0) firstTopIdx = i
+        lastTopIdx = i
+      }
+    })
+    items.forEach((r, i) => {
+      r.$topFirst = r.isTop === 1 && i === firstTopIdx
+      r.$topLast = r.isTop === 1 && i === lastTopIdx
+    })
+    records.value = items
     total.value = data.total || 0
   } finally {
     loading.value = false
@@ -206,6 +225,12 @@ async function loadList() {
 }
 
 function handleSearch() {
+  filters.page = 1
+  loadList()
+}
+
+// P3-5：切换页容量后回到第 1 页，避免停在超出范围页导致空列表
+function handleSizeChange() {
   filters.page = 1
   loadList()
 }
@@ -242,6 +267,17 @@ async function toggleStatus(row) {
     loadList()
   } catch (e) {
     // 错误提示由 request 拦截器统一处理
+  }
+}
+
+// 置顶排序（需求四）：后端交换相邻 top_sort；已在边界时后端返回明确提示
+async function moveTop(row, dir) {
+  try {
+    await moveAnnouncementTop(row.id, dir)
+    ElMessage.success(dir === 'up' ? '已上移' : '已下移')
+    loadList()
+  } catch (e) {
+    // 错误提示由 request 拦截器统一处理（如"已在最顶部"）
   }
 }
 

@@ -478,3 +478,11 @@ body.t-forum-fade #deck > .slide.active .sec-title {
 - **列表口径变化**（8.5 已批）：项目列表行级过滤由 负责人/历史执行人 扩为 负责人/**协助人**/历史执行人，与日历/详情口径一致。
 - **过滤**：已取消/已删除项目在日历、排期、工作台卡片均不出现（FR-06）；已停用账号在部门排期保留并标 disabled（8.6）。
 - 前端展示层单一来源：`frontend/src/utils/projectCalendar.js`；后端撞期聚合唯一实现：`ProjectCalendarService`。索引 `idx_project_meeting(status, meeting_start_date, meeting_end_date)`。
+
+## 公告板块修复与置顶排序（2026-11-26，1.0.155）
+
+- **生效口径唯一实现**：`AnnouncementService.applyEffective`（ONLINE + effective<=now + 未过期），员工列表/未读数/全部已读三处共用；员工分页列表不再出现未生效/已过期公告（与消息抽屉、工作台面板同口径）。`GET /api/announcement/effective` 死端点已删除。
+- **时间校验**：失效时间必须晚于生效时间（前后端双校验）；新建时失效时间不得已是过去（编辑存量不拦；编辑未携带 expireTime=清空为永久，契约不变）。
+- **已读统计在职口径**：readStats/进度/totalCount 均按 `sys_user.status=1`，读+未读=总数；停用用户已读记录不计入。标记已读撞 `uk_announcement_user` 视为幂等成功（并发不再 500）。
+- **搜索**：关键词按"标题 + 正文纯文本（Jsoup 剥标签）"匹配；LIKE 仅作预筛，公告量大时需改为文本副本列方案（见 AnnouncementService.pageQuery 注释）。
+- **置顶排序**（需求四）：`announcement.top_sort`（值小靠前，仅 is_top=1 有意义）；`POST /api/announcement/{id}/move?dir=up|down`（announcement:manage）交换相邻排序值；取消置顶保留值，重新置顶恢复原位；新置顶取 min-1 排最前。列表/消息抽屉/工作台 ORDER BY 均为 `is_top DESC, top_sort ASC, create_time DESC`。

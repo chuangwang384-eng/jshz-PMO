@@ -40,6 +40,10 @@ public class Announcement {
     @JsonProperty("isTop")
     private Integer isTop;
 
+    /** 置顶组内排序值（需求四 2026-11-26）：值越小越靠前；仅 isTop=1 时有意义；0=未排序（置顶时自动取最小值-1，即排最前） */
+    @JsonProperty("topSort")
+    private Integer topSort;
+
     /** ONLINE 上架 / OFFLINE 下架 */
     @JsonProperty("status")
     private String status;

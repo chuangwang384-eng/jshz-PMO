@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS `announcement` (
   `effective_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生效时间（到达后才在首页/生效列表展示）',
   `expire_time` datetime DEFAULT NULL COMMENT '失效时间（空=永久有效）',
   `is_top` tinyint NOT NULL DEFAULT '0' COMMENT '置顶标记：0 否 / 1 是',
+  `top_sort` int NOT NULL DEFAULT '0' COMMENT '置顶组内排序值：值越小越靠前（仅 is_top=1 有意义）',
   `status` varchar(20) NOT NULL DEFAULT 'OFFLINE' COMMENT '状态：ONLINE 上架 / OFFLINE 下架',
   `creator_id` bigint DEFAULT NULL COMMENT '发布人 sys_user.id',
   `creator_name` varchar(50) DEFAULT NULL COMMENT '发布人用户名快照',
@@ -1452,6 +1453,7 @@ INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`,
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (153,'announcement:manage','公告上下架',2,'PUT','/api/announcement/*/status',NULL,'2026-10-28 21:58:27','2026-10-28 21:58:27');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (154,'announcement:manage','公告置顶',2,'PUT','/api/announcement/*/top',NULL,'2026-10-28 21:58:27','2026-10-28 21:58:27');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (155,'announcement:manage','公告已读统计',2,'GET','/api/announcement/*/read-stats',NULL,'2026-10-28 21:58:27','2026-10-28 21:58:27');
+INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (156,'announcement:manage','公告置顶排序',2,'POST','/api/announcement/*/move',NULL,'2026-10-28 21:58:27','2026-10-28 21:58:27');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (156,'customer:manage','客户档案新增',2,'POST','/api/customer',NULL,'2026-10-29 10:18:09','2026-10-29 10:18:09');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (157,'customer:manage','客户档案编辑',2,'PUT','/api/customer/**',NULL,'2026-10-29 10:18:09','2026-10-29 10:18:09');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (158,'customer:manage','客户档案软删除',2,'DELETE','/api/customer/**',NULL,'2026-10-29 10:18:09','2026-10-29 10:18:09');

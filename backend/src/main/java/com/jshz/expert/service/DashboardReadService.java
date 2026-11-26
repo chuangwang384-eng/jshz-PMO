@@ -118,7 +118,7 @@ public class DashboardReadService {
     public Map<String,Object> announcements(AuthUser user) {
         LocalDateTime now=LocalDateTime.now(ZONE);
         String from="FROM announcement a WHERE "+effective();
-        List<Map<String,Object>> items=rows("SELECT a.id,a.title,a.create_time publishTime,EXISTS(SELECT 1 FROM announcement_read r WHERE r.announcement_id=a.id AND r.user_id=?) AS `read` "+from+" ORDER BY a.is_top DESC,a.create_time DESC,a.id DESC LIMIT 3",user.getUserId(),now,now);
+        List<Map<String,Object>> items=rows("SELECT a.id,a.title,a.create_time publishTime,EXISTS(SELECT 1 FROM announcement_read r WHERE r.announcement_id=a.id AND r.user_id=?) AS `read` "+from+" ORDER BY a.is_top DESC,a.top_sort ASC,a.create_time DESC,a.id DESC LIMIT 3",user.getUserId(),now,now);
         items.forEach(m->m.put("target",DashboardRules.target("/profile/announcements/"+m.get("id"),Map.of("from","dashboard"))));
         long total=count(from,List.of(now,now));return section(Map.of("total",total,"items",items),total==0);
     }

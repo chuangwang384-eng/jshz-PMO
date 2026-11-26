@@ -38,6 +38,11 @@ export function toggleAnnouncementTop(id, top) {
   return request.put(`/announcement/${id}/top`, null, { params: { top } })
 }
 
+// 置顶组内上移/下移（需求四 2026-11-26，announcement:manage），dir=up|down
+export function moveAnnouncementTop(id, dir) {
+  return request.post(`/announcement/${id}/move`, null, { params: { dir } })
+}
+
 // 标记已读（登录即可，幂等，不入操作日志）
 export function markAnnouncementRead(id) {
   return request.post(`/announcement/${id}/read`)

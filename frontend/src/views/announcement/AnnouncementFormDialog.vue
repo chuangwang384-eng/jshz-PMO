@@ -145,6 +145,13 @@ function close() {
   emit('update:modelValue', false)
 }
 
+// 本地时间串（与 value-format YYYY-MM-DDTHH:mm:ss 同构），用于"已过去"判断
+function localNow() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 async function confirmSave() {
   if (!form.title || !form.title.trim()) {
     ElMessage.warning('请输入标题')
@@ -152,6 +159,15 @@ async function confirmSave() {
   }
   if (!form.content || !form.content.trim()) {
     ElMessage.warning('请输入正文内容')
+    return
+  }
+  // P2-1（2026-11-26 审查修复）：生效/失效时间前后校验，后端 applyForm 同口径兜底
+  if (form.effectiveTime && form.expireTime && form.expireTime <= form.effectiveTime) {
+    ElMessage.warning('失效时间必须晚于生效时间')
+    return
+  }
+  if (!editingId.value && form.expireTime && form.expireTime < localNow()) {
+    ElMessage.warning('失效时间不能早于当前时间')
     return
   }
   saving.value = true
