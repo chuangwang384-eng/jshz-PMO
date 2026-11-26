@@ -269,6 +269,14 @@ export function getSettlementMaterials(projectId, phaseId) {
   return request.get(`/project/${projectId}/settlement-materials/${phaseId}`)
 }
 
+export function getProjectCloseout(projectId, phaseId) {
+  return request.get(`/project/${projectId}/closeout/${phaseId}`)
+}
+
+export function saveProjectCloseout(projectId, phaseId, item, data) {
+  return request.post(`/project/${projectId}/closeout/${phaseId}/${item}`, data, { timeout: 0 })
+}
+
 export function saveSettlementMaterials(projectId, phaseId, slot, formData) {
   return request.post(`/project/${projectId}/settlement-materials/${phaseId}/${slot}`, formData, { timeout: 0 })
 }

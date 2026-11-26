@@ -359,6 +359,20 @@ public class ProjectController {
         return ApiResponse.ok(projectService.settlementOverview(id, phaseId, user));
     }
 
+    @GetMapping("/{id}/closeout/{phaseId}")
+    public ApiResponse<ProjectService.CloseoutOverview> closeout(
+            @PathVariable Long id, @PathVariable Long phaseId, @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectService.closeoutOverview(id, phaseId, user));
+    }
+
+    @PostMapping("/{id}/closeout/{phaseId}/{item}")
+    public ApiResponse<Void> saveCloseout(
+            @PathVariable Long id, @PathVariable Long phaseId, @PathVariable String item,
+            @RequestParam List<MultipartFile> files, @AuthenticationPrincipal AuthUser user) throws java.io.IOException {
+        projectService.saveCloseoutEvidence(id, phaseId, item, files, user);
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/{id}/settlement-materials/{phaseId}/{slot}")
     public ApiResponse<Void> submitSettlementMaterials(
             @PathVariable Long id, @PathVariable Long phaseId, @PathVariable String slot,

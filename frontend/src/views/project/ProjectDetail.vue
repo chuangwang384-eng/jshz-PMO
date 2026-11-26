@@ -48,14 +48,8 @@
         <!-- ② 核心数据卡（日程上传阶段隐藏，Owner 2026-11-09） -->
 
 
-        <section class="pd-stepper ui-card" :class="{ 'pd-stepper-compact': isSettlementCurrent }" aria-label="项目生命周期">
+        <section class="pd-stepper ui-card" aria-label="项目生命周期">
           <div class="pd-sec-title">项目生命周期</div>
-          <select v-if="isSettlementCurrent" class="pd-phase-select" aria-label="查看项目阶段"
-            :value="String(viewPhaseId)" @change="setViewPhase(sortedPhases.find(phase => String(phase.id) === $event.target.value))">
-            <option v-for="(phase, index) in sortedPhases" :key="phase.id" :value="String(phase.id)">
-              第 {{ index + 1 }} / {{ sortedPhases.length }} 阶段 · {{ phase.name }}
-            </option>
-          </select>
           <ol class="steps-row">
             <li v-for="(p, idx) in sortedPhases" :key="p.id">
               <button type="button" class="step-item" :class="stepClass(p)"
@@ -134,6 +128,11 @@
               <el-button link type="primary" @click="downloadProjectFile(d)">{{ d.fileName }}</el-button>
               <span class="doc-meta">{{ d.uploadBy }} · {{ d.createTime }}</span>
             </div>
+          </template>
+          <template v-else-if="isCloseoutViewing && supportsCloseout">
+            <el-empty v-if="phaseState(viewPhaseObj) === 'future'" description="进入结项阶段后可提交凭证" :image-size="60" />
+            <ProjectCloseout v-else :key="`${projectId}-${viewPhaseObj.id}`" :project-id="projectId" :phase-id="viewPhaseObj.id"
+              @saved="fetchDetail" @preview="openFilePreview" @download="downloadProjectFile" />
           </template>
           <el-empty v-else-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
           <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
@@ -463,8 +462,10 @@
 
     <div v-if="isSettlementCurrent && detail.canAdvance && hasNextPhase" class="pd-settlement-footer ui-card">
       <div v-if="!requiredSubmitted" class="pd-settlement-reason">
-        <span>还差 {{ missingRequiredTemplates.length }} 项必填资料</span>
-        <el-button link type="primary" @click="resolveMissing(missingRequiredTemplates[0])">查看缺项</el-button>
+        <span>{{ needsSettlementArchive ? '请先归档当前结算资料包' : `还差 ${missingRequiredTemplates.length} 项必填资料` }}</span>
+        <el-button link type="primary" @click="resolveMissing(missingRequiredTemplates[0])">
+          {{ needsSettlementArchive ? '查看归档' : '查看缺项' }}
+        </el-button>
       </div>
       <el-button type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
     </div>
@@ -644,6 +645,7 @@ import ProjectBudgetPanel from './components/ProjectBudgetPanel.vue'
 import { uploadShowPpt } from '../../api/project'
 import ProjectFinanceForm from './components/ProjectFinanceForm.vue'
 import ProjectSettlementMaterials from './components/ProjectSettlementMaterials.vue'
+import ProjectCloseout from './components/ProjectCloseout.vue'
 import BatchResumeDialog from '../../components/BatchResumeDialog.vue'
 import request from '../../api/request'
 import { uploadLimits, ensureUploadLimits, toMb } from '../../utils/limits'
@@ -1146,9 +1148,12 @@ const isBudgetViewing = computed(() => viewPhaseObj.value?.name === BUDGET_PHASE
 // 2026-11-20 会前财务资料上传：专用差异化表单视图（按项目类型分支），不再是纯占位
 const FINANCE_PHASE_NAME = '会前财务资料上传'
 const isFinanceViewing = computed(() => viewPhaseObj.value?.name === FINANCE_PHASE_NAME)
+const CLOSEOUT_PHASE_NAME = '会议费用结算及项目结项'
+const isCloseoutViewing = computed(() => viewPhaseObj.value?.name === CLOSEOUT_PHASE_NAME)
+const supportsCloseout = computed(() => ['PLATFORM', 'DIRECT_PAY'].includes(detail.value.projectType))
 const PLACEHOLDER_PHASE_NAMES = new Set([
   '会前财务资料上传',
-  '会议费用结算及项目结项'
+  CLOSEOUT_PHASE_NAME
 ])
 const isPlaceholderPhaseViewing = computed(() => PLACEHOLDER_PHASE_NAMES.has(viewPhaseObj.value?.name))
 // 非当前阶段只读（隐藏编辑/上传/删除入口）；2026-11-09 起资料/预算/合同操作=项目成员级（负责人/创建人/协助人）
@@ -1234,6 +1239,15 @@ function resolveLabel(m) {
   return '去处理'
 }
 async function resolveMissing(m) {
+  if (m === '归档结算资料包' && isSettlementCurrent.value) {
+    viewPhaseId.value = String(detail.value.phaseId)
+    await nextTick()
+    const area = document.getElementById('project-stage-materials')
+    const archive = document.getElementById('settlement-archive-action')
+    ;(archive || area)?.scrollIntoView({ block: 'center' })
+    archive?.focus({ preventScroll: true })
+    return
+  }
   if (m === BUDGET_QUOTE_TASK) {
     viewPhaseId.value = String(detail.value.phaseId)
     await nextTick()
@@ -1287,6 +1301,7 @@ const nextPhase = computed(() => {
 const hasNextPhase = computed(() => !!nextPhase.value)
 const missingRequiredTemplates = computed(() => detail.value.missingRequiredTemplates || [])
 const requiredSubmitted = computed(() => missingRequiredTemplates.value.length === 0)
+const needsSettlementArchive = computed(() => missingRequiredTemplates.value.includes('归档结算资料包'))
 const missingRequiredTip = computed(() => `当前阶段必填材料未提交：${missingRequiredTemplates.value.join('、')}`)
 
 async function confirmAdvance() {
@@ -1676,18 +1691,8 @@ async function downloadProjectFile(d) {
   margin-top: 12px;
 }
 .pd-settlement-reason { display: flex; align-items: center; gap: 8px; color: var(--ui-text-sub); }
-.pd-phase-select { display: none; }
-.pd-stepper-compact .steps-row { flex-wrap: wrap; overflow: visible; gap: 4px; }
-.pd-stepper-compact .step-item { min-width: 0; padding: 5px 6px; gap: 5px; }
-.pd-stepper-compact .step-dot { width: 19px; height: 19px; font-size: 11px; }
-.pd-stepper-compact .step-name { font-size: 12px; }
-.pd-stepper-compact .step-item:not([aria-current="step"]) .step-state { display: none; }
 @media (max-width: 1050px) {
   .pd-settlement-page .pd-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 640px) {
-  .pd-stepper-compact .steps-row { display: none; }
-  .pd-phase-select { display: block; margin-block-start: 6px; max-width: 100%; font: inherit; }
 }
 /* ① 概览头部 */
 .pd-head { display: flex; justify-content: space-between; gap: 16px; padding: 16px 20px; margin: 12px 0 16px; }

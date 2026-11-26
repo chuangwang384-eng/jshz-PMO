@@ -6,7 +6,7 @@
     <template v-else-if="slots.length">
       <div class="settlement-heading">
         <h3>必填资料 {{ requiredComplete }} / {{ requiredCount }}</h3>
-        <el-button v-if="canArchive" type="primary" :loading="archiving" :disabled="busy"
+        <el-button v-if="canArchive" id="settlement-archive-action" type="primary" :loading="archiving" :disabled="busy"
           @click="archive">归档结算资料包</el-button>
       </div>
       <progress class="settlement-progress" aria-label="结算资料必填进度" :max="requiredCount || 1" :value="requiredComplete" />

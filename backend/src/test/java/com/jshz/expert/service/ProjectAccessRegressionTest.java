@@ -387,6 +387,7 @@ class ProjectAccessRegressionTest {
         project.setPhaseId(12L);
         when(projects.selectOne(any())).thenReturn(project);
         when(phases.selectById(12L)).thenReturn(phase(12L, "结算资料上传", 102));
+        when(phases.selectById(13L)).thenReturn(phase(13L, "会议费用结算及项目结项", 103));
         var files = new ArrayList<ProjectDoc>();
         for (var slot : ProjectSettlementMaterials.applicable(null)) {
             if (!slot.required()) continue;
@@ -403,6 +404,8 @@ class ProjectAccessRegressionTest {
         superseded.setFilePath("project_settlement_U01_old_first.txt");
         files.add(0, superseded);
         when(docs.selectList(any())).thenReturn(files);
+        var missingArchive = assertThrows(BusinessException.class, () -> service.changePhase(1L, 13L, null, user(2L)));
+        assertTrue(missingArchive.getMessage().contains("归档结算资料包"));
         var output = new java.io.ByteArrayOutputStream();
         when(storage.saveSettlementPackage(any())).thenAnswer(invocation -> {
             ProjectStorageService.SettlementPackageWriter writer = invocation.getArgument(0);
@@ -424,6 +427,21 @@ class ProjectAccessRegressionTest {
         verify(docs).insert(saved.capture());
         assertEquals("结算资料包.zip", saved.getValue().getFileName());
         assertFalse(ProjectSettlementMaterials.manages(saved.getValue().getFilePath()));
+        var archived = saved.getValue();
+        archived.setId(100L);
+        files.add(archived);
+        when(storage.resolveFile(archived.getFilePath())).thenReturn(
+                java.nio.file.Files.write(temp.resolve("snapshot.zip"), output.toByteArray()));
+        var added = new ProjectDoc();
+        added.setId(101L);
+        added.setFileName("追加.txt");
+        added.setFilePath("project_settlement_U01_current_second.txt");
+        when(storage.resolveFile(added.getFilePath())).thenReturn(temp.resolve("U01.txt"));
+        files.add(added);
+        assertThrows(BusinessException.class, () -> service.changePhase(1L, 13L, null, user(2L)));
+        files.remove(added);
+        service.changePhase(1L, 13L, null, user(2L));
+        assertEquals(13L, project.getPhaseId());
     }
 
     @Test void settlementDeletionIsScopedToCurrentBatchAndDoesNotPromoteHistory() {
@@ -453,5 +471,47 @@ class ProjectAccessRegressionTest {
                 .filter(item -> item.definition().code().equals("U08")).findFirst().orElseThrow();
         assertFalse(slot.complete());
         assertEquals(List.of(List.of(), List.of(historical)), slot.batches());
+    }
+
+    @Test void platformCloseoutCompletesOnlyAfterBothEvidenceItemsAreConfirmed() throws Exception {
+        ReflectionTestUtils.setField(service, "baseMapper", projects);
+        var project = project();
+        project.setProjectType("PLATFORM");
+        project.setPhaseId(13L);
+        when(projects.selectById(1L)).thenReturn(project);
+        when(projects.selectOne(any())).thenReturn(project);
+        when(phases.selectById(13L)).thenReturn(phase(13L, "会议费用结算及项目结项", 103));
+        var files = new ArrayList<ProjectDoc>();
+        when(docs.selectList(any())).thenReturn(files);
+        when(docs.insert(any(ProjectDoc.class))).thenAnswer(call -> {
+            ProjectDoc file = call.getArgument(0);
+            file.setId((long) files.size() + 1);
+            files.add(file);
+            return 1;
+        });
+        when(storage.saveSettlement(eq("project_closeout_labor_"), eq("pdf"), any())).thenReturn("project_closeout_labor_first.pdf");
+        when(storage.saveSettlement(eq("project_closeout_execution_"), eq("pdf"), any())).thenReturn("project_closeout_execution_first.pdf");
+        when(storage.resolveFile(startsWith("project_closeout_"))).thenReturn(java.nio.file.Path.of("fixture.pdf"));
+        when(executors.selectCount(any())).thenReturn(0L);
+        var upload = new org.springframework.mock.web.MockMultipartFile("files", "凭证.pdf", "application/pdf", new byte[] {1});
+
+        assertEquals(List.of("labor", "execution"), service.closeoutOverview(1L, 13L, user(2L)).items().stream()
+                .map(ProjectService.CloseoutItem::code).toList());
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> service.saveCloseoutEvidence(1L, 13L, "labor", List.of(upload), user(3L))).getCode());
+        assertThrows(BusinessException.class,
+                () -> service.saveCloseoutEvidence(1L, 13L, "direct", List.of(upload), user(2L)));
+        service.saveCloseoutEvidence(1L, 13L, "labor", List.of(upload), user(2L));
+        assertFalse(service.closeoutOverview(1L, 13L, user(2L)).completed());
+        service.saveCloseoutEvidence(1L, 13L, "execution", List.of(upload), user(2L));
+        assertTrue(service.closeoutOverview(1L, 13L, user(2L)).completed());
+        assertEquals(13L, project.getPhaseId());
+        project.setStatus("CANCELED");
+        assertFalse(service.closeoutOverview(1L, 13L, user(2L)).completed());
+        assertThrows(BusinessException.class,
+                () -> service.saveCloseoutEvidence(1L, 13L, "execution", List.of(upload), user(2L)));
+        assertEquals(2, files.size());
+        assertEquals(List.of("direct"), ProjectCloseout.items("DIRECT_PAY").stream().map(ProjectCloseout.Item::code).toList());
+        assertTrue(ProjectCloseout.items("KEY").isEmpty());
     }
 }

@@ -6,7 +6,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const dist = path.resolve(process.argv[2])
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
 const origin = 'http://isolated-pmo.test'
-const phases = ['会议预算制作', '会前财务资料上传', '日程上传', '串场制作', '结算资料上传', '会后复盘', '归档', '完成']
+const phases = ['会议预算制作', '会前财务资料上传', '日程上传', '串场制作', '结算资料上传', '会议费用结算及项目结项']
   .map((name, index) => ({ id: index + 1, sort: index + 1, name, templates: [] }))
 const slots = [
   { code: 'U01', name: '酒店发票', group: '供应商费用核对', required: true },
@@ -24,7 +24,15 @@ assert.equal(suggestSettlementSlot('盖章结算单.pdf', slots), '')
 const writes = []
 let failOnce = true
 let deletions = 0
-const missing = () => slots.filter(item => item.definition.required && !item.complete).map(item => item.definition.name)
+let archived = false
+const missing = () => {
+  const pending = slots.filter(item => item.definition.required && !item.complete).map(item => item.definition.name)
+  return pending.length || archived ? pending : ['归档结算资料包']
+}
+const closeoutItems = [
+  { code: 'labor', label: '劳务费用全部结转完毕', evidence: '结转记录或回执', files: [], confirmed: false },
+  { code: 'execution', label: '会务执行费用结算至我司账户', evidence: '银行回单', files: [], confirmed: false }
+]
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })
   const errors = []
@@ -42,7 +50,10 @@ try {
     let data = []
     if (url.pathname === '/api/auth/me') data = user
     if (url.pathname === '/api/project/1') data = { id: 1, name: '测试结算', status: 'ACTIVE', phaseId: 5, phaseName: '结算资料上传', projectType: 'PLATFORM', phases, docs: [], canOperate: true, canAdvance: true, missingRequiredTemplates: missing() }
+    if (url.pathname === '/api/project/2') data = { id: 2, name: '测试结项', status: 'ACTIVE', phaseId: 6, phaseName: '会议费用结算及项目结项', projectType: 'PLATFORM', phases, docs: [], canOperate: true, canAdvance: true, missingRequiredTemplates: [] }
     if (url.pathname === '/api/project/1/settlement-materials/5') data = { slots, canArchive: true, budgetSources: [] }
+    if (url.pathname === '/api/project/1/settlement-materials/5/archive' && req.method() === 'POST') archived = true
+    if (url.pathname === '/api/project/2/closeout/6') data = { items: closeoutItems, writable: true, completed: closeoutItems.every(item => item.confirmed) }
     const match = url.pathname.match(/\/settlement-materials\/5\/(U\d+)(?:\/(\d+))?$/)
     if (match && req.method() === 'POST') {
       const target = slots.find(item => item.definition.code === match[1])
@@ -60,6 +71,15 @@ try {
       const target = slots.find(item => item.definition.code === match[1])
       target.batches[0] = target.batches[0].filter(file => file.id !== Number(match[2]))
       deletions++
+      archived = false
+    }
+    const closeout = url.pathname.match(/\/closeout\/6\/(labor|execution)$/)
+    if (closeout && req.method() === 'POST') {
+      const form = await new Response(req.postDataBuffer(), { headers: { 'content-type': req.headers()['content-type'] } }).formData()
+      const item = closeoutItems.find(candidate => candidate.code === closeout[1])
+      assert.deepEqual([...form.keys()], ['files'])
+      item.files = [doc(200 + closeoutItems.indexOf(item), form.get('files').name)]
+      item.confirmed = true
     }
     return route.fulfill({ json: { code: 0, data } })
   })
@@ -71,8 +91,8 @@ try {
   assert.ok(initialViewport.y + initialViewport.height <= 800)
   assert.equal(await page.locator('#settlement-slot-U01').count(), 0)
   assert.equal(await page.getByText('当前待办', { exact: true }).count(), 0)
-  const steps = await page.locator('.steps-row').evaluate(el => ({ width: el.clientWidth, content: el.scrollWidth }))
-  assert.ok(steps.content <= steps.width + 1)
+  const steps = page.locator('.steps-row')
+  assert.equal(await steps.locator('.step-state:visible').count(), phases.length)
   await page.getByText('已完成', { exact: true }).last().click()
   assert.equal(await page.locator('#settlement-slot-U01 h4 button').getAttribute('aria-expanded'), 'false')
   await page.getByRole('button', { name: '查看缺项' }).click()
@@ -90,7 +110,10 @@ try {
   await page.getByRole('button', { name: '确认归类并提交' }).click()
   await page.getByText('已提交 1 个文件，剩余 0 个待处理。').waitFor()
   assert.equal(writes.filter(write => write.code === 'U01').length, 1)
-  await advance.waitFor()
+  await page.getByText('请先归档当前结算资料包', { exact: true }).waitFor()
+  assert.equal(await advance.isDisabled(), true)
+  await page.getByRole('button', { name: '查看归档' }).click()
+  await page.getByRole('button', { name: '归档结算资料包' }).click()
   await page.waitForFunction(() => !document.querySelector('.pd-settlement-footer button:last-child').disabled)
   await page.getByText('全部', { exact: true }).last().click()
   await page.getByText('文件名标记金额合计 ¥11656.00（2 / 3 个文件）').waitFor()
@@ -104,9 +127,20 @@ try {
   await page.getByRole('dialog', { name: '删除结算资料' }).getByRole('button', { name: '删除', exact: true }).click()
   await page.getByText('文件名标记金额合计 ¥3000.00（1 / 2 个文件）').waitFor()
   assert.equal(deletions, 1)
+  await page.getByText('请先归档当前结算资料包', { exact: true }).waitFor()
+  assert.equal(await advance.isDisabled(), true)
   assert.equal(await page.getByText('盖章结算单', { exact: true }).count(), 0)
   await page.setViewportSize({ width: 600, height: 800 })
-  await page.getByLabel('查看项目阶段').waitFor()
+  await steps.getByRole('button', { name: /结算资料上传/ }).waitFor()
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto(origin + '/project/2')
+  for (const [index, item] of closeoutItems.entries()) {
+    const form = page.getByRole('form', { name: item.label })
+    await form.getByLabel('选择凭证文件').setInputFiles(sample(`${item.code}.pdf`))
+    await form.getByRole('button', { name: '上传凭证并确认' }).click()
+    await page.getByText(`已确认 ${index + 1} / 2 项`, { exact: true }).waitFor()
+    assert.equal(await page.getByText('已结项', { exact: true }).count(), index)
+  }
   assert.deepEqual(errors, [])
   console.log('Settlement stage browser regression passed.')
 } finally {

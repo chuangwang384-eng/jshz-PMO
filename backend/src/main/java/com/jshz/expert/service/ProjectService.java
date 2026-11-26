@@ -956,6 +956,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (ProjectSettlementMaterials.manages(doc.getFilePath())) {
             throw new BusinessException("请在结算资料上传口管理此文件");
         }
+        if (doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectCloseout.PREFIX)) {
+            throw new BusinessException("请在项目结项凭证上传口替换此文件");
+        }
+        if (doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectSettlementMaterials.PACKAGE_PREFIX)) {
+            requireOperable(lockProjectForUpdate(id), user);
+        }
         if (doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)) {
             throw new BusinessException("已生成的对客报价随版本保留");
         }
@@ -2457,6 +2463,111 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .orElseThrow(() -> new BusinessException("该资料上传口不适用于本项目"));
     }
 
+    public record CloseoutItem(String code, String label, String evidence, List<ProjectDoc> files, boolean confirmed) {}
+    public record CloseoutOverview(List<CloseoutItem> items, boolean writable, boolean completed) {}
+
+    public CloseoutOverview closeoutOverview(Long id, Long phaseId, AuthUser user) {
+        Project project = requireProject(id);
+        requireProjectReadable(project, user);
+        requireCloseoutStage(project, phaseId);
+        var items = ProjectCloseout.items(project.getProjectType());
+        var docs = items.isEmpty() ? List.<ProjectDoc>of() : closeoutDocuments(id, phaseId);
+        var rows = items.stream().map(item -> {
+            var files = docs.stream().filter(doc -> doc.getFilePath().startsWith(item.prefix())).toList();
+            boolean confirmed = !files.isEmpty() && files.stream()
+                    .allMatch(doc -> storageService.resolveFile(doc.getFilePath()) != null);
+            return new CloseoutItem(item.code(), item.label(), item.evidence(), files, confirmed);
+        }).toList();
+        return new CloseoutOverview(rows, closeoutWritable(project, phaseId) && isProjectMember(project, user),
+                closeoutWritable(project, phaseId) && !rows.isEmpty() && rows.stream().allMatch(CloseoutItem::confirmed));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveCloseoutEvidence(Long id, Long phaseId, String code, List<MultipartFile> files, AuthUser user)
+            throws java.io.IOException {
+        Project project = lockProjectForUpdate(id);
+        requireOperable(project, user);
+        requireCloseoutStage(project, phaseId);
+        if (!closeoutWritable(project, phaseId)) throw new BusinessException("仅在当前结项阶段可确认凭证");
+        var item = ProjectCloseout.items(project.getProjectType()).stream()
+                .filter(candidate -> candidate.code().equals(code)).findFirst()
+                .orElseThrow(() -> new BusinessException("该结项事项不适用于本项目"));
+        if (files == null || files.isEmpty()) throw new BusinessException("请选择结项凭证");
+        if (files.stream().mapToLong(MultipartFile::getSize).sum() > settlementBatchMaxBytes) {
+            throw new BusinessException("本批次合计不能超过 " + settlementBatchMaxMb() + " MB");
+        }
+        var previous = closeoutDocuments(id, phaseId).stream()
+                .filter(doc -> doc.getFilePath().startsWith(item.prefix())).map(ProjectDoc::getId).toList();
+        for (MultipartFile file : files) {
+            com.jshz.expert.common.UploadGuard.requireValid(file, settlementFileMaxBytes, SETTLEMENT_EXTENSIONS,
+                    "仅支持 PDF、Excel、Word、常用图片、压缩包、TXT 或 OFD 文件");
+            String name = com.jshz.expert.common.FileNames.sanitize(file.getOriginalFilename());
+            if (name.length() > 255) throw new BusinessException("文件名不能超过 255 个字符");
+            try (var input = file.getInputStream()) {
+                String path = storageService.saveSettlement(item.prefix(), com.jshz.expert.common.FileNames.extension(name), input);
+                insertSettlementDocument(id, phaseId, name, path, user);
+            }
+        }
+        if (!previous.isEmpty()) {
+            docMapper.update(null, new LambdaUpdateWrapper<ProjectDoc>().in(ProjectDoc::getId, previous)
+                    .set(ProjectDoc::getIsDeleted, 1).set(ProjectDoc::getDeletedBy, ParamUtils.usernameOf(user))
+                    .set(ProjectDoc::getDeletedTime, LocalDateTime.now()));
+        }
+        operationLogService.record(ParamUtils.userIdOf(user), ParamUtils.usernameOf(user), OperationLogService.ACTION_UPLOAD_DOC,
+                "项目「" + project.getName() + "」确认结项凭证：" + item.label(), "PROJECT", id, null);
+    }
+
+    private List<ProjectDoc> closeoutDocuments(Long projectId, Long phaseId) {
+        return docMapper.selectList(new LambdaQueryWrapper<ProjectDoc>()
+                        .eq(ProjectDoc::getProjectId, projectId).eq(ProjectDoc::getPhaseId, phaseId)
+                        .eq(ProjectDoc::getIsDeleted, 0).likeRight(ProjectDoc::getFilePath, ProjectCloseout.PREFIX)
+                        .orderByDesc(ProjectDoc::getId)).stream()
+                .filter(doc -> doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectCloseout.PREFIX)).toList();
+    }
+
+    private void requireCloseoutStage(Project project, Long phaseId) {
+        var phase = projectPhase(project, phaseId);
+        if (phase == null || !ProjectCloseout.PHASE.equals(phase.getName())) {
+            throw new BusinessException("结项阶段不存在");
+        }
+    }
+
+    private boolean closeoutWritable(Project project, Long phaseId) {
+        return STATUS_ACTIVE.equals(project.getStatus()) && phaseId.equals(project.getPhaseId());
+    }
+
+    private static String settlementZipEntry(ProjectSettlementMaterials.Slot slot, ProjectDoc doc) {
+        String name = com.jshz.expert.common.FileNames.sanitize(doc.getFileName())
+                .replaceAll("[\\p{Cntrl}:*?<>|]", "_").replace('"', '_');
+        return slot.group() + "/" + slot.name() + "/" + doc.getId() + "-" + name;
+    }
+
+    private boolean settlementPackageCurrent(Project project, List<ProjectDoc> docs) {
+        var archive = docs.stream()
+                .filter(doc -> !Integer.valueOf(1).equals(doc.getIsDeleted()) && doc.getFilePath() != null
+                        && doc.getFilePath().startsWith(ProjectSettlementMaterials.PACKAGE_PREFIX))
+                .max(java.util.Comparator.comparing(ProjectDoc::getId)).orElse(null);
+        if (archive == null) return false;
+        if (docs.stream().anyMatch(doc -> ProjectSettlementMaterials.manages(doc.getFilePath())
+                && doc.getId() > archive.getId())) return false;
+        var path = storageService.resolveFile(archive.getFilePath());
+        if (path == null) return false;
+        Set<String> expected = new java.util.HashSet<>();
+        for (var slot : ProjectSettlementMaterials.applicable(project.getProjectType())) {
+            var batches = settlementBatches(slot, docs);
+            if (batches.isEmpty()) continue;
+            for (var doc : batches.get(0)) {
+                if (storageService.resolveFile(doc.getFilePath()) == null) return false;
+                expected.add(settlementZipEntry(slot, doc));
+            }
+        }
+        try (var zip = new java.util.zip.ZipFile(path.toFile())) {
+            return zip.size() == expected.size() && zip.stream().allMatch(entry -> expected.contains(entry.getName()));
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void archiveSettlementPackage(Long id, Long phaseId, AuthUser user) throws java.io.IOException {
         Project project = lockProjectForUpdate(id);
@@ -2477,9 +2588,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             for (ProjectDoc doc : batches.get(0)) {
                 var path = storageService.resolveFile(doc.getFilePath());
                 if (path == null) throw new BusinessException("归档文件缺失：" + slot.name() + " · " + doc.getFileName());
-                String name = com.jshz.expert.common.FileNames.sanitize(doc.getFileName())
-                        .replaceAll("[\\p{Cntrl}:*?<>|]", "_").replace('"', '_');
-                entries.add(new Entry(slot.group() + "/" + slot.name() + "/" + doc.getId() + "-" + name, path));
+                entries.add(new Entry(settlementZipEntry(slot, doc), path));
             }
         }
         String path = storageService.saveSettlementPackage(output -> {
@@ -2622,7 +2731,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         if (ProjectSettlementMaterials.PHASE.equals(phaseName)) {
             var docs = settlementDocuments(project.getId(), phaseId);
-            return ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
+            var missingSlots = ProjectSettlementMaterials.applicable(project.getProjectType()).stream()
                     .filter(ProjectSettlementMaterials.Slot::required)
                     .filter(slot -> {
                         var batches = settlementBatches(slot, docs);
@@ -2630,6 +2739,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                                 .anyMatch(doc -> storageService.resolveFile(doc.getFilePath()) == null);
                     })
                     .map(ProjectSettlementMaterials.Slot::name).toList();
+            if (!missingSlots.isEmpty()) return missingSlots;
+            return settlementPackageCurrent(project, docs) ? List.of() : List.of("归档结算资料包");
         }
         // 新流程项目无快照模板，仍执行阶段业务材料校验。
         if (snapshotOrNull(project) == null) {
