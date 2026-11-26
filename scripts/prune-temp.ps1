@@ -139,6 +139,39 @@ foreach ($cat in @('目录', 'jar', 'script', 'log', 'other')) {
     }
 }
 
+# ---------- 子目录散落物（AGENTS 0.4 禁止项，2026-11-26 目录结构审查新增） ----------
+# backend	emp、frontend	emp 等子目录不允许有 *.log/*.tmp（测试 LOG_DIR 相对路径的典型落点）：
+# 全部清理，不适用 Keep/引用保护（这些目录本就不该有内容）；MinAgeDays 保护保留。
+$strayDirs = @(
+    (Join-Path $RepoRoot 'backend\temp'),
+    (Join-Path $RepoRoot 'frontend\temp'),
+    (Join-Path $RepoRoot 'frontend\builds')
+)
+foreach ($d in $strayDirs) {
+    if (-not (Test-Path -LiteralPath $d)) { continue }
+    $dFull = [IO.Path]::GetFullPath($d).TrimEnd('')
+    $stray = @(Get-ChildItem -LiteralPath $dFull -Force -ErrorAction SilentlyContinue |
+               Where-Object { $_.LastWriteTime -le $cutoff })
+    if (-not $stray.Count) { continue }
+    Write-Host ''
+    Write-Info ("[散落] $dFull 共 $($stray.Count) 项（全部清理）")
+    foreach ($it in $stray) {
+        $mb = Get-ItemSizeMB $it
+        if ($DryRun) {
+            Write-Info ('  [DRYRUN] 将删除 ' + $it.Name + '（' + $mb + ' MB）')
+        } else {
+            try {
+                Remove-Item -LiteralPath $it.FullName -Recurse -Force -ErrorAction Stop
+                Write-Ok ('  已删除 ' + $it.Name + '（' + $mb + ' MB）')
+            } catch {
+                Write-Warn2 ('  删除失败 ' + $it.Name + '：' + $_.Exception.Message); continue
+            }
+        }
+        $script:DeletedCount++
+        $script:DeletedMB += $mb
+    }
+}
+
 Write-Host ''
 if ($DryRun) {
     Write-Host ('[DRYRUN] 将删除 ' + $script:DeletedCount + ' 项，可释放约 ' + [math]::Round($script:DeletedMB, 1) + ' MB；因引用跳过 ' + $script:SkippedRef + ' 项') -ForegroundColor Yellow

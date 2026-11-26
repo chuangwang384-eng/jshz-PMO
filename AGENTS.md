@@ -52,11 +52,14 @@
 | 类别 | 唯一归属地 | 禁止 |
 | --- | --- | --- |
 | 日志 | `logs/`（应用日志 / 发布日志 / NSSM 重定向 / `logs/legacy/` 历史归档） | 根目录、`scripts/`、`backend/`、`frontend/` 下出现 `*.log` |
-| 构建产物 | `builds/<版本>-build-<时间戳>/`，历史快照进 `builds/archive/` | 根目录 `.build-*`；在 `backend/` 原地 `mvn clean package`（生产进程占用 jar，必失败） |
+| 构建产物 | `builds/<版本>-build-<时间戳>/`，历史快照进 `builds/archive/` | 根目录 `.build-*`；`frontend/builds/`（第二处构建堆放地，已清理，不得重建）；在 `backend/` 原地 `mvn clean package`（生产进程占用 jar，必失败） |
+| 备份 | 全量备份=`backup/`（backup.ps1，计划任务 jshzPMOBackupWeekly）；手工临时备份=`temp/backup/` | 散落在仓库根/temp 顶层的 backup_* 目录 |
+| 测试日志 | 测试运行 `LOG_DIR` 必须用**绝对路径**（如 `D:\jshz-PMO\temp`）——相对路径会随进程工作目录落成 `backend/temp/*.log` 等散落物 | `backend/temp/`、`frontend/temp/` 等子目录内任何 `*.log` |
 | 前端快照 | `frontend/releases/<ReleaseId>/`，切换靠 Nginx root 指针 | 用 `deploy-frontend.ps1` 替换 `dist` 冒充发布（线上 root 不在 dist，替换无效） |
 | 临时文件 | `temp/`（已 gitignore） | 散落在仓库根目录 |
 
 - 日志保留策略：NSSM 轮转产物各留 10 个、发布日志留 20 个，由 `scripts/prune-logs.ps1` 执行，`deploy-backend.ps1` 阶段 11 自动调用。
+- 收纳计划任务：`jshzPMOPruneMonthly`（prune-all：logs/builds/temp/frontend-releases + 子目录散落物）与 `jshzPMOBackupWeekly`，由 `scripts/register-*-schedule.ps1` 注册；新目录加入扫描范围时同步更新本节。
 - `.gitignore` 覆盖 `*.log` / `logs/` / `temp/` **不等于允许散落**：被忽略的文件照样污染目录、误导后续排查。
 
 ### 0.5 数量类事实必须现查（禁止沿用旧基线）

@@ -18,11 +18,11 @@
 | `backend/src/main/java/com/jshz/expert/` | 后端唯一包根 | Controller 32 / Service 59 / Entity+Mapper 68 |
 | `frontend/src/` | Vue 前端 | views 45 页 / components 20 / api 19 模块 |
 | `database/init.sql` | 新环境唯一 DDL 来源（85 业务表） | `migration/*.sql`(64) 仅既有库增量，新环境不重放 |
-| `scripts/` | 构建/部署/迁移/巡检（48 个 ps1） | 公共库：common-paths / common-credentials / build-paths |
+| `scripts/` | 构建/部署/迁移/巡检（现行脚本在顶层；一次性历史脚本已归档 `scripts/legacy/`，2026-11-26） | 公共库：common-paths / common-credentials / build-paths |
 | `docs/` | architecture / deployment / handover / releases / decisions / agents | 文档同步铁律见 AGENTS.md §0 |
 | `builds/`、`frontend/releases/` | 构建产物与前端发布快照 | 切换靠 Nginx root 指针，禁止原地替换 dist |
 | `logs/`、`temp/` | 日志与临时文件（gitignored） | 禁止散落（AGENTS.md §0.4） |
-| 根目录中文目录（项目资料库/照片库等） | 业务文件存储区 | 路径经 `STORAGE_ROOT` 出口化 |
+| 根目录中文目录（项目资料库/照片库等 7 个） | 业务文件存储区（**AGENTS 0.4 豁免**：正被生产服务与 Nginx 引用，不做仓库内搬迁；新环境部署时用非仓库根的 STORAGE_ROOT 一步到位，2026-11-26 目录审查决策） | 路径经 `STORAGE_ROOT` 出口化 |
 
 ## 3. 后端模块地图（按业务域分组）
 
