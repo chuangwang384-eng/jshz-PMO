@@ -848,6 +848,8 @@ powershell -ExecutionPolicy Bypass -File <LOCAL_PATH> -DryRun
 - 线上 `Nginx root` 指向 `frontend/releases/<ReleaseId>` 快照目录，发布靠改 root + graceful reload，**不是**替换 `frontend/dist`。
 - 发布：`scripts\deploy-frontend-graceful.ps1 -StagedDist <构建目录> -ReleaseId <标签> -Apply`（管理员）；先不带 `-Apply` 出计划。
 - 回滚：改回 `frontend/release-metadata/<ReleaseId>.rollback.conf.txt` 记录的 root，`nginx -t` + graceful reload。
+
+2026-11-26，前端快照 `1.0.151-settlement-stage-ui` 平滑上线，后端保持 1.0.151。首页和项目详情包的线上响应已与制品哈希比对。发布与回滚证据见 [结算资料页面交接](handover/tasks/20261126_settlement_stage_ui.md)。
 - `scripts/deploy-frontend.ps1` 已加护栏：root 不指向 `frontend\dist` 时直接 `[ABORT]` 退出码 2。
 
 ### 八、前端目录保留策略（2026-11-06 落地，2026-11-12 调整默认保留 5）
