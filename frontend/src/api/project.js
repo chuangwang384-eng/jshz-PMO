@@ -102,6 +102,12 @@ export function listProjectUsers() {
   return request.get('/project/user-options')
 }
 
+// 项目日历（2026-11-26 项目日历需求）：scope=me 个人 / scope=dept 部门排期（后端判定负责人身份）
+// from/to 为 YYYY-MM-DD，跨度 ≤62 天；返回字段白名单：日期/项目名/负责人/角色
+export function getProjectCalendar(params) {
+  return request.get('/project/calendar', { params })
+}
+
 // 阶段选项（激活阶段字典，登录即可；阶段筛选/展示用）
 export function listPhaseOptions() {
   return request.get('/project/phase-options')

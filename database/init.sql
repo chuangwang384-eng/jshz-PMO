@@ -798,7 +798,8 @@ CREATE TABLE IF NOT EXISTS `project` (
   KEY `idx_project_ptype` (`project_type`),
   KEY `idx_project_status` (`status`),
   KEY `idx_project_team` (`team`),
-  KEY `idx_project_city` (`city_id`)
+  KEY `idx_project_city` (`city_id`),
+  KEY `idx_project_meeting` (`status`, `meeting_start_date`, `meeting_end_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='项目主表（软删：status=DELETED 列表隐藏，数据保留）';
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE IF NOT EXISTS `project_assistant` (

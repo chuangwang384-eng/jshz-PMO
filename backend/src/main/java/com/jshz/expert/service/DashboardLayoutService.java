@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class DashboardLayoutService {
     private static final Set<String> PUBLIC_CARDS = Set.of(
             "stat.myApplications", "stat.riskOverdue", "stat.riskDue", "panel.returned",
-            "panel.myProjects", "panel.favorites", "panel.announcements", "panel.notifications",
+            "panel.myProjects", "panel.myMeetings", "panel.favorites", "panel.announcements", "panel.notifications",
             "page.notifications", "page.profileHome");
     private static final Set<String> APPROVAL_CARDS = Set.of("stat.myApprovals", "panel.myApprovals", "page.approvalManage", "panel.approvalStats");
     private static final Map<String, String> MODULE_CARDS = Map.of(
@@ -28,11 +28,14 @@ public class DashboardLayoutService {
     private final DashboardReadService reads;
     private final JdbcTemplate db;
     private final ObjectMapper json;
+    private final ProjectCalendarService calendar;
 
-    public DashboardLayoutService(DashboardReadService reads, JdbcTemplate db, ObjectMapper json) {
+    public DashboardLayoutService(DashboardReadService reads, JdbcTemplate db, ObjectMapper json,
+                                  ProjectCalendarService calendar) {
         this.reads = reads;
         this.db = db;
         this.json = json;
+        this.calendar = calendar;
     }
 
     public record Card(String i, int x, int y, int w, int h) {
@@ -149,6 +152,8 @@ public class DashboardLayoutService {
     /** 卡片标识是否对当前用户可用（quick-access 等复用同一白名单）。 */
     public boolean allowed(AuthUser user, String id) {
         if (PUBLIC_CARDS.contains(id)) return true;
+        // 部门会议概览（2026-11-26 项目日历需求）：仅部门负责人/总经理可用
+        if (id.equals("panel.deptMeetings")) return !calendar.managedUserIds(user).isEmpty();
         if (APPROVAL_CARDS.contains(id)) return user.hasPermission("approval:audit");
         if (id.equals("page.myApplications") || id.equals("panel.applicationProgress")) return reads.allowedPath(user, "/api/approval/my-applications");
         if (id.equals("page.directory")) return reads.allowedPath(user, "/api/wecom/directory/mine");

@@ -468,3 +468,13 @@ body.t-forum-fade #deck > .slide.active .sec-title {
 串场第三步单页编辑复用现有预览、草稿和项目权限。页面布局扩展在 deck.slides[].layout 中，按元素编号保存字号/比例、字体和位移。见 [单页编辑交接](handover/tasks/20261123_show_inline_editor.md)。
 
 项目详情原位打开串场向导。专家简介段落批量样式、拖动坐标和删除状态随现有项目草稿及离线 HTML 保存。见 [交接记录](handover/tasks/20261123_show_resume_editing.md)。
+
+## 项目日历（2026-11-26，1.0.154）
+
+- **接口**：`GET /api/project/calendar?scope=me|dept&from=YYYY-MM-DD&to=YYYY-MM-DD`（跨度 ≤62 天）。登录即可（与列表同口径，无独立权限点）；字段白名单仅 日期/项目名/负责人/角色，部门范围另含成员 id/姓名/disabled。**有意不套用 appendRowLevelCondition**：日历可见范围大于详情可见范围是需求 C6 的明确接受项，详情仍走 requireProjectReadable 403 兜底。
+- **部门范围**：服务端判定 `profile_department.leader_user_id`，范围=本部门及全部下级（负责人拍板 8.1）；总经理（GENERAL_MANAGER 根节点负责人）见全员；不接受前端传部门。非负责人 scope=dept 返回 403。
+- **team 自动同步**（FR-05/C3）：team 不再手选，由负责人组织架构部门沿 parent_id 向上找 PROJECT_1/2/3 → DEPT1/2/3 派生，映射不到留空（8.3 决策）。写入时机：创建/换负责人派生；调岗（ProfileOverviewService.saveMembership）afterCommit 对该员工 ACTIVE 项目重算；每日兜底任务 ProjectTeamSyncTask（cron `expert.project.team-sync-cron`，默认 `0 30 4 * * ?`）。历史口径按当前部门不追溯（8.4）。
+- **会议日期必填**（FR-04）：立项必填起止；编辑携带 null 拒绝（"不能清空"）；列保持可空（存量/历史项目兼容）。存量随迁移 20261126_project_calendar_team_sync 补齐。
+- **列表口径变化**（8.5 已批）：项目列表行级过滤由 负责人/历史执行人 扩为 负责人/**协助人**/历史执行人，与日历/详情口径一致。
+- **过滤**：已取消/已删除项目在日历、排期、工作台卡片均不出现（FR-06）；已停用账号在部门排期保留并标 disabled（8.6）。
+- 前端展示层单一来源：`frontend/src/utils/projectCalendar.js`；后端撞期聚合唯一实现：`ProjectCalendarService`。索引 `idx_project_meeting(status, meeting_start_date, meeting_end_date)`。

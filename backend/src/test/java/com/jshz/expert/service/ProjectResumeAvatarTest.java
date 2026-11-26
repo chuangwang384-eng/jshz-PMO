@@ -39,7 +39,7 @@ class ProjectResumeAvatarTest {
     void projectArchiveAcceptsPhotoAndRetainsJsonContract() throws Exception {
         ScheduleParseService schedule = mock(ScheduleParseService.class);
         when(schedule.archiveManual(eq(55L), any(), any(), isNull())).thenReturn(Map.of("ok", true));
-        var controller = new ProjectController(mock(ProjectService.class), null, null, schedule, null, null, null);
+        var controller = new ProjectController(mock(ProjectService.class), null, null, null, schedule, null, null, null);
         var mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .build();

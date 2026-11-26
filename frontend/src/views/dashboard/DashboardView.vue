@@ -42,6 +42,9 @@
               </article>
               <!-- 面板：我的项目 -->
               <article v-else-if="item.i==='panel.myProjects'" id="my-projects" ref="projectsElement" class="panel projects"><div class="panel-head"><div><h2>我的项目</h2><p class="muted">按到期风险排序</p></div><div><el-button link @click="router.push('/project')">项目列表</el-button><el-button link @click="refresh(['myProjects','projectRisk'])">刷新</el-button></div></div><SectionState :value="section.myProjects" :loading="loading && !section.myProjects" @retry="refresh(['myProjects','projectRisk'])"/><template v-if="section.myProjects?.status === 'success'"><button v-for="item2 in data('myProjects').items" :key="item2.id" class="item-row project-row" @click="go(item2.target)"><span><b>{{ item2.name }} <el-tag v-if="warningNames[item2.warning]" :type="item2.warning==='OVERDUE'?'danger':'warning'" size="small">{{ warningNames[item2.warning] }}</el-tag></b><small>{{ item2.teamLabel || '团队未设置' }} · {{ item2.category === 'ONLINE' ? '线上' : '线下' }} · {{ item2.cityName || '城市未设置' }} · {{ item2.phaseName || '阶段未设置' }} · 负责人 {{ item2.ownerName || '-' }}<template v-if="meetingRange(item2)"> · 会议 {{ meetingRange(item2) }}</template> · 结束 {{ item2.endDate || '未设置' }}</small><small v-if="item2.myRelations?.length" class="relation-line">我的角色：{{ item2.myRelations.join(' / ') }}</small></span><span class="detail-arrow">详情 →</span></button></template></article>
+              <!-- 面板：我的近期会议 / 本部门会议概览（2026-11-26 项目日历需求 FR-03） -->
+              <article v-else-if="item.i==='panel.myMeetings'" class="panel"><div class="panel-head"><h2>我的近期会议</h2><el-button link @click="router.push({ path:'/project', query:{ view:'calendar' } })">查看日历</el-button></div><SectionState :value="section.myMeetings" :loading="loading && !section.myMeetings" @retry="refresh(['myMeetings'])"/><template v-if="section.myMeetings?.status !== 'error'"><button v-for="m in data('myMeetings').items || []" :key="m.projectId" class="item-row" @click="go(m.target)"><span><b>{{ m.name }} <el-tag size="small" :class="roleTagClass(m.roles)" effect="plain">{{ roleTagText(m.roles) }}</el-tag></b><small>{{ m.meetingStartDate === m.meetingEndDate ? m.meetingStartDate : m.meetingStartDate + ' ~ ' + m.meetingEndDate }} · 负责人 {{ m.ownerName }} · {{ relDays(m.meetingStartDate) }}</small></span><span class="detail-arrow">详情 →</span></button><p v-if="data('myMeetings').moreThanShown" class="muted">还有更多近期会议，去项目日历查看</p></template></article>
+              <article v-else-if="item.i==='panel.deptMeetings'" class="panel"><div class="panel-head"><h2>本部门会议概览</h2><el-button link @click="router.push({ path:'/project', query:{ view:'calendar', scope:'dept' } })">员工排期</el-button></div><SectionState :value="section.deptMeetings" :loading="loading && !section.deptMeetings" @retry="refresh(['deptMeetings'])"/><template v-if="section.deptMeetings?.status !== 'error'"><div class="dept-meet-stats"><button class="stat" @click="router.push({ path:'/project', query:{ view:'calendar', scope:'dept' } })"><span class="stat-label">未来 7 天涉及会议</span><strong class="stat-value">{{ count('deptMeetings','upcoming7Count') }}</strong><small>场</small></button><button class="stat" @click="router.push({ path:'/project', query:{ view:'calendar', scope:'dept' } })"><span class="stat-label">未来 14 天撞期</span><strong class="stat-value" :class="count('deptMeetings','collision14Count') > 0 ? 'stats-warn' : ''">{{ count('deptMeetings','collision14Count') }}</strong><small>处</small></button></div><div v-for="c in data('deptMeetings').collisions || []" :key="c.userId + c.date" class="item-row collision-row"><span><b>{{ c.userName }}<template v-if="c.disabled"> <el-tag size="small" type="warning">已停用</el-tag></template></b><small>{{ c.date }} 当天多场会议，注意排期。</small></span></div></template></article>
               <!-- 面板：收藏/公告/通知 -->
               <article v-else-if="item.i==='panel.favorites' || item.i==='panel.announcements' || item.i==='panel.notifications'" class="panel"><div class="panel-head"><h2>{{ CARD_CATALOG[item.i].title }} <small v-if="item.i==='panel.notifications'">{{ data(sectionKeyOfPanel(item.i)).unreadCount ?? '' }}</small></h2><el-button link @click="go(allTargets[sectionKeyOfPanel(item.i)])">查看全部</el-button></div><SectionState :value="section[sectionKeyOfPanel(item.i)]" :loading="loading && !section[sectionKeyOfPanel(item.i)]" @retry="refresh([sectionKeyOfPanel(item.i)])"/><template v-if="section[sectionKeyOfPanel(item.i)]?.status !== 'error'"><button v-for="item2 in data(sectionKeyOfPanel(item.i)).items || []" :key="item2.id || item2.docId" class="item-row" @click="go(item2.target)"><span><b>{{ item2.title }}</b><small>{{ item2.favoriteTime || item2.publishTime || item2.time }}</small></span><el-tag v-if="sectionKeyOfPanel(item.i)==='announcements' && !item2.read" size="small">未读</el-tag></button></template></article>
           </div>
@@ -79,6 +82,8 @@ import { useAuthStore } from '../../store/auth'
 import { overview, getDashboardLayout, saveDashboardLayout } from '../../api/dashboard'
 import { sectionRequests, safeTarget, warningNames } from '../../utils/dashboard'
 import { normalizeDashboardLayout, orderLayout, placeCard } from '../../utils/dashboardLayout'
+// 项目日历卡片（2026-11-26 FR-03）：角色文案/优先级/距今天数复用展示层单一来源
+import { primaryRole, ROLE_LABEL, relativeDay, todayStr } from '../../utils/projectCalendar'
 import GlobalSearchBar from '../../components/GlobalSearchBar.vue'
 import QuickAccessBar from '../../components/QuickAccessBar.vue'
 import { Refresh, WarningFilled, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
@@ -103,6 +108,8 @@ const CARD_CATALOG={
  'panel.returned':{title:'退回待修改',w:4,h:6,kind:'panel'},
  'panel.applicationProgress':{title:'我的申请进度',w:4,h:6,kind:'panel',cap:'myApplications'},
  'panel.myProjects':{title:'我的项目',w:4,h:6,kind:'panel'},
+ 'panel.myMeetings':{title:'我的近期会议',w:4,h:6,kind:'panel'},
+ 'panel.deptMeetings':{title:'本部门会议概览',w:4,h:6,kind:'panel'},
  'panel.favorites':{title:'我的收藏',w:4,h:6,kind:'panel'},
  'panel.announcements':{title:'最新公告',w:4,h:6,kind:'panel'},
  'panel.notifications':{title:'未读消息',w:4,h:6,kind:'panel'},
@@ -124,6 +131,7 @@ const CARD_CATALOG={
 const DEFAULT_LAYOUT=[
  {i:'stat.myApprovals',w:3},{i:'stat.myApplications',w:3},{i:'stat.riskOverdue',w:3},{i:'stat.riskDue',w:3},
  {i:'panel.myApprovals',w:4},{i:'panel.approvalStats',w:4},{i:'panel.returned',w:4},{i:'panel.myProjects',w:4},
+ {i:'panel.myMeetings',w:4},
  {i:'panel.favorites',w:4},{i:'panel.announcements',w:4},{i:'panel.notifications',w:4}
 ]
 function canShow(id){
@@ -174,6 +182,9 @@ function cardTarget(id){const card=CARD_CATALOG[id];return card?.path?{path:card
 function sectionKeyOfPanel(id){return {'panel.favorites':'favorites','panel.announcements':'announcements','panel.notifications':'notifications'}[id]}
 function meetingRange(p){const a=p?.meetingStartDate,b=p?.meetingEndDate;if(!a&&!b)return '';if(a&&b&&a!==b)return `${a} ~ ${b}`;return a||b}
 function cardDot(id){const card=CARD_CATALOG[id];return card.kind==='page'?'primary':(card.kind==='stat'?'warning':'success')}
+function roleTagText(roles){return ROLE_LABEL[primaryRole(roles)]||'—'}
+function roleTagClass(roles){return ['role-tag', {OWNER:'owner',ASSISTANT:'assist',EXECUTOR:'exec'}[primaryRole(roles)]||'owner']}
+function relDays(d){const m={meetingStartDate:d,meetingEndDate:d};return relativeDay(m,todayStr())}
 
 function syncGrid() {
   if (!activeGrid.value) {
@@ -341,7 +352,7 @@ const count=(key,field)=>section.value[key]?.status==='error'?'暂不可用':dat
 const pendingItems=key=>key==='returned'?data('myApplications').returnedItems || []:key==='myApplications'?data(key).latestItems || []:data(key).items || []
 const applicationProgressItems = computed(() => pendingItems('myApplications').filter(item => Number(item.status) !== 4))
 const SectionState=defineComponent({props:['value','loading'],emits:['retry'],setup(p,{emit}){return()=>p.loading?h('p',{class:'muted'},'正在加载…'):p.value?.status==='error'?h('p',{class:'section-error'},['加载失败，数据暂不可用。',h('button',{onClick:()=>emit('retry')},'重试')]):p.value?.status==='empty'?h('p',{class:'muted'},'暂无相关事项'):null}})
-const allSections=['myApplications','myApprovals','approvalStats','myProjects','projectRisk','favorites','announcements','notifications']
+const allSections=['myApplications','myApprovals','approvalStats','myProjects','projectRisk','myMeetings','deptMeetings','favorites','announcements','notifications']
 const requests=new Set()
 let timer,tickTimer,lastFocus=0,alive=true,pending=0,capabilityVersion=0
 async function refresh(keys) {
@@ -438,4 +449,28 @@ onBeforeUnmount(()=>{
 .approval-stats-avg {
   margin-top: 10px;
 }
+/* 我的近期会议 / 本部门会议概览（2026-11-26 项目日历需求 FR-03） */
+.dept-meet-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.dept-meet-stats .stat {
+  border: 1px solid var(--ui-border-weak);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-fill);
+  cursor: pointer;
+}
+.collision-row small {
+  color: var(--ui-warning);
+}
+.role-tag {
+  font-size: 11px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  padding: 0 6px;
+}
+.role-tag.owner { color: var(--ui-role-owner); }
+.role-tag.assist { color: var(--ui-role-assist); }
+.role-tag.exec { color: var(--ui-role-exec); }
 </style>

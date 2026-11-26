@@ -153,6 +153,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     private final ProjectStageFormMapper stageFormMapper;
     private final com.jshz.expert.mapper.ComplianceProjectTodoMapper complianceProjectTodoMapper;
     private final com.jshz.expert.mapper.ComplianceProjectDocBindingMapper complianceProjectDocBindingMapper;
+    /** 团队派生（FR-05/C3，2026-11-26 项目日历需求）：team 唯一来源，禁止本地复制派生逻辑。 */
+    private final ProjectTeamSyncService teamSyncService;
 
     // ==================== 项目 CRUD ====================
 
@@ -378,12 +380,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (!PROJECT_TYPES.contains(projectType)) {
             throw new BusinessException("项目类型必须为平台类(PLATFORM)/直付类(DIRECT_PAY)/重点类(KEY)");
         }
-        // 团队（2026-11-09 新增，必填，固定三个部）
-        String team = str(body.get("team"));
-        if (!StringUtils.hasText(team)) {
-            throw new BusinessException("团队不能为空（项目一部/项目二部/项目三部）");
-        }
-        validateTeam(team);
+        // 团队（2026-11-26 项目日历需求 FR-05/C3）：不再由用户手选，由负责人组织架构部门派生（teamSyncService）
         // 会议城市（非必填；校验存在于供应商城市字典）
         Long cityId = toLong(body.get("cityId"));
         validateCity(cityId);
@@ -396,9 +393,12 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (endDate.isBefore(startDate)) {
             throw new BusinessException("项目结束时间不能早于开始时间");
         }
-        // 会议举办时间（非必填；单日=起止同日）
+        // 会议举办时间（2026-11-26 项目日历需求 FR-04：立项必填；单日=起止同日）
         LocalDate meetingStart = parseDateNullable(str(body.get("meetingStartDate")));
         LocalDate meetingEnd = parseDateNullable(str(body.get("meetingEndDate")));
+        if (meetingStart == null || meetingEnd == null) {
+            throw new BusinessException("会议举办起止日期必填");
+        }
         validateMeetingRange(meetingStart, meetingEnd);
         // 总负责人：默认创建人（2026-11-09 起全员可选，不再限定 PROJECT_OWNER 角色）
         Long ownerId = toLong(body.get("ownerId"));
@@ -408,6 +408,8 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (ownerId == null) {
             throw new BusinessException("总负责人不能为空（默认创建人）");
         }
+        // 团队派生（FR-05/C3：按负责人组织架构部门；映射不到留空，见 ProjectTeamSyncService）
+        String team = teamSyncService.deriveTeam(ownerId);
         // 2026-11-09 流程重塑：项目类型概念删除；新建不可选阶段，固定落第一阶段「日程上传」
         ProjectPhase phase = firstActivePhase();
 
@@ -474,15 +476,16 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             }
             project.setProjectType(projectType);
         }
-        String team = str(body.get("team"));
-        if (StringUtils.hasText(team)) {
-            validateTeam(team);
-            project.setTeam(team);
-        }
+        // 团队（FR-05/C3）：派生自负责人组织架构部门，编辑不再接受手改；body.team 忽略
         Long cityId = toLong(body.get("cityId"));
         if (body.containsKey("cityId")) {
             validateCity(cityId);
             project.setCityId(cityId);
+        }
+        // 会议举办日期（FR-04：编辑不允许清空——携带 null 值即拒绝；2026-11-26 项目日历需求）
+        if (body.containsKey("meetingStartDate") && str(body.get("meetingStartDate")) == null
+                || body.containsKey("meetingEndDate") && str(body.get("meetingEndDate")) == null) {
+            throw new BusinessException("会议举办日期不能清空");
         }
         if (str(body.get("meetingStartDate")) != null) {
             LocalDate ms = parseDateNullable(str(body.get("meetingStartDate")));
@@ -522,7 +525,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
             project.setEndDate(parseDateNullable(str(body.get("endDate"))));
         }
         if (toLong(body.get("ownerId")) != null) {
-            project.setOwnerId(toLong(body.get("ownerId")));
+            Long newOwner = toLong(body.get("ownerId"));
+            project.setOwnerId(newOwner);
+            // 变更负责人时团队随之派生（FR-05；2026-11-26 项目日历需求）
+            project.setTeam(teamSyncService.deriveTeam(newOwner));
         }
         this.updateById(project);
 
@@ -2121,16 +2127,27 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
     }
 
-    /** 行级过滤条件：owner_id = 当前用户 OR id IN (project_executor.user_id = 当前用户)。 */
+    /**
+     * 行级过滤条件：owner_id = 当前用户 OR id IN (project_executor/project_assistant.user_id = 当前用户)。
+     * 2026-11-26 项目日历需求（8.5 决策）：协助人一并纳入列表行级过滤，与日历/详情口径一致；
+     * 历史执行人兼容保留。
+     */
     private void appendRowLevelCondition(LambdaQueryWrapper<Project> qw, AuthUser user) {
         Long uid = user == null ? null : user.getUserId();
         if (uid == null) {
             qw.eq(Project::getId, -1L);
             return;
         }
-        List<Long> mine = executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
+        List<Long> mine = new ArrayList<>(executorMapper.selectList(new LambdaQueryWrapper<ProjectExecutor>()
                         .eq(ProjectExecutor::getUserId, uid))
-                .stream().map(ProjectExecutor::getProjectId).distinct().collect(Collectors.toList());
+                .stream().map(ProjectExecutor::getProjectId).distinct().collect(Collectors.toList()));
+        for (Long pid : assistantMapper.selectList(new LambdaQueryWrapper<ProjectAssistant>()
+                        .eq(ProjectAssistant::getUserId, uid))
+                .stream().map(ProjectAssistant::getProjectId).distinct().collect(Collectors.toList())) {
+            if (!mine.contains(pid)) {
+                mine.add(pid);
+            }
+        }
         if (mine.isEmpty()) {
             qw.eq(Project::getOwnerId, uid);
         } else {
@@ -2909,11 +2926,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     // ==================== 团队 / 会议城市 / 协助人（2026-11-09 基本信息改版） ====================
 
-    private void validateTeam(String team) {
-        if (!TEAM_LABELS.containsKey(team)) {
-            throw new BusinessException("团队必须为项目一部(DEPT1)/项目二部(DEPT2)/项目三部(DEPT3)");
-        }
-    }
+    // validateTeam 已随 team 手选删除（FR-05/C3，2026-11-26）：team 仅由 ProjectTeamSyncService 派生
 
     private String teamLabelOf(String team) {
         return team == null ? "" : TEAM_LABELS.getOrDefault(team, team);

@@ -58,6 +58,7 @@ class ProfileOrganizationRulesTest {
     private PermissionService permissions;
     private UserAuthStateService authState;
     private OperationLogService logs;
+    private ProjectTeamSyncService teamSync;
     private ProfileOverviewService service;
 
     @BeforeEach
@@ -66,7 +67,8 @@ class ProfileOrganizationRulesTest {
         permissions = mock(PermissionService.class);
         authState = mock(UserAuthStateService.class);
         logs = mock(OperationLogService.class);
-        service = new ProfileOverviewService(jdbc, permissions, authState, logs);
+        teamSync = mock(ProjectTeamSyncService.class);
+        service = new ProfileOverviewService(jdbc, permissions, authState, logs, teamSync);
     }
 
     @Test

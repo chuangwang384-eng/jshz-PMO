@@ -39,6 +39,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -57,6 +58,67 @@ public class ProjectController {
     private final ProjectService projectService;
     private final ProjectShowTemplateService projectShowTemplates;
     private final ProjectShowExpertMaterialsService expertMaterials;
+
+    private final com.jshz.expert.service.ProjectCalendarService projectCalendarService;
+
+    /**
+     * 项目日历（2026-11-26 项目日历需求）：GET /api/project/calendar?scope=me|dept&from=YYYY-MM-DD&to=YYYY-MM-DD。
+     * scope=me 个人月历（三类角色）；scope=dept 部门排期（服务端判定部门负责人身份，范围=本部门及下级，
+     * 总经理见全员；不接受前端传部门）。字段白名单：日期/项目名/负责人/角色，不含预算、客户、专家等；
+     * 项目详情仍走 requireProjectReadable，日历不绕过查看范围（需求 C6）。
+     */
+    @GetMapping("/calendar")
+    public ApiResponse<Map<String, Object>> calendar(@RequestParam String scope,
+                                                     @RequestParam String from,
+                                                     @RequestParam String to,
+                                                     @AuthenticationPrincipal AuthUser user) {
+        if (user == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        java.time.LocalDate[] range = com.jshz.expert.service.ProjectCalendarService.parseRange(from, to);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("scope", scope);
+        if ("me".equals(scope)) {
+            out.put("meetings", calendarMeetings(projectCalendarService.myMeetings(user, range[0], range[1]), user.getUserId()));
+            return ApiResponse.ok(out);
+        }
+        if ("dept".equals(scope)) {
+            var schedule = projectCalendarService.deptSchedule(user, range[0], range[1]);
+            List<Map<String, Object>> members = new java.util.ArrayList<>();
+            for (var member : schedule.members()) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("userId", member.userId());
+                m.put("userName", member.userName());
+                m.put("disabled", member.disabled());
+                Map<String, Object> days = new LinkedHashMap<>();
+                for (var e : member.byDay().entrySet()) {
+                    days.put(e.getKey().toString(), calendarMeetings(e.getValue(), member.userId()));
+                }
+                m.put("days", days);
+                members.add(m);
+            }
+            out.put("members", members);
+            return ApiResponse.ok(out);
+        }
+        throw new BusinessException("scope 必须为 me 或 dept");
+    }
+
+    /** 日历会议白名单序列化（日期/项目名/负责人/该成员角色）。 */
+    private List<Map<String, Object>> calendarMeetings(List<com.jshz.expert.service.ProjectCalendarService.Meeting> meetings,
+                                                       long userId) {
+        List<Map<String, Object>> items = new java.util.ArrayList<>();
+        for (var m : meetings) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("projectId", m.projectId());
+            item.put("name", m.name());
+            item.put("ownerName", m.ownerName());
+            item.put("meetingStartDate", m.meetingStartDate().toString());
+            item.put("meetingEndDate", m.meetingEndDate().toString());
+            item.put("roles", m.rolesOf(userId));
+            items.add(item);
+        }
+        return items;
+    }
 
     /** 分页列表（筛选：keyword/status/startBegin/startEnd/endBegin/endEnd/ownerId/category/team/cityId/assistantId；类型/执行人筛选已随概念删除）。 */
     @GetMapping

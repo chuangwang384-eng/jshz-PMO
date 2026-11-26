@@ -16,6 +16,11 @@
   --ui-danger: #F56C6C;
   --ui-info: #C0C4CC;
   --ui-fill: #F9FAFC;
+  /* 项目日历三角色（2026-11-26 项目日历需求）：负=主色蓝 / 协=紫 / 执=青，
+     仅用于文字与边框着色，配文字标记（负/协/执）双重区分，不单靠颜色 */
+  --ui-role-owner: #2563EB;
+  --ui-role-assist: #7C3AED;
+  --ui-role-exec: #0F766E;
   --ui-radius-lg: 10px;
   --ui-radius-md: 8px;
   --ui-radius-sm: 6px;

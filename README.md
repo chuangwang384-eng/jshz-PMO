@@ -2,7 +2,7 @@
 
 > 🗺️ **仓库结构导航（所有 Agent/开发者必读）**：目录总览、后端/前端模块地图、关键链路与接手路径见 [docs/repo-map.md](docs/repo-map.md)。
 >
-> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线（2026-11-16 核实）：后端 Controller **31** 个、Service **58** 个、`@TableName` 实体 **67** 个；前端页面 43 个、路由 37 条；数据库 **101** 张表（**85 张业务/结构表 + 10 张历史备份表 + 6 张迁移标记表**，由 `information_schema` 实测，见下方「事实基线的核实方式」）。
+> 📌 **文档同步铁律（开发者必读）**：任何代码、数据库结构、接口变更必须同步更新 `docs/` 对应文档与交接文档，检查清单见 [AGENTS.md](AGENTS.md) 第 0 节。当前事实基线（2026-11-26 核实）：后端 Controller **33** 个、Service **75** 个；前端页面 53 个、路由 40 条；数据库业务表 **92** 张（`information_schema` 实测，含 20261126 项目日历迁移；历史备份/迁移标记表未计，见下方「事实基线的核实方式」）。
 >
 > **事实基线的核实方式**（写文档前请重跑，勿把历史基线当永久事实）：
 >
@@ -52,8 +52,8 @@ jshz-PMO/
 ├── AGENTS.md              # 开发与 Agent 交接规范（文档同步铁律）
 ├── version.txt            # 版本号唯一真源（revision=x.y.z）
 ├── .gitignore             # Git 忽略规则（*.log / logs/ / temp/ 已忽略）
-├── backend/               # 后端服务（Spring Boot 3.2.5 + MyBatis-Plus，31 个 Controller / 58 个 Service）
-├── frontend/              # 前端应用（Vue 3.4 + Vite 5；线上目录是 releases/<ReleaseId>，dist 仅为构建输出，43 页面 / 37 路由）
+├── backend/               # 后端服务（Spring Boot 3.2.5 + MyBatis-Plus，33 个 Controller / 75 个 Service）
+├── frontend/              # 前端应用（Vue 3.4 + Vite 5；线上目录是 releases/<ReleaseId>，dist 仅为构建输出，53 页面 / 40 路由）
 ├── database/              # 数据库脚本（init.sql = 唯一 DDL 来源，建全部 85 张业务表；migration/ 63 个脚本为既有库升级历史）
 ├── scripts/               # 构建、发布、回滚、备份、迁移脚本（PowerShell + Python）
 ├── docs/                  # 项目文档（设计/架构/部署/验收/交接）

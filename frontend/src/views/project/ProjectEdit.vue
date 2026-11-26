@@ -27,12 +27,9 @@
       </el-row>
       <el-row :gutter="8">
         <el-col :span="12">
-          <el-form-item label="团队" required>
-            <el-select v-model="form.team" placeholder="选择部门" style="width: 100%">
-              <el-option label="项目一部" value="DEPT1" />
-              <el-option label="项目二部" value="DEPT2" />
-              <el-option label="项目三部" value="DEPT3" />
-            </el-select>
+          <!-- 团队只读（2026-11-26 项目日历需求 FR-05/C3）：由负责人组织架构部门派生，后端 ProjectTeamSyncService 落库 -->
+          <el-form-item label="团队">
+            <el-input :model-value="teamDisplay" disabled />
           </el-form-item>
         </el-col>
         <el-col :span="12">
@@ -60,7 +57,8 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="会议日期">
+          <!-- 会议日期必填（2026-11-26 项目日历需求 FR-04）：立项必填，编辑不允许清空 -->
+          <el-form-item label="会议日期" required>
             <el-date-picker
               v-model="meetingRange"
               type="daterange"
@@ -153,11 +151,16 @@ const cityGroups = computed(() => {
 })
 
 const form = reactive({
-  id: null, name: '', category: 'OFFLINE', projectType: null, team: null, cityId: null,
+  id: null, name: '', category: 'OFFLINE', projectType: null, cityId: null,
   ownerId: null,
   assistantIds: [],
   clientCompany: '', clientName: '', remark: ''
 })
+
+// 团队只读展示（FR-05）：新建=由负责人所在部门自动确定；编辑=回显派生值
+const TEAM_LABELS = { DEPT1: '项目一部', DEPT2: '项目二部', DEPT3: '项目三部' }
+const teamDisplay = computed(() => (form.id && formTeam.value ? (TEAM_LABELS[formTeam.value] || formTeam.value) : '由负责人所在部门自动确定'))
+const formTeam = ref(null)
 
 watch(
   () => props.modelValue,
@@ -168,7 +171,7 @@ watch(
     form.name = p?.name ?? ''
     form.category = p?.category ?? 'OFFLINE'
     form.projectType = p?.projectType ?? null
-    form.team = p?.team ?? null
+    formTeam.value = p?.team ?? null
     form.cityId = p?.cityId ?? null
     form.ownerId = p?.ownerId ?? authStore.id ?? null // 新建默认当前登录人（总负责人全员可选）
     form.assistantIds = Array.isArray(p?.assistantIds) ? [...p.assistantIds] : []
@@ -188,10 +191,6 @@ async function save() {
     ElMessage.warning('会议名称必填')
     return
   }
-  if (!form.team) {
-    ElMessage.warning('团队必填（项目一部/项目二部/项目三部）')
-    return
-  }
   if (!dateRange.value?.[0] || !dateRange.value?.[1]) {
     ElMessage.warning('项目起止时间必填')
     return
@@ -204,7 +203,12 @@ async function save() {
     ElMessage.warning('项目类型必填（平台类/直付类/重点类）')
     return
   }
-  if (meetingRange.value?.[0] && meetingRange.value[1] < meetingRange.value[0]) {
+  // 会议日期必填（FR-04，2026-11-26 项目日历需求）
+  if (!meetingRange.value?.[0] || !meetingRange.value?.[1]) {
+    ElMessage.warning('会议举办起止日期必填')
+    return
+  }
+  if (meetingRange.value[1] < meetingRange.value[0]) {
     ElMessage.warning('会议举办结束日期不能早于开始日期')
     return
   }
@@ -214,7 +218,7 @@ async function save() {
       name: form.name.trim(),
       category: form.category,
       projectType: form.projectType,
-      team: form.team,
+      // team 不再提交（FR-05/C3）：后端按负责人组织架构部门派生
       cityId: form.cityId || null,
       meetingStartDate: meetingRange.value?.[0] || null,
       meetingEndDate: meetingRange.value?.[1] || null,

@@ -19,7 +19,8 @@ public class DashboardController {
     private final DashboardTasks tasks;
     private final DashboardLayoutService layouts;
     private final QuickAccessService quickAccess;
-    private static final List<String> SECTIONS=List.of("myApplications","myApprovals","approvalStats","projectRisk","myProjects","favorites","notifications","announcements");
+    private final ProjectCalendarService calendar;
+    private static final List<String> SECTIONS=List.of("myApplications","myApprovals","approvalStats","projectRisk","myProjects","myMeetings","deptMeetings","favorites","notifications","announcements");
 
     @GetMapping("/layout/v2")
     public ApiResponse<DashboardLayoutService.Snapshot> layoutV2(@AuthenticationPrincipal AuthUser user) {
@@ -56,10 +57,14 @@ public class DashboardController {
         if(selected.contains("myApprovals") && user.hasPermission("approval:audit") && reads.allowedPath(user,"/api/approval/requests")) jobs.put("myApprovals",()->reads.approvals(user));
         if(selected.contains("approvalStats") && user.hasPermission("approval:audit") && reads.allowedPath(user,"/api/approval/requests")) jobs.put("approvalStats",()->reads.approvalStats(user));
         if((selected.contains("myProjects")||selected.contains("projectRisk")) && reads.allowed(user,"project")) jobs.put("projects",()->new LinkedHashMap<>(reads.projects(user)));
+        // 项目日历卡片（2026-11-26 项目日历需求 FR-03）：deptMeetings 仅部门负责人返回，其余人省略该 section
+        if(selected.contains("myMeetings") && reads.allowed(user,"project")) jobs.put("myMeetings",()->calendar.myMeetingsSection(user));
+        if(selected.contains("deptMeetings") && reads.allowed(user,"project")) jobs.put("deptMeetings",()->calendar.deptMeetingsSection(user));
         if(selected.contains("favorites")&&reads.allowed(user,"knowledge")&&reads.allowedPath(user,"/api/knowledge/favorites")) jobs.put("favorites",()->reads.favorites(user));
         if(selected.contains("notifications")&&reads.allowedPath(user,"/api/notifications")) jobs.put("notifications",()->reads.notifications(user));
         if(selected.contains("announcements")&&reads.allowed(user,"announcement")) jobs.put("announcements",()->reads.announcements(user));
         Map<String,Map<String,Object>> results=tasks.collect(jobs,1500);
+        results.values().removeIf(Objects::isNull);
         Map<String,Object> output=new LinkedHashMap<>(results);
         Map<String,Object> projects=results.get("projects");output.remove("projects");
         if(projects!=null) for(String key:List.of("projectRisk","myProjects")) if(selected.contains(key)) output.put(key,projects.getOrDefault(key,projects));

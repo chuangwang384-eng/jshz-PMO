@@ -4,6 +4,17 @@
       <div class="project-list-head">
         <h1>项目列表</h1>
         <div class="project-actions">
+          <!-- 视图切换（2026-11-26 项目日历需求 FR-01）：列表/日历，状态与月份写入 URL 可还原 -->
+          <el-radio-group v-model="view" size="small" @change="switchView">
+            <el-radio-button value="list">列表</el-radio-button>
+            <el-radio-button value="calendar">日历</el-radio-button>
+          </el-radio-group>
+          <template v-if="view === 'calendar' && deptAvailable">
+            <el-radio-group v-model="scope" size="small" @change="onScopeChange">
+              <el-radio-button value="me">我的会议</el-radio-button>
+              <el-radio-button value="dept">本部门</el-radio-button>
+            </el-radio-group>
+          </template>
           <el-button v-permission="'project:manage'" plain @click="handleExport">导出 Excel</el-button>
           <el-button v-permission="'project:create'" type="primary" @click="openEdit(null)">新建项目</el-button>
         </div>
@@ -67,7 +78,41 @@
       </div>
     </section>
 
-    <el-card shadow="never" class="project-table-card">
+    <!-- 日历视图（FR-01/FR-02）：个人月历 + 部门排期 -->
+    <template v-if="view === 'calendar'">
+      <div class="calendar-card ui-card">
+        <ProjectCalendar
+          v-if="scope === 'me'"
+          :meetings="calMeetings"
+          :year="calYm.year"
+          :month="calYm.month"
+          @open="goDetail"
+          @change-month="onMonthChange"
+        />
+        <ProjectDeptSchedule
+          v-else
+          :members="deptMembers"
+          :year="calYm.year"
+          :month="calYm.month"
+          @open-day="openDayList"
+          @change-month="onMonthChange"
+        />
+      </div>
+      <el-dialog v-model="dayVisible" :title="dayTitle" width="480px" destroy-on-close>
+        <div v-if="!dayList.length" class="muted">当天没有会议</div>
+        <div v-for="m in dayList" :key="m.projectId" class="day-row">
+          <div class="day-main">
+            <div class="day-name">{{ m.name }}</div>
+            <div class="muted day-sub">{{ m.meetingStartDate }} ~ {{ m.meetingEndDate }} · 负责人：{{ m.ownerName }}</div>
+          </div>
+          <span class="role-tag" :class="roleClass(primaryRole(m.roles))">{{ roleLabel(primaryRole(m.roles)) }}</span>
+          <el-button size="small" @click="goDetail(m.projectId)">详情</el-button>
+        </div>
+        <div v-if="dayList.length > 1" class="day-warn">该员工当天有多场会议，注意撞期。</div>
+      </el-dialog>
+    </template>
+
+    <el-card v-else shadow="never" class="project-table-card">
       <el-table v-loading="loading" :data="records" @row-click="goDetail">
         <el-table-column label="会议名称" min-width="210">
           <template #default="{ row }">
@@ -157,16 +202,20 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectEdit from './ProjectEdit.vue'
+import ProjectCalendar from './components/ProjectCalendar.vue'
+import ProjectDeptSchedule from './components/ProjectDeptSchedule.vue'
 import { useAuthStore } from '../../store/auth'
 import {
   listProjects, exportProjects, deleteProject, cancelProject, restoreProject,
-  listPhaseOptions, listProjectUsers
+  listPhaseOptions, listProjectUsers, getProjectCalendar
 } from '../../api/project'
+import { getOrganization } from '../../api/profileOverview'
 import { listSupplierCities } from '../../api/supplier'
+import { primaryRole, roleLabel } from '../../utils/projectCalendar'
 
 // 项目类型展示名（2026-11-20 新增；与后端 PROJECT_TYPE_LABELS 一致）
 const PROJECT_TYPE_LABELS = { PLATFORM: '平台类', DIRECT_PAY: '直付类', KEY: '重点类' }
@@ -210,6 +259,84 @@ function handleRowAction(command, row) {
 const page = ref(queryParam('page') ? Math.max(1, Number(queryParam('page')) || 1) : 1)
 const size = ref([10, 20, 50].includes(Number(queryParam('pageSize'))) ? Number(queryParam('pageSize')) : 10)
 
+// ---------- 项目日历视图（2026-11-26 项目日历需求 FR-01/FR-02） ----------
+// URL：view=calendar&month=YYYY-MM&scope=me|dept；刷新/分享可还原（syncRouteQuery 同步）
+const view = ref(queryParam('view') === 'calendar' ? 'calendar' : 'list')
+const scope = ref(queryParam('scope') === 'dept' ? 'dept' : 'me')
+const monthMatch = /^(\d{4})-(\d{2})$/.exec(queryParam('month'))
+const _now = new Date()
+const calYm = reactive({
+  year: monthMatch ? Number(monthMatch[1]) : _now.getFullYear(),
+  month: monthMatch ? Number(monthMatch[2]) : _now.getMonth() + 1
+})
+const deptAvailable = ref(false)   // 本部门入口显隐：本人是部门负责人/总经理时开放（组织架构判定）
+const calMeetings = ref([])
+const deptMembers = ref([])
+const calLoading = ref(false)
+const dayVisible = ref(false)
+const dayTitle = ref('')
+const dayList = ref([])
+
+function pad2(n) { return String(n).padStart(2, '0') }
+
+async function loadCalendar() {
+  calLoading.value = true
+  try {
+    const last = new Date(calYm.year, calYm.month, 0).getDate()
+    const from = `${calYm.year}-${pad2(calYm.month)}-01`
+    const to = `${calYm.year}-${pad2(calYm.month)}-${pad2(last)}`
+    const data = await getProjectCalendar({ scope: scope.value, from, to })
+    if (scope.value === 'me') {
+      calMeetings.value = data?.meetings || []
+    } else {
+      deptMembers.value = data?.members || []
+    }
+  } catch (e) {
+    // 403（非部门负责人）等：清空数据并回落“我的会议”
+    if (scope.value === 'dept') {
+      scope.value = 'me'
+      deptAvailable.value = false
+    }
+    calMeetings.value = []
+    deptMembers.value = []
+  } finally {
+    calLoading.value = false
+  }
+}
+
+function switchView(v) {
+  view.value = v
+  if (v === 'calendar') {
+    loadCalendar()
+  }
+}
+function onScopeChange(v) {
+  scope.value = v
+  loadCalendar()
+}
+function onMonthChange({ year, month }) {
+  calYm.year = year
+  calYm.month = month
+  loadCalendar()
+}
+function openDayList(member, date) {
+  dayTitle.value = `${member.userName} · ${date.slice(5).replace('-', '/')}`
+  dayList.value = member.days?.[date] || []
+  dayVisible.value = true
+}
+function roleClass(role) {
+  return { OWNER: 'owner', ASSISTANT: 'assist', EXECUTOR: 'exec' }[role] || 'owner'
+}
+// 部门入口判定：本人是部门负责人或总经理（组织架构组织信息）
+async function probeDeptScope() {
+  try {
+    const org = await getOrganization()
+    deptAvailable.value = Boolean(org?.generalManager || (org?.ledDepartments?.length))
+  } catch (e) {
+    deptAvailable.value = false
+  }
+}
+
 /** 查询状态写回 URL：只 replace 不 push，默认值不写入，保持地址干净 */
 function syncRouteQuery() {
   const next = {
@@ -225,7 +352,11 @@ function syncRouteQuery() {
     endBegin: endRange.value?.[0] || undefined,
     endEnd: endRange.value?.[1] || undefined,
     page: page.value > 1 ? String(page.value) : undefined,
-    pageSize: size.value !== 10 ? String(size.value) : undefined
+    pageSize: size.value !== 10 ? String(size.value) : undefined,
+    // 日历视图状态（FR-01：刷新/分享链接可还原）
+    view: view.value === 'calendar' ? 'calendar' : undefined,
+    month: view.value === 'calendar' ? `${calYm.year}-${pad2(calYm.month)}` : undefined,
+    scope: view.value === 'calendar' && scope.value === 'dept' ? 'dept' : undefined
   }
   const same = Object.keys(next).every((k) => {
     const cur = route.query[k]
@@ -370,11 +501,27 @@ onMounted(async () => {
   listPhaseOptions().then((data) => { phases.value = data || [] }).catch(() => {})
   listProjectUsers().then((data) => { users.value = data || [] }).catch(() => {})
   listSupplierCities().then((data) => { cities.value = data || [] }).catch(() => {})
+  // 日历视图：URL 带 view=calendar 时直接加载；部门入口按组织架构探测（非负责人隐藏）
+  if (view.value === 'calendar') {
+    loadCalendar()
+  }
+  probeDeptScope()
 })
 </script>
 
 <style scoped>
 .project-list-page { min-width: 0; display: grid; gap: 16px; }
+.calendar-card { padding: 16px; }
+.day-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--ui-border-weak); }
+.day-row:first-of-type { border-top: 0; }
+.day-main { flex: 1; min-width: 0; }
+.day-name { overflow-wrap: anywhere; }
+.day-sub { font-size: 12px; margin-top: 2px; }
+.day-warn { margin-top: 10px; padding: 8px 10px; border-radius: var(--ui-radius-sm); background: color-mix(in srgb, var(--ui-warning) 14%, var(--ui-bg-card)); color: var(--ui-warning); font-size: 13px; }
+.role-tag { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid currentColor; flex-shrink: 0; }
+.role-tag.owner { color: var(--ui-role-owner); }
+.role-tag.assist { color: var(--ui-role-assist); }
+.role-tag.exec { color: var(--ui-role-exec); }
 .project-filters { min-width: 0; padding: 18px 20px; }
 .project-list-head, .primary-filters, .project-actions, .filter-actions, .row-actions {
   display: flex; align-items: center; flex-wrap: wrap; gap: 10px;

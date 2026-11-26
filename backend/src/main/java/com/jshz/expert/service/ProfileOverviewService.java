@@ -49,6 +49,8 @@ public class ProfileOverviewService {
     private final PermissionService permissionService;
     private final UserAuthStateService userAuthStateService;
     private final OperationLogService logs;
+    /** 调岗后项目 team 重算（FR-05，2026-11-26 项目日历需求；仅引用，不形成反向依赖）。 */
+    private final ProjectTeamSyncService teamSync;
 
     /** 组织树内部节点；leaderName 仅在负责人账号启用时非空（停用账号视为无负责人）。 */
     private record Node(Long id, Long parentId, String name, boolean active, String seedKey,
@@ -322,6 +324,7 @@ public class ProfileOverviewService {
         if (leads(root(tree), userId)) throw new BusinessException("总经理不设置部门与岗位，可代理其他部门负责人");
         if (form.departmentId() == null) {
             jdbc.update("DELETE FROM profile_membership WHERE user_id=?", userId);
+            resyncProjectsAfterCommit(userId);
             return;
         }
         Node target = find(tree, form.departmentId());
@@ -331,6 +334,22 @@ public class ProfileOverviewService {
                 INSERT INTO profile_membership (user_id,department_id,position) VALUES (?,?,?)
                 ON DUPLICATE KEY UPDATE department_id=?,position=?
                 """, userId, target.id(), position, target.id(), position);
+        // 调岗钩子（FR-05，2026-11-26 项目日历需求）：提交后对该员工名下 ACTIVE 项目的 team 重算
+        resyncProjectsAfterCommit(userId);
+    }
+
+    /** 事务提交后重算该员工名下 ACTIVE 项目 team（无事务时直接执行）。 */
+    private void resyncProjectsAfterCommit(long userId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            teamSync.resyncForUser(userId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                teamSync.resyncForUser(userId);
+            }
+        });
     }
 
     /** 账号停用或删除时调用：自动撤销其全部负责人身份；若为总经理，同时免去总经理并回收角色。 */

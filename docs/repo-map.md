@@ -29,7 +29,7 @@
 | 业务域 | Controller（代表） | 关联 Service / 表 |
 | --- | --- | --- |
 | 认证与权限 | AuthController、UserController、RoleController、PermissionController | security/（JWT 过滤器 + DB 权限）、wecom 通讯录登录 |
-| 项目流程（核心） | ProjectController、ProjectBudgetController、ProjectBudgetQuoteController、ProjectConfigurationController | ProjectService（阶段推进/待办校验 `missingRequiredTemplates`）、project / project_phase / project_doc / project_schedule / project_speaker / project_budget* |
+| 项目流程（核心） | ProjectController（含 GET /api/project/calendar 项目日历）、ProjectBudgetController、ProjectBudgetQuoteController、ProjectConfigurationController | ProjectService（阶段推进/待办校验 `missingRequiredTemplates`）、ProjectCalendarService（日历/部门排期）、ProjectTeamSyncService（team 派生）、project / project_phase / project_doc / project_schedule / project_speaker / project_budget* |
 | 专家库 | ExpertController | Expert*、简历解析 + rembg 抠图 + Ollama 语义抽取 |
 | 供应商 | SupplierController | supplier_*（飞书风格 UI 为受保护色系） |
 | 知识库/星球 | KnowledgeController、CustomerController | knowledge_*、客户信息、Excel 预览（ExcelPreviewService，被项目文件预览复用） |
@@ -44,7 +44,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `views/project/` | 项目全流程：ProjectList / ProjectDetail（阶段视图大页）/ ProjectEdit / ProjectConfig + components/（预算估算、报价、流程图、StepWizard、budgetEstimate.js 及其 node --test） |
+| `views/project/` | 项目全流程：ProjectList（列表/日历切换，ProjectCalendar 月历 + ProjectDeptSchedule 部门排期，utils/projectCalendar.js）/ ProjectDetail（阶段视图大页）/ ProjectEdit / ProjectConfig + components/（预算估算、报价、流程图、StepWizard、budgetEstimate.js 及其 node --test） |
 | `views/expert*`、`views/supplier/`、`views/admin/`、`views/dashboard/` | 专家三视图改造版、供应商、管理页、工作台可调布局 |
 | `api/`（19 模块） | 与后端 Controller 一一对应；request.js 统一 baseURL/拦截 |
 | `components/KnowledgeWorkbookPreview.vue` | Excel 表格预览共用组件（fetcher 可注入，知识星球与项目文件共用） |
