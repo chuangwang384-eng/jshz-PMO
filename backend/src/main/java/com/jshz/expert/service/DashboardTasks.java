@@ -40,7 +40,8 @@ public class DashboardTasks {
         pool.purge();
         long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started);
         result.forEach((module,value) -> {
-            if ("error".equals(value.get("status")))
+            // value==null：section 主动省略（如 deptMeetings 对非部门负责人返回 null），不是错误
+            if (value != null && "error".equals(value.get("status")))
                 log.warn("dashboard module={} result={} elapsedMs={}",module,value.get("errorCode"),elapsed);
         });
         return result;
