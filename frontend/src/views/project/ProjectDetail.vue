@@ -1,5 +1,5 @@
 <template>
-  <div v-loading="loading" class="pd-page">
+  <div v-loading="loading" class="pd-page" :class="{ 'pd-settlement-page': isSettlementCurrent }">
     <el-page-header :content="detail.name || '项目详情'" @back="$router.push('/project')" />
 
     <!-- ① 概览头部：名称/状态徽标/元信息 + 操作分组 -->
@@ -22,12 +22,12 @@
         <div v-if="detail.status === 'CANCELED'" class="pd-cancel-tip">
           已取消：{{ detail.cancelReason }}<template v-if="detail.cancelTime">（{{ detail.cancelTime }}）</template>
         </div>
-        <div v-if="detail.canAdvance && hasNextPhase && !requiredSubmitted" class="pd-block-tip">
+        <div v-if="!isSettlementCurrent && detail.canAdvance && hasNextPhase && !requiredSubmitted" class="pd-block-tip">
           {{ missingRequiredTip }}
         </div>
       </div>
       <div class="pd-actions">
-        <el-button v-if="detail.canAdvance && hasNextPhase" type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
+        <el-button v-if="!isSettlementCurrent && detail.canAdvance && hasNextPhase" type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
         <el-button v-if="detail.canManage || detail.canEditBasic" @click="openEdit">编辑项目</el-button>
         <el-dropdown trigger="click" @command="onHeadCommand">
           <el-button>更多操作<el-icon style="margin-left: 4px"><ArrowDown /></el-icon></el-button>
@@ -48,8 +48,14 @@
         <!-- ② 核心数据卡（日程上传阶段隐藏，Owner 2026-11-09） -->
 
 
-        <section class="pd-stepper ui-card" aria-label="项目生命周期">
+        <section class="pd-stepper ui-card" :class="{ 'pd-stepper-compact': isSettlementCurrent }" aria-label="项目生命周期">
           <div class="pd-sec-title">项目生命周期</div>
+          <select v-if="isSettlementCurrent" class="pd-phase-select" aria-label="查看项目阶段"
+            :value="String(viewPhaseId)" @change="setViewPhase(sortedPhases.find(phase => String(phase.id) === $event.target.value))">
+            <option v-for="(phase, index) in sortedPhases" :key="phase.id" :value="String(phase.id)">
+              第 {{ index + 1 }} / {{ sortedPhases.length }} 阶段 · {{ phase.name }}
+            </option>
+          </select>
           <ol class="steps-row">
             <li v-for="(p, idx) in sortedPhases" :key="p.id">
               <button type="button" class="step-item" :class="stepClass(p)"
@@ -394,7 +400,7 @@
         </section>
 
         <!-- 2026-11-16 Owner 口径：会议预算制作阶段只展示 生命周期/阶段资料，右侧待办/文件/合规均隐藏 -->
-        <div class="ui-card side-card">
+        <div v-if="!isSettlementCurrent" class="ui-card side-card">
           <div class="pd-sec-title">当前待办</div>
           <template v-if="otherRequiredTemplates.length">
             <div v-for="(m, i) in otherRequiredTemplates" :key="i" class="todo-item">
@@ -453,6 +459,14 @@
           <div v-else class="hint-text">暂无操作记录</div>
         </div>
       </div>
+    </div>
+
+    <div v-if="isSettlementCurrent && detail.canAdvance && hasNextPhase" class="pd-settlement-footer ui-card">
+      <div v-if="!requiredSubmitted" class="pd-settlement-reason">
+        <span>还差 {{ missingRequiredTemplates.length }} 项必填资料</span>
+        <el-button link type="primary" @click="resolveMissing(missingRequiredTemplates[0])">查看缺项</el-button>
+      </div>
+      <el-button type="primary" :disabled="!requiredSubmitted" @click="confirmAdvance">推进下一阶段</el-button>
     </div>
 
     <!-- ============ 弹窗（业务逻辑不变） ============ -->
@@ -1203,6 +1217,7 @@ function isTemplateFulfilled(t) {
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
 const SCHEDULE_UPLOAD_TASK = '上传日程'
 const SETTLEMENT_PHASE_NAME = '结算资料上传'
+const isSettlementCurrent = computed(() => currentPhase.value?.name === SETTLEMENT_PHASE_NAME)
 function inSettlementStage() {
   return currentPhase.value?.name === SETTLEMENT_PHASE_NAME || viewPhaseObj.value?.name === SETTLEMENT_PHASE_NAME
 }
@@ -1647,6 +1662,33 @@ async function downloadProjectFile(d) {
 
 <style scoped>
 .pd-page { max-width: 1440px; margin: 0 auto; }
+.pd-settlement-page .pd-grid { grid-template-columns: minmax(0, 1fr) 300px; }
+.pd-settlement-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+  margin-top: 12px;
+}
+.pd-settlement-reason { display: flex; align-items: center; gap: 8px; color: var(--ui-text-sub); }
+.pd-phase-select { display: none; }
+.pd-stepper-compact .steps-row { flex-wrap: wrap; overflow: visible; gap: 4px; }
+.pd-stepper-compact .step-item { min-width: 0; padding: 5px 6px; gap: 5px; }
+.pd-stepper-compact .step-dot { width: 19px; height: 19px; font-size: 11px; }
+.pd-stepper-compact .step-name { font-size: 12px; }
+.pd-stepper-compact .step-item:not([aria-current="step"]) .step-state { display: none; }
+@media (max-width: 1050px) {
+  .pd-settlement-page .pd-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .pd-stepper-compact .steps-row { display: none; }
+  .pd-phase-select { display: block; margin-block-start: 6px; max-width: 100%; font: inherit; }
+}
 /* ① 概览头部 */
 .pd-head { display: flex; justify-content: space-between; gap: 16px; padding: 16px 20px; margin: 12px 0 16px; }
 .pd-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
