@@ -1,5 +1,10 @@
 // 供应商模块公共纯函数（SupplierList 与 SupplierDetail 共用，防两处漂移）
 
+// 列表型取数单次上限（P3-4 2026-11-26：绑定候选/同城列表共享；超过此数需提示截断，
+// 后端分页接口为真源上限，此处仅为前端单次取数边界）
+export const SUPPLIER_LIST_FETCH_SIZE = 200
+
+
 // 类型业务键 -> Tag 颜色
 export function supplierTypeTagColor(bizKey) {
   const map = {

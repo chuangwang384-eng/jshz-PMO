@@ -114,3 +114,8 @@ export function crossCityBindings(params) {
 export function unbindSupplierBatch(relIds) {
   return request.post('/supplier/bindings/unbind-batch', { relIds })
 }
+
+// 绑定概览（需求四 2026-11-26）：酒店/打印店中未绑定任何对端的清单（cityId 可选）
+export function getUnboundBindings(cityId) {
+  return request.get('/supplier/bindings/unbound', { params: { cityId } })
+}

@@ -3,8 +3,6 @@ package com.jshz.expert.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.Supplier;
 import com.jshz.expert.entity.ProjectSupplier;
@@ -38,6 +36,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -62,7 +61,6 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     private final SupplierHotelPrintRelMapper relMapper;
     private final SupplierStorageService storageService;
     private final SupplierImageService imageService;
-    private final ObjectMapper objectMapper;
 
     // ==================== 类型字典 ====================
 
@@ -294,12 +292,18 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
     /**
      * 删除供应商：级联删除行价/评价/绑定关系与图片文件。
      */
-    @Transactional(rollbackFor = Exception.class)
-    public void deleteSupplier(Long id) {
+    /** 行锁加载供应商（FOR UPDATE）：删除/行价全量替换等"读-改-写"路径统一入口，防并发双写。 */
+    private Supplier lockSupplier(Long id) {
         Supplier s = baseMapper.selectOne(new LambdaQueryWrapper<Supplier>().eq(Supplier::getId, id).last("FOR UPDATE"));
         if (s == null) {
             throw new BusinessException("供应商不存在");
         }
+        return s;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteSupplier(Long id) {
+        Supplier s = lockSupplier(id);
         if (projectSupplierMapper.selectCount(new LambdaQueryWrapper<ProjectSupplier>()
                 .eq(ProjectSupplier::getSupplierId, id)) > 0) {
             throw new BusinessException("供应商已被项目引用，请先处理项目关联，不能删除");
@@ -327,10 +331,8 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
      */
     @Transactional(rollbackFor = Exception.class)
     public List<SupplierPriceItem> savePrices(Long supplierId, List<Map<String, Object>> items) {
-        Supplier s = this.getById(supplierId);
-        if (s == null) {
-            throw new BusinessException("供应商不存在");
-        }
+        // P2-2（2026-11-26 审查修复）：先删后插前锁供应商行，并发保存串行化，避免双份行价
+        Supplier s = lockSupplier(supplierId);
         priceItemMapper.delete(new LambdaQueryWrapper<SupplierPriceItem>().eq(SupplierPriceItem::getSupplierId, supplierId));
         int sort = 0;
         if (items != null) {
@@ -410,6 +412,10 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (!StringUtils.hasText(content)) {
             throw new BusinessException("评价内容不能为空");
         }
+        // P2-1（2026-11-26 审查修复）：与 supplier_review.content varchar(500) 同口径，超长给出业务错误而非 500
+        if (content.trim().length() > 500) {
+            throw new BusinessException("评价内容不能超过 500 字");
+        }
         SupplierReview r = new SupplierReview();
         r.setSupplierId(supplierId);
         r.setUsername(user.getUsername());
@@ -488,9 +494,10 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         if (dup != null && dup > 0) {
             throw new BusinessException("两家供应商已绑定，不能重复绑定");
         }
-        // v2.1「三、酒店-打印店同城绑定」：两端城市必须一致，拒绝跨城绑定（存量跨城关系不受影响）
-        Supplier hotel = this.getById(hotelId);
-        Supplier printShop = this.getById(printId);
+        // v2.1「三、酒店-打印店同城绑定」：两端城市必须一致，拒绝跨城绑定（存量跨城关系不受影响）；
+        // P3-2：复用上方已加载的 a/b，不再重复查库
+        Supplier hotel = hotelId.equals(aId) ? a : b;
+        Supplier printShop = printId.equals(aId) ? a : b;
         if (!java.util.Objects.equals(hotel.getCityId(), printShop.getCityId())) {
             throw new BusinessException(400, "BIND_CITY_MISMATCH：仅支持绑定同城市的打印店/酒店");
         }
@@ -569,6 +576,67 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         Page<Map<String, Object>> result = new Page<>(page, size);
         result.setTotal(total);
         result.setRecords(from >= to ? List.of() : all.subList(from, to));
+        return result;
+    }
+
+    /**
+     * 绑定概览（需求四 2026-11-26）：酒店↔打印店双类型中"未绑定任何对端"的供应商清单。
+     * cityId 可选过滤；返回项含 id/name/类型业务键/城市，前端按城市分组展示反向核对缺口。
+     * 数据量小（现 125 家），全量内存计算；仅 HOTEL/PRINT 两类参与（绑定语义范围）。
+     */
+    public List<Map<String, Object>> unboundBindingPeers(Long cityId) {
+        List<SupplierType> types = typeMapper.selectList(null);
+        Map<Long, String> bizByType = types.stream()
+                .filter(t -> StringUtils.hasText(t.getBizKey()))
+                .collect(Collectors.toMap(SupplierType::getId, SupplierType::getBizKey, (x, y) -> x));
+        Set<Long> bpTypeIds = bizByType.entrySet().stream()
+                .filter(e -> BIZ_HOTEL.equals(e.getValue()) || BIZ_PRINT.equals(e.getValue()))
+                .map(Map.Entry::getKey).collect(Collectors.toSet());
+        if (bpTypeIds.isEmpty()) {
+            return List.of();
+        }
+        LambdaQueryWrapper<Supplier> w = new LambdaQueryWrapper<Supplier>().in(Supplier::getTypeId, bpTypeIds);
+        if (cityId != null) {
+            w.eq(Supplier::getCityId, cityId);
+        }
+        List<Supplier> candidates = this.list(w);
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        // 一次拉全绑定关系，统计每家出现次数（hotel 或 print 任一侧出现即算已绑定）
+        Map<Long, Long> boundCount = new HashMap<>();
+        for (SupplierHotelPrintRel r : relMapper.selectList(null)) {
+            if (r.getHotelId() != null) boundCount.merge(r.getHotelId(), 1L, Long::sum);
+            if (r.getPrintShopId() != null) boundCount.merge(r.getPrintShopId(), 1L, Long::sum);
+        }
+        // 城市名映射
+        List<Long> cityIds = candidates.stream().map(Supplier::getCityId)
+                .filter(java.util.Objects::nonNull).distinct().collect(Collectors.toList());
+        Map<Long, SupplierCity> cityMap = cityIds.isEmpty() ? Map.of()
+                : cityMapper.selectBatchIds(cityIds).stream()
+                        .collect(Collectors.toMap(SupplierCity::getId, c -> c));
+        Map<Long, String> nameByType = types.stream()
+                .collect(Collectors.toMap(SupplierType::getId, SupplierType::getName, (x, y) -> x));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Supplier s : candidates) {
+            if (boundCount.getOrDefault(s.getId(), 0L) > 0) {
+                continue;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", s.getId());
+            m.put("name", s.getName());
+            m.put("typeBizKey", bizByType.get(s.getTypeId()));
+            m.put("typeName", nameByType.get(s.getTypeId()));
+            m.put("cityId", s.getCityId());
+            SupplierCity c = s.getCityId() == null ? null : cityMap.get(s.getCityId());
+            m.put("cityName", c == null ? null : c.getName());
+            result.add(m);
+        }
+        // 城市 → 类型 → 名称排序，便于前端直接分组
+        result.sort(java.util.Comparator
+                .comparing((Map<String, Object> m) -> String.valueOf(m.get("cityName")))
+                .thenComparing(m -> String.valueOf(m.get("typeBizKey")))
+                .thenComparing(m -> String.valueOf(m.get("name"))));
         return result;
     }
 
@@ -668,26 +736,4 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
         }
         return result;
     }
-
-    private List<String> parseImages(String imagesJson) {
-        if (!StringUtils.hasText(imagesJson)) {
-            return new ArrayList<>();
-        }
-        try {
-            return objectMapper.readValue(imagesJson, new TypeReference<List<String>>() {
-            });
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
-    }
-
-    private String writeJson(Object obj) {
-        try {
-            return objectMapper.writeValueAsString(obj);
-        } catch (Exception e) {
-            throw new BusinessException("数据序列化失败: " + e.getMessage());
-        }
-    }
-
-
 }

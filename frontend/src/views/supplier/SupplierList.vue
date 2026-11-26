@@ -1,6 +1,6 @@
 <template>
   <div class="supplier-page">
-    <el-card shadow="never" class="supplier-panel">
+    <el-card ref="panelEl" shadow="never" class="supplier-panel">
       <!-- 第一行：搜索 + 类型 + 城市 + 重置（管理员入口在右侧） -->
       <div class="filter-row">
         <el-input
@@ -176,7 +176,7 @@
               :value="o.id"
             />
           </el-select>
-          <div class="upload-tip">仅列出同城市对端类型；绑定限制与详情页「添加绑定」一致（后端同城校验）</div>
+          <div class="upload-tip">仅列出同城市对端类型；绑定限制与详情页「添加绑定」一致（后端同城校验）<template v-if="bindTruncated">；<span class="trunc-warn">候选超过 {{ SUPPLIER_LIST_FETCH_SIZE }} 家，仅显示前 {{ SUPPLIER_LIST_FETCH_SIZE }} 家，请先用类型筛选缩小范围</span></template></div>
         </el-form-item>
         <el-form-item label="地址">
           <el-input v-model="form.address" maxlength="200" />
@@ -209,7 +209,8 @@
                 <el-button link type="danger" size="small" @click="createFiles.splice(i, 1)">移除</el-button>
               </div>
             </div>
-            <div class="upload-tip">保存时随创建一并上传（自动压缩，长边≤1280）；≤20 张、单张 ≤8MB、累计 ≤100MB；首图自动设为主图。留空则创建后可在详情页上传</div>
+            <!-- P3-3：限额文案读后端真源（/api/meta/limits），不再硬编码字面量 -->
+          <div class="upload-tip">保存时随创建一并上传（自动压缩，长边≤1280）；≤{{ uploadLimits.supplierMaxImages }} 张、单张 ≤{{ toMb(uploadLimits.supplierMaxSingleBytes) }}MB、累计 ≤{{ toMb(uploadLimits.supplierMaxTotalBytes) }}MB；首图自动设为主图。留空则创建后可在详情页上传</div>
           </div>
         </el-form-item>
       </el-form>
@@ -232,8 +233,13 @@
             <el-tag v-if="row.bizKey" size="small" type="info" style="margin-left: 6px">内置</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="sort" label="排序" width="80" />
-        <el-table-column label="操作" width="180" align="center">
+        <el-table-column label="排序" width="140">
+          <template #default="{ row }">
+            <el-input-number v-model="row.sort" size="small" :min="0" :max="999" controls-position="hidden" style="width: 70px" />
+            <el-button v-if="row.sort !== row.$origSort" link type="primary" size="small" @click="saveTypeSort(row)">保存</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="140" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="renameType(row)">改名</el-button>
             <el-button link type="danger" @click="removeType(row)">删除</el-button>
@@ -257,7 +263,8 @@ import {
   supplierImageUrl
 } from '../../api/supplier'
 import { compressImage } from '../../utils/imageCompress'
-import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
+import { ensureUploadLimits, toMb, uploadLimits } from '../../utils/limits'
+import { supplierTypeTagColor, provinceList, citiesOfProvince, SUPPLIER_LIST_FETCH_SIZE } from '../../utils/supplier'
 
 const router = useRouter()
 const route = useRoute()
@@ -270,6 +277,7 @@ const page = ref(1)
 const size = ref(12)
 // 每页铺满卡片（2026-11-19 Owner）：按卡片网格实际列数动态取"列数×3行"为默认页大小
 const gridEl = ref(null)
+const panelEl = ref(null)
 const cols = ref(4)
 const COL_MIN = 240
 const COL_GAP = 14
@@ -279,7 +287,8 @@ const sizeOptions = computed(() => {
   return [base, base * 2, base * 4]
 })
 function computeCols() {
-  const w = gridEl.value ? gridEl.value.clientWidth : 0
+  // P3-6（2026-11-26）：列表视图（默认视图）下卡网格未渲染，回退用面板容器宽度估算列数
+  const w = gridEl.value ? gridEl.value.clientWidth : (panelEl.value ? panelEl.value.$el?.clientWidth || 0 : 0)
   if (!w) return
   const c = Math.max(1, Math.floor((w + COL_GAP) / (COL_MIN + COL_GAP)))
   if (c !== cols.value) {
@@ -343,7 +352,7 @@ function coverOf(s) {
 async function fetchDicts() {
   try {
     const [t, c] = await Promise.all([listSupplierTypes(), listSupplierCities()])
-    types.value = t || []
+    types.value = (t || []).map((x) => ({ ...x, $origSort: x.sort }))
     cities.value = c || []
   } catch (e) {
     // 拦截器已提示
@@ -456,6 +465,7 @@ const isHotelOrPrint = computed(() => {
   return !!t && (t.bizKey === HOTEL_BIZ || t.bizKey === PRINT_BIZ)
 })
 const bindCandidates = ref([])
+const bindTruncated = computed(() => bindCandidates.value.length >= SUPPLIER_LIST_FETCH_SIZE)
 
 async function loadBindCandidates() {
   bindCandidates.value = []
@@ -466,7 +476,7 @@ async function loadBindCandidates() {
   const targetType = types.value.find((x) => x.bizKey === targetBiz)
   if (!targetType) return
   try {
-    const data = await listSuppliers({ typeId: targetType.id, cityId: form.value.cityId, page: 1, size: 200 })
+    const data = await listSuppliers({ typeId: targetType.id, cityId: form.value.cityId, page: 1, size: SUPPLIER_LIST_FETCH_SIZE })
     bindCandidates.value = data?.items || []
   } catch (e) {
     // 拦截器已提示
@@ -573,6 +583,18 @@ async function confirmCreate() {
 const typeDlgVisible = ref(false)
 const newTypeName = ref('')
 
+// P3-7：排序可编辑——后端 PUT /types/{id} 本就支持 sort，此处补保存入口
+async function saveTypeSort(row) {
+  try {
+    await updateSupplierType(row.id, { name: row.name, sort: row.sort })
+    row.$origSort = row.sort
+    ElMessage.success('排序已保存')
+    fetchDicts()
+  } catch (e) {
+    // 拦截器已提示
+  }
+}
+
 async function addType() {
   if (!newTypeName.value.trim()) return ElMessage.warning('请输入类型名称')
   try {
@@ -628,6 +650,7 @@ onMounted(() => {
       // 忽略
     }
   }
+  ensureUploadLimits()
   fetchDicts()
   fetchList()
 })
@@ -765,4 +788,5 @@ onBeforeUnmount(() => {
 .create-file-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .create-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-tip { margin-top: 4px; font-size: 12px; color: var(--ui-text-muted); line-height: 1.5; }
+.trunc-warn { color: var(--ui-warning); }
 </style>

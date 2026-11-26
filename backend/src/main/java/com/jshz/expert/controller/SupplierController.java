@@ -319,6 +319,16 @@ public class SupplierController {
     }
 
     /**
+     * 绑定概览（需求四 2026-11-26）：GET /api/supplier/bindings/unbound?cityId=（登录即可）。
+     * 酒店↔打印店双类型中未绑定任何对端的供应商清单，供"绑定概览"反向核对缺口。
+     */
+    @GetMapping("/bindings/unbound")
+    public ApiResponse<List<Map<String, Object>>> unboundBindings(
+            @RequestParam(required = false) Long cityId) {
+        return ApiResponse.ok(supplierService.unboundBindingPeers(cityId));
+    }
+
+    /**
      * 批量解绑（v2.1）：POST /api/supplier/bindings/unbind-batch。body {relIds:[]}。
      * 事务内统一校验并删除；relIds 为空返回 PARAM_INVALID（400），
      * 存在不存在的关系整体失败返回 BINDING_NOT_FOUND（404）；成功返回 {unboundCount}。

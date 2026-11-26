@@ -486,3 +486,11 @@ body.t-forum-fade #deck > .slide.active .sec-title {
 - **已读统计在职口径**：readStats/进度/totalCount 均按 `sys_user.status=1`，读+未读=总数；停用用户已读记录不计入。标记已读撞 `uk_announcement_user` 视为幂等成功（并发不再 500）。
 - **搜索**：关键词按"标题 + 正文纯文本（Jsoup 剥标签）"匹配；LIKE 仅作预筛，公告量大时需改为文本副本列方案（见 AnnouncementService.pageQuery 注释）。
 - **置顶排序**（需求四）：`announcement.top_sort`（值小靠前，仅 is_top=1 有意义）；`POST /api/announcement/{id}/move?dir=up|down`（announcement:manage）交换相邻排序值；取消置顶保留值，重新置顶恢复原位；新置顶取 min-1 排最前。列表/消息抽屉/工作台 ORDER BY 均为 `is_top DESC, top_sort ASC, create_time DESC`。
+
+## 供应商板块修复与绑定概览（2026-11-26，1.0.156）
+
+- **行价并发安全**：`savePrices`（全量替换）与 `deleteSupplier` 统一经 `lockSupplier`（FOR UPDATE）串行化，防并发保存产生双份行价。
+- **评价长度**：`addReview` 超 500 字返回业务错误（同 supplier_review.content 列口径）。
+- **限额真源**：`/api/meta/limits` 新增 `supplierMaxImages/supplierMaxSingleBytes/supplierMaxTotalBytes`，真源=SupplierImageService/SupplierStorageService 公共常量；前端提示文案经 utils/limits.js 读取。
+- **绑定概览**：`GET /api/supplier/bindings/unbound?cityId=` 返回酒店↔打印店双类型中未绑定任何对端的供应商（id/name/typeBizKey/typeName/cityId/cityName，城市→类型→名称排序）；前端详情页"绑定概览"对话框按城市分组反向核对。
+- 数据清理：迁移 `20261126_cleanup_supplier_review_tmp.sql` 守卫式删除联调遗留类型 `_review_tmp`（仅 0 引用生效）。

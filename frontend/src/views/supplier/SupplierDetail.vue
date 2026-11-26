@@ -179,7 +179,8 @@
             <div class="empty-title">暂无图片</div>
             <div class="empty-sub">上传后可设为主图、重命名或删除</div>
           </div>
-          <div class="tip-line">最多 20 张、单张 ≤8MB、累计 ≤100MB；上传自动压缩（长边≤1280），首图自动设为主图；命名在单张图片的「重命名」中修改。</div>
+          <!-- P3-3：限额文案读后端真源（/api/meta/limits），不再硬编码字面量 -->
+          <div class="tip-line">最多 {{ uploadLimits.supplierMaxImages }} 张、单张 ≤{{ toMb(uploadLimits.supplierMaxSingleBytes) }}MB、累计 ≤{{ toMb(uploadLimits.supplierMaxTotalBytes) }}MB；上传自动压缩（长边≤1280），首图自动设为主图；命名在单张图片的「重命名」中修改。</div>
         </div>
 
         <!-- ============ 历史价格 ============ -->
@@ -286,6 +287,7 @@
             <span class="body-title">{{ isHotel ? '绑定打印店' : '服务的酒店' }}<span class="body-count">{{ bindings.length }}</span></span>
             <span class="body-actions">
               <el-button v-permission="'supplier:manage'" link type="warning" @click="openCrossCityDlg">跨城清单</el-button>
+              <el-button v-permission="'supplier:manage'" link type="primary" @click="openUnboundDlg">绑定概览</el-button>
               <el-button v-permission="'supplier:binding'" type="primary" plain size="small" @click="openBindDlg">
                 <el-icon><Plus /></el-icon><span style="margin-left: 4px">添加绑定</span>
               </el-button>
@@ -510,6 +512,37 @@
     </el-dialog>
 
     <!-- 跨城绑定清单 -->
+    <!-- 绑定概览（需求四 2026-11-26）：按城市分组的未绑定对端清单，反向核对缺口 -->
+    <el-dialog v-model="unboundDlgVisible" title="绑定概览 · 未绑定对端的酒店/打印店" width="720px" destroy-on-close>
+      <div v-loading="unboundLoading">
+        <el-select v-model="unboundCityId" placeholder="全部城市" clearable filterable size="small" style="width: 180px" @change="loadUnbound">
+          <el-option v-for="c in cities" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <div class="unbound-groups">
+          <template v-for="g in unboundGroups" :key="g.city">
+            <div class="unbound-city">{{ g.city || '未填城市' }}</div>
+            <div class="unbound-side">
+              <span class="unbound-label hot">酒店（{{ g.hotels.length }}）</span>
+              <span v-if="!g.hotels.length" class="unbound-none">无缺口</span>
+              <el-tag
+                v-for="o in g.hotels" :key="'h' + o.id" class="unbound-tag" effect="plain"
+                @click="goPeer(o.id); unboundDlgVisible = false"
+              >{{ o.name }}</el-tag>
+            </div>
+            <div class="unbound-side">
+              <span class="unbound-label prt">打印店（{{ g.prints.length }}）</span>
+              <span v-if="!g.prints.length" class="unbound-none">无缺口</span>
+              <el-tag
+                v-for="o in g.prints" :key="'p' + o.id" class="unbound-tag" effect="plain"
+                @click="goPeer(o.id); unboundDlgVisible = false"
+              >{{ o.name }}</el-tag>
+            </div>
+          </template>
+          <el-empty v-if="!unboundLoading && !unboundGroups.length" description="酒店/打印店均已绑定对端，无缺口" :image-size="60" />
+        </div>
+      </div>
+    </el-dialog>
+
     <el-dialog v-model="crossCityDlgVisible" title="跨城绑定清单" width="880px" destroy-on-close>
       <div style="display: flex; gap: 10px; margin-bottom: 10px">
         <el-input v-model="crossKeyword" placeholder="按酒店/打印店名称搜索" clearable style="width: 240px" @keyup.enter="onCrossSearch" @clear="onCrossSearch" />
@@ -557,10 +590,11 @@ import {
   saveSupplierPrices, addSupplierReview,
   bindSupplier, unbindSupplier,
   uploadSupplierImage, listSupplierImages, setSupplierMainImage, renameSupplierImage, deleteSupplierImage, supplierImageUrl,
-  crossCityBindings, unbindSupplierBatch
+  crossCityBindings, unbindSupplierBatch, getUnboundBindings
 } from '../../api/supplier'
 import { compressImage } from '../../utils/imageCompress'
-import { supplierTypeTagColor, provinceList, citiesOfProvince } from '../../utils/supplier'
+import { ensureUploadLimits, toMb, uploadLimits } from '../../utils/limits'
+import { supplierTypeTagColor, provinceList, citiesOfProvince, SUPPLIER_LIST_FETCH_SIZE } from '../../utils/supplier'
 import { useAuthStore } from '../../store/auth'
 
 const route = useRoute()
@@ -725,7 +759,7 @@ async function loadSameCity() {
     return
   }
   try {
-    const data = await listSuppliers({ cityId: s.value.cityId, page: 1, size: 200 })
+    const data = await listSuppliers({ cityId: s.value.cityId, page: 1, size: SUPPLIER_LIST_FETCH_SIZE })
     sameCityList.value = data?.items || []
     sameCityTotal.value = data?.total || sameCityList.value.length
   } catch (e) {
@@ -862,6 +896,41 @@ async function confirmEdit() {
     saving.value = false
   }
 }
+
+// ==================== 绑定概览（需求四 2026-11-26） ====================
+const unboundDlgVisible = ref(false)
+const unboundLoading = ref(false)
+const unboundCityId = ref(null)
+const unboundItems = ref([])
+
+function openUnboundDlg() {
+  unboundDlgVisible.value = true
+  loadUnbound()
+}
+
+async function loadUnbound() {
+  unboundLoading.value = true
+  try {
+    unboundItems.value = (await getUnboundBindings(unboundCityId.value || undefined)) || []
+  } catch (e) {
+    // 拦截器已提示
+  } finally {
+    unboundLoading.value = false
+  }
+}
+
+// 按城市分组；城市内再分酒店/打印店两侧
+const unboundGroups = computed(() => {
+  const map = new Map()
+  for (const o of unboundItems.value) {
+    const city = o.cityName || ''
+    if (!map.has(city)) map.set(city, { city, hotels: [], prints: [] })
+    const g = map.get(city)
+    if (o.typeBizKey === 'HOTEL') g.hotels.push(o)
+    else if (o.typeBizKey === 'PRINT') g.prints.push(o)
+  }
+  return [...map.values()]
+})
 
 async function handleDelete() {
   try {
@@ -1125,6 +1194,17 @@ watch(
 </script>
 
 <style scoped>
+/* 绑定概览（需求四 2026-11-26） */
+.unbound-groups { margin-top: 10px; max-height: 55vh; overflow-y: auto; }
+.unbound-city { font-weight: 600; color: var(--ui-text-main); margin: 12px 0 4px; }
+.unbound-side { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 4px 0 4px 12px; }
+.unbound-label { font-size: 12px; color: var(--ui-text-sub); min-width: 90px; }
+.unbound-label.hot { color: var(--ui-success); }
+.unbound-label.prt { color: var(--ui-warning); }
+.unbound-none { font-size: 12px; color: var(--ui-text-muted); }
+.unbound-tag { cursor: pointer; }
+.unbound-tag:hover { border-color: var(--ui-primary); color: var(--ui-primary); }
+
 .sup-detail {
   background: #f5f6f8;
   min-height: calc(100vh - 90px);

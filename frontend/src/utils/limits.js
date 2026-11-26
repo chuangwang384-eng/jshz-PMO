@@ -9,7 +9,11 @@ export const uploadLimits = reactive({
   resumeMaxBytes: 30 * 1024 * 1024,
   docMaxBytes: 100 * 1024 * 1024,
   // 结算资料单批次合计上限（2026-11-25 取消「每批最多 20 个文件」限制，仅保留可配置总量）
-  settlementBatchMaxBytes: 500 * 1024 * 1024
+  settlementBatchMaxBytes: 500 * 1024 * 1024,
+  // 供应商图片限额（2026-11-26 审查修复 P3-3：真源=后端 SupplierImageService 常量，经 /api/meta/limits 下发）
+  supplierMaxImages: 20,
+  supplierMaxSingleBytes: 8 * 1024 * 1024,
+  supplierMaxTotalBytes: 100 * 1024 * 1024
 })
 
 let fetched = false
