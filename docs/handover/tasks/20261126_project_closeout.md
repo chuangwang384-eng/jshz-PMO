@@ -2,6 +2,8 @@
 
 2026-11-26，主责 Codex。基线为 `main@47f23f5`，生产前端为 `1.0.151-settlement-stage-ui`，后端健康版本为 1.0.151。
 
+当前已完成待业务验收。功能提交 `c1e3389` 已合入本地 `main`，正式前后端 1.0.152 发布状态为 `SUCCESS / verified`。
+
 ## 实现与规则
 
 - 项目管理生命周期采用各阶段共用的大卡片。消除结算阶段专用紧凑样式，保留现有推进底栏。
@@ -20,3 +22,6 @@
 - `mvn -f backend/pom.xml -DgitShort=47f23f5 -Drevision=1.0.152 -Dtest=ProjectAccessRegressionTest test`，22 项通过。覆盖归档前拒绝推进、归档后文件变化、现有 ZIP 继续有效、平台凭证确认、非成员和错误事项拒绝。
 - `npm --prefix frontend run build -- --outDir <隔离目录>/dist-stage --emptyOutDir` 通过。隔离 Edge 的 `node frontend/tests/settlement-stage-browser.mjs dist-stage` 通过，覆盖大卡片、归档启用推进、删后拦截、凭证上传和结项标识。
 - Windows PowerShell `release-full.ps1 -Mode Preflight -Version 1.0.152 -Slug project-closeout` 通过。无待执行迁移，schema parity 通过。生产发布使用前后端平滑切换，回滚保留发布前 1.0.151 后端和前端快照。登录业务验收需要获准项目与凭证。
+- 同一隔离 Edge 用例对正式制品 `builds/1.0.152-build-20261126_090938/dist` 重跑通过。线上首页、入口包和项目详情包均返回 200 且与正式制品的 SHA-256 一致。后端直连与经 Nginx 均报告 1.0.152 UP、提交 `c1e3389`。匿名结项查询返回 401，Nginx master PID 8200 未变。见 `logs/release-full-20261126_090859.log`。
+- 发布前备份位于 `backup/backup_20261126_090915`。前端回滚快照配置为 `frontend/release-metadata/1.0.152-project-closeout.rollback.conf.txt`，旧后端为 `backend/releases/1.0.152-20261126_091329/previous-expert-system.jar`。回滚须经批准，按部署文档恢复并重新验证。
+- 业务验收可从已有结算项目检查归档与推进联动，再分别用平台类和直付类项目确认凭证和「已结项」。此次生产验证未写入业务资料。
