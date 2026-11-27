@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /** Settlement upload slots and their stable archive paths. */
 final class ProjectSettlementMaterials {
-    static final String PHASE = "结算资料上传";
+    static final String PHASE = com.jshz.expert.common.ProjectPhaseNames.SETTLEMENT_UPLOAD;
     static final String PREFIX = ProjectStorageService.SETTLEMENT_FILE_PREFIX;
 
     static final String PACKAGE_PREFIX = PREFIX + "package_";

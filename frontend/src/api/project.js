@@ -82,6 +82,23 @@ export function saveStageForm(id, data) {
   return request.put(`/project/${id}/stage-form`, data)
 }
 
+// 会前财务资料表单结构（2026-11-26 P2-13/P2-21：后端与 Excel 模板同源的单一真源）
+// 返回 { projectType, sections:[{key,title,note,fields:[{key,label,valueType,required,requiredWhenCompanyIs,options}]}] }
+export function getFinanceSchema(projectType) {
+  return request.get('/project/finance-schema', { params: { projectType } })
+}
+
+// 会前财务资料表单下拉选项（按组返回：{ 组名: [选项...] }）
+export function getFinanceOptions(projectType) {
+  return request.get('/project/finance-options', { params: { projectType } })
+}
+
+// 合规立项申请表（当前生效版）独立入口（2026-11-26 新需求 1）
+// 返回 { archived, previewable, fileName?, filePath?, uploadBy?, createTime? }
+export function getFinanceArchive(id, phaseId) {
+  return request.get(`/project/${id}/finance-archive`, { params: { phaseId } })
+}
+
 // 登记预算金额
 // 登记合同（自动带出专家敏感字段）
 // 修改合同敏感字段（同步回写 expert_info 留痕）
@@ -187,29 +204,9 @@ export function getProjectBudget(id) {
   return request.get(`/project/${id}/meeting-budget`)
 }
 
-// 整单保存（confirm=false 草稿 / true 确认报价）
+// 整单保存（confirm=false 草稿 / true 确认报价；version 为乐观锁版本号，2026-11-26）
 export function saveProjectBudget(id, data) {
   return request.put(`/project/${id}/meeting-budget`, data)
-}
-
-export function listBudgetQuotes(id) {
-  return request.get(`/project/${id}/meeting-budget/quotes`)
-}
-
-export function generateBudgetQuote(id, { requestKey, clientNote }) {
-  return request.post(`/project/${id}/meeting-budget/quotes`, { requestKey, clientNote })
-}
-
-export function downloadBudgetQuote(id, versionId) {
-  return request.get(`/project/${id}/meeting-budget/quotes/${versionId}/file`, { responseType: 'blob' })
-}
-
-export function recordBudgetQuoteConfirmation(id, versionId, data) {
-  return request.post(`/project/${id}/meeting-budget/quotes/${versionId}/customer-confirmation`, data)
-}
-
-export function restoreBudgetQuote(id, versionId) {
-  return request.post(`/project/${id}/meeting-budget/quotes/${versionId}/restore`)
 }
 
 // 收费标准（管理员设置-项目配置）

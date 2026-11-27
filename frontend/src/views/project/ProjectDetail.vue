@@ -74,37 +74,48 @@
           <div class="pd-sec-title-row">
             <span class="pd-sec-title">阶段资料 · {{ viewPhaseObj?.name || '-' }}</span>
             <span v-if="!isViewingCurrent" class="ui-badge ui-badge-info">
-              {{ viewPhaseObj?.name === '结算资料上传' && detail.projectType === 'PLATFORM' && phaseState(viewPhaseObj) === 'done'
+              {{ viewPhaseObj?.name === PROJECT_PHASE_NAMES.SETTLEMENT_UPLOAD && detail.projectType === 'PLATFORM' && phaseState(viewPhaseObj) === 'done'
                 ? '非当前阶段 · 平台补件入口保留' : '非当前阶段（只读）' }}
             </span>
           </div>
 
           <!-- 会前财务资料上传阶段（2026-11-20）：按项目类型差异化表单 + 附件补充 -->
-          <template v-if="isFinanceViewing && phaseState(viewPhaseObj) !== 'future'">
-            <ProjectFinanceForm
-              :key="`${projectId}-${viewPhaseObj.id}`"
-              :project-id="projectId"
-              :phase-id="viewPhaseObj.id"
-              :project-type="detail.projectType || ''"
-              :project-info="detail"
-              :readonly="!canOperatePhase"
-              @saved="fetchDetail" />
-            <div class="fin-attach-row">
-              <el-upload v-if="canOperatePhase" :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
-                <el-button size="small" type="primary" plain>上传附件资料到本阶段</el-button>
-              </el-upload>
-              <span class="hint-text">合同、发票、会议通知等附件资料在此上传，与表单一并作为本阶段材料（单文件 ≤{{ toMb(uploadLimits.docMaxBytes) }}MB）</span>
-            </div>
-            <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
-              <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
-                <a href="javascript:void(0)" class="doc-name" @click="openFilePreview(d)">{{ d.fileName }}</a>
-                <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
-                <el-button v-if="canOperatePhase" link type="danger" style="margin-left: 12px" @click="removeDoc(d)">删除</el-button>
+          <!-- 2026-11-26 P1-5：未开始时给专属空态（原先落入占位文案「暂未配置」，误导为阶段未建设） -->
+          <template v-if="isFinanceViewing">
+            <el-empty v-if="phaseState(viewPhaseObj) === 'future'"
+              description="进入本阶段后可填写会前财务资料并生成合规立项申请表" :image-size="60" />
+            <template v-else>
+              <ProjectFinanceForm
+                :key="`${projectId}-${viewPhaseObj.id}`"
+                :project-id="projectId"
+                :phase-id="viewPhaseObj.id"
+                :project-type="detail.projectType || ''"
+                :project-info="detail"
+                :readonly="!canOperatePhase"
+                @saved="fetchDetail"
+                @edit-project="openEdit"
+                @preview="openFilePreview"
+                @download="downloadProjectFile" />
+              <div class="fin-attach-row">
+                <el-upload v-if="canOperatePhase" accept=".pdf,.xls,.xlsx,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.zip,.rar,.7z,.txt,.ofd"
+                  :show-file-list="false" :auto-upload="false" :on-change="(f) => uploadDoc(viewPhaseObj.id, f)">
+                  <el-button size="small" type="primary" plain>上传附件资料到本阶段</el-button>
+                </el-upload>
+                <span class="hint-text">合同、发票、会议通知等附件资料在此上传，与表单一并作为本阶段材料（单文件 ≤{{ toMb(uploadLimits.docMaxBytes) }}MB）</span>
               </div>
+              <!-- 合规立项申请表（2026-11-27 新需求 1）：独立入口由表单组件内的 ProjectFinanceForm 承载
+                   （在线预览 / 下载当前生效版），此处不再重复展示 -->
+              <template v-if="docsOfPhase(viewPhaseObj.id, 'FILE').length">
+                <div v-for="d in docsOfPhase(viewPhaseObj.id, 'FILE')" :key="d.id" class="doc-row" style="margin-top: 8px">
+                  <a href="javascript:void(0)" class="doc-name" @click="openFilePreview(d)">{{ d.fileName }}</a>
+                  <span class="doc-meta">上传人：{{ d.uploadBy }} · {{ d.createTime }}</span>
+                  <el-button v-if="canOperatePhase" link type="danger" style="margin-left: 12px" @click="removeDoc(d)">删除</el-button>
+                </div>
+              </template>
+              <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
             </template>
-            <div v-else class="hint-text" style="margin-top: 8px">本阶段暂无附件资料</div>
           </template>
-          <template v-else-if="viewPhaseObj?.name === '结算资料上传'">
+          <template v-else-if="viewPhaseObj?.name === PROJECT_PHASE_NAMES.SETTLEMENT_UPLOAD">
             <el-empty v-if="phaseState(viewPhaseObj) === 'future'" description="进入结算资料上传阶段后可提交资料" :image-size="60" />
             <ProjectSettlementMaterials v-else :key="`${projectId}-${viewPhaseObj.id}`" ref="settlementRef"
               :project-id="projectId" :phase-id="viewPhaseObj.id"
@@ -115,7 +126,7 @@
                 link type="primary" @click="openFilePreview(doc)">{{ doc.fileName }}</el-button>
             </template>
           </template>
-          <template v-else-if="viewPhaseObj?.name === '串场制作'">
+          <template v-else-if="viewPhaseObj?.name === PROJECT_PHASE_NAMES.SHOW_MAKING">
             <div v-if="canOperatePhase" class="fin-attach-row">
               <el-upload accept=".ppt,.pptx" :show-file-list="false" :auto-upload="false"
                 :on-change="uploadShowFile">
@@ -136,7 +147,6 @@
             <ProjectCloseout v-else :key="`${projectId}-${viewPhaseObj.id}-${detail.status}`" :project-id="projectId" :phase-id="viewPhaseObj.id"
               @saved="fetchDetail" @preview="openFilePreview" @download="downloadProjectFile" />
           </template>
-          <el-empty v-else-if="isPlaceholderPhaseViewing" description="暂未配置" :image-size="60" />
           <!-- 会议预算制作阶段（2026-11-16）：线上简化报价单 / 线下六类费用明细 -->
           <template v-else-if="isBudgetViewing && phaseState(viewPhaseObj) !== 'future'">
             <ProjectBudgetPanel id="meeting-budget-panel" :key="projectId" :project-id="projectId" :readonly="!canOperatePhase"
@@ -638,7 +648,6 @@ import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, sha
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../../store/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { handleProjectComplianceTodo } from '../../api/compliance'
 import { ArrowDown } from '@element-plus/icons-vue'
@@ -663,7 +672,8 @@ import {
 } from '../../api/project'
 import KnowledgeWorkbookPreview from '../../components/KnowledgeWorkbookPreview.vue'
 import { ROLE_ENUM_LABEL, ROLE_VALUE_OPTIONS } from '../../utils/showDeck'
-import { PROJECT_TYPE_LABELS } from '../../utils/dict'
+import { PROJECT_PHASE_NAMES, PROJECT_TYPE_LABELS } from '../../utils/dict'
+import { projectFileDisplayName } from '../../utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -1131,13 +1141,13 @@ const currentPhase = computed(() => (detail.value.phases || []).find((p) => Numb
 const viewPhaseObj = computed(() => (detail.value.phases || []).find((p) => String(p.id) === String(viewPhaseId.value)) || currentPhase.value)
 const isViewingCurrent = computed(() => viewPhaseObj.value && Number(viewPhaseObj.value.id) === Number(detail.value.phaseId))
 // 2026-11-09 Owner 口径：日程上传阶段只展示 生命周期/阶段资料/参会专家，其余模块待阶段推进后再展示
-const AGENDA_PHASE_NAME = '日程上传'
+const AGENDA_PHASE_NAME = PROJECT_PHASE_NAMES.SCHEDULE_UPLOAD
 const isAgendaStage = computed(() => {
   const name = currentPhase.value?.name || detail.value.phaseName || ''
   return name === AGENDA_PHASE_NAME
 })
 // 2026-11-16 新增「会议预算制作」阶段（位于日程上传之前）：与日程上传同口径的专用阶段视图
-const BUDGET_PHASE_NAME = '会议预算制作'
+const BUDGET_PHASE_NAME = PROJECT_PHASE_NAMES.BUDGET_MAKING
 const BUDGET_QUOTE_TASK = '保存报价单'
 const isBudgetStage = computed(() => {
   const name = currentPhase.value?.name || detail.value.phaseName || ''
@@ -1148,26 +1158,17 @@ const isFlowStage = computed(() => isAgendaStage.value || isBudgetStage.value)
 // 阶段资料区当前查看的是预算阶段（含查看历史/未来阶段时的只读预览；future 由上层空态拦截）
 const isBudgetViewing = computed(() => viewPhaseObj.value?.name === BUDGET_PHASE_NAME)
 // 2026-11-20 会前财务资料上传：专用差异化表单视图（按项目类型分支），不再是纯占位
-const FINANCE_PHASE_NAME = '会前财务资料上传'
+const FINANCE_PHASE_NAME = PROJECT_PHASE_NAMES.FINANCE_UPLOAD
 const isFinanceViewing = computed(() => viewPhaseObj.value?.name === FINANCE_PHASE_NAME)
-const CLOSEOUT_PHASE_NAME = '会议费用结算及项目结项'
+const CLOSEOUT_PHASE_NAME = PROJECT_PHASE_NAMES.CLOSEOUT
 const isCloseoutViewing = computed(() => viewPhaseObj.value?.name === CLOSEOUT_PHASE_NAME)
-const PLACEHOLDER_PHASE_NAMES = new Set([
-  '会前财务资料上传',
-  CLOSEOUT_PHASE_NAME
-])
-const isPlaceholderPhaseViewing = computed(() => PLACEHOLDER_PHASE_NAMES.has(viewPhaseObj.value?.name))
+// 2026-11-26 P1-5：占位阶段集合（isPlaceholderPhaseViewing）随「会前财务资料上传」接入专属视图后已无成员，
+// 其 v-else-if 分支永不可达（结项阶段在更早的 isCloseoutViewing 分支已覆盖），已整体删除。
 // 非当前阶段只读（隐藏编辑/上传/删除入口）；2026-11-09 起资料/预算/合同操作=项目成员级（负责人/创建人/协助人）
-const authStoreForDetail = useAuthStore()
-const isMember = computed(() => {
-  const d = detail.value
-  if (!d || !d.id) return false
-  if (d.canManage || d.canAdvance) return true
-  const uid = authStoreForDetail.id
-  return Array.isArray(d.assistantIds) && d.assistantIds.includes(uid)
-})
+// 2026-11-26 P1-6：成员口径直接用后端下发的 canOperate（= isProjectMember：负责人/创建人/协助人/历史执行人/超管），
+// 不再由前端用 canManage||canAdvance||assistants 重算（后者把 project:manage 持有者也算成成员，保存时必 403）
 const isCompletedProject = computed(() => detail.value.status === 'COMPLETED')
-const canOperate = computed(() => !isCompletedProject.value && isMember.value)
+const canOperate = computed(() => detail.value.canOperate === true)
 const canOperatePhase = computed(() => canOperate.value && isViewingCurrent.value)
 
 function phaseState(p) {
@@ -1191,15 +1192,20 @@ function setViewPhase(p) {
   viewPhaseId.value = String(p.id)
 }
 
+// 2026-11-26 P0-1：合规立项申请表由表单自动生成，独立展示且不可删除，不混入普通阶段附件清单
+// 2026-11-27 新需求 1：其「在线预览 / 下载当前生效版」独立入口改由 ProjectFinanceForm 承载，
+// 此处只保留前缀常量（用于把归档件排除在普通附件清单之外），不再重复渲染归档卡片。
+const FINANCE_ARCHIVE_PREFIX = 'project_finance_'
+
 function docsOfPhase(phaseId, type) {
   return (detail.value.docs || []).filter(
-    (d) => Number(d.phaseId) === Number(phaseId) && !d.filePath?.startsWith('project_settlement_package_') && (type === 'FILE' ? !d.isRichText : d.isRichText)
+    (d) => Number(d.phaseId) === Number(phaseId) && !d.filePath?.startsWith('project_settlement_package_') && !d.filePath?.startsWith(FINANCE_ARCHIVE_PREFIX) && (type === 'FILE' ? !d.isRichText : d.isRichText)
   )
 }
 // 相关附件仅真实文件附件（排除富文本存档，富文本在阶段资料区展示）
 const allDocs = computed(() => (detail.value.docs || []).filter((d) => !d.isRichText)
   .sort((a, b) => Number(b.id) - Number(a.id))
-  .map(doc => ({ ...doc, fileName: projectFileDisplayName(doc) })))
+  .map(doc => ({ ...doc, fileName: projectFileDisplayName(doc, detail.value.name) })))
 const sidebarDocs = computed(() => {
   const proofs = []
   const other = []
@@ -1209,13 +1215,6 @@ const sidebarDocs = computed(() => {
   }
   return [...proofs, ...other.slice(0, Math.max(0, 10 - proofs.length))]
 })
-
-function projectFileDisplayName(doc) {
-  const name = doc.fileName || doc.filePath
-  const projectName = String(detail.value.name || '').trim().replace(/[<>:"/\\|?*]/g, '_')
-  if (!projectName || !name || name.startsWith(projectName)) return name
-  return `${projectName}-${name}`
-}
 
 function richTextOf(phaseId) {
   return richOfPhase.value[phaseId] ?? ''
@@ -1232,7 +1231,9 @@ function isTemplateFulfilled(t) {
 
 // 待处理任务 → 解决入口映射（复用现有弹窗/入口）
 const SCHEDULE_UPLOAD_TASK = '上传日程'
-const SETTLEMENT_PHASE_NAME = '结算资料上传'
+// 2026-11-26 P0-3：会前财务资料上传阶段缺项目类型时的必填缺失项（后端 missingRequiredTemplates 同名输出）
+const FINANCE_TYPE_TASK = '选择项目类型'
+const SETTLEMENT_PHASE_NAME = PROJECT_PHASE_NAMES.SETTLEMENT_UPLOAD
 const isSettlementCurrent = computed(() => currentPhase.value?.name === SETTLEMENT_PHASE_NAME)
 function inSettlementStage() {
   return currentPhase.value?.name === SETTLEMENT_PHASE_NAME || viewPhaseObj.value?.name === SETTLEMENT_PHASE_NAME
@@ -1240,6 +1241,7 @@ function inSettlementStage() {
 function resolveLabel(m) {
   if (m === BUDGET_QUOTE_TASK) return '去保存报价单'
   if (m === '保存阶段表单') return '去填写表单'
+  if (m === FINANCE_TYPE_TASK) return '去选择项目类型'
   if (m.startsWith('上传串场 PPT')) return '去制作串场'
   if (m === SCHEDULE_UPLOAD_TASK) return '去上传日程'
   if (m.startsWith('专家匹配入库')) return '去匹配专家'
@@ -1257,6 +1259,20 @@ async function resolveMissing(m) {
     const archive = document.getElementById('settlement-archive-action')
     ;(archive || area)?.scrollIntoView({ block: 'center' })
     archive?.focus({ preventScroll: true })
+    return
+  }
+  // 2026-11-26 P2-16：未选项目类型是本阶段的根因缺失项，直达「编辑项目」弹窗补选，不让用户猜
+  if (m === FINANCE_TYPE_TASK) {
+    viewPhaseId.value = String(detail.value.phaseId)
+    await nextTick()
+    openEdit()
+    return
+  }
+  // 2026-11-26 P2-16：「保存阶段表单」直达表单容器（原先只滚到「阶段资料」卡片顶部，保存按钮在视口外）
+  if (m === '保存阶段表单') {
+    viewPhaseId.value = String(detail.value.phaseId)
+    await nextTick()
+    document.getElementById('project-finance-form')?.scrollIntoView({ block: 'start' })
     return
   }
   if (m === BUDGET_QUOTE_TASK) {
@@ -1818,6 +1834,14 @@ async function downloadProjectFile(d) {
 }
 .expert-materials-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .fin-attach-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--ui-border-weak); }
+/* 2026-11-26 P0-1：合规立项申请表独立展示区（系统生成，不可删除） */
+.fin-archive-box {
+  margin-top: 12px; padding: 10px 12px; border: 1px solid var(--ui-border-weak);
+  border-left: 3px solid var(--ui-success); border-radius: var(--ui-radius-sm);
+}
+.fin-archive-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.fin-archive-title { font-weight: 600; color: var(--ui-text-main); font-size: 13px; }
+.fin-archive-head .doc-meta { margin-left: auto; }
 .rich-view { white-space: pre-wrap; color: var(--ui-text-sub); }
 .hint-text { color: var(--ui-text-muted); font-size: 13px; }
 

@@ -29,6 +29,10 @@ public class KnowledgeAsyncConfig {
         executor.setQueueCapacity(Math.max(1, queueCapacity));
         executor.setThreadNamePrefix("knowledge-parse-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        // 优雅停机：等待在跑的解析任务完成（最多 30s），减少正常重启把任务打断成 RUNNING 卡死；
+        // 强杀（kill）仍会卡 RUNNING，由 KnowledgeParseRecoveryService 启动恢复兜底
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
         executor.initialize();
         return executor;
     }

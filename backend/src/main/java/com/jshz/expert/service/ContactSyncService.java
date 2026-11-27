@@ -129,10 +129,11 @@ public class ContactSyncService {
                 allUserIds.add(ref.userId);
             }
 
-            // 3. 逐人详情 + diff
+            // 3. 逐人详情 + diff（按去重后的 userId 遍历：同一成员挂多部门时不再重复调 user/get，
+            //    user/get 返回该成员的全量部门列表，信息无损失）
             Map<String, List<Long>> userDeptMap = new HashMap<>();
-            for (WecomApiClient.MemberRef ref : refs) {
-                WecomApiClient.MemberDetail detail = wecomApiClient.getUserDetail(ref.userId);
+            for (String uid : allUserIds) {
+                WecomApiClient.MemberDetail detail = wecomApiClient.getUserDetail(uid);
                 userDeptMap.put(detail.userId, detail.departments);
                 boolean left = detail.status == WECOM_STATUS_DISABLED || detail.status == WECOM_STATUS_LEFT;
                 SysUser existing = findBoundByWecomUserId(detail.userId);

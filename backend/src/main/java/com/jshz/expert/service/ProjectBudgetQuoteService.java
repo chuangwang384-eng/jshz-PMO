@@ -1,35 +1,30 @@
 package com.jshz.expert.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.entity.Project;
 import com.jshz.expert.entity.ProjectBudget;
 import com.jshz.expert.entity.ProjectBudgetItem;
 import com.jshz.expert.entity.ProjectBudgetQuote;
+import com.jshz.expert.entity.ProjectBudgetStatus;
 import com.jshz.expert.entity.ProjectDoc;
 import com.jshz.expert.mapper.ProjectBudgetMapper;
 import com.jshz.expert.mapper.ProjectBudgetQuoteMapper;
 import com.jshz.expert.mapper.ProjectDocMapper;
 import com.jshz.expert.security.AuthUser;
 import lombok.RequiredArgsConstructor;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ProjectBudgetQuoteService {
@@ -42,7 +37,6 @@ public class ProjectBudgetQuoteService {
     private final ObjectMapper json;
 
     public record Generate(String requestKey, String clientNote) {}
-    public record Confirmation(String customerName, LocalDateTime confirmedAt, String remark, Long evidenceDocId) {}
     public record Snapshot(String remark, String estimateInputs, List<ProjectBudgetItem> items) {}
     public record Download(Path path, String fileName) {}
 
@@ -53,16 +47,20 @@ public class ProjectBudgetQuoteService {
                 .orderByDesc(ProjectBudgetQuote::getVersionNo));
     }
 
+    /**
+     * 确认后归档对客报价版本（存档路径，前端确认报价自动触发）。
+     * 2026-11-26 审查整改：返回是否实际归档（非预算阶段返回 false，由调用方记录警告与操作日志）；
+     * 手动 generate/customer-confirmation/restore 端点已随「导出报价单即对客报价」终局决策下线。
+     */
     @Transactional
-    public ProjectBudgetQuote generate(Long projectId, Generate request, AuthUser user) {
-        return generate(projectId, request, user, null);
-    }
-
-    @Transactional
-    public void archiveConfirmed(Long projectId, AuthUser user, ProjectBudgetExportService exporter) {
+    public boolean archiveConfirmed(Long projectId, AuthUser user, ProjectBudgetExportService exporter) {
         Project project = projects.requireProject(projectId);
         projects.requireOperable(project, user);
-        if (!ProjectService.PHASE_BUDGET_MAKING.equals(projects.phaseNameOf(project))) return;
+        if (!ProjectService.PHASE_BUDGET_MAKING.equals(projects.phaseNameOf(project))) {
+            log.warn("非预算阶段重确认，未归档新报价 project={} by={}", projectId,
+                    user == null ? null : user.getUserId());
+            return false;
+        }
         ProjectBudget budget = budgetService.lockBudget(projectId);
         requireConfirmed(budget, "请先完成内部确认");
         var identity = json.createArrayNode()
@@ -77,10 +75,14 @@ public class ProjectBudgetQuoteService {
         }
         String key = UUID.nameUUIDFromBytes(identity.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         generate(projectId, new Generate(key, null), user, exporter);
+        return true;
     }
 
     private ProjectBudgetQuote generate(Long projectId, Generate request, AuthUser user,
                                         ProjectBudgetExportService exporter) {
+        if (exporter == null) {
+            throw new BusinessException("报价导出服务不可用");
+        }
         Project project = projects.requireProject(projectId);
         projects.requireOperable(project, user);
         String requestKey;
@@ -102,7 +104,8 @@ public class ProjectBudgetQuoteService {
         requireConfirmed(budget, "请先完成内部确认");
         List<ProjectBudgetItem> items = budgetService.lockedItems(budget.getId());
         List<ProjectBudgetItem> exported = items.stream().filter(i -> i.getQuantity().signum() > 0).toList();
-        if (exporter == null && exported.isEmpty()) {
+        // P1-①（2026-11-26）：归档前必须有数量大于零的明细，空明细不再凭 exporter 非空放行
+        if (exported.isEmpty()) {
             throw new BusinessException("报价至少需要一条数量大于零的明细");
         }
         ProjectBudgetQuote latest = quotes.selectOne(new LambdaQueryWrapper<ProjectBudgetQuote>()
@@ -124,8 +127,7 @@ public class ProjectBudgetQuoteService {
         doc.setProjectId(projectId);
         doc.setPhaseId(project.getPhaseId());
         doc.setFileName("会议报价-V" + version + ".xlsx");
-        byte[] content = exporter == null ? workbook(project.getName(), version, exported, note)
-                : exporter.export(projectId, "QUOTE", user);
+        byte[] content = exporter.export(projectId, "QUOTE", user);
         doc.setFilePath(storage.saveBudgetQuote(content));
         doc.setUploadBy(user.getUsername());
         doc.setIsDeleted(0);
@@ -137,7 +139,7 @@ public class ProjectBudgetQuoteService {
 
     public Download download(Long projectId, Long versionId, AuthUser user) {
         projects.requireProjectReadable(projects.requireProject(projectId), user);
-        ProjectBudgetQuote quote = requireQuote(projectId, versionId, false);
+        ProjectBudgetQuote quote = requireQuote(projectId, versionId);
         ProjectDoc doc = docs.selectById(quote.getDocId());
         Path path = doc == null || !projectId.equals(doc.getProjectId()) ? null : storage.resolveFile(doc.getFilePath());
         if (path == null) {
@@ -146,82 +148,24 @@ public class ProjectBudgetQuoteService {
         return new Download(path, doc.getFileName());
     }
 
-    @Transactional
-    public ProjectBudgetQuote confirm(Long projectId, Long versionId, Confirmation request, AuthUser user) {
-        projects.requireOperable(projects.requireProject(projectId), user);
-        String customer = bounded(request.customerName(), 100, "客户确认人");
-        if (customer == null || request.confirmedAt() == null) {
-            throw new BusinessException("请填写客户确认人和确认时间");
-        }
-        String remark = bounded(request.remark(), 1000, "确认备注");
-        ProjectBudgetQuote quote = requireQuote(projectId, versionId, true);
-        if (quote.getRecordedAt() != null) {
-            if (customer.equals(quote.getCustomerName()) && request.confirmedAt().equals(quote.getCustomerConfirmedAt())
-                    && Objects.equals(remark, quote.getCustomerRemark())
-                    && Objects.equals(request.evidenceDocId(), quote.getEvidenceDocId())) {
-                return quote;
-            }
-            throw new BusinessException("这个版本已登记客户确认");
-        }
-        if (request.evidenceDocId() != null) {
-            ProjectDoc evidence = docs.selectById(request.evidenceDocId());
-            if (evidence == null || !projectId.equals(evidence.getProjectId())
-                    || !Integer.valueOf(0).equals(evidence.getIsDeleted())
-                    || evidence.getFilePath() == null || evidence.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
-                    || evidence.getFilePath().startsWith("_richtext/")) {
-                throw new BusinessException("请选择本项目有效的确认凭证");
-            }
-        }
-        quote.setCustomerName(customer);
-        quote.setCustomerConfirmedAt(request.confirmedAt());
-        quote.setCustomerRemark(remark);
-        quote.setEvidenceDocId(request.evidenceDocId());
-        quote.setRecordedBy(user.getUserId());
-        quote.setRecordedAt(LocalDateTime.now());
-        quotes.updateById(quote);
-        return quote;
-    }
-
-    @Transactional
-    public Map<String, Object> restore(Long projectId, Long versionId, AuthUser user) {
-        Project project = projects.requireProject(projectId);
-        projects.requireOperable(project, user);
-        requireBudgetPhase(project);
-        ProjectBudget budget = budgetService.lockBudget(projectId);
-        requireConfirmed(budget, "已有编辑中的草稿，请先处理当前草稿");
-        Snapshot snapshot;
-        try {
-            snapshot = json.readValue(requireQuote(projectId, versionId, false).getSnapshot(), Snapshot.class);
-        } catch (JsonProcessingException e) {
-            throw new BusinessException("无法读取该报价版本");
-        }
-        budgets.update(null, new LambdaUpdateWrapper<ProjectBudget>()
-                .eq(ProjectBudget::getId, budget.getId())
-                .set(ProjectBudget::getStatus, "DRAFT")
-                .set(ProjectBudget::getRemark, snapshot.remark()));
-        List<Map<String, Object>> rows = json.convertValue(snapshot.items(), new TypeReference<>() {});
-        return budgetService.save(projectId, rows, snapshot.remark(), false,
-                snapshot.estimateInputs() == null ? "{}" : snapshot.estimateInputs(), user);
-    }
-
     private void requireBudgetPhase(Project project) {
         if (!ProjectService.PHASE_BUDGET_MAKING.equals(projects.phaseNameOf(project))) {
             throw new BusinessException("请在" + ProjectService.PHASE_BUDGET_MAKING + "阶段执行此操作");
         }
     }
 
-    /** 报价生成/恢复的前置状态校验：预算单存在且已内部确认（文案按场景区分）。 */
+    /** 报价生成的前置状态校验：预算单存在且已内部确认。 */
     private void requireConfirmed(ProjectBudget budget, String message) {
-        if (budget == null || !"CONFIRMED".equals(budget.getStatus())) {
+        if (budget == null || !ProjectBudgetStatus.CONFIRMED.code().equals(budget.getStatus())) {
             throw new BusinessException(message);
         }
     }
 
-    private ProjectBudgetQuote requireQuote(Long projectId, Long versionId, boolean lock) {
+    private ProjectBudgetQuote requireQuote(Long projectId, Long versionId) {
         LambdaQueryWrapper<ProjectBudgetQuote> query = new LambdaQueryWrapper<ProjectBudgetQuote>()
                 .eq(ProjectBudgetQuote::getId, versionId)
                 .eq(ProjectBudgetQuote::getProjectId, projectId);
-        ProjectBudgetQuote quote = quotes.selectOne(lock ? query.last("FOR UPDATE") : query);
+        ProjectBudgetQuote quote = quotes.selectOne(query);
         if (quote == null) throw new BusinessException(404, "报价版本不存在");
         return quote;
     }
@@ -238,43 +182,6 @@ public class ProjectBudgetQuoteService {
             return json.writeValueAsString(snapshot);
         } catch (JsonProcessingException e) {
             throw new BusinessException("保存报价版本失败");
-        }
-    }
-
-    static byte[] workbook(String projectName, int version, List<ProjectBudgetItem> items, String note) {
-        try (var book = new XSSFWorkbook(); var out = new ByteArrayOutputStream()) {
-            var sheet = book.createSheet("会议报价");
-            sheet.createRow(0).createCell(0).setCellValue(projectName + " · 会议报价 V" + version);
-            var header = sheet.createRow(2);
-            String[] columns = {"费用名称", "数量", "单位", "单价（元）", "金额（元）"};
-            for (int col = 0; col < columns.length; col++) {
-                header.createCell(col).setCellValue(columns[col]);
-                sheet.setColumnWidth(col, (col == 0 ? 38 : 18) * 256);
-            }
-            var money = book.createCellStyle();
-            money.setDataFormat(book.createDataFormat().getFormat("#,##0.00"));
-            int index = 3;
-            BigDecimal total = BigDecimal.ZERO;
-            for (ProjectBudgetItem item : items) {
-                var row = sheet.createRow(index++);
-                row.createCell(0).setCellValue(item.getName());
-                row.createCell(1).setCellValue(item.getQuantity().doubleValue());
-                row.createCell(2).setCellValue(item.getUnit());
-                row.createCell(3).setCellValue(item.getUnitPrice().doubleValue());
-                row.getCell(3).setCellStyle(money);
-                row.createCell(4).setCellValue(item.getAmount().doubleValue());
-                row.getCell(4).setCellStyle(money);
-                total = total.add(item.getAmount());
-            }
-            var footer = sheet.createRow(index++);
-            footer.createCell(0).setCellValue("合计");
-            footer.createCell(4).setCellValue(total.doubleValue());
-            footer.getCell(4).setCellStyle(money);
-            if (note != null) sheet.createRow(index).createCell(0).setCellValue("对客说明：" + note);
-            book.write(out);
-            return out.toByteArray();
-        } catch (IOException e) {
-            throw new BusinessException("生成报价文件失败");
         }
     }
 }

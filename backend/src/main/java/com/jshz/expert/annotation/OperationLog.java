@@ -8,10 +8,12 @@ import java.lang.annotation.Target;
 /**
  * 用户操作日志注解（用户操作日志改版）。
  * 标注在 Controller 方法上，由 {@code OperationLogAspect} 在方法成功返回后统一记录操作日志。
- * SpEL 约定：
- * - {@code #body} 指方法第一个参数（@RequestBody 的 Map/实体），取参走 {@code #body.字段名}；
- * - 参数名取自局部变量表（-parameters 编译），无参数名时按下标 {@code #p0/#p1} 兜底；
- * - 无现成 ID 的方法可传空 targetId（记 null，与现有手动埋点一致）。
+ * SpEL 约定（按方法真实参数名绑定，依赖 -parameters 编译保留参数名，本项目默认已开启）：
+ * - 取请求体参数直接用参数名，如 {@code #body.字段名}（惯例将第一个 @RequestBody 参数命名为 body）；
+ * - 编译产物无参数名时按下标 {@code #p0/#p1} 兜底；
+ * - targetId 为空串时（创建类操作），切面会尝试从返回值 ApiResponse.data 中提取 id 属性补记
+ *   新生成的主键（支持 Map 的 "id" 键或实体 getId() 方法），提取不到记 null。
+ * 注意：Spring AOP 基于代理，同类内部 this 调用不会触发切面，本注解仅用于 Controller 方法。
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

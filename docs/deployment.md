@@ -57,7 +57,7 @@ AIGC:
 mysql -h <内网MySQL地址> -u <账号> -p < database/init.sql
 ```
 
-- `init.sql` 是**新环境唯一 DDL 来源**：2026-11-12 按生产库实际结构重建，2026-11-16 补齐 AI 助手与会议预算 4 表，2026-11-20 并入项目类型与阶段表单（`project.project_type` 列 + `project_stage_form` 表），现为 **88 张业务表**全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117+ / role_permission 53+ / supplier_city 349 等）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
+- `init.sql` 是**新环境唯一 DDL 来源**：2026-11-12 按生产库实际结构重建，2026-11-16 补齐 AI 助手与会议预算 4 表，2026-11-20 并入项目类型与阶段表单（`project.project_type` 列 + `project_stage_form` 表），现为 **92 张业务表**（2026-11-26 经 check-schema-parity 实测更新）全量结构（列/索引/约束/字符集逐项与生产一致）+ 字典与权限种子（role 6 / permission 117+ / role_permission 53+ / supplier_city 349 等）+ 初始管理员 `admin`（密码 `111111`，部署后立即改密）。
 - 语义：`CREATE TABLE IF NOT EXISTS`，**不含 DROP**、不含 `AUTO_INCREMENT` 计数器，可重复执行。
 - 不含：业务数据、用户口令哈希（仅 admin）、历史备份表（`*_bak_*`）、迁移标记表（`mig_*`）。
 - 新环境**不需要重放** `database/migration/` 的 63 个历史脚本；建库后先校验基线完整性，再登记版本台账：
@@ -318,7 +318,7 @@ Publish 流程：版本文件同步（先备份到 `logs/version-backup-*`）→
 - `LIBREOFFICE_PATH`：LibreOffice 可执行文件路径，默认 `<LOCAL_PATH> Files\LibreOffice\program\soffice.com`（Office 预览转换）。
 - `CORS_ALLOWED_ORIGINS`：前端来源白名单（逗号分隔），默认 `http://<PRIVATE_IP>:5173,http://localhost:5173,http://<PRIVATE_IP>:5173`；配置项 `security.cors.allowed-origins`，消费点 `SecurityConfig`。
 - `DASHBOARD_QUERY_TIMEOUT_SECONDS`：工作台只读查询超时（2026-11-23 由代码写死 1 秒改为可配），配置项 `expert.dashboard.query-timeout-seconds`，默认 3 秒；消费点 `DashboardReadService`。
-- `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `E:/AI助手开发/pp-ocrv5`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
+- `PHOTOMATTE_LEGACY_ROOT`：抠图历史 E 盘 venv 兜底根（默认 `<LOCAL_PATH>`，置空即跳过该候选）；正式出口仍为 `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT`。
 - `SR_UPSCALE_PYTHON`：低像素照片超分解释器（默认探测 `<LOCAL_PATH> Files/JSHZ/sr-upscale/venv/Scripts/python.exe`，不存在即整体跳过超分，2026-11-18）；worker 侧另有 `SR_UPSCALE_SCRIPT` / `SR_UPSCALE_MODELS` 覆盖口，缺省同根目录。
 - `APPROVAL_TEMP_PHOTO_RETENTION_DAYS`：审批临时照片保留天数（2026-11-24 新增），配置项 `expert.photo.temp-retention-days`，默认 7；消费点 `ApprovalTempPhotoCleanTask`（每日 03:10，只清理未被待审批/退回修改申请单引用的文件）。
 - `APPROVAL_TEMP_PHOTO_CLEAN_CRON`：上述清理任务的 cron，配置项 `expert.photo.temp-clean-cron`，默认 `0 10 3 * * ?`。
@@ -729,6 +729,8 @@ expert:
 | 2026-11-26 12:08:45 | 1.0.155 | 成功 | expert-system.jar |
 | 2026-11-26 13:09:49 | 1.0.156 | 成功 | expert-system.jar |
 | 2026-11-26 14:33:10 | 1.0.157 | 成功 | expert-system.jar |
+| 2026-11-26 16:23:23 | 1.0.158 | 成功 | expert-system.jar |
+| 2026-11-27 10:52:27 | 1.0.159 | 成功 | expert-system.jar |
 
 ### 1.0.38.24 发布事故与修复记录（2026-11-13）
 
@@ -943,6 +945,10 @@ temp 将删 99 项 ≈ 169 MB（27 项因被引用跳过）。
 新环境由 `database/init.sql` 初始化。既有环境先查看迁移台账、备份目标库和项目资料库，经授权执行 `database/migration/20261117_budget_estimate_quote.sql`，核实新增列和版本表后再切换前后端。脚本可重试，旧预算无需数据回填。部署沿用现有项目资料目录与 Apache POI 依赖。验收涵盖估算保存、内部确认、版本下载、阶段资料挂载和客户确认。回滚应用制品时保留新增列、版本表和已生成的文件。验收及接口细节见 [估算与对客报价交接](handover/tasks/20261117_budget_estimate_quote.md)。
 
 本机生产迁移、蓝绿切换和前端不可变发布记录见 [1.0.47 发布](releases/20261117-budget-estimate-quote-1.0.47.md)。
+
+### 会议预算阶段审查整改（2026-11-26，待发布）
+
+新增迁移 `database/migration/20261126_budget_optimistic_lock.sql`（`project_budget` 加 `version` 乐观锁列，INT NOT NULL DEFAULT 0）。**发布顺序必须先执行迁移再切后端**：实体已声明 `version` 字段，旧库无该列时新后端保存/确认会直接 SQL 报错。脚本非幂等（列已存在时报 Duplicate column，人工忽略即可）；执行前先跑 `scripts/check-schema-parity.ps1` 确认基线无漂移（已核实 init.sql/迁移/生产库三方一致，init.sql 已同步加列）。整改内容（确认守卫、下线手动报价端点、费率真源收口等）见 [会议预算阶段整改交接](handover/tasks/20261126_meeting_budget_remediation.md)。无新增环境变量。
 
 ### 专家简历 MODNet 抠图
 

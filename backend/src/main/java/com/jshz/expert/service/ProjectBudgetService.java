@@ -6,6 +6,7 @@ import com.jshz.expert.entity.Project;
 import com.jshz.expert.entity.ProjectBudget;
 import com.jshz.expert.entity.ProjectBudgetFeeStandard;
 import com.jshz.expert.entity.ProjectBudgetItem;
+import com.jshz.expert.entity.ProjectBudgetStatus;
 import com.jshz.expert.mapper.ProjectBudgetFeeStandardMapper;
 import com.jshz.expert.mapper.ProjectBudgetItemMapper;
 import com.jshz.expert.mapper.ProjectBudgetMapper;
@@ -37,6 +38,7 @@ public class ProjectBudgetService {
     private final ProjectBudgetItemMapper itemMapper;
     private final ProjectBudgetFeeStandardMapper feeStandardMapper;
     private final ProjectService projectService;
+    private final OperationLogService operationLogService;
 
     /** 明细分节合法值（与 project_budget_item.section 注释一致） */
     private static final List<String> SECTIONS = List.of(
@@ -55,7 +57,7 @@ public class ProjectBudgetService {
             budget = new ProjectBudget();
             budget.setProjectId(projectId);
             budget.setCategory(categoryOf(project));
-            budget.setStatus("DRAFT");
+            budget.setStatus(ProjectBudgetStatus.DRAFT.code());
             budget.setTotalAmount(BigDecimal.ZERO);
             items = skeleton(budget);
         } else {
@@ -70,16 +72,29 @@ public class ProjectBudgetService {
         return result;
     }
 
-    /** 整单覆盖式保存（草稿/确认同一入口，confirm=true 时置 CONFIRMED）。 */
+    /** 整单覆盖式保存（草稿/确认同一入口，confirm=true 时置 CONFIRMED）。旧签名兼容调用（无乐观锁校验）。 */
     @Transactional
     public Map<String, Object> save(Long projectId, List<Map<String, Object>> items,
                                     String remark, boolean confirm, AuthUser user) {
-        return save(projectId, items, remark, confirm, null, user);
+        return save(projectId, items, remark, confirm, null, null, user);
     }
 
+    /** 同上（无乐观锁校验的旧签名）。 */
     @Transactional
     public Map<String, Object> save(Long projectId, List<Map<String, Object>> items,
                                     String remark, boolean confirm, String estimateInputs, AuthUser user) {
+        return save(projectId, items, remark, confirm, estimateInputs, null, user);
+    }
+
+    /**
+     * 整单覆盖式保存（2026-11-26 审查整改）：
+     * expectedVersion 为前端加载时取得的乐观锁版本号（budget.version），不一致抛 409；
+     * confirm=true 时要求至少一条数量大于零的明细（封死空明细/0 元确认路径，P1-①/P2-⑤）。
+     */
+    @Transactional
+    public Map<String, Object> save(Long projectId, List<Map<String, Object>> items,
+                                    String remark, boolean confirm, String estimateInputs,
+                                    Integer expectedVersion, AuthUser user) {
         Project project = projectService.requireProject(projectId);
         projectService.requireOperable(project, user);
         ProjectBudget budget = lockBudget(projectId);
@@ -87,11 +102,15 @@ public class ProjectBudgetService {
             budget = new ProjectBudget();
             budget.setProjectId(projectId);
             budget.setCreatedBy(user == null ? null : user.getUserId());
+        } else if (expectedVersion != null && !expectedVersion.equals(budget.getVersion())) {
+            throw new BusinessException(409, "预算单已被他人修改，请刷新页面后重试");
         }
+        String previousStatus = budget.getStatus();
         // 2026-11-21：允许编辑已保存（含已确认）的费用明细——移除 CONFIRMED 拒写守卫。
         // 确认状态由 confirm 参数维护：save(true)→CONFIRMED（阶段推进门禁需要），save(false)→DRAFT。
         budget.setCategory(categoryOf(project));
-        if ("OFFLINE".equals(budget.getCategory()) && estimateInputs != null) {
+        // 2026-11-26：估算参数不再限 OFFLINE（线上勾选 needsMainVisual 等同样持久化，P2-⑧）；null 保持原值不回擦
+        if (estimateInputs != null) {
             budget.setEstimateInputs(estimateInputs);
         }
         budget.setRemark(remark);
@@ -114,7 +133,12 @@ public class ProjectBudgetService {
         budget.setCostTotal(costTotal);
         if (budget.getServiceRate() == null) budget.setServiceRate(new BigDecimal("0.06"));
         if (budget.getTaxRate() == null) budget.setTaxRate(new BigDecimal("0.06"));
-        budget.setStatus(confirm ? "CONFIRMED" : "DRAFT");
+        // P1-①（2026-11-26）：确认时必须有数量大于零的明细，防止空明细/0 元确认覆盖财务登记金额
+        if (confirm && parsed.stream().noneMatch(i -> i.getQuantity().signum() > 0)) {
+            throw new BusinessException("请至少勾选/填写一条数量大于零的费用项再确认报价");
+        }
+        budget.setStatus(confirm ? ProjectBudgetStatus.CONFIRMED.code() : ProjectBudgetStatus.DRAFT.code());
+        budget.setVersion(budget.getVersion() == null ? 1 : budget.getVersion() + 1);
         if (budget.getId() == null) {
             budgetMapper.insert(budget);
         } else {
@@ -134,6 +158,13 @@ public class ProjectBudgetService {
         }
         log.info("预算保存 project={} items={} total={} confirm={} by={}",
                 projectId, parsed.size(), total, confirm, user == null ? null : user.getUserId());
+        // P2-⑨（2026-11-26）：已确认单被 save(false) 降级时写操作日志，状态迁移可追溯
+        if (ProjectBudgetStatus.CONFIRMED.code().equals(previousStatus) && !confirm) {
+            operationLogService.record(user == null ? null : user.getUserId(),
+                    user == null ? null : user.getUsername(), OperationLogService.ACTION_BUDGET_SAVE,
+                    "预算单退回草稿（原为已确认）project=" + projectId,
+                    "PROJECT", projectId, null);
+        }
         return savedBudget(budget);
     }
 
@@ -146,10 +177,11 @@ public class ProjectBudgetService {
         if (budget == null) {
             throw new BusinessException("请先保存报价草稿");
         }
-        if ("DRAFT".equals(budget.getStatus())) {
+        if (ProjectBudgetStatus.DRAFT.code().equals(budget.getStatus())) {
             ProjectBudget update = new ProjectBudget();
             update.setId(budget.getId());
-            update.setStatus("CONFIRMED");
+            update.setStatus(ProjectBudgetStatus.CONFIRMED.code());
+            update.setVersion(budget.getVersion() == null ? 1 : budget.getVersion() + 1);
             update.setUpdatedBy(user.getUserId());
             budgetMapper.updateById(update);
             budget = lockBudget(projectId);
@@ -294,10 +326,6 @@ public class ProjectBudgetService {
         return "ONLINE".equalsIgnoreCase(c) ? "ONLINE" : "OFFLINE";
     }
 
-    private Map<String, ProjectBudgetFeeStandard> activeFeeStandards() {
-        return activeFeeStandards(null);
-    }
-
     /** 按场景取启用收费标准（scene=null 全量；否则 ONLINE/OFFLINE）。 */
     private Map<String, ProjectBudgetFeeStandard> activeFeeStandards(String scene) {
         Map<String, ProjectBudgetFeeStandard> map = new LinkedHashMap<>();
@@ -326,10 +354,10 @@ public class ProjectBudgetService {
             throw new BusinessException("未知费用分节：" + section);
         }
         if (!"ONLINE".equals(budget.getCategory()) && "ONLINE_QUOTE".equals(section)) {
-            throw new BusinessException("线下项目不允许线上报价分节");
+            throw new BusinessException("线下项目不允许线上报价分节（费用项：" + name.trim() + "）");
         }
         if ("ONLINE".equals(budget.getCategory()) && !"ONLINE_QUOTE".equals(section)) {
-            throw new BusinessException("线上项目仅允许简化报价单分节");
+            throw new BusinessException("线上项目仅允许简化报价单分节（费用项：" + name.trim() + "）");
         }
         ProjectBudgetItem it = new ProjectBudgetItem();
         it.setSection(section);
@@ -340,6 +368,16 @@ public class ProjectBudgetService {
         if (qty.signum() < 0 || price.signum() < 0) {
             throw new BusinessException("数量/单价不能为负数");
         }
+        // P3-26（2026-11-26）：数量/单价上限与精度校验，防止 DECIMAL 溢出落为 500 通用错误
+        if (qty.compareTo(new BigDecimal("1000000")) > 0) {
+            throw new BusinessException("费用项「" + name.trim() + "」数量过大（上限 1,000,000）");
+        }
+        if (qty.stripTrailingZeros().scale() > 2) {
+            throw new BusinessException("费用项「" + name.trim() + "」数量最多两位小数");
+        }
+        if (price.compareTo(new BigDecimal("100000000")) > 0) {
+            throw new BusinessException("费用项「" + name.trim() + "」单价过大（上限 100,000,000 元）");
+        }
         it.setQuantity(qty);
         it.setUnit(str(raw.get("unit")));
         it.setUnitPrice(price);
@@ -348,6 +386,9 @@ public class ProjectBudgetService {
         BigDecimal cost = decimal(raw.get("costPrice"), "成本单价");
         if (cost.signum() < 0) {
             throw new BusinessException("成本单价不能为负数");
+        }
+        if (cost.compareTo(new BigDecimal("100000000")) > 0) {
+            throw new BusinessException("费用项「" + name.trim() + "」成本单价过大（上限 100,000,000 元）");
         }
         it.setCostPrice(cost);
         it.setCostAmount(qty.multiply(cost).setScale(2, java.math.RoundingMode.HALF_UP));
@@ -423,15 +464,6 @@ public class ProjectBudgetService {
         it.setUnit(unit);
         it.setSort(sort);
         return it;
-    }
-
-    private ProjectBudgetItem materialQuantityItem(ProjectBudget budget, Map<String, ProjectBudgetFeeStandard> fees,
-                                                   String key, String name, String unit, int sort) {
-        ProjectBudgetFeeStandard standard = fees.get(key);
-        if (standard == null) {
-            return null;
-        }
-        return estimateItem(budget, "MATERIAL", key, name, unit, sort);
     }
 
     private ProjectBudgetItem estimateItem(ProjectBudget budget, String section, String key,

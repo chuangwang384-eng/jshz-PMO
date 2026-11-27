@@ -20,10 +20,18 @@ public final class FileNames {
     /**
      * 文件名清洗：取纯文件名并剥离 ".."、"/"、"\"（防路径穿越的第一道防线）。
      * null 安全：null 或空串返回空串。
+     * 循环删除直到稳定：单次 replace 存在重构回归（如 ".../..." 一次扫描后残留 ".."），
+     * 循环可保证输出不含任何待剥离片段。
      */
     public static String sanitize(String fileName) {
         String name = new File(fileName == null ? "" : fileName).getName();
-        return name.replace("..", "").replace("/", "").replace("\\", "");
+        String cleaned = name;
+        String previous;
+        do {
+            previous = cleaned;
+            cleaned = previous.replace("..", "").replace("/", "").replace("\\", "");
+        } while (!cleaned.equals(previous));
+        return cleaned;
     }
 
     /**

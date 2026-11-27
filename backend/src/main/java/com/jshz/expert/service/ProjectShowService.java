@@ -278,7 +278,7 @@ public class ProjectShowService {
     private Project currentShow(Long id, AuthUser user) {
         Project project = projects.requireProject(id);
         projects.requireOperable(project, user);
-        if (!"串场制作".equals(projects.phaseNameOf(project))) throw new BusinessException("只可在串场制作阶段归档");
+        if (!com.jshz.expert.common.ProjectPhaseNames.SHOW_MAKING.equals(projects.phaseNameOf(project))) throw new BusinessException("只可在串场制作阶段归档");
         return project;
     }
 

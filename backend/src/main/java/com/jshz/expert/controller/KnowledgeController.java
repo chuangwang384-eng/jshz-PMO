@@ -224,6 +224,11 @@ public class KnowledgeController {
         requireMaintain(authUser);
         KnowledgeDocument before = documentService.getById(id);
         documentService.relist(id, authUser);
+        // 盲区修复：上传后（提交解析前）重启导致 PENDING 卡死的文档若曾被下架，重新上架时
+        // 无任何触发者（启动恢复跳过下架文档），这里按 PENDING 补触发一次
+        if (before != null && KnowledgeParseStatus.PENDING.equals(before.getParseStatus())) {
+            triggerParse(before, authUser);
+        }
         operationLogService.record(authUser == null ? null : authUser.getUserId(),
                 authUser == null ? null : authUser.getUsername(),
                 OperationLogService.ACTION_RELIST_DOC,

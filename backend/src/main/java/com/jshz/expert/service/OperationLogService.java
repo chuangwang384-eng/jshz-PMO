@@ -104,6 +104,10 @@ public class OperationLogService extends ServiceImpl<OperationLogMapper, Operati
     public static final String ACTION_DELETE_TEMPLATE = "DELETE_TEMPLATE";
     /** 登记项目预算 */
     public static final String ACTION_REGISTER_BUDGET = "REGISTER_BUDGET";
+    /** 会议预算单保存/退回草稿（2026-11-26 预算阶段审查整改） */
+    public static final String ACTION_BUDGET_SAVE = "BUDGET_SAVE";
+    /** 会议预算单确认（含非预算阶段重确认未归档的警告记录，2026-11-26） */
+    public static final String ACTION_BUDGET_CONFIRM = "BUDGET_CONFIRM";
     /** 合同发起审批（复用 approval 通道） */
     public static final String ACTION_SUBMIT_CONTRACT_APPROVAL = "SUBMIT_CONTRACT_APPROVAL";
     /** 申请单删除（申请人删除本人已驳回/已撤回的申请，2026-11-24） */

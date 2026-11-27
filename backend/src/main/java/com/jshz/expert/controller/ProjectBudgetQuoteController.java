@@ -15,8 +15,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
+/**
+ * 会议预算报价版本（仅存档查看，2026-11-26 审查整改）：
+ * 手动 generate / customer-confirmation / restore 端点已随「导出报价单即对客报价」终局决策下线，
+ * 归档仅由确认报价（save confirm=true）自动触发；本控制器保留 list/file 供历史版本查看与下载。
+ */
 @RestController
 @RequestMapping("/api/project/{id}/meeting-budget/quotes")
 @RequiredArgsConstructor
@@ -28,12 +32,6 @@ public class ProjectBudgetQuoteController {
         return ApiResponse.ok(service.list(id, user));
     }
 
-    @PostMapping
-    public ApiResponse<ProjectBudgetQuote> generate(@PathVariable Long id,
-            @RequestBody ProjectBudgetQuoteService.Generate request, @AuthenticationPrincipal AuthUser user) {
-        return ApiResponse.ok(service.generate(id, request, user));
-    }
-
     @GetMapping("/{versionId}/file")
     public ResponseEntity<FileSystemResource> file(@PathVariable Long id, @PathVariable Long versionId,
             @AuthenticationPrincipal AuthUser user) {
@@ -43,17 +41,5 @@ public class ProjectBudgetQuoteController {
                         ContentDisposition.attachment().filename(file.fileName(), StandardCharsets.UTF_8).build().toString())
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(new FileSystemResource(file.path()));
-    }
-
-    @PostMapping("/{versionId}/customer-confirmation")
-    public ApiResponse<ProjectBudgetQuote> confirm(@PathVariable Long id, @PathVariable Long versionId,
-            @RequestBody ProjectBudgetQuoteService.Confirmation request, @AuthenticationPrincipal AuthUser user) {
-        return ApiResponse.ok(service.confirm(id, versionId, request, user));
-    }
-
-    @PostMapping("/{versionId}/restore")
-    public ApiResponse<Map<String, Object>> restore(@PathVariable Long id, @PathVariable Long versionId,
-            @AuthenticationPrincipal AuthUser user) {
-        return ApiResponse.ok(service.restore(id, versionId, user));
     }
 }

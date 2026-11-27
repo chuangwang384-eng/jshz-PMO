@@ -1,0 +1,4 @@
+interface:
+  display_name: "jshz-agentguifan"
+  short_description: "Implement PMO modules and verify releases"
+  default_prompt: "使用 $jshz-agentguifan 按 PMO 现有约定处理本次模块开发或发布验证。"

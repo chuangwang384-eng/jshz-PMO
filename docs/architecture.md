@@ -391,6 +391,8 @@ GET /api/knowledge/docs/workbooks/{fileName} 复用文档下载的登录、上�
 
 2026-11-17 开发分支修复。线上标准项勾选后可编辑正整数数量，取消勾选后数量为零。独立确认接口 `POST /api/project/{id}/meeting-budget/confirm` 无请求体，沿用项目写权限，仅确认已保存草稿并登记更新人。响应继续包含 `budget` 和 `items`，金额、备注、明细及其 ID 保留。重复确认返回当前已确认单。尚未保存草稿时返回业务错误。保存和确认在事务内锁定同一预算记录。页面继续使用原有 PUT 整单保存接口。详见 [流程对照与验收记录](handover/tasks/20261117_budget_workflow_fixes.md)。
 
+2026-11-26 阶段审查整改（负责人已按清单授权，见 [整改交接](handover/tasks/20261126_meeting_budget_remediation.md)）：①确认守卫双层化——PUT 保存 confirm=true 及归档均要求至少一条数量大于零的明细，mapList 不再静默丢弃畸形元素；②手动对客报价 generate / customer-confirmation / restore 三端点随「导出报价单即对客报价」终局决策下线（前端死组件与 5 个 API 封装同步删除），报价版本仅由确认报价自动归档，list/file 保留存档查看；③`project_budget` 新增 `version` 乐观锁列（迁移 20261126），前端保存携带加载时版本，不一致返回 409；④汇总链费率改以后端 `service_rate/tax_rate` 为唯一真源；⑤已确认单保存草稿降级时前端弹确认、后端写操作日志（ACTION_BUDGET_SAVE/CONFIRM），非预算阶段重确认未归档时响应带 warn 并记日志；⑥状态权威定义收敛到后端 `ProjectBudgetStatus` 枚举，前端展示副本在 `utils/dict.js` BUDGET_STATUS_TEXT 成对登记；⑦ONLINE 亦持久化 estimate_inputs（needsMainVisual 勾选不再丢失）；⑧parseItem 增加数量/单价上限与精度校验，错误文案带费用项名；⑨（第二轮）收费标准库权限收紧：新增 3 条 type=2 规则（GET/PUT `/api/project/config/budget-fee-standards`、DELETE `/api/project/config/budget-fee-standards/*`）统一绑定 `project:manage`（迁移 `database/migration/20261126_budget_fee_permission.sql`，init.sql 权限段 id 280-282 成对），未用 config/** 通配，config/phases、config/types 字典读取仍登录即可；EMPLOYEE 收紧后应 403。
+
 「会议预算制作」为默认第一阶段。进入该阶段时，项目详情页只展示生命周期与阶段资料。按项目大类分流：线上（ONLINE）为简化报价单（模板点选形式待定）；线下（OFFLINE）为七节费用明细（酒店=场地/住宿/用餐/茶歇；交通=大交通按专家人数预估+地面交通车队专车/平台专车；搭建=非必需；物料=设计费+公司收取串场/沟通函及延展+日程/台卡上浮+展架+条幅+其他打印+讲台花+桌花；媒体=非必需；礼品=需与客户确认；人员=固定费用+据实报销）。金额=数量×单价由服务端计算，整单覆盖式保存（DRAFT/CONFIRMED，确认后草稿不可再覆盖）。
 
 新增三张表（迁移 `database/migration/20261116_budget_stage.sql`，幂等）：`project_budget`（一项目一份，category 快照）、`project_budget_item`（分节明细行，item_key 关联收费标准）、`project_budget_fee_standard`（收费标准默认值，fee_key 唯一，区间值存"低,高"取低值预填，种子 13 项含串场500/场、沟通函及延展500/场、人员费500/人/天、礼品200-300等）。旧接口 `PUT /api/project/{id}/budget`（登记项目预算金额）不变；新接口为 `GET/PUT /api/project/{id}/meeting-budget`、`POST /{id}/meeting-budget/confirm`、`GET/PUT /api/project/config/budget-fee-standards`（ProjectBudgetController，写权限绑定 project:manage 数据驱动）。前端：ProjectBudgetPanel 组件嵌入 ProjectDetail 阶段资料区；「管理员设置→项目配置」（/admin/project/config，路由恢复）承载收费标准编辑（BudgetFeeConfig，仅新增/改值/启停，无删除）。
@@ -408,6 +410,43 @@ PPT/PPTX 优先取幻灯片的图片形状，组合形状会递归读取。只�
 专家简历按文件签名识别内容为 OOXML 的 `.ppt`，并交给现有 PPTX 解析器。已有透明人像沿用原透明通道并裁剪画布空白。若透明通道符合规则的圆形或椭圆形排版裁切，则先清除外圈装饰，再在原裁切范围内用本地 MODNet 或 U²-Net 分割人像。MODNet 对独立且远离主要人像的前景做连通区域清理，保留主区域软边。见 [圆形模板抠图回归](handover/tasks/20261119_framed_portrait_matte.md)。
 
 项目会前财务资料以项目主数据同步会议日期、会议/项目名称和适用的我方负责人。确认会议报价复用预算行锁、项目文档和报价版本表完成同事务归档，按报价内容去重，项目文件按最新挂载顺序提供预览与下载。设计及兼容边界见 [会前财务资料与报价归档设计](design/2026-11-20-project-finance-quote-cleanup.md)。
+
+#### 会前财务资料上传阶段 P0 整改（1.0.159）
+
+- 合规立项申请表是阶段表单保存时自动生成的归档件（文件前缀 `project_finance_`，唯一真源 `ProjectService.FINANCE_ARCHIVE_PREFIX`）。它不再允许从阶段资料列表删除（`deleteDoc` 拒绝并提示回表单重新保存），前端也从通用附件清单中拆出为独立展示区并标注「系统生成」，避免误删后阶段必填材料失效、推进被卡住。
+- 阶段必填校验在该阶段先判根因：项目未选项目类型时输出「选择项目类型」，选型完成但尚未生成申请表时才输出「保存阶段表单」，两项互斥。缺项目类型的存量项目可继续编辑其它信息（编辑请求不下发 `projectType` 键，后端据此保持原值不变），已设类型的项目不允许被清空。
+- 阶段表单读取按最小必要访问原则脱敏：仅真实项目参与人（负责人/创建人/协助人/历史执行人/超管）可见人员姓名与内部标识；仅有 `project:view-all` 全量查看豁免的读者，人员姓名掩码为「姓+*」，赞助企业、客户工作单位、SFA/HOPES/CRM/钉钉编号、记账部门整体隐去为 `***`。同一口径下，合规立项申请表原件对非参与者既不出现在项目文件列表，也不可预览/下载。
+
+#### 会前财务资料上传阶段 P1 整改（1.0.159）
+
+- 阶段表单按项目类型做**字段白名单**：白名单即该类型的 Excel 列清单（`ProjectFinanceWorkbook.LAYOUTS`），白名单外 key 丢弃、不再整包落库；白名单内字段类型不符直接拒绝（金额须为不小于 0 的数值），错误文案只给中文字段名（`ProjectFinanceWorkbook.LABELS` 为后端权威副本，前端 `ProjectFinanceForm.vue SCHEMAS[].label` 为展示副本，成对修改）。新增字段必须同时改后端 LAYOUTS 与前端 SCHEMAS。
+- 归档替换改为**批量软删同前缀旧件**并在事务提交后清理旧物理文件（与串场制作的 `archiveShowDocument` 同口径），不再只替换 `findFirst()` 命中的一条，同阶段始终只有一份有效归档件。
+- 阶段未开始时展示专属空态（不再落入占位文案）；项目成员口径统一取后端下发的 `canOperate`（`isProjectMember`：负责人/创建人/协助人/历史执行人/超管），前端不再自算成员集合。
+- 直付类「公司名称」按申请表口径改为自由文本（该列在模板中无下拉，可填「恒瑞」等实际提供方），并按申请表分组说明「恒瑞需填写所有信息，其他公司仅需公司名称及省区」动态必填：公司名称含「恒瑞」时，提供内容分节的其余字段一并转必填。
+- 必填校验改由前端 `el-form` 规则逐项标红并滚动定位（`rules` + `scroll-to-error`），主数据字段缺失时给出直达「编辑项目」的入口；归档件与表单顶部均标注「内容为保存时的快照」。
+
+#### 会前财务资料上传阶段 P2 整改（1.0.159）
+
+- **表单结构单一真源**：`ProjectFinanceWorkbook` 现同时持有分区与字段定义（顺序即 Excel 列序）、字段中文名、必填口径、下拉选项与历史简称别名；Excel 列清单由字段定义派生（不再手写字符串），前端经 `GET /api/project/finance-schema` 拉取同一份定义渲染。此前同一结构散落三处（前端 `SCHEMAS` / 后端 `LAYOUTS` / Excel 模板），靠人工保持一致。
+- **下拉选项后端下发**：`GET /api/project/finance-options` 返回按组下拉取值；`OPTIONS` 与模板 Sheet4 字典页、各 sheet 列下拉一致。读回历史数据时由后端归一化（旧简称转现选项、失效选项置空提示重选），前端不再维护选项副本与别名映射。
+- **模板对齐守卫**：`ProjectFinanceTemplateAlignmentTest` 断言「模板 sheet 名 ↔ 表头文案与字段顺序 ↔ 必填口径 ↔ 下拉取值 ↔ 生成件实际列位」；模板与定义之间已登记的差异列于 `ProjectFinanceWorkbook.KNOWN_TEMPLATE_DEVIATIONS`，差异范围扩大即测试失败（新漂移不会被旧差异掩盖）。
+- **阶段名收敛**：阶段名常量收敛到 `com.jshz.expert.common.ProjectPhaseNames`（前端副本 `utils/dict.js` 的 `PROJECT_PHASE_NAMES`），后端各判定点与前端阶段视图统一引用；新增 `ProjectPhaseDictionaryCheck` 在应用就绪时核对阶段字典是否仍含这些阶段名，缺失即打 ERROR（阶段改名会静默失效，此处使其显式）。
+- 其它：待办「保存阶段表单」直达表单锚点（`#project-finance-form`）；阶段附件上传补 `accept` 白名单；归档件显示名与右侧项目文件栏统一（经 `projectFileDisplayName`）；数值字段以 `null` 初始化且后端把空值视为未填写（不再把空串写成文本单元格）。
+
+#### 会前财务资料上传阶段 P3 整改（1.0.159）
+
+- **会议日期可计算**：单日会议在归档件中写 Excel 原生日期（模板日期列自带 `yyyy/m/d;@` 格式），可排序/筛选/计算天数；跨日会议保留区间文本（模板仅一列，装不下两个原生日期，保留结束日以免丢合规数据）。重点类 sheet 的日期列无日期格式，生成时自动补 `yyyy/m/d`，避免显示序列号。
+- **并发覆盖守卫**：`PUT /api/project/{id}/stage-form` 新增可选 `version`（= 客户端读取到的 `updateTime`）。与库中 `project_stage_form.update_time` 不一致即返回 409「表单已被他人保存…请刷新」，避免整包覆盖时后写静默覆盖先写；不携带 `version` 的旧客户端保持原行为。
+- **默认值跟随项目信息**：部门/客户对接人的项目派生默认值，在**尚未保存过**该字段时随项目信息变更同步（已保存过的以财务口径为准，符合「允许保存财务口径」口径）；用户手动改过的字段不被覆盖。
+- **地点消歧**：财务表单字段标签由「地点」改为「会议地点（具体地址）」，与项目属性「地点（线上/线下）」不再同名（Excel 表头仍为模板原文「地点」，差异由对齐测试的别名表登记）。
+- **归档回滚不留孤儿**：归档件先落盘再写库，事务回滚时删除本次新生成的物理文件（提交则保留）。
+- **读取失败显式化**：阶段表单内容读取失败时展示错误态与「重新加载」，并禁用保存——原先静默吞掉异常会让用户把「读不到」误当「尚未填写」而覆盖保存。
+
+#### 合规立项申请表独立入口与服务端必填校验（1.0.159）
+
+- **独立入口**：`GET /api/project/{id}/finance-archive?phaseId=` 返回当前生效的那一份合规立项申请表（`project_finance_` 前缀、物理文件存在、取 id 最大者），字段为 `{archived, previewable, fileName, filePath, uploadBy, createTime}`。前端在财务表单内以独立卡片呈现，提供「在线预览」与「下载当前生效版」（复用既有 `GET /project/files/{fileName}/workbook` 与文件流下载），归档件不再混在通用附件清单里。非真实项目参与人只得到 `{archived:false, previewable:false}`，不返回文件路径，与归档件 403 口径一致。
+- **服务端必填闸门**：`saveStageForm` 在生成归档件之前按项目类型校验必填字段，缺失项一次性以**中文字段名**列出（`请填写财务表单必填项：A、B、C`）并拒绝写入，不落库、不产生归档件；条件必填（申请表「恒瑞需填写所有信息」分支）同样纳入。前端 `el-form` 规则与后端校验共用 `ProjectFinanceWorkbook.Field` 这一套定义，前后端口径一致。
+- 显示名规则上移至 `frontend/src/utils/format.js` 的 `projectFileDisplayName(doc, projectName)`，供阶段资料区、项目文件栏与独立入口共用。
 
 
 ### 项目阶段交付物（1.0.100）

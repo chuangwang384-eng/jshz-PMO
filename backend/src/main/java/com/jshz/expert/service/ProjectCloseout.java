@@ -3,7 +3,7 @@ package com.jshz.expert.service;
 import java.util.List;
 
 final class ProjectCloseout {
-    static final String PHASE = "会议费用结算及项目结项";
+    static final String PHASE = com.jshz.expert.common.ProjectPhaseNames.CLOSEOUT;
     static final String PREFIX = "project_closeout_";
 
     record Item(String code, String label, String evidence) {

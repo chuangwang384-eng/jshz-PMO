@@ -1,0 +1,115 @@
+examples:
+  - id: implement-module
+    title:
+      zh: 新增业务模块
+      en: Implement Business Module
+    description:
+      zh: 按仓库约定新增模块、台账、字典或主子表功能，含迁移、API、页面与权限入口
+      en: Add a module, ledger, dictionary, or master-detail feature with migrations, API, page, and permission entry points
+    prompt:
+      zh: |-
+        请在 jshz-PMO 新增业务模块：
+
+        模块名称：{{模块名称}}
+        功能说明：{{功能说明}}
+        参考模块：{{参考的现有模块，如客户或供应商}}
+
+        请按仓库约定完成迁移 SQL、新库基线、Spring Boot API、Vue 页面和权限入口，逐层说明实际改动和省略理由。
+      en: |-
+        Please add a business module to jshz-PMO:
+
+        Module name: {{module name}}
+        Feature description: {{feature description}}
+        Reference module: {{existing module to mirror, e.g. customer or supplier}}
+
+        Follow the repository conventions for the migration SQL, fresh-database baseline, Spring Boot API, Vue page, and permission entry point. State the actual change and the reason for anything skipped, layer by layer.
+  - id: fix-defect
+    title:
+      zh: 修复缺陷
+      en: Fix Defect
+    description:
+      zh: 先写会失败的测试复现问题，再做最小实现并跑通相关回归
+      en: Write a failing test to reproduce the issue, make the minimal fix, then pass the relevant regression
+    prompt:
+      zh: |-
+        请修复 jshz-PMO 的缺陷：
+
+        现象或复现步骤：{{缺陷现象或复现步骤}}
+        涉及模块：{{模块名称}}
+
+        先写并运行一个会失败的测试，确认失败来自待修复行为；再做最小实现，重跑同一测试和相关回归。
+      en: |-
+        Please fix a defect in jshz-PMO:
+
+        Symptom or reproduction steps: {{symptom or reproduction steps}}
+        Affected module: {{module name}}
+
+        Write and run a failing test first and confirm the failure comes from the behavior to fix, then make the minimal change and rerun the same test plus the relevant regression.
+  - id: security-review
+    title:
+      zh: 防御性安全审查
+      en: Defensive Security Review
+    description:
+      zh: 按清单审查文件访问、项目数据范围、敏感资料处理与权限命中顺序
+      en: Review file access, project data scoping, sensitive data handling, and permission enforcement against the checklist
+    prompt:
+      zh: |-
+        请对 jshz-PMO 的本次变更做防御性安全审查：
+
+        变更范围：{{变更范围，如路由、Controller、上传下载、导出接口}}
+        关注点：{{文件访问、项目数据范围、敏感资料处理等关注点}}
+
+        按防御性安全审查清单输出发现，每条注明严重度、文件与行号、受影响入口和角色、预期与实际、修复建议，并区分已实测与待验证项。
+      en: |-
+        Please run a defensive security review on this jshz-PMO change:
+
+        Change scope: {{change scope, e.g. routes, controllers, upload/download/export endpoints}}
+        Focus areas: {{focus areas such as file access, project data scope, sensitive data handling}}
+
+        Report findings against the defensive security review checklist. For each one give severity, file and line, affected entry point and role, expected versus actual behavior, and a fix recommendation, and mark what was actually tested versus still pending.
+  - id: pre-release-check
+    title:
+      zh: 发布前检查
+      en: Pre-Release Check
+    description:
+      zh: 核对提交、版本、构建产物、数据库基线与增量迁移，以及权限和敏感信息差异
+      en: Verify commit, version, build artifacts, database baseline and incremental migrations, plus permission and secret differences
+    prompt:
+      zh: |-
+        请对 jshz-PMO 做发布前检查：
+
+        目标环境：{{目标环境}}
+        待发布提交：{{提交号或分支}}
+
+        核对源码提交与未提交改动、version.txt、实际待发布产物、数据库新库基线与既有库增量迁移、权限与环境变量差异，并列出未验证项和原因。
+      en: |-
+        Please run a pre-release check for jshz-PMO:
+
+        Target environment: {{target environment}}
+        Release commit: {{commit or branch}}
+
+        Check the source commit and uncommitted changes, version.txt, the actual artifacts being released, the fresh-database baseline and incremental migrations, and permission and environment variable differences. List the unverified items and why.
+  - id: post-release-acceptance
+    title:
+      zh: 发布后验收
+      en: Post-Release Acceptance
+    description:
+      zh: 核对线上版本、登录与关键业务路径，分别记录技术冒烟和业务验收证据
+      en: Confirm the live version, login, and key business paths, recording technical smoke and business acceptance evidence separately
+    prompt:
+      zh: |-
+        请对 jshz-PMO 做发布后冒烟和业务验收：
+
+        目标环境与版本：{{环境与版本}}
+        验收账号：{{获准账号}}
+        受影响业务路径：{{业务路径}}
+
+        分别记录生产技术冒烟和登录后业务验收的结果，标注版本、提交、环境及证据；权限有变化时分别验证允许和拒绝路径。
+      en: |-
+        Please run post-release smoke testing and business acceptance for jshz-PMO:
+
+        Environment and version: {{environment and version}}
+        Acceptance account: {{authorized account}}
+        Affected business paths: {{business paths}}
+
+        Record the production technical smoke results and the post-login business acceptance results separately, each labeled with version, commit, environment, and evidence. When permissions changed, verify both the allowed and the denied path.

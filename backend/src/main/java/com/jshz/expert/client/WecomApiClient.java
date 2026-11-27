@@ -57,6 +57,9 @@ public class WecomApiClient {
     private volatile String cachedToken;
     private volatile long tokenExpireAtMillis;
 
+    /** user/get 上次调用时间（请求间节流用） */
+    private volatile long lastUserGetMillis = 0L;
+
     /** 企微部门信息（快照用） */
     public static class DeptInfo {
         public long deptId;
@@ -127,20 +130,12 @@ public class WecomApiClient {
             log.info("企微部门拉取完成（list_id）：{} 个", result.size());
             return result;
         }
-        // 退回旧接口 GET department/list
+        // 退回旧接口 GET department/list（显式告警，保留首次失败原因便于排查 secret 权限问题）
+        log.warn("企微 department/list_id 不可用（errcode={} errmsg={}），退回 GET department/list",
+                errcodeOf(resp), asText(resp, "errmsg"));
         Map<String, Object> legacy = getJson("/department/list", Map.of(), true);
         checkErrcode(legacy, "/department/list");
-        JsonNode arr = legacy.get("department") instanceof JsonNode n ? n : objectMapper.valueToTree(legacy.get("department"));
-        if (arr != null && arr.isArray()) {
-            for (JsonNode node : arr) {
-                DeptInfo d = new DeptInfo();
-                d.deptId = node.path("id").asLong();
-                d.name = node.path("name").asText();
-                d.parentId = node.path("parentid").isNull() ? null : node.path("parentid").asLong();
-                d.order = node.path("order").asInt(0);
-                result.add(d);
-            }
-        }
+        collectDeptPage(legacy, result);
         log.info("企微部门拉取完成（department/list 退回）：{} 个", result.size());
         return result;
     }
@@ -191,17 +186,10 @@ public class WecomApiClient {
     }
 
     /**
-     * 获取成员详情（GET /user/get?userid=），批间节流由调用方/本方法控制。
+     * 获取成员详情（GET /user/get?userid=）。请求间节流：距上次调用不足 interval 才等待，首次不等待。
      */
     public MemberDetail getUserDetail(String userId) {
-        long interval = wecomProperties.getUserGetIntervalMs();
-        if (interval > 0) {
-            try {
-                Thread.sleep(interval);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
+        throttleUserGet();
         Map<String, Object> resp = getJson("/user/get", Map.of("userid", userId), true);
         checkErrcode(resp, "/user/get");
         MemberDetail d = new MemberDetail();
@@ -220,6 +208,24 @@ public class WecomApiClient {
         return d;
     }
 
+    /**
+     * user/get 请求间节流：距上次调用不足 interval 时等待差额；中断时恢复中断标志后继续（与原行为一致）。
+     */
+    private void throttleUserGet() {
+        long interval = wecomProperties.getUserGetIntervalMs();
+        if (interval > 0) {
+            long wait = lastUserGetMillis + interval - System.currentTimeMillis();
+            if (wait > 0) {
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+        lastUserGetMillis = System.currentTimeMillis();
+    }
+
     // ---------------- 底层 HTTP + token 失效重试 ----------------
 
     private Map<String, Object> postJson(String path, Map<String, Object> body) {
@@ -227,7 +233,7 @@ public class WecomApiClient {
     }
 
     private Map<String, Object> getJson(String path, Map<String, Object> params, boolean attachToken) {
-        return executeWithTokenRetry(() -> doGetJson(path, params, attachToken));
+        return executeWithTokenRetry(() -> doGet(path, params, attachToken));
     }
 
     private Map<String, Object> executeWithTokenRetry(java.util.function.Supplier<Map<String, Object>> action) {
@@ -249,7 +255,7 @@ public class WecomApiClient {
                     .header("Content-Type", "application/json;charset=utf-8")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
-            return send(request);
+            return send(request, path);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -260,19 +266,20 @@ public class WecomApiClient {
     private Map<String, Object> doGet(String path, Map<String, Object> params, boolean attachToken) {
         try {
             StringBuilder sb = new StringBuilder(BASE_URL).append(path);
-            sb.append("?");
+            char sep = '?';
             for (Map.Entry<String, Object> e : params.entrySet()) {
-                sb.append(e.getKey()).append("=")
-                        .append(URLEncoder.encode(String.valueOf(e.getValue()), StandardCharsets.UTF_8)).append("&");
+                sb.append(sep).append(e.getKey()).append("=")
+                        .append(URLEncoder.encode(String.valueOf(e.getValue()), StandardCharsets.UTF_8));
+                sep = '&';
             }
             if (attachToken) {
-                sb.append("access_token=").append(URLEncoder.encode(getAccessToken(), StandardCharsets.UTF_8));
+                sb.append(sep).append("access_token=").append(URLEncoder.encode(getAccessToken(), StandardCharsets.UTF_8));
             }
             HttpRequest request = HttpRequest.newBuilder(URI.create(sb.toString()))
                     .timeout(Duration.ofSeconds(30))
                     .GET()
                     .build();
-            return send(request);
+            return send(request, path);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -280,15 +287,20 @@ public class WecomApiClient {
         }
     }
 
-    private Map<String, Object> doGetJson(String path, Map<String, Object> params, boolean attachToken) {
-        return doGet(path, params, attachToken);
-    }
-
-    private Map<String, Object> send(HttpRequest request) throws Exception {
+    private Map<String, Object> send(HttpRequest request, String path) throws Exception {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            // 不透传响应体，避免非 JSON 错误页（如代理 502 HTML）混入异常消息
+            throw new BusinessException("企微接口 HTTP 状态异常：" + path + "（HTTP " + response.statusCode() + "）");
+        }
         JsonNode root = objectMapper.readTree(response.body());
         Map<String, Object> map = objectMapper.convertValue(root, Map.class);
-        return map == null ? new LinkedHashMap<>() : map;
+        Map<String, Object> result = map == null ? new LinkedHashMap<>() : map;
+        if (!result.containsKey("errcode")) {
+            // 企微接口均应返回 errcode；缺失按成功容忍但显式告警，防止响应结构变化被静默假成功
+            log.warn("企微响应缺少 errcode 字段（按成功容忍）: path={}", path);
+        }
+        return result;
     }
 
     private void checkErrcode(Map<String, Object> resp, String api) {

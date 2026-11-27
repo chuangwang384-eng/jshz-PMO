@@ -11,6 +11,16 @@ export function maskMobile(mobile) {
   return `${s.slice(0, 3)}****${s.slice(-4)}`
 }
 
+// 项目文件显示名（2026-11-27 收口）：统一加项目名前缀，
+// 使右侧「项目文件」栏、阶段资料区、合规立项申请表独立入口显示同一个名字。
+// 消费方：ProjectDetail.vue、components/ProjectFinanceForm.vue；禁止复制私有副本。
+export function projectFileDisplayName(doc, projectName) {
+  const name = (doc && (doc.fileName || doc.filePath)) || ''
+  const prefix = String(projectName || '').trim().replace(/[<>:"/\\|?*]/g, '_')
+  if (!prefix || !name || name.startsWith(prefix)) return name
+  return `${prefix}-${name}`
+}
+
 import { PHOTO_FIELDS } from './approvalFields'
 
 // 照片字段：后端 changes 中已统一为「已更换新照片」文案，旧值为文件名不参与摘要对比

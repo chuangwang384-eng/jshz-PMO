@@ -43,6 +43,9 @@ public class ProjectBudget {
     private String remark;
     private String estimateInputs;
 
+    /** 乐观锁版本号（2026-11-26）：每次保存/确认 +1；前端提交携带加载时版本，不一致返回 409 */
+    private Integer version;
+
     private Long createdBy;
 
     private Long updatedBy;

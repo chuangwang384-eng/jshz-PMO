@@ -8,11 +8,11 @@
       <el-row :gutter="8">
         <el-col :span="12">
           <!-- 2026-11-20：原「会议类型」改名为「地点」（字段仍为 category ONLINE/OFFLINE），新增「项目类型」 -->
-          <el-form-item label="项目类型" required>
-            <el-select v-model="form.projectType" placeholder="平台类/直付类/重点类" style="width: 100%">
-              <el-option label="平台类项目" value="PLATFORM" />
-              <el-option label="直付类项目" value="DIRECT_PAY" />
-              <el-option label="重点类项目" value="KEY" />
+          <el-form-item label="项目类型" :required="!isLegacyNoType">
+            <el-select v-model="form.projectType" :placeholder="`${PROJECT_TYPE_LABELS.PLATFORM}/${PROJECT_TYPE_LABELS.DIRECT_PAY}/${PROJECT_TYPE_LABELS.KEY}`" style="width: 100%">
+              <el-option :label="PROJECT_TYPE_LABELS.PLATFORM" value="PLATFORM" />
+              <el-option :label="PROJECT_TYPE_LABELS.DIRECT_PAY" value="DIRECT_PAY" />
+              <el-option :label="PROJECT_TYPE_LABELS.KEY" value="KEY" />
             </el-select>
           </el-form-item>
         </el-col>
@@ -25,6 +25,10 @@
           </el-form-item>
         </el-col>
       </el-row>
+      <!-- 2026-11-26 P0-2：存量项目（未选项目类型）允许先改其它信息，不再被必填校验整体拦截 -->
+      <el-alert v-if="isLegacyNoType" type="info" :closable="false" show-icon class="edit-type-hint"
+        title="该项目尚未设置项目类型"
+        description="可以先保存会议名称、负责人、日期等其它信息；项目类型留空不会阻断保存。补选后再次保存即可写入（会前财务资料上传阶段需要它才能生成合规立项申请表）。" />
       <el-row :gutter="8">
         <el-col :span="12">
           <!-- 团队只读（2026-11-26 项目日历需求 FR-05/C3）：由负责人组织架构部门派生，后端 ProjectTeamSyncService 落库 -->
@@ -116,6 +120,7 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../store/auth'
 import { createProject, updateProject } from '../../api/project'
 import { listSupplierCities } from '../../api/supplier'
+import { PROJECT_TYPE_LABELS } from '../../utils/dict'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -157,6 +162,11 @@ const form = reactive({
   clientCompany: '', clientName: '', remark: ''
 })
 
+// 2026-11-26 P0-2：存量项目未选项目类型时不阻断其它字段的修改
+// （后端 ProjectService.update 仅在请求携带 projectType 时校验，编辑携带才校验）
+const originalProjectType = ref(null)
+const isLegacyNoType = computed(() => !!form.id && !form.projectType && !originalProjectType.value)
+
 // 团队只读展示（FR-05）：新建=由负责人所在部门自动确定；编辑=回显派生值
 const TEAM_LABELS = { DEPT1: '项目一部', DEPT2: '项目二部', DEPT3: '项目三部' }
 const teamDisplay = computed(() => (form.id && formTeam.value ? (TEAM_LABELS[formTeam.value] || formTeam.value) : '由负责人所在部门自动确定'))
@@ -171,6 +181,7 @@ watch(
     form.name = p?.name ?? ''
     form.category = p?.category ?? 'OFFLINE'
     form.projectType = p?.projectType ?? null
+    originalProjectType.value = p?.projectType ?? null
     formTeam.value = p?.team ?? null
     form.cityId = p?.cityId ?? null
     form.ownerId = p?.ownerId ?? authStore.id ?? null // 新建默认当前登录人（总负责人全员可选）
@@ -204,9 +215,17 @@ async function save() {
     ElMessage.warning('地点/总负责人必填')
     return
   }
+  // 2026-11-26 P0-2：新建必填；存量项目未选类型时不再阻断其它字段的修改；
+  // 已设类型的项目不允许在此被清空（清空会使已归档的申请表与页面口径不一致）
   if (!form.projectType) {
-    ElMessage.warning('项目类型必填（平台类/直付类/重点类）')
-    return
+    if (!form.id) {
+      ElMessage.warning(`项目类型必填（${PROJECT_TYPE_LABELS.PLATFORM}/${PROJECT_TYPE_LABELS.DIRECT_PAY}/${PROJECT_TYPE_LABELS.KEY}）`)
+      return
+    }
+    if (originalProjectType.value) {
+      ElMessage.warning('项目类型不可清空，如需变更请直接选择其它类型')
+      return
+    }
   }
   // 会议日期必填（FR-04，2026-11-26 项目日历需求）
   if (!meetingRange.value?.[0] || !meetingRange.value?.[1]) {
@@ -222,7 +241,8 @@ async function save() {
     const data = {
       name: form.name.trim(),
       category: form.category,
-      projectType: form.projectType,
+      // 2026-11-26 P0-2：存量项目未选类型时不下发该键，后端据此保持原值（空）不变
+      ...(form.projectType ? { projectType: form.projectType } : {}),
       // team 不再提交（FR-05/C3）：后端按负责人组织架构部门派生
       cityId: form.cityId || null,
       meetingStartDate: meetingRange.value?.[0] || null,
@@ -252,3 +272,7 @@ function onClosed() {
   emit('saved')
 }
 </script>
+
+<style scoped>
+.edit-type-hint { margin-bottom: 12px; }
+</style>

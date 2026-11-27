@@ -143,6 +143,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listBudgetFeeStandards, saveBudgetFeeStandards, deleteBudgetFeeStandard } from '../../api/project'
 import { apiErrorMessage } from '../../utils/common'
+import { BUDGET_FEE_CATALOGS as CATALOGS } from '../../utils/dict'
 
 const scene = ref('OFFLINE')
 const loading = ref(false)
@@ -154,8 +155,7 @@ const original = ref('')
 const isOnline = computed(() => scene.value === 'ONLINE')
 const dirty = computed(() => JSON.stringify(stripped(rows.value)) !== original.value)
 
-// 收费标准库类目（2026-11-20 灌入公司报价单/成本单模板全部费用项）
-const CATALOGS = { ELEC: '电子物料', PRINT: '小型制作物料', ONLINE: '线上会议及直播', BUILD: '大型搭建物料', STAFF: '人员服务', SPECIAL: '非常规物料' }
+// 收费标准库类目：2026-11-26 收口到 utils/dict.js BUDGET_FEE_CATALOGS（与 ProjectBudgetPanel 共用）
 // 2026-11-21：类目选项 = 内置 6 类 + 数据中已出现的自定义类目，支持新建类目（allow-create）
 const catalogOptions = computed(() => {
   const opts = Object.entries(CATALOGS).map(([value, label]) => ({ value, label }))

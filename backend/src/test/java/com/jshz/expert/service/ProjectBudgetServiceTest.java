@@ -38,6 +38,7 @@ class ProjectBudgetServiceTest {
     @Mock ProjectBudgetItemMapper itemMapper;
     @Mock ProjectBudgetFeeStandardMapper feeStandardMapper;
     @Mock ProjectService projectService;
+    @Mock OperationLogService operationLogService;
     @InjectMocks ProjectBudgetService service;
 
     private final AuthUser user = new AuthUser(7L, "tester", false, false, java.util.Set.of(), java.util.Set.of(), true);

@@ -1,6 +1,6 @@
 # 公司内部管理系统开发与 Agent 交接规范
 
-> 新增或扩展 PMO 业务模块，涉及迁移 SQL、后端接口、Vue 页面或权限入口时，先加载 `jshz-agentguifan`。若宿主不支持技能发现，读取 `E:/王创/项目skills/jshz-agentguifan/skills/jshz-agentguifan/SKILL.md`，并按需读取其相对路径引用。共享盘不可用时，按本文件和当前工作树的同类模块执行，并在交接记录中注明。
+> 新增或扩展 PMO 业务模块，涉及迁移 SQL、后端接口、Vue 页面或权限入口时，先加载 `jshz-agentguifan`。若宿主不支持技能发现，读取仓库内的 [PMO 模块开发技能](.agents/skills/jshz-agentguifan/SKILL.md) 及相关引用。
 
 > 适用范围：公司内部 OA、专家档案、文件解析/OCR、知识库、AI 问答、AI Agent 及相关前后端、数据库、部署和运维工作。
 >
@@ -54,7 +54,7 @@
 | 日志 | `logs/`（应用日志 / 发布日志 / NSSM 重定向 / `logs/legacy/` 历史归档） | 根目录、`scripts/`、`backend/`、`frontend/` 下出现 `*.log` |
 | 构建产物 | `builds/<版本>-build-<时间戳>/`，历史快照进 `builds/archive/` | 根目录 `.build-*`；`frontend/builds/`（第二处构建堆放地，已清理，不得重建）；在 `backend/` 原地 `mvn clean package`（生产进程占用 jar，必失败） |
 | 备份 | 全量备份=`backup/`（backup.ps1，计划任务 jshzPMOBackupWeekly）；手工临时备份=`temp/backup/` | 散落在仓库根/temp 顶层的 backup_* 目录 |
-| 测试日志 | 测试运行 `LOG_DIR` 必须用**绝对路径**（如 `D:\jshz-PMO\temp`）——相对路径会随进程工作目录落成 `backend/temp/*.log` 等散落物 | `backend/temp/`、`frontend/temp/` 等子目录内任何 `*.log` |
+| 测试日志 | 测试运行 `LOG_DIR` 必须用**绝对路径**（如 `<LOCAL_PATH>`）——相对路径会随进程工作目录落成 `backend/temp/*.log` 等散落物 | `backend/temp/`、`frontend/temp/` 等子目录内任何 `*.log` |
 | 前端快照 | `frontend/releases/<ReleaseId>/`，切换靠 Nginx root 指针 | 用 `deploy-frontend.ps1` 替换 `dist` 冒充发布（线上 root 不在 dist，替换无效） |
 | 临时文件 | `temp/`（已 gitignore） | 散落在仓库根目录 |
 
@@ -89,7 +89,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 
 出现「脚本说改了、文档说生效、实际未生效」时，先查运行时真实状态再改文档：
 
-- Nginx 站点根：`grep -n '^\s*root' D:\nginx\conf\conf.d\jshz-pmo.conf`（不能假设是 `frontend/dist`）
+- Nginx 站点根：`grep -n '^\s*root' <LOCAL_PATH>`（不能假设是 `frontend/dist`）
 - 后端实际版本：`curl -s http://127.0.0.1:8080/health`（`version` / `buildTime` / `gitShort`）
 - 前端线上版本：读 Nginx root 指向目录的 `index.html` 引用的主 bundle，搜 `v1.0.xx`
 - NSSM 参数：读 `HKLM\SYSTEM\CurrentControlSet\Services\ExpertSystemBackend\Parameters`
@@ -117,6 +117,23 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 - [ ] 若需求存在关键歧义且不同理解会导致不同实现，先提出澄清问题；不得擅自决定高风险业务规则。
 
 对于简单、低风险的局部修改，可将计划简要记录在任务记录中；高风险变更须先获得明确批准再执行。
+
+### 2.1 开发流程与进入实现的条件
+
+- **小修复**：行为边界明确、影响局部且风险低的任务，可在一条任务记录中合并记录现状、预期结果、改动范围和验证方式，再按第 7 节验证。
+- **新模块和重大改造**：新增业务模块，或显著改变核心业务流程、页面结构或关键交互时，按下表走完适用阶段。对不适用的阶段在任务记录中说明原因。已有需求或设计可以引用并补齐本次缺项，阶段记录可合并在同一文档中。
+
+| 阶段 | 完成条件 |
+| --- | --- |
+| 项目准备 | 完成第 2 节的现状检查，明确所属模块、已有实现和可复用能力。 |
+| 需求对齐 | 明确目标、范围、验收条件和待决事项。关键歧义按本仓库的澄清规则处理，记录已确认的决定。 |
+| 产品方案设计 | 明确业务角色、入口、主流程、必要的异常分支及处理结果，能按具体验收场景走查。 |
+| UI 视觉设计 | 涉及新页面或重大交互调整时，明确布局、关键操作及适用的加载、空、失败和权限状态，并沿用第 17 节。 |
+| 原型 Demo | 新流程或关键交互仍有明显不确定性时，用线框图或可点击 Demo 走查关键路径，记录发现的问题及处理决定。 |
+| 技术方案设计 | 明确改动位置、实现顺序和验证方式。跨层改动按实际影响补齐数据与迁移、API 契约、权限、兼容与回滚方案。 |
+| 产品实现 | 按方案完成实现，依第 7 节验证，并将验收结果、未验证项和交付状态记入任务交接。发布按第 10 节执行。 |
+
+开始正式实现前，核对所有适用的前置阶段已满足完成条件。需求和产品方案可记录在 `docs/requirements/`，UI、原型和技术方案可记录或链接在 `docs/design/`，并在任务交接中引用。关键歧义及高风险操作分别按第 2 节和第 14 节处理。
 
 ## 3. 修改范围与模块边界
 
@@ -515,7 +532,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 ### 18.1 分类禁令
 
 1. **密钥凭据（最高禁令）**：禁止在代码、配置、脚本、日志、交接记录中出现任何真实密码/密钥/token（MYSQL_PASSWORD、JWT_SECRET、WECOM_* 等）。凭据一律环境变量注入（`${ENV:}` 空 default + 启动 fail-fast 模式）；真实值只存本地 `start-backend.bat`（gitignored）与 NSSM 服务环境。发现疑似泄露立即停发布并按第 5 节处置。
-2. **环境相关路径**：禁止在代码/配置/脚本中写死盘符绝对路径（`D:\`、`C:\Program Files`、`E:\` 等）。必须 `${VAR:默认值}` 出口化，默认值仅作本机兜底。判据：换机器/换盘符/迁移数据是否需要改代码重编译——需要 → 必须先出口化再合入。
+2. **环境相关路径**：禁止在代码/配置/脚本中写死盘符绝对路径（`<LOCAL_PATH>`、`<LOCAL_PATH> Files`、`<LOCAL_PATH>` 等）。必须 `${VAR:默认值}` 出口化，默认值仅作本机兜底。判据：换机器/换盘符/迁移数据是否需要改代码重编译——需要 → 必须先出口化再合入。
 3. **URL/IP/端口**：内网 IP、第三方服务地址、端口不得写死在 Java/前端源码。后端用 yml 占位（如 `security.cors.allowed-origins`）、前端用 `VITE_*` 兜底（如 `vite.config.js` proxy、`api/request.js` baseURL 的既有写法）。
 4. **业务配置参数**：限额、阈值、超时、cron、线程池、模型名等默认值只允许定义**一处**（application.yml 或唯一常量），消费方引用单一来源。**前后端共享的数值以后端为唯一真源、前端经接口拉取**（现有样板：`expert.upload` + `GET /api/meta/limits` + `frontend/src/utils/limits.js` 兜底），禁止两侧各写一份字面量。
 5. **业务常量/状态**：状态权威定义在后端（枚举/permission 数据）；前端 statusMap/roleOptions 为展示层副本，必须成对修改并按 17.7 留痕。禁止新增第三套状态命名或与既有语义色冲突的修饰类。
@@ -528,7 +545,7 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 | `version.txt` revision | 版本号 | pom/version.properties、vite 注入、deploy 脚本 |
 | `application.yml expert.upload` | 上传限额（photo/resume/doc-max-bytes） | MetaController → 前端 limits.js |
 | `security.cors.allowed-origins` | CORS 白名单 | SecurityConfig（env：CORS_ALLOWED_ORIGINS） |
-| `STORAGE_ROOT` | 全部存储目录统一根（默认 `D:\jshz-PMO`） | application.yml 各 storage-dir |
+| `STORAGE_ROOT` | 全部存储目录统一根（默认 `<LOCAL_PATH>`） | application.yml 各 storage-dir |
 | `start-backend.bat` + NSSM AppEnvironmentExtra | 真实凭据 | 服务启动、deploy-backend 凭据一致性护栏 |
 
 约定：**出口化不改行为**——新增 `${VAR:默认值}` 的默认值必须等于当前生产实际值；新增环境变量必须登记到 `docs/deployment.md` 的"环境变量注入点"小节，否则视为文档不同步。
@@ -550,13 +567,13 @@ mysql -uroot -p -N -B -e "SELECT COUNT(*) FROM information_schema.tables \
 | --- | --- | --- |
 | `MYSQL_PASSWORD` / `JWT_SECRET` | 数据库凭据 / JWT 签名密钥 | 无默认，空则启动失败（fail-fast） |
 | `WECOM_CORP_ID` / `WECOM_CONTACT_SECRET` / `AUTH_LOGIN_MODE` | 企微登录与通讯录 | 空占位 / NAME |
-| `STORAGE_ROOT` | 全部存储目录统一根 | `D:\jshz-PMO` |
-| `LIBREOFFICE_PATH` | Office 预览转换可执行文件 | `C:\Program Files\LibreOffice\program\soffice.com` |
+| `STORAGE_ROOT` | 全部存储目录统一根 | `<LOCAL_PATH>` |
+| `LIBREOFFICE_PATH` | Office 预览转换可执行文件 | `<LOCAL_PATH> Files\LibreOffice\program\soffice.com` |
 | `CORS_ALLOWED_ORIGINS` | 前端来源白名单（逗号分隔） | 3 个既有内网来源 |
 | `PHOTOMATTE_PYTHON` / `PHOTOMATTE_ROOT` | 抠图正式 Python/venv 出口 | 显式配置 / `ProgramFiles/JSHZ/pp-ocrv5` |
-| `PHOTOMATTE_LEGACY_ROOT` | 抠图历史 E 盘 venv 兜底（可置空跳过） | `E:/AI助手开发/pp-ocrv5` |
+| `PHOTOMATTE_LEGACY_ROOT` | 抠图历史 E 盘 venv 兜底（可置空跳过） | `<LOCAL_PATH>` |
 | `OLLAMA_URL` / `OLLAMA_MODEL` / `OLLAMA_TIMEOUT` | 本地语义抽取 | 无（未设停用）/ qwen2.5:7b / 180s |
-| `LOG_DIR` | 应用日志目录 | `D:/jshz-PMO/logs` |
+| `LOG_DIR` | 应用日志目录 | `<LOCAL_PATH>` |
 | `NOTIFICATION_READ_RETENTION_DAYS` / `NOTIFICATION_RETENTION_CLEAN_CRON` | 已读消息保留期清理（需求 A） | 90 / `0 40 3 * * ?` |
 | `APPROVAL_URGE_FIRST_HOURS` / `APPROVAL_URGE_SECOND_HOURS` / `APPROVAL_URGE_CRON` | 审批滞留催办（需求 E） | 24 / 72 / `0 15 * * * ?` |
 | `VITE_API_BASE` / `VITE_API_PROXY_TARGET` | 前端请求地址 / 开发代理 | `/api` / `http://127.0.0.1:8080` |

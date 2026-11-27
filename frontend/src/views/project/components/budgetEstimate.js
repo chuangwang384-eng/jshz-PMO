@@ -31,8 +31,9 @@ function standard(fees, key) {
   return { low, text: high == null ? String(low) : `${low}–${high}` }
 }
 
-// 估算规则兑底常量（2026-11-17 A1 决策：真源已迁入管理员「收费标准配置」feeStandards 的 EST_* 键，
-// 管理员可在线调价；本常量仅作接口缺失/未启用时的兑底，值须与 init.sql / migration 种子保持一致）
+// 估算默认参数真源（2026-11-26 审查收口 P3-19）：EST_* 种子已随 20261121 迁移清理，
+// 本常量即为唯一内置默认值真源（当前无在线调价入口）；若收费标准库重新引入 EST_* 键，
+// 仍优先于常量取值。修改默认值须同步 budgetEstimate.test.js 的 fallback 用例。
 export const ESTIMATE_RULES = {
   HOTEL_DEFAULT_ROOMS: 2,            // EST_HOTEL_ROOMS：无外埠人员时住宿预留间数
   TEA_RATIO: 70,                     // EST_TEA_RATIO：茶歇人数比例（%），向上取 5 的倍数
@@ -49,37 +50,42 @@ export const estimateRuleMeta = {
   EST_HOTEL_ROOMS: { label: '估算参数', unit: '间' }
 }
 
-/** 从收费标准取估算参数；缺失/非法时回退 ESTIMATE_RULES 兑底值。 */
-function estimateParam(fees, key, fallback) {
+/** 同上，但额外标记是否来自收费标准配置（未配置时提示「按内置默认值估算」，P3-19）。 */
+function paramInfo(fees, key, fallback) {
   const value = standard(fees, key)
-  return value && Number.isFinite(value.low) ? value.low : fallback
+  if (value && Number.isFinite(value.low)) return { value: value.low, fromConfig: true }
+  return { value: fallback, fromConfig: false }
 }
 
 export function estimateChanges(items, input, fees, first, previousInput = {}) {
-  const defaultRooms = estimateParam(fees, 'EST_HOTEL_ROOMS', ESTIMATE_RULES.HOTEL_DEFAULT_ROOMS)
-  const teaRatio = estimateParam(fees, 'EST_TEA_RATIO', ESTIMATE_RULES.TEA_RATIO)
-  const flightFare = estimateParam(fees, 'EST_FLIGHT_FARE', ESTIMATE_RULES.FLIGHT_FARE)
-  const platformFirst = estimateParam(fees, 'EST_PLATFORM_FIRST', ESTIMATE_RULES.PLATFORM_PRICE.FIRST)
-  const platformOther = estimateParam(fees, 'EST_PLATFORM_OTHER', ESTIMATE_RULES.PLATFORM_PRICE.OTHER)
-  const room = input.travelers || defaultRooms
-  const tea = Math.ceil((input.attendees * teaRatio) / 500) * 5
-  const flight = input.longDistance === 'FLIGHT'
+  const rooms = paramInfo(fees, 'EST_HOTEL_ROOMS', ESTIMATE_RULES.HOTEL_DEFAULT_ROOMS)
+  const tea = paramInfo(fees, 'EST_TEA_RATIO', ESTIMATE_RULES.TEA_RATIO)
+  const flight = paramInfo(fees, 'EST_FLIGHT_FARE', ESTIMATE_RULES.FLIGHT_FARE)
+  const platformFirst = paramInfo(fees, 'EST_PLATFORM_FIRST', ESTIMATE_RULES.PLATFORM_PRICE.FIRST)
+  const platformOther = paramInfo(fees, 'EST_PLATFORM_OTHER', ESTIMATE_RULES.PLATFORM_PRICE.OTHER)
+  const fallbackNote = '（按内置默认值估算）'
+  const defaultRooms = rooms.value
+  const teaRatio = tea.value
+  const teaCount = Math.ceil((input.attendees * teaRatio) / 500) * 5
+  const isFlight = input.longDistance === 'FLIGHT'
   const rail = input.longDistance === 'RAIL'
   const fleet = input.localTransport === 'FLEET'
   const platform = input.localTransport === 'PLATFORM'
-  const platformPrice = input.city === 'FIRST' ? platformFirst : input.city === 'OTHER' ? platformOther : undefined
+  const platformPrice = input.city === 'FIRST' ? platformFirst.value : input.city === 'OTHER' ? platformOther.value : undefined
+  const platformFromConfig = input.city === 'FIRST' ? platformFirst.fromConfig : input.city === 'OTHER' ? platformOther.fromConfig : true
+  const room = input.travelers || defaultRooms
   const suggestions = [
-    ['HOTEL_ROOM', room, undefined, '间', input.travelers ? `外埠人数 ${input.travelers} × 1 间` : `无外埠人员，预留 ${defaultRooms} 间`],
-    ['HOTEL_TEA', tea, undefined, '人', `参会总人数 ${input.attendees} × ${teaRatio}%，向上取 5 的倍数`],
+    ['HOTEL_ROOM', room, undefined, '间', (input.travelers ? `外埠人数 ${input.travelers} × 1 间` : `无外埠人员，预留 ${defaultRooms} 间`) + (input.travelers || rooms.fromConfig ? '' : fallbackNote)],
+    ['HOTEL_TEA', teaCount, undefined, '人', `参会总人数 ${input.attendees} × ${teaRatio}%，向上取 5 的倍数` + (tea.fromConfig ? '' : fallbackNote)],
     ['TRAFFIC_FLEET', fleet ? input.attendees * 2 : 0, undefined, '次', fleet ? `参会总人数 ${input.attendees} × 2 次，单价待填` : '未选择车队专车'],
     ['TRAFFIC_PLATFORM', platform ? input.attendees : 0, platform ? platformPrice : undefined, '人',
-      platform && platformPrice != null ? `参会总人数 ${input.attendees} × ${platformPrice} 元/人`
+      platform && platformPrice != null ? `参会总人数 ${input.attendees} × ${platformPrice} 元/人` + (platformFromConfig ? '' : fallbackNote)
         : platform ? '按参会总人数，选择城市档位后可估算单价' : '未选择平台专车']
   ]
-  if (flight || rail) {
-    const fare = flight ? flightFare : previousInput.longDistance === 'FLIGHT' ? null : undefined
+  if (isFlight || rail) {
+    const fare = isFlight ? flight.value : previousInput.longDistance === 'FLIGHT' ? null : undefined
     suggestions.push(['TRAFFIC_MAIN', input.travelers, fare, '人',
-      flight ? `外埠人数 ${input.travelers} × ${flightFare} 元/人` : `外埠人数 ${input.travelers}，高铁按一等座询价`])
+      isFlight ? `外埠人数 ${input.travelers} × ${flight.value} 元/人` + (flight.fromConfig ? '' : fallbackNote) : `外埠人数 ${input.travelers}，高铁按一等座询价`])
   }
   for (const [key, rule] of Object.entries(quantityRules)) {
     const value = standard(fees, key)

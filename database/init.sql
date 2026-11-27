@@ -1494,6 +1494,9 @@ INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`,
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (277,'storage:manage','存储管理-项目硬删除',2,'POST','/api/storage-admin/projects/*/purge',NULL,'2026-11-12 15:42:41','2026-11-12 15:42:41');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (278,'storage:manage','存储管理-孤儿扫描(全目录)',2,'GET','/api/storage-admin/orphans',NULL,'2026-11-12 16:03:46','2026-11-12 16:03:46');
 INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (279,'storage:manage','存储管理-孤儿清理(全目录)',2,'POST','/api/storage-admin/orphans/purge',NULL,'2026-11-12 16:03:46','2026-11-12 16:03:46');
+INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (280,'project:manage','收费标准读取',2,'GET','/api/project/config/budget-fee-standards',NULL,'2026-11-26 12:00:00','2026-11-26 12:00:00');
+INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (281,'project:manage','收费标准保存',2,'PUT','/api/project/config/budget-fee-standards',NULL,'2026-11-26 12:00:00','2026-11-26 12:00:00');
+INSERT IGNORE INTO `permission` (`id`, `code`, `name`, `type`, `method`, `path`, `parent_code`, `create_time`, `update_time`) VALUES (282,'project:manage','收费标准删除',2,'DELETE','/api/project/config/budget-fee-standards/*',NULL,'2026-11-26 12:00:00','2026-11-26 12:00:00');
 /*!40000 ALTER TABLE `permission` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2157,6 +2160,7 @@ CREATE TABLE IF NOT EXISTS `project_budget` (
   `service_rate` DECIMAL(5,4) NOT NULL DEFAULT 0.0600 COMMENT '服务费率（历史结算单口径 6%）',
   `tax_rate` DECIMAL(5,4) NOT NULL DEFAULT 0.0600 COMMENT '增值税率（历史结算单口径 6%）',
   `estimate_inputs` JSON NULL,
+  `version` INT NOT NULL DEFAULT 0 COMMENT '乐观锁版本号（2026-11-26：每次保存/确认+1，前端提交携带加载时版本，不一致返回409）',
   `remark` VARCHAR(1000) NULL,
   `created_by` BIGINT NULL,
   `updated_by` BIGINT NULL,

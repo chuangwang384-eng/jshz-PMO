@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jshz.expert.common.BusinessException;
 import com.jshz.expert.common.ParamUtils;
+import com.jshz.expert.common.ProjectPhaseNames;
 import com.jshz.expert.entity.Application;
 import com.jshz.expert.entity.Expert;
 import com.jshz.expert.entity.OperationLog;
@@ -69,6 +70,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -94,7 +96,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     public static final String STATUS_DELETED = "DELETED";
 
     /** 会议预算制作阶段名（阶段字典 data-driven；missingRequiredTemplates 推进校验与报价服务共用）。 */
-    public static final String PHASE_BUDGET_MAKING = "会议预算制作";
+    public static final String PHASE_BUDGET_MAKING = ProjectPhaseNames.BUDGET_MAKING;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -107,6 +109,23 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     /** 项目类型合法值（2026-11-20 新增，固定三类；前端展示副本见 frontend/src/utils/dict.js PROJECT_TYPE_LABELS，成对修改） */
     public static final Set<String> PROJECT_TYPES = Set.of("PLATFORM", "DIRECT_PAY", "KEY");
+
+    /**
+     * 会前财务资料上传阶段自动归档的《合规立项申请表》文件前缀（唯一真源）。
+     * 归档写入、必填判定、删除保护与归档件访问鉴权共用，避免各处散写字面量。
+     */
+    public static final String FINANCE_ARCHIVE_PREFIX = "project_finance_";
+
+    /**
+     * 阶段表单中需对「非真实项目参与人」做姓名掩码的字段（保留姓氏，其余 *）。
+     * 对应客户/供应商敏感字段脱敏口径（见 listContracts 的 maskSensitive 用法）。
+     */
+    static final Set<String> FINANCE_MASK_PERSON_FIELDS = Set.of("ourOwner", "clientContact", "clientOwner");
+
+    /**
+     * 阶段表单中需对「非真实项目参与人」整体隐去的字段（外部单位名 / 内部系统编号与财务归口）。
+     */
+    static final Set<String> FINANCE_MASK_HIDDEN_FIELDS = Set.of("sponsorCompany", "clientWorkUnit", "sfaNo", "bookDept");
 
 
     private final ProjectTypeMapper typeMapper;
@@ -904,7 +923,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     // ==================== 分阶段资料 / 富文本 ====================
 
     public List<Map<String, Object>> listDocs(Long id, Long phaseId, AuthUser user) {
-        requireProjectReadable(requireProject(id), user);
+        Project project = requireProject(id);
+        requireProjectReadable(project, user);
+        // 2026-11-26 P0 修复：合规立项申请表含敏感字段，对非真实项目参与人不可见（避免列表出现无法访问的死链）
+        boolean member = isProjectMember(project, user);
         LambdaQueryWrapper<ProjectDoc> qw = new LambdaQueryWrapper<ProjectDoc>()
                 .eq(ProjectDoc::getProjectId, id)
                 .eq(ProjectDoc::getIsDeleted, 0)
@@ -916,6 +938,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProjectDoc doc : docs) {
             if (ProjectSettlementMaterials.manages(doc.getFilePath())) continue;
+            if (!member && doc.getFilePath() != null && doc.getFilePath().startsWith(FINANCE_ARCHIVE_PREFIX)) continue;
             Map<String, Object> m = toMap(doc);
             m.put("phaseName", docPhaseName(id, doc.getPhaseId()));
             m.put("isRichText", doc.getFilePath() != null && doc.getFilePath().startsWith("_richtext/"));
@@ -978,6 +1001,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         if (doc.getFilePath() != null && doc.getFilePath().startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)) {
             throw new BusinessException("已生成的对客报价随版本保留");
+        }
+        // 2026-11-26 P0 修复：合规立项申请表由财务表单保存时自动生成，删除会同时抹掉阶段必填材料并使推进被卡住
+        if (doc.getFilePath() != null && doc.getFilePath().startsWith(FINANCE_ARCHIVE_PREFIX)) {
+            throw new BusinessException("合规立项申请表由财务表单自动生成，请在表单中修改后重新保存");
         }
         doc.setIsDeleted(1);
         doc.setDeletedBy(ParamUtils.usernameOf(user));
@@ -1044,7 +1071,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
      * 权限：项目可读者即可查看（与阶段资料同口径）。
      */
     private void applyFinanceProjectValues(Project project, Long phaseId, Map<String, Object> fields) {
-        if (!"会前财务资料上传".equals(docPhaseName(project, phaseId))) return;
+        if (!ProjectPhaseNames.FINANCE_UPLOAD.equals(docPhaseName(project, phaseId))) return;
         fields.put("meetingName", project.getName());
         LocalDate start = project.getMeetingStartDate();
         LocalDate end = project.getMeetingEndDate();
@@ -1078,6 +1105,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         }
         Map<String, Object> fields = new LinkedHashMap<>(parseStageFormData(form.getFormData()));
         applyFinanceProjectValues(project, phaseId, fields);
+        // 2026-11-26 P2-13/P2-19：下拉值归一化——历史简称转现选项，失效选项置空（提示重选），
+        // 与前端表单用同一套选项集，避免旧数据在下拉里显示为空白。
+        ProjectFinanceWorkbook.normalizeStoredSelects(project.getProjectType(), fields);
+        // 2026-11-26 P0 修复：仅真实项目参与人可见人员姓名与内部标识；其余读者（project:view-all 豁免）只见业务结构
+        if (!isProjectMember(project, user)) {
+            maskFinanceStageForm(fields);
+        }
         m.put("formData", fields);
         m.put("updateBy", form.getUpdateBy() == null ? null : usernameOf(form.getUpdateBy()));
         m.put("updateTime", form.getUpdateTime() == null ? null : form.getUpdateTime().format(DT_FMT));
@@ -1099,7 +1133,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         validatePhaseForProject(project, phaseId);
         ProjectPhase savedPhase = phaseMapper.selectById(phaseId);
         String savedPhaseName = savedPhase == null ? "" : savedPhase.getName();
-        if ("串场制作".equals(savedPhaseName) || "会前财务资料上传".equals(savedPhaseName)) {
+        if (ProjectPhaseNames.SHOW_MAKING.equals(savedPhaseName) || ProjectPhaseNames.FINANCE_UPLOAD.equals(savedPhaseName)) {
             project = baseMapper.selectOne(new LambdaQueryWrapper<Project>().eq(Project::getId, id).last("FOR UPDATE"));
             if (project == null || !phaseId.equals(project.getPhaseId())) throw new BusinessException("只可保存当前阶段");
             requireOperable(project, user);
@@ -1112,20 +1146,28 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         } catch (IllegalArgumentException e) {
             throw new BusinessException("表单数据必须为 JSON 对象");
         }
+        if (formData == null) formData = new LinkedHashMap<>();
+        // 2026-11-26 P1-9：按项目类型白名单清洗（丢弃白名单外 key、类型不符即拒绝），不再整包落库
+        formData = ProjectFinanceWorkbook.sanitize(project.getProjectType(), formData);
+        applyFinanceProjectValues(project, phaseId, formData);
         String json;
         try {
-            if (formData == null) formData = new LinkedHashMap<>();
-            applyFinanceProjectValues(project, phaseId, formData);
             json = objectMapper.writeValueAsString(formData);
         } catch (Exception e) {
             throw new BusinessException("表单数据序列化失败");
         }
-        if ("串场制作".equals(savedPhaseName)) {
+        if (ProjectPhaseNames.SHOW_MAKING.equals(savedPhaseName)) {
             ProjectShowService.validateDraft(objectMapper.convertValue(formData, ProjectShowService.Deck.class));
         }
-        if ("会前财务资料上传".equals(savedPhaseName)) {
+        if (ProjectPhaseNames.FINANCE_UPLOAD.equals(savedPhaseName)) {
+            // 2026-11-26 新需求 3：服务端必填闸门——前端校验只是即时反馈，这里才是最终闸门。
+            // 缺失项用中文字段名一次性列出（含恒瑞条件必填），用户不必逐个试错。
+            List<String> missing = ProjectFinanceWorkbook.missingRequiredFields(project.getProjectType(), formData);
+            if (!missing.isEmpty()) {
+                throw new BusinessException("请填写财务表单必填项：" + String.join("、", missing));
+            }
             byte[] workbook = ProjectFinanceWorkbook.generate(project.getProjectType(), formData);
-            archiveStageDocument(id, phaseId, "project_finance_", "xlsx", "合规立项申请表.xlsx", workbook, user, true);
+            archiveStageDocument(id, phaseId, FINANCE_ARCHIVE_PREFIX, "xlsx", "合规立项申请表.xlsx", workbook, user, true);
         }
         Long userId = ParamUtils.userIdOf(user);
         ProjectStageForm form = stageFormMapper.selectOne(new LambdaQueryWrapper<ProjectStageForm>()
@@ -1133,6 +1175,10 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                 .eq(ProjectStageForm::getPhaseId, phaseId)
                 .orderByDesc(ProjectStageForm::getId)
                 .last("LIMIT 1"));
+        // 2026-11-26 P3-23：并发覆盖守卫——表单为整包覆盖保存，两人同时编辑时后写会静默覆盖先写。
+        // 以「读取时的最后保存时间」作为版本令牌：与库中当前行的 update_time 不一致即说明期间有人保存过，
+        // 直接拒绝并提示刷新（不丢数据）。未带 version 的旧客户端保持原行为（不做校验）。
+        assertStageFormVersionUnchanged(form, body.get("version"));
         if (form == null) {
             form = new ProjectStageForm();
             form.setProjectId(id);
@@ -1153,6 +1199,31 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         return getStageForm(id, phaseId, user);
     }
 
+    /**
+     * 阶段表单并发覆盖守卫（2026-11-26 P3-23）。
+     *
+     * <p>版本令牌＝客户端读取时看到的「最后保存时间」（{@code project_stage_form.update_time}，秒级）。
+     * 令牌与库中当前行不一致，说明期间有他人保存过 → 拒绝本次写入（409），避免后写静默覆盖先写。
+     *
+     * <p>口径说明：令牌取自秒级时间戳，理论上同一秒内的两次保存无法区分（人手编辑表单不可能同秒完成）；
+     * 客户端未携带 version 时（旧客户端）不做校验，保持原有行为。
+     */
+    private void assertStageFormVersionUnchanged(ProjectStageForm stored, Object version) {
+        if (stored == null || version == null) {
+            return;
+        }
+        String token = String.valueOf(version).trim();
+        if (token.isEmpty()) {
+            return;
+        }
+        String current = stored.getUpdateTime() == null ? "" : stored.getUpdateTime().format(DT_FMT);
+        if (token.equals(current)) {
+            return;
+        }
+        throw new BusinessException(409, "表单已被他人保存（最后保存时间：" + current
+                + "），请刷新后在最新内容上重新填写，避免覆盖他人的修改");
+    }
+
     /** 阶段表单 JSON 解析（脏数据兜底返回空 Map，不抛异常阻断详情页）。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseStageFormData(String json) {
@@ -1165,6 +1236,90 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    /**
+     * 阶段表单脱敏（与合同敏感字段同口径，2026-11-26 P0 修复）。
+     * 仅真实项目参与人（负责人/创建人/协助人/历史执行人/超管）可见人员姓名与内部标识；
+     * 仅有全量查看豁免的读者只见业务结构，人名掩码、外部单位名与内部系统编号整体隐去。
+     * 禁止在消费方复制本逻辑副本（口径漂移会造成越权读取）。
+     */
+    static void maskFinanceStageForm(Map<String, Object> fields) {
+        for (String key : FINANCE_MASK_PERSON_FIELDS) {
+            Object value = fields.get(key);
+            if (value instanceof String text && StringUtils.hasText(text)) {
+                fields.put(key, maskPersonName(text));
+            }
+        }
+        for (String key : FINANCE_MASK_HIDDEN_FIELDS) {
+            Object value = fields.get(key);
+            if (value instanceof String text && StringUtils.hasText(text)) {
+                fields.put(key, "***");
+            }
+        }
+    }
+
+    /** 人员姓名脱敏：保留首字符，其余以 * 代替（适用于 2~4 字中文姓名）。 */
+    private static String maskPersonName(String value) {
+        String s = value.trim();
+        if (s.length() <= 1) {
+            return s;
+        }
+        return s.charAt(0) + "*".repeat(Math.min(s.length() - 1, 3));
+    }
+
+    /**
+     * 合规立项申请表（当前生效版）独立入口（2026-11-26 新需求 1）。
+     *
+     * <p>只读能力：不改保存/归档链路，仅把「当前生效的那一份」显式暴露给前端，
+     * 使其不必在通用附件列表里辨认哪一份是系统生成的申请表。
+     *
+     * <p>口径与阶段表单脱敏、归档件访问鉴权一致：非真实项目参与人拿不到文件路径
+     * （previewable=false），与归档件下载/预览的 403 同口径。
+     */
+    public Map<String, Object> financeArchive(Long id, Long phaseId, AuthUser user) {
+        Project project = requireProject(id);
+        requireProjectReadable(project, user);
+        Map<String, Object> result = new LinkedHashMap<>();
+        boolean member = isProjectMember(project, user);
+        result.put("archived", false);
+        result.put("previewable", member);
+        if (!member) {
+            return result;
+        }
+        if (phaseId == null) {
+            throw new BusinessException("阶段不能为空");
+        }
+        ProjectDoc doc = phaseDocuments(id, phaseId).stream()
+                .filter(item -> item.getFilePath() != null && item.getFilePath().startsWith(FINANCE_ARCHIVE_PREFIX))
+                .filter(item -> storageService.resolveFile(item.getFilePath()) != null)
+                .max(Comparator.comparing(ProjectDoc::getId))
+                .orElse(null);
+        if (doc == null) {
+            return result;
+        }
+        result.put("archived", true);
+        result.put("fileName", doc.getFileName());
+        result.put("filePath", doc.getFilePath());
+        result.put("uploadBy", doc.getUploadBy());
+        result.put("createTime", doc.getCreateTime() == null ? null : doc.getCreateTime().format(DT_FMT));
+        return result;
+    }
+
+    /**
+     * 会前财务资料表单的下拉选项（2026-11-26 P2-13：后端单一真源，前端经接口拉取）。
+     * 返回 { 组名: [选项...] }；未配置的类型返回空 Map。
+     */
+    public Map<String, List<String>> financeOptions(String projectType) {
+        return ProjectFinanceWorkbook.optionsOf(projectType);
+    }
+
+    /**
+     * 会前财务资料表单的完整结构（2026-11-26 P2-13/P2-21：前端渲染的唯一依据）。
+     * 分区 → 字段（中文名、值类型、必填口径、下拉取值），后端与 Excel 模板同源。
+     */
+    public Map<String, Object> financeSchema(String projectType) {
+        return ProjectFinanceWorkbook.schemaPayload(projectType);
     }
 
     // ==================== 预算 ====================
@@ -1905,7 +2060,13 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
         if (doc == null) {
             throw new BusinessException(404, "项目文件不存在");
         }
-        requireProjectReadable(requireProject(doc.getProjectId()), user);
+        Project project = requireProject(doc.getProjectId());
+        requireProjectReadable(project, user);
+        // 2026-11-26 P0 修复：合规立项申请表原件含负责人、客户对接人等敏感字段，
+        // 仅真实项目参与人可下载/预览；否则与阶段表单脱敏口径不一致，形成绕过通道。
+        if (filePath != null && filePath.startsWith(FINANCE_ARCHIVE_PREFIX) && !isProjectMember(project, user)) {
+            throw new BusinessException(403, "合规立项申请表仅项目成员可查看");
+        }
     }
 
     public byte[] storageRead(String filePath) {
@@ -2052,26 +2213,65 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
 
     void archiveStageDocument(Long projectId, Long phaseId, String prefix, String extension,
                               String name, byte[] content, AuthUser user, boolean replace) {
-        ProjectDoc doc = replace ? phaseDocuments(projectId, phaseId).stream()
-                .filter(item -> item.getFilePath() != null && item.getFilePath().startsWith(prefix)).findFirst().orElse(null) : null;
         String path = storageService.saveGenerated(prefix, extension, content);
-        if (doc == null) {
-            doc = new ProjectDoc();
-            doc.setProjectId(projectId);
-            doc.setPhaseId(phaseId);
-            doc.setIsDeleted(0);
-        } else {
-            String previous = doc.getFilePath();
-            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
-                    new org.springframework.transaction.support.TransactionSynchronization() {
-                        @Override public void afterCommit() { storageService.deleteFile(previous); }
+        // 2026-11-26 P3-26：新文件先落盘再写库；若事务回滚，落盘文件会变成磁盘孤儿。
+        // 这里登记「回滚则删除」的钩子，提交时不动（文件已被新记录引用）。
+        deleteGeneratedFileOnRollback(path);
+        if (replace) {
+            // 2026-11-26 P1-12：旧实现只替换 phaseDocuments().findFirst() 命中的一条
+            // （无 ORDER BY，命中哪条不确定），同阶段残留的其它同前缀归档件会永久留在附件列表，
+            // 且物理文件永不清理。改为批量软删同前缀旧行 + 提交后清理旧文件，与 archiveShowDocument 同口径。
+            phaseDocuments(projectId, phaseId).stream()
+                    .filter(item -> item.getFilePath() != null && item.getFilePath().startsWith(prefix))
+                    .forEach(old -> {
+                        docMapper.update(null, new LambdaUpdateWrapper<ProjectDoc>()
+                                .eq(ProjectDoc::getId, old.getId())
+                                .set(ProjectDoc::getIsDeleted, 1)
+                                .set(ProjectDoc::getDeletedBy, user.getUsername())
+                                .set(ProjectDoc::getDeletedTime, LocalDateTime.now()));
+                        deleteStoredFileAfterCommit(old.getFilePath());
                     });
         }
+        ProjectDoc doc = new ProjectDoc();
+        doc.setProjectId(projectId);
+        doc.setPhaseId(phaseId);
         doc.setFileName(name);
         doc.setFilePath(path);
         doc.setUploadBy(user.getUsername());
-        if (doc.getId() == null) docMapper.insert(doc);
-        else docMapper.updateById(doc);
+        doc.setIsDeleted(0);
+        docMapper.insert(doc);
+    }
+
+    /** 归档替换后清理旧物理文件：有事务则提交后清理，否则立即清理（与 deleteDoc 同口径）。 */
+    private void deleteStoredFileAfterCommit(String filePath) {
+        if (filePath == null) return;
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { storageService.deleteFile(filePath); }
+                    });
+        } else {
+            storageService.deleteFile(filePath);
+        }
+    }
+
+    /**
+     * 2026-11-26 P3-26：事务回滚时清理本次新生成的物理文件（避免磁盘孤儿）。
+     * 无事务上下文时不做处理（此时不存在回滚语义，文件由调用方负责）。
+     */
+    private void deleteGeneratedFileOnRollback(String filePath) {
+        if (filePath == null) return;
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) {
+                        if (status == org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK) {
+                            storageService.deleteFile(filePath);
+                        }
+                    }
+                });
     }
 
     private static final java.util.Set<String> SETTLEMENT_EXTENSIONS = java.util.Set.of(
@@ -2600,7 +2800,7 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
     }
 
     /** 返回当前阶段缺少的业务材料及必填模板。 */
-    private List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
+    List<String> missingRequiredTemplates(Project project, Long phaseId, String phaseName) {
         List<String> missing = new ArrayList<>();
         if (PHASE_BUDGET_MAKING.equals(phaseName)) {
             boolean archived = docMapper.listBudgetQuotePaths(project.getId(), phaseId).stream()
@@ -2608,16 +2808,22 @@ public class ProjectService extends ServiceImpl<ProjectMapper, Project> {
                             && storageService.resolveFile(path) != null);
             if (!archived) missing.add("保存报价单");
         }
-        if ("会前财务资料上传".equals(phaseName) && phaseDocuments(project.getId(), phaseId).stream()
-                .noneMatch(doc -> validArchive(doc, "project_finance_"))) {
-            missing.add("保存阶段表单");
+        // 2026-11-26 P0 修复：先判根因（未选项目类型 → 无法生成申请表 → 阶段推进被卡），再判表单归档；
+        // 两个缺失项同时出现会让指引分散，根因项优先且独占。
+        if (ProjectPhaseNames.FINANCE_UPLOAD.equals(phaseName)) {
+            if (!StringUtils.hasText(project.getProjectType())) {
+                missing.add("选择项目类型");
+            } else if (phaseDocuments(project.getId(), phaseId).stream()
+                    .noneMatch(doc -> validArchive(doc, FINANCE_ARCHIVE_PREFIX))) {
+                missing.add("保存阶段表单");
+            }
         }
-        if ("串场制作".equals(phaseName) && phaseDocuments(project.getId(), phaseId).stream()
+        if (ProjectPhaseNames.SHOW_MAKING.equals(phaseName) && phaseDocuments(project.getId(), phaseId).stream()
                 .noneMatch(doc -> validArchive(doc, ProjectShowService.FILE_PREFIX))) {
             missing.add("上传串场 PPT 或归档网页幻灯片");
         }
         // 2026-11-17 需求：日程上传阶段须上传日程且全部参会专家匹配到专家库（project_speaker.expert_id 非空）
-        if ("日程上传".equals(phaseName)) {
+        if (ProjectPhaseNames.SCHEDULE_UPLOAD.equals(phaseName)) {
             ProjectSchedule schedule = scheduleMapper.selectOne(new LambdaQueryWrapper<ProjectSchedule>()
                     .eq(ProjectSchedule::getProjectId, project.getId())
                     .eq(ProjectSchedule::getIsCurrent, 1)

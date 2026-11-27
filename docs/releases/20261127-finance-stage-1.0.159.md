@@ -1,0 +1,27 @@
+# 1.0.159 发布记录：会前财务资料上传阶段全量整改 + 合规立项申请表独立入口
+
+- 发布时间：2026-11-27 10:48–10:56（release-full-20261127_104810.log，SUCCESS/verified）
+- 版本/提交：1.0.159 / fef2692（gitShort 实测一致）
+- 前端 ReleaseId：1.0.159-project-type-finance（Nginx root 已切换，主 bundle `index-BOstCLDO.js` 含 v1.0.159）
+- 数据库迁移：**无**。本批 P0~P3 与新需求 1/3 均未引入 DDL；发布前预检「迁移状态一致（无待执行 / 无漂移）」+「schema parity 全部校验通过」。
+- 变更范围（会前财务资料上传阶段，审查报告 27 项发现 + 2 条新需求）：
+  - **P0（4 项）**：归档件禁止删除并拆出独立展示；存量项目可编辑不被项目类型必填拦截；缺项目类型给出根因缺失项与直达入口；阶段表单读取按最小必要访问脱敏（归档件原件对非参与者不可见/不可下载）。
+  - **P1（8 项）**：阶段未开始专属空态；成员口径改用后端 `canOperate`；主数据缺失给「编辑项目」入口；直付类「公司名称」改自由文本并按「恒瑞需填写所有信息」动态必填；字段白名单 + 中文错误文案；必填逐项标红定位（el-form rules + scroll-to-error）；归档件标注「保存时快照」；归档替换改批量软删同前缀旧件。
+  - **P2（9 项）**：表单结构与下拉选项下沉为后端单一真源（`GET /api/project/finance-schema` / `/finance-options`），前端 `SCHEMAS` 与四组选项常量整块删除；项目类型文案收口 `utils/dict.js`；阶段名收敛为 `ProjectPhaseNames` 并加启动期字典校验；「去填写表单」待办加锚点；附件上传补 accept；归档件显示名统一；金额空值不再写成文本单元格；死代码清理；新增模板↔后端↔生成件三方对齐守卫。
+  - **P3（6 项）**：单日会议日期写 Excel 原生日期；表单保存加 `version` 令牌防并发覆盖（409）；未保存字段默认值随项目信息同步；「地点」改名「会议地点（具体地址）」消歧；归档事务回滚清理新文件；读取失败显式化并禁用保存。
+  - **新需求 1**：合规立项申请表独立入口（`GET /api/project/{id}/finance-archive`，在线预览 / 下载当前生效版）。
+  - **新需求 3**：服务端必填闸门（缺失项按中文字段名一次性列出，含恒瑞条件必填），前后端共用 `ProjectFinanceWorkbook.Field` 同一套定义。
+  - 同批并行改动（其他 Agent）：企微 API 客户端审查修复、操作日志切面修复、文件名清洗穿越残留修复、IpUtils 客户端 IP 防伪造修复、知识文档解析链路崩溃恢复、AGENTS.md 开发流程阶段约定。
+  - 完整清单见 [P0 交接](../handover/tasks/20261126_finance_stage_p0.md)、[P1](../handover/tasks/20261126_finance_stage_p1.md)、[P2](../handover/tasks/20261126_finance_stage_p2.md)、[P3](../handover/tasks/20261126_finance_stage_p3.md)、[独立入口与服务端必填](../handover/tasks/20261127_finance_archive_entry.md)。
+- 发布验证（日志证据 + 本会话独立实测）：
+  - 发布前 Preflight 6/6 通过：版本真源一致、工作区 0 条未提交、迁移无待执行/无漂移、schema parity 全绿、ReleaseId 无冲突；
+  - 全量备份 `backup_20261127_104830`（数据库导出 4720.2 KB + 照片库 98.5 MB + 知识文档库 9.7 MB）；
+  - 隔离目录构建 `builds/1.0.159-build-20261127_104858`，build-info 校验 version=1.0.159 gitShort=fef2692，jar 制品校验（含 BOOT-INF/、logback-spring.xml、UTF-8 appender）与 ProjectStageForm/Mapper 类存在性校验均通过；
+  - 后端蓝绿：8081 影子健康 → 切流 → 8080 新版健康（build 版本=1.0.159）→ 回切 8080 并 kill 8081 影子；
+  - 前端 graceful：root 由 `1.0.158-project-type-finance` 切至 `1.0.159-project-type-finance`，旧 root 保留（回滚依据为生产主机保留的 Nginx 配置快照）；
+  - 发布后 5 项验证全过：/health version=1.0.159 gitShort=fef2692；经 Nginx `/api/health`=200、`/api/expert/list`=401（鉴权在线）；Nginx root 指向新快照；首页 200×3 且 hash 与新快照 index.html 一致；主 bundle 含 v1.0.159 且哈希一致；
+  - 本会话独立实测：直连 8080 与经 Nginx 的 /health 均为 1.0.159；Nginx root=1.0.159-project-type-finance；新增端点 `/api/project/{id}/finance-archive`、`/api/project/finance-schema`、`/api/project/finance-options` 未登录均返回 **401（非 404）→ 端点已上线且可路由**；线上快照内 `finance-archive` 出现在 api chunk、`project-finance-form` 锚点出现在 ProjectDetail chunk → 新前端确已发布；
+  - 回归测试：后端 446 例 0 失败 0 错误（16 跳过为既有 @Disabled）；前端 `npm run build` 通过。
+- 备份与回滚：全量备份 `backup_20261127_104830`；回滚命令 `powershell -NoProfile -ExecutionPolicy Bypass -File "<LOCAL_PATH>" -Mode Rollback -Yes`（旧前端 root=1.0.158-project-type-finance，旧后端 1.0.158 / gitShort ea37672）；本次无 DDL，数据库无需回滚。
+- 待验收（业务侧）：会前财务资料上传阶段的表单填写与保存回显、合规立项申请表独立入口的在线预览与下载当前生效版、并发保存 409 提示、恒瑞分支动态必填、服务端必填拒绝提示、以及 P0~P3 各项（归档件禁删、存量项目编辑、缺类型直达、脱敏、Excel 原生日期、待办锚点等）。
+- 未验证项：模板两处口径不一致（「上海独家记亿」vs「独家记忆」、直付类我方公司 4 项简称 vs 6 项全称）与跨日会议日期需模板加两列，均**待负责人拍板**，本次未改模板（已登记于 `ProjectFinanceWorkbook.KNOWN_TEMPLATE_DEVIATIONS` 与各批交接记录）。

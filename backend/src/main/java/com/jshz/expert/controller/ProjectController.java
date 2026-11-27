@@ -275,7 +275,7 @@ public class ProjectController {
     /** 报价文件鉴权 + 解析存储文件（防穿越后不存在/非普通文件返回 null）；/files 两个端点共用。 */
     private java.nio.file.Path resolveReadableStoredFile(String fileName, AuthUser user) {
         if (fileName.startsWith(ProjectStorageService.QUOTE_FILE_PREFIX)
-                || fileName.startsWith("project_finance_")
+                || fileName.startsWith(ProjectService.FINANCE_ARCHIVE_PREFIX)
                 || fileName.startsWith(ProjectStorageService.SETTLEMENT_FILE_PREFIX)
                 || fileName.startsWith(com.jshz.expert.service.ProjectShowService.FILE_PREFIX)) {
             projectService.requireArchivedFileReadable(fileName, user);
@@ -608,6 +608,35 @@ public class ProjectController {
     }
 
     // 执行人候选接口已随执行人概念删除（2026-11-09 流程重塑）。
+
+    /**
+     * 合规立项申请表（当前生效版）独立入口（2026-11-26 新需求 1；登录即可，只读）。
+     * 非真实项目参与人拿不到文件路径（previewable=false），与归档件下载/预览的鉴权同口径。
+     */
+    @GetMapping("/{id}/finance-archive")
+    public ApiResponse<java.util.Map<String, Object>> financeArchive(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long phaseId,
+            @AuthenticationPrincipal AuthUser user) {
+        return ApiResponse.ok(projectService.financeArchive(id, phaseId, user));
+    }
+
+    /** 会前财务资料表单下拉选项（2026-11-26 P2-13：登录即可，只读；后端单一真源）。 */
+    @GetMapping("/finance-options")
+    public ApiResponse<java.util.Map<String, java.util.List<String>>> financeOptions(
+            @RequestParam(required = false) String projectType) {
+        return ApiResponse.ok(projectService.financeOptions(projectType));
+    }
+
+    /**
+     * 会前财务资料表单结构（2026-11-26 P2-13/P2-21：登录即可，只读）。
+     * 分区 → 字段（中文名/值类型/必填口径/下拉取值），前端按此渲染，不再维护 SCHEMAS 副本。
+     */
+    @GetMapping("/finance-schema")
+    public ApiResponse<java.util.Map<String, Object>> financeSchema(
+            @RequestParam(required = false) String projectType) {
+        return ApiResponse.ok(projectService.financeSchema(projectType));
+    }
 
     /** 阶段选项（激活阶段字典，登录即可；阶段筛选/展示用，非配置管理）。 */
     @GetMapping("/phase-options")
